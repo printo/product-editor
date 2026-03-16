@@ -1,0 +1,77 @@
+{
+    "name": "square_8x8",
+    "tags": [],
+    "canvas": {
+        "width": 2400,
+        "height": 2400,
+        "widthMm": 203.2,
+        "heightMm": 203.2,
+        "dpi": 300
+    },
+    "frames": [
+        {
+            "id": "wz64i4a5h",
+            "xMm": 0,
+            "yMm": 0,
+            "widthMm": 203.2,
+            "heightMm": 203.2,
+            "bleedMm": 0,
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 1
+        }
+    ],
+    "maskOnExport": false,
+    "createdAt": "2026-03-13T12:29:00.387896+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-03-13T12:29:00.387896+00:00",
+    "updatedBy": "Kanna Perumal C",
+    "metadata": [
+        {
+            "key": "createdByName",
+            "label": "Created By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "createdById",
+            "label": "Emp ID",
+            "value": null
+        },
+        {
+            "key": "createdAt",
+            "label": "Created At",
+            "value": "2026-03-13T12:29:00.387896+00:00"
+        },
+        {
+            "key": "updatedByName",
+            "label": "Updated By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "updatedById",
+            "label": "Updated Emp ID",
+            "value": null
+        },
+        {
+            "key": "updatedAt",
+            "label": "Updated At",
+            "value": "2026-03-13T12:29:00.387896+00:00"
+        },
+        {
+            "key": "dimensions",
+            "label": "Dimensions",
+            "value": "203.20 x 203.20mm"
+        },
+        {
+            "key": "tags",
+            "label": "Tags",
+            "value": ""
+        },
+        {
+            "key": "maskOnExport",
+            "label": "Mask on Export",
+            "value": "Disabled"
+        }
+    ]
+}

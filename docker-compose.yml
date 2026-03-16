@@ -1,0 +1,130 @@
+services:
+  proxy:
+    image: traefik:v3.0
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.constraints=Label(`traefik.project`,`product-editor`)
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.email=admin@example.com
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./proxy/traefik/acme.json:/letsencrypt/acme.json
+      - ./proxy/traefik/.htpasswd:/etc/traefik/.htpasswd:ro
+    networks:
+      - web
+
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-product_editor}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - web
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/django/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev}
+      - DEBUG=${DEBUG:-0}  # Set to 0 for production, 1 for development
+      - STORAGE_ROOT=/app/storage
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5004}
+      - SECURE_SSL_REDIRECT=${SECURE_SSL_REDIRECT:-True}
+      - POSTGRES_DB=${POSTGRES_DB:-product_editor}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - DIRECT_API_KEY=${DIRECT_API_KEY}
+      - EXTERNAL_API_KEY=${EXTERNAL_API_KEY}
+      - TESTING_API_KEY=${TESTING_API_KEY}
+      - PIA_API_BASE_URL=${PIA_API_BASE_URL:-https://pia.printo.in/api/v1}
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.project=product-editor
+      - traefik.http.routers.product-editor-backend.rule=PathPrefix(`/api`)
+      - traefik.http.routers.product-editor-backend.entrypoints=web
+      - traefik.http.routers.product-editor-backend.priority=2
+      - traefik.http.services.product-editor-backend.loadbalancer.server.port=8000
+      - traefik.docker.network=product-editor_web
+      - traefik.http.middlewares.admin-basicauth.basicauth.usersfile=/etc/traefik/.htpasswd
+      - traefik.http.middlewares.admin-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.product-editor-admin.rule=PathPrefix(`/admin/django-admin`)
+      - traefik.http.routers.product-editor-admin.entrypoints=web
+      - traefik.http.routers.product-editor-admin.middlewares=admin-redirect
+      - traefik.http.services.product-editor-admin.loadbalancer.server.port=8000
+      - traefik.http.routers.product-editor-backend-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api`)
+      - traefik.http.routers.product-editor-backend-tls.entrypoints=websecure
+      - traefik.http.routers.product-editor-backend-tls.tls.certresolver=le
+      - traefik.http.routers.product-editor-admin-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/admin/django-admin`)
+      - traefik.http.routers.product-editor-admin-tls.entrypoints=websecure
+      - traefik.http.routers.product-editor-admin-tls.tls.certresolver=le
+      - traefik.http.routers.product-editor-admin-tls.middlewares=admin-basicauth
+    networks:
+      - web
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/nextjs/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
+        - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY}
+    ports:
+      - "5004:3000"
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=/api
+      - INTERNAL_API_URL=http://backend:8000/api
+      - NODE_ENV=production
+      - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY}
+      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_TRUST_HOST=true
+    depends_on:
+      - backend
+    labels:
+      - traefik.enable=true
+      - traefik.project=product-editor
+      - traefik.http.routers.product-editor-frontend.rule=PathPrefix(`/`)
+      - traefik.http.routers.product-editor-frontend.entrypoints=web
+      - traefik.http.routers.product-editor-frontend.priority=1
+      - traefik.http.services.product-editor-frontend.loadbalancer.server.port=3000
+      - traefik.docker.network=product-editor_web
+      - traefik.http.routers.product-editor-frontend-tls.rule=Host(`${PUBLIC_HOST}`)
+      - traefik.http.routers.product-editor-frontend-tls.entrypoints=websecure
+      - traefik.http.routers.product-editor-frontend-tls.tls.certresolver=le
+    networks:
+      - web
+
+networks:
+  web:
+
+volumes:
+  postgres_data:

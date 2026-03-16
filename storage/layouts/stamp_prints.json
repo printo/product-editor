@@ -1,0 +1,305 @@
+{
+    "name": "stamp_prints",
+    "tags": [],
+    "canvas": {
+        "width": 1200,
+        "height": 1800,
+        "widthMm": 101.6,
+        "heightMm": 152.39999999999998,
+        "dpi": 300
+    },
+    "frames": [
+        {
+            "id": "soa4740ta",
+            "xMm": 5,
+            "yMm": 5,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.049166666666666664,
+            "y": 0.03277777777777778,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "m5s5hjzad",
+            "xMm": 28,
+            "yMm": 5,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.2758333333333333,
+            "y": 0.03277777777777778,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "ieydvkymp",
+            "xMm": 51,
+            "yMm": 5,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.5016666666666667,
+            "y": 0.03277777777777778,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "4glupyxkb",
+            "xMm": 74,
+            "yMm": 5,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.7283333333333334,
+            "y": 0.03277777777777778,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "afgsztjz3",
+            "xMm": 5,
+            "yMm": 33,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.049166666666666664,
+            "y": 0.21666666666666667,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "25qee9ivh",
+            "xMm": 28,
+            "yMm": 33,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.2758333333333333,
+            "y": 0.21666666666666667,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "18uhennvx",
+            "xMm": 51,
+            "yMm": 33,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.5016666666666667,
+            "y": 0.21666666666666667,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "k7b1fkgtb",
+            "xMm": 74,
+            "yMm": 33,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.7283333333333334,
+            "y": 0.21666666666666667,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "gf11pocbg",
+            "xMm": 5,
+            "yMm": 61,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.049166666666666664,
+            "y": 0.4,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "0svlzjwy8",
+            "xMm": 28,
+            "yMm": 61,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.2758333333333333,
+            "y": 0.4,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "tazcg3m8y",
+            "xMm": 51,
+            "yMm": 61,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.5016666666666667,
+            "y": 0.4,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "m2qum1td7",
+            "xMm": 74,
+            "yMm": 61,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.7283333333333334,
+            "y": 0.4,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "38lxsny4s",
+            "xMm": 5,
+            "yMm": 89,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.049166666666666664,
+            "y": 0.5838888888888889,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "i6ux8bfjj",
+            "xMm": 28,
+            "yMm": 89,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.2758333333333333,
+            "y": 0.5838888888888889,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "zzp6wdv6s",
+            "xMm": 51,
+            "yMm": 89,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.5016666666666667,
+            "y": 0.5838888888888889,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "pfci0jjln",
+            "xMm": 74,
+            "yMm": 89,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.7283333333333334,
+            "y": 0.5838888888888889,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "h2hgyeczh",
+            "xMm": 5,
+            "yMm": 117,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.049166666666666664,
+            "y": 0.7677777777777778,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "u5fg0l9l9",
+            "xMm": 28,
+            "yMm": 117,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.2758333333333333,
+            "y": 0.7677777777777778,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "ly692hh7d",
+            "xMm": 51,
+            "yMm": 117,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.5016666666666667,
+            "y": 0.7677777777777778,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        },
+        {
+            "id": "ew0mc8hef",
+            "xMm": 74,
+            "yMm": 117,
+            "widthMm": 20,
+            "heightMm": 25,
+            "bleedMm": 0,
+            "x": 0.7283333333333334,
+            "y": 0.7677777777777778,
+            "width": 0.19666666666666666,
+            "height": 0.1638888888888889
+        }
+    ],
+    "maskOnExport": false,
+    "createdAt": "2026-03-13T12:29:02.408188+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-03-13T12:29:02.408188+00:00",
+    "updatedBy": "Kanna Perumal C",
+    "metadata": [
+        {
+            "key": "createdByName",
+            "label": "Created By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "createdById",
+            "label": "Emp ID",
+            "value": null
+        },
+        {
+            "key": "createdAt",
+            "label": "Created At",
+            "value": "2026-03-13T12:29:02.408188+00:00"
+        },
+        {
+            "key": "updatedByName",
+            "label": "Updated By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "updatedById",
+            "label": "Updated Emp ID",
+            "value": null
+        },
+        {
+            "key": "updatedAt",
+            "label": "Updated At",
+            "value": "2026-03-13T12:29:02.408188+00:00"
+        },
+        {
+            "key": "dimensions",
+            "label": "Dimensions",
+            "value": "101.60 x 152.40mm"
+        },
+        {
+            "key": "tags",
+            "label": "Tags",
+            "value": ""
+        },
+        {
+            "key": "maskOnExport",
+            "label": "Mask on Export",
+            "value": "Disabled"
+        }
+    ]
+}

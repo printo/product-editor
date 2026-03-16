@@ -1,0 +1,16 @@
+tunnel: 8b5f79f2-f6a3-49e8-bdfc-d13187246dfd
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: product-editor.printo.in
+    path: /api/auth/.*
+    service: http://frontend:5005
+  - hostname: product-editor.printo.in
+    path: /api/.*
+    service: http://backend:8000
+  - hostname: product-editor.printo.in
+    path: /admin/.*
+    service: http://backend:8000
+  - hostname: product-editor.printo.in
+    service: http://frontend:5005
+  - service: http_status:404

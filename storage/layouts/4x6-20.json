@@ -1,0 +1,305 @@
+{
+    "name": "4x6-20",
+    "tags": [],
+    "canvas": {
+        "width": 1200,
+        "height": 1800,
+        "widthMm": 101.6,
+        "heightMm": 152.4,
+        "dpi": 300
+    },
+    "frames": [
+        {
+            "id": "1ylp2j608",
+            "xMm": 1.02,
+            "yMm": 1.02,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.01,
+            "y": 0.006666666666666667,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "yow08z9gr",
+            "xMm": 26.16,
+            "yMm": 1.02,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.2575,
+            "y": 0.006666666666666667,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "lrbjxw8hj",
+            "xMm": 51.31,
+            "yMm": 1.02,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.505,
+            "y": 0.006666666666666667,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "kkkrlnb74",
+            "xMm": 76.45,
+            "yMm": 1.02,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.7525,
+            "y": 0.006666666666666667,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "qkmndoi53",
+            "xMm": 1.02,
+            "yMm": 31.3,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.01,
+            "y": 0.20555555555555555,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "6j43mjc9v",
+            "xMm": 26.16,
+            "yMm": 31.3,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.2575,
+            "y": 0.20555555555555555,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "nmjrwlc8p",
+            "xMm": 51.31,
+            "yMm": 31.3,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.505,
+            "y": 0.20555555555555555,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "7zres2bqj",
+            "xMm": 76.45,
+            "yMm": 31.3,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.7525,
+            "y": 0.20555555555555555,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "6btjhl418",
+            "xMm": 1.02,
+            "yMm": 61.57,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.01,
+            "y": 0.4038888888888889,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "w4w0g0sre",
+            "xMm": 26.16,
+            "yMm": 61.57,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.2575,
+            "y": 0.4038888888888889,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "lzb9n6vf6",
+            "xMm": 51.31,
+            "yMm": 61.57,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.505,
+            "y": 0.4038888888888889,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "256lr3nr8",
+            "xMm": 76.45,
+            "yMm": 61.57,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.7525,
+            "y": 0.4038888888888889,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "2ofcmgvl7",
+            "xMm": 1.02,
+            "yMm": 91.85,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.01,
+            "y": 0.6027777777777777,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "5jhmryewy",
+            "xMm": 26.16,
+            "yMm": 91.85,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.2575,
+            "y": 0.6027777777777777,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "uopxfxdqt",
+            "xMm": 51.31,
+            "yMm": 91.85,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.505,
+            "y": 0.6027777777777777,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "siz6dovyr",
+            "xMm": 76.45,
+            "yMm": 91.85,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.7525,
+            "y": 0.6027777777777777,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "w8374j6bt",
+            "xMm": 1.02,
+            "yMm": 122.12,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.01,
+            "y": 0.8011111111111111,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "gi5k0pgsw",
+            "xMm": 26.16,
+            "yMm": 122.12,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.2575,
+            "y": 0.8011111111111111,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "tqi0ppxig",
+            "xMm": 51.31,
+            "yMm": 122.12,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.505,
+            "y": 0.8011111111111111,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        },
+        {
+            "id": "m9qb5v6rh",
+            "xMm": 76.45,
+            "yMm": 122.12,
+            "widthMm": 24.12,
+            "heightMm": 29.26,
+            "bleedMm": 0,
+            "x": 0.7525,
+            "y": 0.8011111111111111,
+            "width": 0.2375,
+            "height": 0.1922222222222222
+        }
+    ],
+    "maskOnExport": false,
+    "createdAt": "2026-03-13T12:27:25.689852+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-03-13T14:45:40.312422+00:00",
+    "updatedBy": "Kanna Perumal C",
+    "metadata": [
+        {
+            "key": "createdByName",
+            "label": "Created By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "createdById",
+            "label": "Emp ID",
+            "value": null
+        },
+        {
+            "key": "createdAt",
+            "label": "Created At",
+            "value": "2026-03-13T12:27:25.689852+00:00"
+        },
+        {
+            "key": "updatedByName",
+            "label": "Updated By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "updatedById",
+            "label": "Updated Emp ID",
+            "value": null
+        },
+        {
+            "key": "updatedAt",
+            "label": "Updated At",
+            "value": "2026-03-13T14:45:40.312422+00:00"
+        },
+        {
+            "key": "dimensions",
+            "label": "Dimensions",
+            "value": "101.60 x 152.40mm"
+        },
+        {
+            "key": "tags",
+            "label": "Tags",
+            "value": ""
+        },
+        {
+            "key": "maskOnExport",
+            "label": "Mask on Export",
+            "value": "Disabled"
+        }
+    ]
+}
