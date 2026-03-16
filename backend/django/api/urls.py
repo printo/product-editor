@@ -3,7 +3,8 @@ from .views import (
     GenerateLayoutView, ListLayoutsView, HealthView, GetLayoutView, SecureExportDownloadView,
     AIStatusView, BackgroundRemovalView, ProductDetectionView, DesignPlacementView, BlendPreviewView,
     CompleteAIProcessingView, AIJobStatusView, ManualOverrideOptionsView, BackgroundJobStatusView,
-    CircuitBreakerResetView, LayoutManagementView, ExternalLayoutDetailView, MaskDownloadView
+    CircuitBreakerResetView, LayoutManagementView, ExternalLayoutDetailView, MaskDownloadView,
+    EmbedSessionView, EmbedSessionValidateView,
 )
 
 urlpatterns = [
@@ -21,6 +22,10 @@ urlpatterns = [
     
     # External access (Secured)
     path("external/layouts/<str:name>", ExternalLayoutDetailView.as_view(), name="external-layout-detail"),
+
+    # Embed session — create short-lived token & internal validation
+    path("embed/session", EmbedSessionView.as_view(), name="embed-session-create"),
+    path("embed/session/validate", EmbedSessionValidateView.as_view(), name="embed-session-validate"),
     
     # AI Processing endpoints
     path("ai/status", AIStatusView.as_view(), name="ai-status"),

@@ -154,6 +154,36 @@ class ExportedResult(models.Model):
         return f"{self.layout_name} - {self.export_file_path} ({self.file_size_bytes} bytes)"
 
 
+class EmbedSession(models.Model):
+    """Short-lived session token for embedding the editor in external sites.
+
+    External systems exchange their real API key (via POST /api/embed/session)
+    for a disposable token.  Only the token appears in the iframe URL; the
+    real key is never exposed to the browser.
+    """
+
+    token = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
+    api_key = models.ForeignKey(APIKey, on_delete=models.CASCADE, related_name='embed_sessions')
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_revoked = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'embed_sessions'
+        verbose_name = 'Embed Session'
+        verbose_name_plural = 'Embed Sessions'
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def is_valid(self) -> bool:
+        return not self.is_revoked and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"EmbedSession({self.api_key.name}, expires={self.expires_at:%Y-%m-%d %H:%M})"
+
+
 # AI Processing Models
 
 class AIProcessingJob(models.Model):

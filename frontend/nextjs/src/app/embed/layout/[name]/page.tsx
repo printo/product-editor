@@ -3,12 +3,13 @@
 import React, { useEffect, useState, use } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { LayoutSVG } from '@/components/LayoutSVG';
-import { Loader2, ShieldAlert } from 'lucide-react';
+import { Loader2, ShieldAlert, Layers } from 'lucide-react';
 
 export default function EmbedLayoutPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params);
   const searchParams = useSearchParams();
   const apiKey = searchParams.get('apiKey');
+  const surfacesParam = searchParams.get('surfaces');
   const [layout, setLayout] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,7 +23,10 @@ export default function EmbedLayoutPage({ params }: { params: Promise<{ name: st
 
     const fetchLayout = async () => {
       try {
-        const res = await fetch(`/api/external/layouts/${name}`, {
+        const url = surfacesParam
+          ? `/api/external/layouts/${name}?surfaces=${surfacesParam}`
+          : `/api/external/layouts/${name}`;
+        const res = await fetch(url, {
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Accept': 'application/json'
@@ -44,7 +48,7 @@ export default function EmbedLayoutPage({ params }: { params: Promise<{ name: st
     };
 
     fetchLayout();
-  }, [name, apiKey]);
+  }, [name, apiKey, surfacesParam]);
 
   if (loading) {
     return (
@@ -67,10 +71,34 @@ export default function EmbedLayoutPage({ params }: { params: Promise<{ name: st
     );
   }
 
+  const isMultiSurface = Array.isArray(layout?.surfaces) && layout.surfaces.length > 0;
+
+  if (isMultiSurface) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-transparent overflow-hidden">
+        <div className="flex flex-row gap-6">
+          {layout.surfaces.map((surface: any) => (
+            <div key={surface.key} className="flex flex-col items-center gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                <Layers className="w-3.5 h-3.5" />
+                <span className="capitalize">{surface.key}</span>
+              </div>
+              <LayoutSVG
+                layout={layout}
+                surfaceKey={surface.key}
+                className="max-w-full max-h-screen drop-shadow-2xl bg-white rounded-lg"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-transparent overflow-hidden">
-      <LayoutSVG 
-        layout={layout} 
+      <LayoutSVG
+        layout={layout}
         className="max-w-full max-h-screen drop-shadow-2xl bg-white rounded-lg"
       />
     </div>

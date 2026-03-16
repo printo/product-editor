@@ -79,6 +79,18 @@ interface LayoutConfig {
   maskOnExport?: boolean;
 }
 
+interface SurfaceEditorState {
+  key: string;
+  label: string;
+  widthMm: number;
+  heightMm: number;
+  dpi: number;
+  frames: LayoutFrame[];
+  maskFile: File | null;
+  maskUrl: string | null;
+  maskOnExport: boolean;
+}
+
 const AVAILABLE_TAGS = [
   'Polaroid', 'Square', 'Landscape', 'Portrait', 'Portfolio',
   'Vintage', 'Modern', 'Grid', 'Strip', 'Business Card', 'Postcard'
@@ -128,6 +140,11 @@ export default function LayoutCreatorPage() {
   const maskInputRef = useRef<HTMLInputElement>(null);
   const [originalLayoutName, setOriginalLayoutName] = useState<string | null>(null);
 
+  // Multi-surface state
+  const [layoutType, setLayoutType] = useState<'single' | 'product'>('single');
+  const [surfaces, setSurfaces] = useState<SurfaceEditorState[]>([]);
+  const [activeSurfaceIdx, setActiveSurfaceIdx] = useState(0);
+
   // Drag state for preview frames
   const dragRef = useRef<{
     frameId: string;
@@ -140,10 +157,35 @@ export default function LayoutCreatorPage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
+  // Resolve active frames/dimensions based on layout type
+  const activeFrames = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].frames : frames;
+  const activeWidthMm = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].widthMm : widthMm;
+  const activeHeightMm = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].heightMm : heightMm;
+  const activeDpi = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].dpi : dpi;
+  const activeMaskFile = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskFile : maskFile;
+  const activeMaskUrl = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskUrl : maskUrl;
+  const activeMaskOnExport = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskOnExport : maskOnExport;
+
+  const setActiveFrames = useCallback((updater: LayoutFrame[] | ((prev: LayoutFrame[]) => LayoutFrame[])) => {
+    if (layoutType === 'product') {
+      setSurfaces(prev => prev.map((s, i) => {
+        if (i !== activeSurfaceIdx) return s;
+        const newFrames = typeof updater === 'function' ? updater(s.frames) : updater;
+        return { ...s, frames: newFrames };
+      }));
+    } else {
+      if (typeof updater === 'function') {
+        setFrames(updater);
+      } else {
+        setFrames(updater);
+      }
+    }
+  }, [layoutType, activeSurfaceIdx]);
+
   const handleFrameDragStart = useCallback((e: React.MouseEvent, frameId: string, scale: number) => {
     e.preventDefault();
     e.stopPropagation();
-    const frame = frames.find(f => f.id === frameId);
+    const frame = activeFrames.find(f => f.id === frameId);
     if (!frame) return;
     dragRef.current = {
       frameId,
@@ -154,7 +196,7 @@ export default function LayoutCreatorPage() {
       scale,
     };
     setDraggingId(frameId);
-  }, [frames]);
+  }, [activeFrames]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -166,15 +208,18 @@ export default function LayoutCreatorPage() {
       let newY = round2(startYMm + dy);
 
       // Clamp within canvas bounds
-      const frame = frames.find(f => f.id === frameId);
+      const curFrames = activeFrames;
+      const curW = activeWidthMm;
+      const curH = activeHeightMm;
+      const frame = curFrames.find(f => f.id === frameId);
       if (frame) {
         const fw = Number(frame.widthMm || 0);
         const fh = Number(frame.heightMm || 0);
-        newX = Math.max(0, Math.min(newX, round2(widthMm - fw)));
-        newY = Math.max(0, Math.min(newY, round2(heightMm - fh)));
+        newX = Math.max(0, Math.min(newX, round2(curW - fw)));
+        newY = Math.max(0, Math.min(newY, round2(curH - fh)));
       }
 
-      setFrames(prev => prev.map(f => {
+      setActiveFrames(prev => prev.map(f => {
         if (f.id !== frameId) return f;
         return { ...f, xMm: newX, yMm: newY };
       }));
@@ -193,7 +238,7 @@ export default function LayoutCreatorPage() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [frames, widthMm, heightMm]);
+  }, [activeFrames, activeWidthMm, activeHeightMm, setActiveFrames]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -265,14 +310,39 @@ export default function LayoutCreatorPage() {
     setShowGridGen(false);
   };
 
+  const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dpiVal: number) => {
+    const canvasW = mmToPx(wMmVal, dpiVal);
+    const canvasH = mmToPx(hMmVal, dpiVal);
+    return frameList.map(f => {
+      const bleed = round2(Number(f.bleedMm || 0));
+      const xMm = round2(Number(f.xMm || 0));
+      const yMm = round2(Number(f.yMm || 0));
+      const wMm = round2(Number(f.widthMm || 0));
+      const hMm = round2(Number(f.heightMm || 0));
+      const pxX = mmToPx(xMm - bleed, dpiVal);
+      const pxY = mmToPx(yMm - bleed, dpiVal);
+      const pxW = mmToPx(wMm + (bleed * 2), dpiVal);
+      const pxH = mmToPx(hMm + (bleed * 2), dpiVal);
+      return {
+        ...f,
+        xMm, yMm, widthMm: wMm, heightMm: hMm, bleedMm: bleed,
+        x: pxX / canvasW,
+        y: pxY / canvasH,
+        width: pxW / canvasW,
+        height: pxH / canvasH,
+      };
+    });
+  };
+
   const handleCreateLayout = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     setError(null);
     setSuccess(null);
 
-    // Final Bounds Validation
-    const outOfBounds = frames.some(f => {
+    // Validate bounds for active frame set
+    const framesToCheck = layoutType === 'product' ? surfaces.flatMap(s => s.frames.map(f => ({ f, w: s.widthMm, h: s.heightMm }))) : frames.map(f => ({ f, w: widthMm, h: heightMm }));
+    const outOfBounds = framesToCheck.some(({ f, w, h }) => {
       const bleed = round2(Number(f.bleedMm || 0));
       const xVal = Number(f.xMm || 0);
       const yVal = Number(f.yMm || 0);
@@ -280,11 +350,11 @@ export default function LayoutCreatorPage() {
       const hVal = Number(f.heightMm || 0);
       return (
         round2(xVal - bleed) < 0 ||
-        round2(wVal + (bleed * 2)) > widthMm ||
-        round2(xVal + wVal + bleed) > widthMm ||
+        round2(wVal + (bleed * 2)) > w ||
+        round2(xVal + wVal + bleed) > w ||
         round2(yVal - bleed) < 0 ||
-        round2(hVal + (bleed * 2)) > heightMm ||
-        round2(yVal + hVal + bleed) > heightMm
+        round2(hVal + (bleed * 2)) > h ||
+        round2(yVal + hVal + bleed) > h
       );
     });
 
@@ -293,59 +363,70 @@ export default function LayoutCreatorPage() {
       return;
     }
 
-    const canvasW = mmToPx(widthMm, dpi);
-    const canvasH = mmToPx(heightMm, dpi);
-
-    const mappedFrames = frames.map(f => {
-      const bleed = round2(Number(f.bleedMm || 0));
-      const xMm = round2(Number(f.xMm || 0));
-      const yMm = round2(Number(f.yMm || 0));
-      const wMm = round2(Number(f.widthMm || 0));
-      const hMm = round2(Number(f.heightMm || 0));
-
-      // Calculate the bounding box that includes the bleed
-      const pxX = mmToPx(xMm - bleed, dpi);
-      const pxY = mmToPx(yMm - bleed, dpi);
-      const pxW = mmToPx(wMm + (bleed * 2), dpi);
-      const pxH = mmToPx(hMm + (bleed * 2), dpi);
-      
-      return {
-        ...f,
-        xMm, yMm, widthMm: wMm, heightMm: hMm, bleedMm: bleed,
-        x: pxX / canvasW,
-        y: pxY / canvasH,
-        width: pxW / canvasW,
-        height: pxH / canvasH
-      };
-    });
-
-    const layoutData: any = {
-      name: internalId,
-      tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-      canvas: {
-        width: canvasW,
-        height: canvasH,
-        widthMm: round2(widthMm),
-        heightMm: round2(heightMm),
-        dpi
-      },
-      frames: mappedFrames,
-      maskUrl: maskUrl || null,
-      maskOnExport: maskOnExport
-    };
-
+    let layoutData: any;
     const formData = new FormData();
+
+    if (layoutType === 'product') {
+      // Multi-surface product layout
+      const surfacesData = surfaces.map(s => ({
+        key: s.key,
+        label: s.label,
+        canvas: {
+          width: mmToPx(s.widthMm, s.dpi),
+          height: mmToPx(s.heightMm, s.dpi),
+          widthMm: round2(s.widthMm),
+          heightMm: round2(s.heightMm),
+          dpi: s.dpi,
+        },
+        frames: _mapFrames(s.frames, s.widthMm, s.heightMm, s.dpi),
+        maskUrl: s.maskUrl || null,
+        maskOnExport: s.maskOnExport,
+      }));
+
+      layoutData = {
+        name: internalId,
+        type: 'product',
+        tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+        surfaces: surfacesData,
+      };
+
+      // Append per-surface mask files
+      surfaces.forEach(s => {
+        if (s.maskFile) {
+          formData.append(`mask_${s.key}`, s.maskFile);
+        }
+      });
+    } else {
+      // Single-surface layout (existing format)
+      const canvasW = mmToPx(widthMm, dpi);
+      const canvasH = mmToPx(heightMm, dpi);
+
+      layoutData = {
+        name: internalId,
+        tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+        canvas: {
+          width: canvasW,
+          height: canvasH,
+          widthMm: round2(widthMm),
+          heightMm: round2(heightMm),
+          dpi,
+        },
+        frames: _mapFrames(frames, widthMm, heightMm, dpi),
+        maskUrl: maskUrl || null,
+        maskOnExport: maskOnExport,
+      };
+
+      if (maskFile) {
+        formData.append('mask', maskFile);
+      }
+      if (!maskFile && !maskUrl) {
+        formData.append('remove_mask', 'true');
+      }
+      formData.append('maskOnExport', maskOnExport.toString());
+    }
+
     formData.append('name', internalId);
     formData.append('layout', JSON.stringify(layoutData));
-    if (maskFile) {
-      formData.append('mask', maskFile);
-    }
-    // Signal explicit mask removal so backend doesn't restore the old one
-    if (!maskFile && !maskUrl) {
-      formData.append('remove_mask', 'true');
-    }
-    formData.append('maskOnExport', maskOnExport.toString());
-    // If renaming an existing layout, send the original name so the backend can clean up
     if (isEditMode && originalLayoutName && originalLayoutName !== internalId) {
       formData.append('old_name', originalLayoutName);
     }
@@ -432,65 +513,96 @@ export default function LayoutCreatorPage() {
     if (data) setSelectedLayout(data);
   };
 
+  const _loadFramesFromData = (data: any, canvas: any) => {
+    const displayDpi = canvas.dpi || 300;
+    if (data.frames) {
+      return data.frames.map((f: any) => ({
+        ...f,
+        id: Math.random().toString(36).substr(2, 9),
+        xMm: round2(f.xMm ?? pxToMm(f.x * canvas.width, displayDpi)),
+        yMm: round2(f.yMm ?? pxToMm(f.y * canvas.height, displayDpi)),
+        widthMm: round2(f.widthMm ?? pxToMm(f.width * canvas.width, displayDpi)),
+        heightMm: round2(f.heightMm ?? pxToMm(f.height * canvas.height, displayDpi)),
+        bleedMm: round2(Number(f.bleedMm || 0))
+      }));
+    }
+    return [];
+  };
+
   const openEditModal = async (layoutId: string) => {
     const data = await fetchLayoutDetail(layoutId);
     if (data) {
-      const displayDpi = data.canvas.dpi || 300;
-      setDpi(displayDpi);
-
-      // Attempt to load mm values, fallback to pixel conversions — always round to 2dp
-      setWidthMm(round2(data.canvas.widthMm || pxToMm(data.canvas.width, displayDpi)));
-      setHeightMm(round2(data.canvas.heightMm || pxToMm(data.canvas.height, displayDpi)));
-
       setLayoutName(data.name.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()));
       setTags(data.tags?.join(', ') || '');
-      
-      // Removed global printable area loading
+      setOriginalLayoutName(layoutId);
 
-      if (data.frames) {
-        const loadedFrames = data.frames.map((f: any, idx: number) => ({
-          ...f,
-          id: Math.random().toString(36).substr(2, 9),
-          xMm: round2(f.xMm ?? pxToMm(f.x * data.canvas.width, displayDpi)),
-          yMm: round2(f.yMm ?? pxToMm(f.y * data.canvas.height, displayDpi)),
-          widthMm: round2(f.widthMm ?? pxToMm(f.width * data.canvas.width, displayDpi)),
-          heightMm: round2(f.heightMm ?? pxToMm(f.height * data.canvas.height, displayDpi)),
-          bleedMm: round2(Number(f.bleedMm || 0))
-        }));
-        setFrames(loadedFrames);
-      } else if (data.grid) {
-        // Fallback backward compat string grid parsing
-        setRows(data.grid.rows || 2);
-        setCols(data.grid.cols || 2);
-        const paddMm = data.grid.padding ? pxToMm(data.grid.padding, displayDpi) : 2;
-        setPadding(paddMm);
-
-        // Rebuild frames based on existing grid logic
-        const cW = (data.canvas.widthMm || pxToMm(data.canvas.width, displayDpi));
-        const cH = (data.canvas.heightMm || pxToMm(data.canvas.height, displayDpi));
-        const cellW = (cW - (data.grid.cols + 1) * paddMm) / data.grid.cols;
-        const cellH = (cH - (data.grid.rows + 1) * paddMm) / data.grid.rows;
-
-        const fallbackFrames = [];
-        for (let r = 0; r < data.grid.rows; r++) {
-          for (let c = 0; c < data.grid.cols; c++) {
-            fallbackFrames.push({
-              id: Math.random().toString(36).substr(2, 9),
-              xMm: Number((paddMm + c * (cellW + paddMm)).toFixed(2)),
-              yMm: Number((paddMm + r * (cellH + paddMm)).toFixed(2)),
-              widthMm: Number(cellW.toFixed(2)),
-              heightMm: Number(cellH.toFixed(2)),
-              x: 0, y: 0, width: 0, height: 0
-            });
-          }
+      // Multi-surface product layout
+      if (data.type === 'product' && Array.isArray(data.surfaces)) {
+        setLayoutType('product');
+        const loadedSurfaces: SurfaceEditorState[] = data.surfaces.map((s: any) => {
+          const sDpi = s.canvas?.dpi || 300;
+          return {
+            key: s.key || 'unknown',
+            label: s.label || s.key || 'Unknown',
+            widthMm: round2(s.canvas?.widthMm || pxToMm(s.canvas?.width || 0, sDpi)),
+            heightMm: round2(s.canvas?.heightMm || pxToMm(s.canvas?.height || 0, sDpi)),
+            dpi: sDpi,
+            frames: _loadFramesFromData(s, s.canvas || {}),
+            maskFile: null,
+            maskUrl: s.maskUrl || null,
+            maskOnExport: s.maskOnExport || false,
+          };
+        });
+        setSurfaces(loadedSurfaces);
+        setActiveSurfaceIdx(0);
+        // Also set flat state from first surface as fallback
+        if (loadedSurfaces.length > 0) {
+          setDpi(loadedSurfaces[0].dpi);
+          setWidthMm(loadedSurfaces[0].widthMm);
+          setHeightMm(loadedSurfaces[0].heightMm);
+          setFrames(loadedSurfaces[0].frames);
         }
-        setFrames(fallbackFrames);
-      }
+      } else {
+        // Single-surface layout
+        setLayoutType('single');
+        setSurfaces([]);
+        const displayDpi = data.canvas?.dpi || 300;
+        setDpi(displayDpi);
+        setWidthMm(round2(data.canvas?.widthMm || pxToMm(data.canvas?.width || 0, displayDpi)));
+        setHeightMm(round2(data.canvas?.heightMm || pxToMm(data.canvas?.height || 0, displayDpi)));
 
-      setMaskUrl(data.maskUrl || null);
-      setMaskOnExport(data.maskOnExport || false);
-      setMaskFile(null);
-      setOriginalLayoutName(layoutId); // track for rename detection
+        const loadedFrames = _loadFramesFromData(data, data.canvas || {});
+        if (loadedFrames.length > 0) {
+          setFrames(loadedFrames);
+        } else if (data.grid) {
+          setRows(data.grid.rows || 2);
+          setCols(data.grid.cols || 2);
+          const paddMm = data.grid.padding ? pxToMm(data.grid.padding, displayDpi) : 2;
+          setPadding(paddMm);
+          const cW = (data.canvas?.widthMm || pxToMm(data.canvas?.width || 0, displayDpi));
+          const cH = (data.canvas?.heightMm || pxToMm(data.canvas?.height || 0, displayDpi));
+          const cellW = (cW - (data.grid.cols + 1) * paddMm) / data.grid.cols;
+          const cellH = (cH - (data.grid.rows + 1) * paddMm) / data.grid.rows;
+          const fallbackFrames = [];
+          for (let r = 0; r < data.grid.rows; r++) {
+            for (let c = 0; c < data.grid.cols; c++) {
+              fallbackFrames.push({
+                id: Math.random().toString(36).substr(2, 9),
+                xMm: Number((paddMm + c * (cellW + paddMm)).toFixed(2)),
+                yMm: Number((paddMm + r * (cellH + paddMm)).toFixed(2)),
+                widthMm: Number(cellW.toFixed(2)),
+                heightMm: Number(cellH.toFixed(2)),
+                x: 0, y: 0, width: 0, height: 0
+              });
+            }
+          }
+          setFrames(fallbackFrames);
+        }
+
+        setMaskUrl(data.maskUrl || null);
+        setMaskOnExport(data.maskOnExport || false);
+        setMaskFile(null);
+      }
 
       setIsEditMode(true);
       setIsModalOpen(true);
@@ -540,43 +652,44 @@ export default function LayoutCreatorPage() {
     setMaskUrl(null);
     setMaskFile(null);
     setMaskOnExport(false);
+    setLayoutType('single');
+    setSurfaces([]);
+    setActiveSurfaceIdx(0);
+    setOriginalLayoutName(null);
     setIsModalOpen(true);
   };
   const updateFrame = (id: string, field: string, value: string) => {
-    // We allow the state to hold the raw string for the Mm fields to avoid blocking decimal points
-    setFrames(prev => prev.map(f => {
+    const cW = activeWidthMm;
+    const cH = activeHeightMm;
+    setActiveFrames(prev => prev.map(f => {
       if (f.id !== id) return f;
-      
+
       const newFrame = { ...f, [field]: value };
-      const numVal = Number(value);
       const bleed = round2(Number(newFrame.bleedMm || 0));
-      
-      // Validation logic: Print Area + Bleed must fit in Canvas
       const xVal = Number(newFrame.xMm || 0);
       const yVal = Number(newFrame.yMm || 0);
       const wVal = Number(newFrame.widthMm || 0);
       const hVal = Number(newFrame.heightMm || 0);
 
-      // We still check for warnings but don't clamp the values
       let hasError = false;
       let msg = "";
 
       if (round2(xVal - bleed) < 0) {
         msg = "Area #"+(prev.indexOf(f)+1)+": Out of bounds (Left)";
         hasError = true;
-      } else if (round2(wVal + (bleed * 2)) > widthMm) {
+      } else if (round2(wVal + (bleed * 2)) > cW) {
         msg = "Area #"+(prev.indexOf(f)+1)+": Exceeds canvas width";
         hasError = true;
-      } else if (round2(xVal + wVal + bleed) > widthMm) {
+      } else if (round2(xVal + wVal + bleed) > cW) {
         msg = "Area #"+(prev.indexOf(f)+1)+": Out of bounds (Right)";
         hasError = true;
       } else if (round2(yVal - bleed) < 0) {
         msg = "Area #"+(prev.indexOf(f)+1)+": Out of bounds (Top)";
         hasError = true;
-      } else if (round2(hVal + (bleed * 2)) > heightMm) {
+      } else if (round2(hVal + (bleed * 2)) > cH) {
         msg = "Area #"+(prev.indexOf(f)+1)+": Exceeds canvas height";
         hasError = true;
-      } else if (round2(yVal + hVal + bleed) > heightMm) {
+      } else if (round2(yVal + hVal + bleed) > cH) {
         msg = "Area #"+(prev.indexOf(f)+1)+": Out of bounds (Bottom)";
         hasError = true;
       }
@@ -593,17 +706,19 @@ export default function LayoutCreatorPage() {
   // Helper to render preview grid
   const renderLivePreview = () => {
     const previewSize = 300;
-    const scale = Math.min(previewSize / widthMm, previewSize / heightMm);
-    const canvasPreviewW = widthMm * scale;
-    const canvasPreviewH = heightMm * scale;
+    const pW = activeWidthMm;
+    const pH = activeHeightMm;
+    const scale = Math.min(previewSize / pW, previewSize / pH);
+    const canvasPreviewW = pW * scale;
+    const canvasPreviewH = pH * scale;
 
     return (
       <div className="relative p-12 bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden w-full h-full min-h-[400px]">
-        <div 
+        <div
           className="relative bg-white shadow-2xl rounded-sm transition-all duration-300 overflow-hidden"
           style={{ width: canvasPreviewW, height: canvasPreviewH }}
         >
-          {frames.map((f, idx) => {
+          {activeFrames.map((f, idx) => {
             const bleed = Number(f.bleedMm || 0);
             const fxMm = Number(f.xMm || 0);
             const fyMm = Number(f.yMm || 0);
@@ -653,9 +768,9 @@ export default function LayoutCreatorPage() {
           })}
 
           {/* Mask Preview */}
-          {(maskFile || maskUrl) && (
+          {(activeMaskFile || activeMaskUrl) && (
             <img
-              src={maskFile ? URL.createObjectURL(maskFile) : maskUrl!}
+              src={activeMaskFile ? URL.createObjectURL(activeMaskFile) : activeMaskUrl!}
               className="absolute inset-0 w-full h-full object-fill pointer-events-none opacity-80"
               alt="Mask Preview"
             />
@@ -906,33 +1021,174 @@ export default function LayoutCreatorPage() {
                       </select>
                     </div>
 
+                    {/* Layout Type Toggle */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Layout Type</label>
+                      <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (layoutType === 'product' && surfaces.length > 0) {
+                              // Copy first surface to flat state
+                              const s = surfaces[0];
+                              setWidthMm(s.widthMm); setHeightMm(s.heightMm); setDpi(s.dpi);
+                              setFrames(s.frames); setMaskFile(s.maskFile); setMaskUrl(s.maskUrl); setMaskOnExport(s.maskOnExport);
+                            }
+                            setLayoutType('single');
+                          }}
+                          className={`flex-1 px-4 py-2 text-xs font-bold transition-all ${layoutType === 'single' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                        >
+                          Single Canvas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (layoutType === 'single') {
+                              // Init surfaces from current flat state
+                              setSurfaces([{
+                                key: 'front', label: 'Front',
+                                widthMm, heightMm, dpi, frames,
+                                maskFile, maskUrl, maskOnExport,
+                              }]);
+                              setActiveSurfaceIdx(0);
+                            }
+                            setLayoutType('product');
+                          }}
+                          className={`flex-1 px-4 py-2 text-xs font-bold transition-all ${layoutType === 'product' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                        >
+                          Multi-Surface Product
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Surface Tab Bar (multi-surface only) */}
+                    {layoutType === 'product' && (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Surfaces</label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {surfaces.map((s, i) => (
+                            <div key={i} className="flex items-center">
+                              <button
+                                type="button"
+                                onClick={() => setActiveSurfaceIdx(i)}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${activeSurfaceIdx === i ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                              >
+                                {s.label || s.key}
+                              </button>
+                              {surfaces.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSurfaces(prev => prev.filter((_, j) => j !== i));
+                                    setActiveSurfaceIdx(prev => Math.min(prev, surfaces.length - 2));
+                                  }}
+                                  className="ml-0.5 p-0.5 text-slate-300 hover:text-rose-500 transition-colors"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const n = surfaces.length + 1;
+                              setSurfaces(prev => [...prev, {
+                                key: `surface-${n}`, label: `Surface ${n}`,
+                                widthMm: 101.6, heightMm: 152.4, dpi: 300,
+                                frames: [], maskFile: null, maskUrl: null, maskOnExport: false,
+                              }]);
+                              setActiveSurfaceIdx(surfaces.length);
+                            }}
+                            className="px-3 py-1.5 text-xs font-bold bg-slate-50 border border-dashed border-slate-300 text-slate-500 rounded-lg hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3" /> Add
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Surface Label & auto-derived Key (multi-surface only) */}
+                    {layoutType === 'product' && surfaces[activeSurfaceIdx] && (
+                      <div className="grid grid-cols-2 gap-3 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100">
+                        <div>
+                          <label className="block text-[10px] font-bold text-indigo-600 uppercase mb-1">Display Label</label>
+                          <input
+                            type="text"
+                            value={surfaces[activeSurfaceIdx].label}
+                            onChange={(e) => {
+                              const label = e.target.value;
+                              const key = label.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, label, key: key || s.key } : s));
+                            }}
+                            className="w-full px-2 py-1.5 text-xs rounded border border-indigo-200"
+                            placeholder="e.g. Front"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Surface Key</label>
+                          <input
+                            type="text"
+                            value={surfaces[activeSurfaceIdx].key}
+                            readOnly
+                            className="w-full px-2 py-1.5 text-xs rounded border border-slate-200 font-mono bg-slate-100 text-slate-500 cursor-not-allowed"
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-3 gap-3">
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Width (mm)</label>
                         <input
-                          type="number" step="0.01" min="0" required value={widthMm} 
-                          onChange={(e) => setWidthMm(round2(Number(e.target.value)))}
+                          type="number" step="0.01" min="0" required
+                          value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].widthMm : widthMm}
+                          onChange={(e) => {
+                            const v = round2(Number(e.target.value));
+                            if (layoutType === 'product') {
+                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, widthMm: v } : s));
+                            } else {
+                              setWidthMm(v);
+                            }
+                          }}
                           className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-500"
                         />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Height (mm)</label>
                         <input
-                          type="number" step="0.01" min="0" required value={heightMm} 
-                          onChange={(e) => setHeightMm(round2(Number(e.target.value)))}
+                          type="number" step="0.01" min="0" required
+                          value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].heightMm : heightMm}
+                          onChange={(e) => {
+                            const v = round2(Number(e.target.value));
+                            if (layoutType === 'product') {
+                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, heightMm: v } : s));
+                            } else {
+                              setHeightMm(v);
+                            }
+                          }}
                           className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-500"
                         />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Resol. (DPI)</label>
                         <input
-                          type="number" min="300" required value={dpi} onChange={(e) => setDpi(Number(e.target.value))}
+                          type="number" min="300" required
+                          value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].dpi : dpi}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            if (layoutType === 'product') {
+                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, dpi: v } : s));
+                            } else {
+                              setDpi(v);
+                            }
+                          }}
                           className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-500"
                         />
                       </div>
                     </div>
                     <div className="text-xs text-indigo-600 bg-indigo-50 px-3 py-2 rounded-lg font-medium inline-block">
-                      Final Canvas Size: {Math.round(mmToPx(widthMm, dpi))} x {Math.round(mmToPx(heightMm, dpi))} px
+                      Final Canvas Size: {Math.round(mmToPx(activeWidthMm, activeDpi))} x {Math.round(mmToPx(activeHeightMm, activeDpi))} px
                     </div>
                   </div>
 
@@ -950,7 +1206,11 @@ export default function LayoutCreatorPage() {
                           accept="image/png"
                           onChange={(e) => {
                             if (e.target.files?.[0]) {
-                              setMaskFile(e.target.files[0]);
+                              if (layoutType === 'product') {
+                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: e.target.files![0] } : s));
+                              } else {
+                                setMaskFile(e.target.files[0]);
+                              }
                             }
                           }}
                         />
@@ -960,20 +1220,26 @@ export default function LayoutCreatorPage() {
                           className="w-full px-4 py-2.5 border border-slate-200 border-dashed rounded-lg text-xs font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
                         >
                           <Plus className="w-4 h-4" />
-                          {maskFile ? 'Change Mask Image' : 'Upload PNG Mask'}
+                          {activeMaskFile ? 'Change Mask Image' : 'Upload PNG Mask'}
                         </button>
                       </div>
-                      {(maskFile || maskUrl) && (
+                      {(activeMaskFile || activeMaskUrl) && (
                         <button
                           type="button"
-                          onClick={() => { setMaskFile(null); setMaskUrl(null); }}
+                          onClick={() => {
+                            if (layoutType === 'product') {
+                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: null, maskUrl: null } : s));
+                            } else {
+                              setMaskFile(null); setMaskUrl(null);
+                            }
+                          }}
                           className="px-3 py-2.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold hover:bg-rose-100"
                         >
                           Remove
                         </button>
                       )}
                     </div>
-                    {(maskFile || maskUrl) && (
+                    {(activeMaskFile || activeMaskUrl) && (
                       <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                         <div className="flex flex-col">
                           <span className="text-xs font-bold text-slate-700">Mask on Export</span>
@@ -983,8 +1249,14 @@ export default function LayoutCreatorPage() {
                           <input
                             type="checkbox"
                             className="sr-only peer"
-                            checked={maskOnExport}
-                            onChange={(e) => setMaskOnExport(e.target.checked)}
+                            checked={activeMaskOnExport}
+                            onChange={(e) => {
+                              if (layoutType === 'product') {
+                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskOnExport: e.target.checked } : s));
+                              } else {
+                                setMaskOnExport(e.target.checked);
+                              }
+                            }}
                           />
                           <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                         </label>
@@ -1002,7 +1274,7 @@ export default function LayoutCreatorPage() {
                           Snap Grid
                         </label>
                         <button type="button" onClick={() => setShowGridGen(!showGridGen)} className="text-xs text-slate-500 hover:text-indigo-600 font-semibold transition-colors">Grid Gen</button>
-                        <button type="button" onClick={() => setFrames([...frames, { id: Math.random().toString(36).substr(2, 9), xMm: 0, yMm: 0, widthMm: 50, heightMm: 50, bleedMm: 0, x: 0, y: 0, width: 0, height: 0 }])} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Area</button>
+                        <button type="button" onClick={() => setActiveFrames(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), xMm: 0, yMm: 0, widthMm: 50, heightMm: 50, bleedMm: 0, x: 0, y: 0, width: 0, height: 0 }])} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Area</button>
                       </div>
                     </div>
 
@@ -1033,9 +1305,9 @@ export default function LayoutCreatorPage() {
                     </div>
 
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                      {frames.length === 0 ? (
+                      {activeFrames.length === 0 ? (
                         <div className="text-center py-6 text-sm text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">No print areas added yet. Use Grid Gen or Add Area.</div>
-                      ) : frames.map((f, i) => (
+                      ) : activeFrames.map((f, i) => (
                         <div key={f.id} className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100 group">
                           <span className="w-6 text-center text-xs font-bold text-slate-400">#{i + 1}</span>
                           <input type="number" min="0" step="0.01" value={f.xMm} onChange={e => updateFrame(f.id!, 'xMm', e.target.value)} className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="X (mm)" />
@@ -1043,7 +1315,7 @@ export default function LayoutCreatorPage() {
                           <input type="number" min="0" step="0.01" value={f.widthMm} onChange={e => updateFrame(f.id!, 'widthMm', e.target.value)} className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="W (mm)" />
                           <input type="number" min="0" step="0.01" value={f.heightMm} onChange={e => updateFrame(f.id!, 'heightMm', e.target.value)} className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="H (mm)" />
                           <input type="number" min="0" step="0.01" value={f.bleedMm} onChange={e => updateFrame(f.id!, 'bleedMm', e.target.value)} className="w-16 px-2 py-1.5 text-xs rounded border border-rose-100 bg-rose-50 text-rose-600 font-bold" title="Bleed (mm)" />
-                          <button type="button" onClick={() => setFrames(frames.filter(fr => fr.id !== f.id))} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded md:opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={() => setActiveFrames(prev => prev.filter(fr => fr.id !== f.id))} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded md:opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       ))}
                     </div>
@@ -1061,7 +1333,7 @@ export default function LayoutCreatorPage() {
                       {renderLivePreview()}
                     </div>
                     <div className="p-4 border-t border-slate-100 bg-slate-50/50 rounded-b-xl shrink-0 text-center">
-                      <p className="text-xs text-slate-500 font-medium">Areas: {frames.length} &middot; DPI: {dpi}</p>
+                      <p className="text-xs text-slate-500 font-medium">Areas: {activeFrames.length} &middot; DPI: {activeDpi}{layoutType === 'product' && surfaces[activeSurfaceIdx] ? ` &middot; ${surfaces[activeSurfaceIdx].label}` : ''}</p>
                       <div className="flex justify-center gap-4 mt-2">
                         <span className="flex items-center text-[10px] text-emerald-600 font-medium gap-1"><div className="w-2 h-2 rounded border border-emerald-400 border-dashed"></div> Safe Area</span>
                         <span className="flex items-center text-[10px] text-rose-500 font-medium gap-1"><div className="w-2 h-2 rounded border border-rose-400 border-dashed"></div> Bleed Zone</span>

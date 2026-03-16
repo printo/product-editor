@@ -25,34 +25,42 @@ class LayoutEngine:
                 frames.append({"x": x, "y": y, "width": cell_w, "height": cell_h})
         return frames
 
-    def generate(self, layout_name: str, image_paths: List[str], fit_mode: str = "cover") -> List[str]:
-        layout = self._load_layout(layout_name)
-        canvas_w = layout["canvas"]["width"]
-        canvas_h = layout["canvas"]["height"]
-        padding = layout.get("grid", {}).get("padding", 10)
-        rows = layout.get("grid", {}).get("rows")
-        cols = layout.get("grid", {}).get("cols")
-        frames = layout.get("frames")
-        if frames is None and rows and cols:
-            frames = self._grid_frames(canvas_w, canvas_h, rows, cols, padding)
+    def _load_mask(self, mask_url: str):
+        """Load a mask image from its URL path, or return None."""
+        if not mask_url:
+            return None
+        try:
+            mask_filename = os.path.basename(mask_url)
+            mask_path = os.path.join(os.path.dirname(self.layouts_dir), "masks", mask_filename)
+            if os.path.exists(mask_path):
+                return Image.open(mask_path).convert("RGBA")
+        except Exception as e:
+            print(f"Warning: Failed to load mask: {e}")
+        return None
+
+    def _generate_for_surface(
+        self,
+        surface_def: dict,
+        image_paths: List[str],
+        layout_name: str,
+        surface_key: str,
+        fit_mode: str = "cover",
+    ) -> List[str]:
+        """Generate canvases for a single surface definition."""
+        canvas_w = surface_def["canvas"]["width"]
+        canvas_h = surface_def["canvas"]["height"]
+        frames = surface_def.get("frames", [])
         if not frames:
-            raise ValueError("No frames defined for layout")
+            raise ValueError(f"No frames defined for surface '{surface_key}'")
 
         total_frames = len(frames)
         outputs = []
         i = 0
-        
+
         # Load mask if it should be applied to export
         mask_img = None
-        if layout.get("maskUrl") and layout.get("maskOnExport", False):
-            try:
-                # Resolve local path for mask (stored in masks_dir)
-                mask_filename = os.path.basename(layout["maskUrl"])
-                mask_path = os.path.join(os.path.dirname(self.layouts_dir), "masks", mask_filename)
-                if os.path.exists(mask_path):
-                    mask_img = Image.open(mask_path).convert("RGBA")
-            except Exception as e:
-                print(f"Warning: Failed to load mask: {e}")
+        if surface_def.get("maskUrl") and surface_def.get("maskOnExport", False):
+            mask_img = self._load_mask(surface_def["maskUrl"])
 
         while i < len(image_paths):
             batch = image_paths[i:i+total_frames]
@@ -61,9 +69,8 @@ class LayoutEngine:
                 batch += image_paths[:repeat_needed]
             canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
             for idx, frame in enumerate(frames):
-                img = Image.open(batch[idx]).convert("RGBA") # Use RGBA to preserve transparency if needed
-                
-                # Calculate fit (contain = show full image, cover = fill frame)
+                img = Image.open(batch[idx]).convert("RGBA")
+
                 target_w = frame["width"]
                 target_h = frame["height"]
 
@@ -77,30 +84,59 @@ class LayoutEngine:
                 img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
                 if fit_mode == "contain":
-                    # Center the image within the frame (may have empty space)
                     paste_x = frame["x"] + (target_w - new_w) // 2
                     paste_y = frame["y"] + (target_h - new_h) // 2
                     canvas.paste(img, (paste_x, paste_y), img)
                 else:
-                    # Center crop for cover mode
                     offset_x = (new_w - target_w) // 2
                     offset_y = (new_h - target_h) // 2
                     crop_box = (offset_x, offset_y, offset_x + target_w, offset_y + target_h)
                     img = img.crop(crop_box)
                     canvas.paste(img, (frame["x"], frame["y"]), img)
-            
-            # Apply mask if available
+
             if mask_img:
-                # Ensure mask is same size as canvas
+                resized_mask = mask_img
                 if mask_img.size != (canvas_w, canvas_h):
-                    mask_img = mask_img.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
+                    resized_mask = mask_img.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
                 canvas_rgba = canvas.convert("RGBA")
-                canvas_rgba.alpha_composite(mask_img)
+                canvas_rgba.alpha_composite(resized_mask)
                 canvas = canvas_rgba.convert("RGB")
 
-            out_name = f"{layout_name}_{len(outputs)+1}.png"
+            suffix = f"_{surface_key}" if surface_key != "default" else ""
+            out_name = f"{layout_name}{suffix}_{len(outputs)+1}.png"
             out_path = os.path.join(self.exports_dir, out_name)
             canvas.save(out_path, "PNG")
             outputs.append(out_path)
             i += total_frames
         return outputs
+
+    def generate(self, layout_name: str, image_paths: List[str], fit_mode: str = "cover") -> List[str]:
+        layout = self._load_layout(layout_name)
+
+        # Multi-surface product layout
+        if layout.get("type") == "product" and isinstance(layout.get("surfaces"), list):
+            all_outputs = []
+            for surface in layout["surfaces"]:
+                surface_key = surface.get("key", "unknown")
+                outputs = self._generate_for_surface(surface, image_paths, layout_name, surface_key, fit_mode)
+                all_outputs.extend(outputs)
+            return all_outputs
+
+        # Legacy single-surface layout — wrap as a surface definition
+        surface_def = {
+            "canvas": layout["canvas"],
+            "frames": layout.get("frames"),
+            "maskUrl": layout.get("maskUrl"),
+            "maskOnExport": layout.get("maskOnExport", False),
+        }
+        padding = layout.get("grid", {}).get("padding", 10)
+        rows = layout.get("grid", {}).get("rows")
+        cols = layout.get("grid", {}).get("cols")
+        if surface_def["frames"] is None and rows and cols:
+            surface_def["frames"] = self._grid_frames(
+                layout["canvas"]["width"], layout["canvas"]["height"], rows, cols, padding
+            )
+        if not surface_def["frames"]:
+            raise ValueError("No frames defined for layout")
+
+        return self._generate_for_surface(surface_def, image_paths, layout_name, "default", fit_mode)

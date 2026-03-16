@@ -15,12 +15,15 @@ from django.utils.crypto import get_random_string
 from django.core.exceptions import ValidationError
 import platform
 import signal
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, inline_serializer
+from drf_spectacular.types import OpenApiTypes
+from rest_framework import serializers as drf_serializers
 from layout_engine.engine import LayoutEngine
 from services.storage import get_storage
 from .permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts, CanListLayouts, CanAccessExports, IsOpsTeam
 from .authentication import APIKeyUser
 from .validators import validate_image_files
-from .models import UploadedFile, ExportedResult
+from .models import UploadedFile, ExportedResult, EmbedSession
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +59,22 @@ def with_timeout(seconds=300):
 class HealthView(APIView):
     """Health check endpoint - public access."""
     permission_classes = [AllowAny]
-    
+
+    @extend_schema(
+        tags=["health"],
+        summary="Service health check",
+        description="Returns `ok` if the service and database are reachable. No authentication required.",
+        responses={
+            200: inline_serializer(
+                name="HealthResponse",
+                fields={
+                    "status": drf_serializers.CharField(default="ok"),
+                    "database": drf_serializers.CharField(default="connected"),
+                    "timestamp": drf_serializers.IntegerField(),
+                },
+            )
+        },
+    )
     def get(self, request):
         return Response({
             "status": "ok",
@@ -68,7 +86,18 @@ class HealthView(APIView):
 class ListLayoutsView(APIView):
     """List available layouts - requires API key."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanListLayouts]
-    
+
+    @extend_schema(
+        tags=["layouts"],
+        summary="List all available layouts",
+        description="Returns all layout definitions the API key is permitted to use.",
+        responses={
+            200: inline_serializer(
+                name="LayoutListResponse",
+                fields={"layouts": drf_serializers.ListField(child=drf_serializers.DictField())},
+            )
+        },
+    )
     def get(self, request):
         try:
             logger.info(f"DEBUG_LAYOUT_REQ: User={request.user}, Auth={request.auth}, Headers={request.headers.get('Authorization')}")
@@ -103,7 +132,44 @@ class ListLayoutsView(APIView):
 class GenerateLayoutView(APIView):
     """Generate layout from images with AI processing - requires API key."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanGenerateLayouts]
-    
+
+    @extend_schema(
+        tags=["generate"],
+        summary="Generate canvas from images",
+        description=(
+            "Upload images and a layout definition to produce a rendered canvas.\n\n"
+            "**Request format:** `multipart/form-data`\n\n"
+            "| Field | Type | Description |\n"
+            "|-------|------|-------------|\n"
+            "| `layout` | string/JSON | Layout name (e.g. `retro_polaroid_4.2x3.5`) or full layout JSON |\n"
+            "| `images` | file[] | One or more image files to place in the layout |\n"
+            "| `ai_enhance` | boolean | Optional — run AI background removal / product detection |\n\n"
+            "Returns a list of canvas objects, one per layout slot."
+        ),
+        request=inline_serializer(
+            name="GenerateLayoutRequest",
+            fields={
+                "layout": drf_serializers.CharField(help_text="Layout name or JSON"),
+                "images": drf_serializers.ListField(
+                    child=drf_serializers.ImageField(),
+                    help_text="Image files",
+                ),
+                "ai_enhance": drf_serializers.BooleanField(required=False, default=False),
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                name="GenerateLayoutResponse",
+                fields={
+                    "canvases": drf_serializers.ListField(child=drf_serializers.DictField()),
+                    "layout_name": drf_serializers.CharField(),
+                    "export_id": drf_serializers.CharField(required=False),
+                },
+            ),
+            400: OpenApiResponse(description="Invalid request — missing images or bad layout"),
+            408: OpenApiResponse(description="Timeout — generation exceeded 5 minutes"),
+        },
+    )
     @with_timeout(seconds=300)  # 5 minute timeout
     def post(self, request):
         try:
@@ -361,7 +427,25 @@ class GenerateLayoutView(APIView):
 class GetLayoutView(APIView):
     """Get layout JSON - requires API key."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanListLayouts]
-    
+
+    @extend_schema(
+        tags=["layouts"],
+        summary="Get layout by name",
+        description="Retrieve the full JSON definition for a specific layout.",
+        parameters=[
+            OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
+        ],
+        responses={
+            200: inline_serializer(
+                name="LayoutDetailResponse",
+                fields={
+                    "name": drf_serializers.CharField(),
+                    "canvases": drf_serializers.ListField(child=drf_serializers.DictField()),
+                },
+            ),
+            404: OpenApiResponse(description="Layout not found"),
+        },
+    )
     def get(self, request, name: str):
         try:
             # Validate layout name - prevents path traversal
@@ -391,9 +475,18 @@ class GetLayoutView(APIView):
             
             with open(path, "r") as f:
                 data = json.load(f)
-            
+
+            # Filter surfaces if ?surfaces= param is provided (for multi-surface layouts)
+            surfaces_param = request.query_params.get('surfaces')
+            if surfaces_param and 'surfaces' in data and isinstance(data['surfaces'], list):
+                requested_keys = [k.strip().lower() for k in surfaces_param.split(',') if k.strip()]
+                data['surfaces'] = [
+                    s for s in data['surfaces']
+                    if s.get('key', '').lower() in requested_keys
+                ]
+
             return Response(data)
-        
+
         except json.JSONDecodeError:
             logger.error(f"Invalid JSON in layout file: {name}")
             return Response(
@@ -406,7 +499,7 @@ class GetLayoutView(APIView):
                 {"detail": "Failed to get layout"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-    
+
     @staticmethod
     def _is_valid_layout_name(name: str) -> bool:
         """Validate layout name."""
@@ -436,7 +529,23 @@ class SecureExportDownloadView(APIView):
     Requires authentication and checks file path to prevent traversal attacks.
     """
     permission_classes = [IsAuthenticatedWithAPIKey, CanAccessExports]
-    
+
+    @extend_schema(
+        tags=["exports"],
+        summary="Download exported file",
+        description=(
+            "Stream a generated export file (HQ PNG, imposition sheet, etc.) "
+            "back to the authenticated caller. Path traversal is prevented server-side."
+        ),
+        parameters=[
+            OpenApiParameter("file_path", OpenApiTypes.STR, OpenApiParameter.PATH, description="Relative path to the export file"),
+        ],
+        responses={
+            200: OpenApiResponse(description="Binary file stream"),
+            403: OpenApiResponse(description="Path traversal attempt detected"),
+            404: OpenApiResponse(description="Export file not found"),
+        },
+    )
     def get(self, request, file_path: str):
         """Download a generated export file securely."""
         try:
@@ -552,7 +661,13 @@ from .models import AIProcessingJob
 class AIStatusView(APIView):
     """AI service health and availability status with comprehensive resource monitoring."""
     permission_classes = [IsAuthenticatedWithAPIKey]
-    
+
+    @extend_schema(
+        tags=["ai"],
+        summary="AI service status",
+        description="Returns health and availability of all AI sub-services (background removal, product detection, blend preview) plus resource metrics.",
+        responses={200: OpenApiResponse(description="Comprehensive AI status object")},
+    )
     def get(self, request):
         try:
             health_monitor = get_health_monitor()
@@ -613,7 +728,25 @@ class AIStatusView(APIView):
 class BackgroundRemovalView(APIView):
     """Remove background from uploaded image using AI with comprehensive failure handling."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanGenerateLayouts]
-    
+
+    @extend_schema(
+        tags=["ai"],
+        summary="Remove image background",
+        description=(
+            "Upload an image and receive a PNG with the background removed.\n\n"
+            "**Request:** `multipart/form-data` with `image` file field.\n\n"
+            "Falls back to heuristic removal if AI service is unavailable (circuit breaker pattern)."
+        ),
+        request=inline_serializer(
+            name="BackgroundRemovalRequest",
+            fields={"image": drf_serializers.ImageField(help_text="Source image")},
+        ),
+        responses={
+            200: OpenApiResponse(description="PNG image with background removed"),
+            400: OpenApiResponse(description="Missing `image` field"),
+            408: OpenApiResponse(description="AI service timeout (60 s limit)"),
+        },
+    )
     @with_timeout(seconds=60)  # 1 minute timeout for background removal
     def post(self, request):
         try:
@@ -767,7 +900,24 @@ class BackgroundRemovalView(APIView):
 class ProductDetectionView(APIView):
     """Detect products in lifestyle photos using AI."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanGenerateLayouts]
-    
+
+    @extend_schema(
+        tags=["ai"],
+        summary="Detect products in image",
+        description=(
+            "Locate product bounding boxes in a lifestyle photo for design placement.\n\n"
+            "**Request:** `multipart/form-data` with `image` file field.\n\n"
+            "Returns bounding boxes and confidence scores for each detected product."
+        ),
+        request=inline_serializer(
+            name="ProductDetectionRequest",
+            fields={"image": drf_serializers.ImageField(help_text="Lifestyle photo")},
+        ),
+        responses={
+            200: OpenApiResponse(description="Detected product regions with confidence scores"),
+            400: OpenApiResponse(description="Missing `image` field"),
+        },
+    )
     @with_timeout(seconds=30)  # 30 second timeout for detection
     def post(self, request):
         try:
@@ -982,7 +1132,27 @@ class DesignPlacementView(APIView):
 class BlendPreviewView(APIView):
     """Generate realistic blend preview of design on product."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanGenerateLayouts]
-    
+
+    @extend_schema(
+        tags=["ai"],
+        summary="Generate blend preview",
+        description=(
+            "Composite a design image onto a detected product to produce a realistic preview.\n\n"
+            "**Request:** `multipart/form-data`\n\n"
+            "| Field | Type | Default | Description |\n"
+            "|-------|------|---------|-------------|\n"
+            "| `design` | file | — | Design / artwork image |\n"
+            "| `product` | file | — | Product / lifestyle photo |\n"
+            "| `blend_mode` | string | `multiply` | CSS-style blend mode |\n"
+            "| `opacity` | float | `0.8` | Blend opacity (0–1) |\n"
+            "| `preserve_colors` | bool | `true` | Preserve original product colors |\n"
+            "| `texture_intensity` | float | `0.8` | Texture overlay intensity |\n"
+        ),
+        responses={
+            200: OpenApiResponse(description="Blended preview image (PNG)"),
+            400: OpenApiResponse(description="Missing `design` or `product` file"),
+        },
+    )
     def post(self, request):
         try:
             # Get parameters
@@ -1670,7 +1840,16 @@ class LayoutManagementView(APIView):
                 layout_data = json.loads(layout_data)
             
             # Ensure required fields for LayoutEngine exist
-            if 'canvas' not in layout_data or 'width' not in layout_data['canvas'] or 'height' not in layout_data['canvas']:
+            is_multi_surface = layout_data.get('type') == 'product' and isinstance(layout_data.get('surfaces'), list)
+            if is_multi_surface:
+                for idx, surface in enumerate(layout_data['surfaces']):
+                    s_canvas = surface.get('canvas', {})
+                    if 'width' not in s_canvas or 'height' not in s_canvas:
+                        return Response(
+                            {"detail": f"Surface '{surface.get('key', idx)}': missing canvas width/height"},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+            elif 'canvas' not in layout_data or 'width' not in layout_data['canvas'] or 'height' not in layout_data['canvas']:
                 return Response({"detail": "Invalid layout structure: missing canvas width/height"}, status=status.HTTP_400_BAD_REQUEST)
             
             # Append metadata
@@ -1692,6 +1871,28 @@ class LayoutManagementView(APIView):
             }
             
             # Handle Mask Image Upload
+            # For multi-surface layouts, masks can be uploaded as mask_{surface_key} fields
+            if is_multi_surface:
+                for surface in layout_data.get('surfaces', []):
+                    surface_key = surface.get('key', '')
+                    mask_field = f"mask_{surface_key}"
+                    surface_mask_file = request.FILES.get(mask_field)
+                    if surface_mask_file:
+                        try:
+                            import glob as glob_mod_s
+                            existing = glob_mod_s.glob(os.path.join(storage.masks_dir(), f"{layout_name}_{surface_key}_mask.*"))
+                            for m in existing:
+                                if os.path.exists(m):
+                                    os.remove(m)
+                        except Exception as e:
+                            logger.warning(f"Failed to cleanup old surface masks: {e}")
+                        mask_filename = f"{layout_name}_{surface_key}_mask{os.path.splitext(surface_mask_file.name)[1]}"
+                        mask_path = os.path.join(storage.masks_dir(), mask_filename)
+                        with open(mask_path, 'wb+') as destination:
+                            for chunk in surface_mask_file.chunks():
+                                destination.write(chunk)
+                        surface['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
+
             mask_file = request.FILES.get('mask')
             if mask_file:
                 # Cleanup ANY existing mask files for this layout first (to handle extension changes)
@@ -1797,14 +1998,26 @@ class LayoutManagementView(APIView):
                 layout_data['tags'] = [t.strip() for t in layout_data['tags'].split(',') if t.strip()]
 
             # Final Dimensions & Metadata array for easy extraction
-            canvas = layout_data.get('canvas', {})
-            try:
-                val_w = float(canvas.get('widthMm', 0))
-                val_h = float(canvas.get('heightMm', 0))
-            except (ValueError, TypeError):
-                val_w = 0
-                val_h = 0
-            dim_str = f"{val_w:.2f} x {val_h:.2f}mm"
+            if is_multi_surface:
+                surface_dims = []
+                for s in layout_data.get('surfaces', []):
+                    sc = s.get('canvas', {})
+                    try:
+                        sw = float(sc.get('widthMm', 0))
+                        sh = float(sc.get('heightMm', 0))
+                    except (ValueError, TypeError):
+                        sw = sh = 0
+                    surface_dims.append(f"{s.get('key', '?')}: {sw:.2f}x{sh:.2f}mm")
+                dim_str = " | ".join(surface_dims) if surface_dims else "N/A"
+            else:
+                canvas = layout_data.get('canvas', {})
+                try:
+                    val_w = float(canvas.get('widthMm', 0))
+                    val_h = float(canvas.get('heightMm', 0))
+                except (ValueError, TypeError):
+                    val_w = 0
+                    val_h = 0
+                dim_str = f"{val_w:.2f} x {val_h:.2f}mm"
             
             layout_data['metadata'] = [
                 {"key": "createdByName", "label": "Created By", "value": meta_entries["createdByName"]},
@@ -1897,6 +2110,28 @@ class ExternalLayoutDetailView(APIView):
     def _is_path_safe(self, path: str, base_dir: str) -> bool:
         return os.path.abspath(path).startswith(os.path.abspath(base_dir))
 
+    @extend_schema(
+        tags=["layouts"],
+        summary="Get layout for external systems",
+        description=(
+            "Fetch a layout JSON definition via API key auth. "
+            "Intended for external server-to-server use (not browser clients)."
+        ),
+        parameters=[
+            OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
+        ],
+        responses={
+            200: inline_serializer(
+                name="ExternalLayoutResponse",
+                fields={
+                    "name": drf_serializers.CharField(),
+                    "canvases": drf_serializers.ListField(child=drf_serializers.DictField()),
+                },
+            ),
+            400: OpenApiResponse(description="Invalid layout name"),
+            404: OpenApiResponse(description="Layout not found"),
+        },
+    )
     def get(self, request, name):
         if not self._is_valid_layout_name(name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1912,7 +2147,18 @@ class ExternalLayoutDetailView(APIView):
             
         try:
             with open(path, "r") as f:
-                return Response(json.load(f))
+                data = json.load(f)
+
+            # Filter surfaces if ?surfaces= param is provided (for multi-surface layouts)
+            surfaces_param = request.query_params.get('surfaces')
+            if surfaces_param and 'surfaces' in data and isinstance(data['surfaces'], list):
+                requested_keys = [k.strip().lower() for k in surfaces_param.split(',') if k.strip()]
+                data['surfaces'] = [
+                    s for s in data['surfaces']
+                    if s.get('key', '').lower() in requested_keys
+                ]
+
+            return Response(data)
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1939,3 +2185,135 @@ class MaskDownloadView(APIView):
             return FileResponse(open(path, 'rb'), content_type=content_type or 'image/png')
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class EmbedSessionView(APIView):
+    """
+    Exchange a real API key for a short-lived embed token (2 hours).
+    The token is safe to place in an iframe URL — the real key never reaches the browser.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(
+        tags=["embed"],
+        summary="Create embed session token",
+        description=(
+            "Exchange your API key for a **short-lived UUID token** (TTL: 2 hours) "
+            "that is safe to embed in an iframe URL.\n\n"
+            "### How it works\n\n"
+            "```\n"
+            "Your server  →  POST /api/embed/session\n"
+            "             ←  { token: '<uuid>' }\n\n"
+            "Your page    →  <iframe src=\"https://product-editor.printo.in/layout/<name>?token=<uuid>\" />\n\n"
+            "Customer edits canvas and clicks Submit Design\n\n"
+            "Your page    ←  window.postMessage({ type: 'PRODUCT_EDITOR_COMPLETE',\n"
+            "                                     layoutName: '...',\n"
+            "                                     canvases: [{ index, dataUrl }] })\n"
+            "```\n\n"
+            "### Security guarantees\n\n"
+            "- Token is a disposable UUID — never the real API key\n"
+            "- All subsequent calls from the embed page go through the Next.js server-side proxy "
+            "which resolves the token to the real key without exposing it to the browser\n"
+            "- Token expires after 2 hours; generate a fresh one per customer session\n\n"
+            "**Auth:** `Authorization: Bearer <real-api-key>` (server-to-server only)"
+        ),
+        request=None,
+        responses={
+            201: inline_serializer(
+                name="EmbedSessionResponse",
+                fields={
+                    "token": drf_serializers.UUIDField(help_text="Short-lived embed token — safe to put in iframe URL"),
+                    "expires_at": drf_serializers.DateTimeField(help_text="ISO 8601 expiry timestamp (2 hours from now)"),
+                    "embed_url_template": drf_serializers.CharField(
+                        help_text="URL template — replace `{layout_name}` with your layout, e.g. `retro_polaroid_4.2x3.5`"
+                    ),
+                },
+            ),
+            401: OpenApiResponse(description="Invalid or missing API key"),
+        },
+        examples=[
+            OpenApiExample(
+                "Successful token creation",
+                value={
+                    "token": "a3f1c2d4-e5b6-7890-abcd-ef1234567890",
+                    "expires_at": "2024-01-15T14:30:00+05:30",
+                    "embed_url_template": "/embed/editor/{layout_name}?token=a3f1c2d4-e5b6-7890-abcd-ef1234567890",
+                },
+                response_only=True,
+                status_codes=["201"],
+            ),
+        ],
+    )
+    def post(self, request):
+        from datetime import timedelta
+        api_key = request.user.api_key
+        expires_at = timezone.now() + timedelta(hours=2)
+        session = EmbedSession.objects.create(api_key=api_key, expires_at=expires_at)
+        return Response({
+            'token': str(session.token),
+            'expires_at': session.expires_at.isoformat(),
+            'embed_url_template': '/embed/editor/{layout_name}?token=' + str(session.token),
+        }, status=status.HTTP_201_CREATED)
+
+
+class EmbedSessionValidateView(APIView):
+    """
+    Internal endpoint called only by the Next.js server-side proxy to resolve a token → real API key.
+    Not intended for direct use by external clients.
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["embed"],
+        summary="Validate embed token (internal proxy use only)",
+        description=(
+            "**⚠️ Internal use only** — called exclusively by the Next.js server-side proxy "
+            "(`/api/embed/proxy/[...path]`). Do not call this from browser JavaScript.\n\n"
+            "Validates the embed token and returns the underlying API key so the proxy can "
+            "forward the request to Django with a real `Authorization: Bearer` header — "
+            "without ever exposing the key to the browser.\n\n"
+            "### Protection\n\n"
+            "Protected by a shared `X-Internal-Secret` header that is set only in the server "
+            "environment and never accessible to browsers. If `EMBED_INTERNAL_SECRET` env var "
+            "is set, requests missing or providing a wrong secret receive `403 Forbidden`."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "token",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="The embed session UUID from the iframe URL",
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="EmbedValidateResponse",
+                fields={"api_key": drf_serializers.CharField(help_text="The real API key backing this embed session")},
+            ),
+            400: OpenApiResponse(description="`token` query param is missing"),
+            401: OpenApiResponse(description="Token not found or expired"),
+            403: OpenApiResponse(description="Missing or invalid `X-Internal-Secret` header"),
+        },
+    )
+    def get(self, request):
+        import os
+        expected_secret = os.getenv('EMBED_INTERNAL_SECRET', '')
+        if expected_secret:
+            provided = request.headers.get('X-Internal-Secret', '')
+            if provided != expected_secret:
+                return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        token = request.query_params.get('token', '').strip()
+        if not token:
+            return Response({'detail': 'token param required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            session = EmbedSession.objects.select_related('api_key').get(token=token)
+        except (EmbedSession.DoesNotExist, Exception):
+            return Response({'detail': 'Invalid token'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if not session.is_valid():
+            return Response({'detail': 'Token expired or revoked'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        return Response({'api_key': session.api_key.key})

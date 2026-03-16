@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "drf_spectacular",
     "corsheaders",
     "api",
     "ai_engine",  # AI processing engine
@@ -98,6 +99,56 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 100,
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Product Editor API",
+    "DESCRIPTION": (
+        "REST API for the Printo Product Editor.\n\n"
+        "## Authentication\n\n"
+        "All endpoints (except `/api/health`) require one of:\n\n"
+        "- **Bearer API Key** — `Authorization: Bearer <api-key>` — for server-to-server and embed flows\n"
+        "- **PIA Session Token** — `Authorization: Bearer <pia-token>` — for internal dashboard users\n\n"
+        "## Embed Flow\n\n"
+        "The embed system lets external sites display the full canvas editor inside an iframe "
+        "without exposing a real API key in the URL.\n\n"
+        "```\n"
+        "1. Your server  → POST /api/embed/session  (with real API key)\n"
+        "                ← { token: '<uuid>', expires_at: '...' }\n\n"
+        "2. Your frontend → open iframe:\n"
+        "   https://product-editor.printo.in/layout/<name>?token=<uuid>\n\n"
+        "3. Customer edits in canvas, clicks Submit Design\n\n"
+        "4. Your page receives:\n"
+        "   window.postMessage({ type: 'PRODUCT_EDITOR_COMPLETE', canvases: [...] })\n"
+        "```\n\n"
+        "Token TTL is **2 hours**. Generate a fresh token per customer session."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "TAGS": [
+        {"name": "health", "description": "Service liveness check"},
+        {"name": "layouts", "description": "Layout discovery and JSON retrieval"},
+        {"name": "generate", "description": "Canvas generation from uploaded images"},
+        {"name": "embed", "description": "Short-lived iframe embed tokens — external site integration"},
+        {"name": "exports", "description": "Secure download of exported files"},
+        {"name": "ai", "description": "AI-powered image processing (background removal, product detection, blend preview)"},
+        {"name": "ops", "description": "Ops team layout management (internal only)"},
+    ],
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayOperationId": False,
+    },
+    "SECURITY": [{"BearerAuth": []}],
+    "SECURITY_DEFINITIONS": {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "API key or PIA token",
+        }
+    },
 }
 
 # CORS Configuration - Restrict to specific origins
