@@ -128,6 +128,73 @@ export default function LayoutCreatorPage() {
   const maskInputRef = useRef<HTMLInputElement>(null);
   const [originalLayoutName, setOriginalLayoutName] = useState<string | null>(null);
 
+  // Drag state for preview frames
+  const dragRef = useRef<{
+    frameId: string;
+    startX: number;
+    startY: number;
+    startXMm: number;
+    startYMm: number;
+    scale: number;
+  } | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleFrameDragStart = useCallback((e: React.MouseEvent, frameId: string, scale: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const frame = frames.find(f => f.id === frameId);
+    if (!frame) return;
+    dragRef.current = {
+      frameId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startXMm: Number(frame.xMm || 0),
+      startYMm: Number(frame.yMm || 0),
+      scale,
+    };
+    setDraggingId(frameId);
+  }, [frames]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const { frameId, startX, startY, startXMm, startYMm, scale } = dragRef.current;
+      const dx = (e.clientX - startX) / scale;
+      const dy = (e.clientY - startY) / scale;
+      let newX = round2(startXMm + dx);
+      let newY = round2(startYMm + dy);
+
+      // Clamp within canvas bounds
+      const frame = frames.find(f => f.id === frameId);
+      if (frame) {
+        const fw = Number(frame.widthMm || 0);
+        const fh = Number(frame.heightMm || 0);
+        newX = Math.max(0, Math.min(newX, round2(widthMm - fw)));
+        newY = Math.max(0, Math.min(newY, round2(heightMm - fh)));
+      }
+
+      setFrames(prev => prev.map(f => {
+        if (f.id !== frameId) return f;
+        return { ...f, xMm: newX, yMm: newY };
+      }));
+    };
+
+    const handleMouseUp = () => {
+      if (dragRef.current) {
+        dragRef.current = null;
+        setDraggingId(null);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [frames, widthMm, heightMm]);
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
@@ -558,18 +625,26 @@ export default function LayoutCreatorPage() {
                   />
                 )}
 
-                {/* Print Area / Safe Zone (Green Dotted) */}
+                {/* Print Area / Safe Zone (Green Dotted) - Draggable */}
                 <div
-                  className="absolute border border-dashed border-emerald-500 bg-emerald-50/10 flex flex-col items-center justify-center overflow-hidden"
+                  className={`absolute border border-dashed flex flex-col items-center justify-center overflow-hidden select-none ${
+                    draggingId === f.id
+                      ? 'border-indigo-500 bg-indigo-50/20 shadow-lg z-10'
+                      : 'border-emerald-500 bg-emerald-50/10 hover:border-indigo-400 hover:bg-indigo-50/10'
+                  }`}
                   style={{
                     left: fxMm * scale,
                     top: fyMm * scale,
                     width: fwidthMm * scale,
                     height: fheightMm * scale,
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    cursor: draggingId === f.id ? 'grabbing' : 'grab',
                   }}
+                  onMouseDown={(e) => handleFrameDragStart(e, f.id!, scale)}
                 >
-                  <div className="absolute top-1 left-1 bg-emerald-500 text-white text-[8px] font-bold px-1 rounded-sm opacity-80">
+                  <div className={`absolute top-1 left-1 text-white text-[8px] font-bold px-1 rounded-sm opacity-80 ${
+                    draggingId === f.id ? 'bg-indigo-500' : 'bg-emerald-500'
+                  }`}>
                     {idx + 1}
                   </div>
                 </div>
