@@ -796,14 +796,16 @@ export default function Dashboard() {
     const container = e.currentTarget.getBoundingClientRect();
     const canvasW = selectedLayout.canvas?.width || 1200;
     const canvasH = selectedLayout.canvas?.height || 1800;
-    
-    // Calculate the ratio between the internal canvas units and DOM pixels
-    const containerRatio = canvasW / container.width;
+
+    // getBoundingClientRect() returns the zoomed size, so divide by viewZoom
+    // to get the actual unscaled DOM size for an accurate ratio
+    const unscaledWidth = container.width / viewZoom;
+    const containerRatio = canvasW / unscaledWidth;
 
     // Find the closest frame to the click
     const rect = container;
-    const x = (e.clientX - rect.left) * containerRatio;
-    const y = (e.clientY - rect.top) * containerRatio;
+    const x = (e.clientX - rect.left) / viewZoom * containerRatio;
+    const y = (e.clientY - rect.top) / viewZoom * containerRatio;
 
     let closestFrameIdx = 0;
     let minSnapDist = Infinity;
@@ -868,8 +870,10 @@ export default function Dashboard() {
     if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
 
     rafIdRef.current = requestAnimationFrame(() => {
-      const dx = (clientX - dragState.startX) * dragState.containerRatio;
-      const dy = (clientY - dragState.startY) * dragState.containerRatio;
+      // Divide mouse delta by viewZoom to convert screen pixels to unscaled pixels,
+      // then multiply by containerRatio to get canvas-coordinate delta
+      const dx = (clientX - dragState.startX) / viewZoom * dragState.containerRatio;
+      const dy = (clientY - dragState.startY) / viewZoom * dragState.containerRatio;
       
       const newX = dragState.initialX + dx;
       const newY = dragState.initialY + dy;
@@ -884,15 +888,35 @@ export default function Dashboard() {
     });
   };
 
-  const handleDragEnd = () => {
+  const handleDragEnd = async () => {
     // Cancel any pending animation frame to prevent stale reads
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = 0;
     }
     // Guard: both onMouseUp and onMouseLeave can fire — only process once
-    if (!dragState) return;
-    handleUpdateTransform(dragState.canvasIdx, dragState.frameIdx, tempOffsetRef.current);
+    if (!dragState || !editingCanvas) return;
+
+    const { canvasIdx, frameIdx } = dragState;
+    const newOffset = { ...tempOffsetRef.current };
+
+    // Apply the transform to get the updated canvas state
+    const newFrames = editingCanvas.frames.map((f, i) => {
+      if (i !== frameIdx) return f;
+      const updated = { ...f, offset: { ...f.offset } };
+      updated.offset.x = Math.abs(newOffset.x) < 8 ? 0 : newOffset.x;
+      updated.offset.y = Math.abs(newOffset.y) < 8 ? 0 : newOffset.y;
+      return updated;
+    });
+    const finalized = { ...editingCanvas, frames: newFrames };
+
+    // Re-render the canvas BEFORE removing the overlay so there's no flash
+    if (renderTimeoutRef.current) clearTimeout(renderTimeoutRef.current);
+    const dataUrl = await renderCanvas(finalized);
+    finalized.dataUrl = dataUrl;
+
+    // Now update state and clear overlay in one batch — no visual jump
+    setEditingCanvas(finalized);
     setDragState(null);
     setActiveDragFrameUrl(null);
   };
@@ -1843,6 +1867,22 @@ export default function Dashboard() {
                       />
                     )}
 
+                    {/* During drag: cover the original frame on the base image so it doesn't show through */}
+                    {dragState && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: dragState.frameRect.fx / dragState.containerRatio,
+                          top: dragState.frameRect.fy / dragState.containerRatio,
+                          width: dragState.frameRect.fw / dragState.containerRatio,
+                          height: dragState.frameRect.fh / dragState.containerRatio,
+                          backgroundColor: 'white',
+                          zIndex: 40,
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    )}
+
                     {/* Active Frame Layer (Only during drag) — pre-rendered canvas for pixel-perfect match */}
                     {dragState && activeDragFrameUrl && (() => {
                       const { frameRect, imgRect, containerRatio } = dragState;
@@ -1865,10 +1905,10 @@ export default function Dashboard() {
                           <img
                             src={activeDragFrameUrl}
                             className="transition-none shadow-2xl"
-                            style={{ 
+                            style={{
                               position: 'absolute',
-                              width: imgRect.w / containerRatio, 
-                              height: imgRect.h / containerRatio, 
+                              width: imgRect.w / containerRatio,
+                              height: imgRect.h / containerRatio,
                               pointerEvents: 'none',
                               // Initial transform based on current offset
                               transform: `translate(${((frameRect.fw - imgRect.w) / 2 + tempOffsetRef.current.x) / containerRatio}px, ${((frameRect.fh - imgRect.h) / 2 + tempOffsetRef.current.y) / containerRatio}px)`
