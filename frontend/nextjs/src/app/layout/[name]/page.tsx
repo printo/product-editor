@@ -25,7 +25,7 @@ import { Header } from '@/components/Header';
 import {
   Upload, ChevronRight, Loader2, CheckCircle2, X,
   Download, Maximize2, Wand2, Layers, Archive, FileText,
-  Plus, Minus, SendHorizonal,
+  Plus, Minus, SendHorizonal, RotateCw, Undo2, Redo2,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/lib/zip-utils';
@@ -41,6 +41,7 @@ interface FrameState {
   processedUrl: string | null;
   offset: { x: number; y: number };
   scale: number;
+  rotation: number; // 0, 90, 180, 270
   fitMode: FitMode;
   isRemovingBg: boolean;
   isDetectingProduct: boolean;
@@ -164,6 +165,7 @@ export default function LayoutEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [globalFitMode, setGlobalFitMode] = useState<FitMode>('contain');
   const [activeCanvasIdx, setActiveCanvasIdx] = useState<number | null>(null);
+  const [activeFrameIdx, setActiveFrameIdx] = useState(0);
   const [editingCanvas, setEditingCanvas] = useState<CanvasItem | null>(null);
   const [viewZoom, setViewZoom] = useState(0.8);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -181,7 +183,33 @@ export default function LayoutEditorPage() {
     containerRatio: number;
     frameRect: { fx: number; fy: number; fw: number; fh: number };
     imgRect: { w: number; h: number };
+    rotation: number;
+    origImgRect: { w: number; h: number };
   } | null>(null);
+
+  // ── Undo / Redo history for editor ──────────────────────────────────────────
+  const undoStack = useRef<CanvasItem[]>([]);
+  const redoStack = useRef<CanvasItem[]>([]);
+  const [undoCount, setUndoCount] = useState(0); // triggers re-render for button state
+  const [redoCount, setRedoCount] = useState(0);
+
+  const cloneCanvas = useCallback((c: CanvasItem): CanvasItem => ({
+    ...c,
+    frames: c.frames.map(f => ({ ...f, offset: { ...f.offset }, originalFile: f.originalFile })),
+  }), []);
+
+  const lastPushTime = useRef(0);
+  const pushUndo = useCallback((snapshot: CanvasItem, force = false) => {
+    const now = Date.now();
+    // Debounce rapid slider changes — only push if >300ms since last push or forced
+    if (!force && now - lastPushTime.current < 300 && undoStack.current.length > 0) return;
+    lastPushTime.current = now;
+    undoStack.current.push(cloneCanvas(snapshot));
+    if (undoStack.current.length > 50) undoStack.current.shift();
+    redoStack.current = [];
+    setUndoCount(undoStack.current.length);
+    setRedoCount(0);
+  }, [cloneCanvas]);
 
   const [activeDragFrameUrl, setActiveDragFrameUrl] = useState<string | null>(null);
   const tempOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -386,12 +414,20 @@ export default function LayoutEditorPage() {
       const imgSource = frameState.processedUrl || getFileUrl(frameState.originalFile);
       const img = await loadImage(imgSource);
 
+      const rot = frameState.rotation || 0;
+      // Compute effective bounding box of rotated image
+      const rad = (rot * Math.PI) / 180;
+      const sinA = Math.abs(Math.sin(rad));
+      const cosA = Math.abs(Math.cos(rad));
+      const effW = img.width * cosA + img.height * sinA;
+      const effH = img.width * sinA + img.height * cosA;
+
       const baseScale = frameState.fitMode === 'cover'
-        ? Math.max(fw / img.width, fh / img.height)
-        : Math.min(fw / img.width, fh / img.height);
+        ? Math.max(fw / effW, fh / effH)
+        : Math.min(fw / effW, fh / effH);
       const finalScale = baseScale * frameState.scale;
-      const w = img.width * finalScale;
-      const h = img.height * finalScale;
+      const w = effW * finalScale;
+      const h = effH * finalScale;
       const x = fx + (fw - w) / 2 + frameState.offset.x;
       const y = fy + (fh - h) / 2 + frameState.offset.y;
 
@@ -399,7 +435,15 @@ export default function LayoutEditorPage() {
       ctx.beginPath();
       ctx.rect(fx, fy, fw, fh);
       ctx.clip();
-      ctx.drawImage(img, x, y, w, h);
+      if (rot !== 0) {
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        ctx.translate(cx, cy);
+        ctx.rotate((rot * Math.PI) / 180);
+        ctx.drawImage(img, -img.width * finalScale / 2, -img.height * finalScale / 2, img.width * finalScale, img.height * finalScale);
+      } else {
+        ctx.drawImage(img, x, y, w, h);
+      }
       ctx.restore();
     }
 
@@ -412,6 +456,27 @@ export default function LayoutEditorPage() {
     }
     return canvas.toDataURL('image/png');
   }, [layout, getFileUrl, loadImage]);
+
+  // ── Undo / Redo handlers (must be after renderCanvas) ─────────────────────────
+  const handleUndo = useCallback(async () => {
+    if (undoStack.current.length === 0 || !editingCanvas) return;
+    redoStack.current.push(cloneCanvas(editingCanvas));
+    const prev = undoStack.current.pop()!;
+    const dataUrl = await renderCanvas(prev);
+    setEditingCanvas({ ...prev, dataUrl });
+    setUndoCount(undoStack.current.length);
+    setRedoCount(redoStack.current.length);
+  }, [editingCanvas, renderCanvas, cloneCanvas]);
+
+  const handleRedo = useCallback(async () => {
+    if (redoStack.current.length === 0 || !editingCanvas) return;
+    undoStack.current.push(cloneCanvas(editingCanvas));
+    const next = redoStack.current.pop()!;
+    const dataUrl = await renderCanvas(next);
+    setEditingCanvas({ ...next, dataUrl });
+    setUndoCount(undoStack.current.length);
+    setRedoCount(redoStack.current.length);
+  }, [editingCanvas, renderCanvas, cloneCanvas]);
 
   // ── Generate canvases from files ──────────────────────────────────────────────
   const generateCanvases = useCallback(async () => {
@@ -429,7 +494,7 @@ export default function LayoutEditorPage() {
           const file = files[(i * frameCount + f) % files.length];
           if (file) canvasFrames.push({
             id: f, originalFile: file, processedUrl: null,
-            offset: { x: 0, y: 0 }, scale: 1, fitMode: globalFitMode,
+            offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: globalFitMode,
             isRemovingBg: false, isDetectingProduct: false,
           });
         }
@@ -469,6 +534,11 @@ export default function LayoutEditorPage() {
     const sp = new URLSearchParams(window.location.search);
     sp.set('canvas', idx.toString());
     window.history.pushState({}, '', '?' + sp.toString());
+    undoStack.current = [];
+    redoStack.current = [];
+    setUndoCount(0);
+    setRedoCount(0);
+    setActiveFrameIdx(0);
     setEditingCanvas({ ...c, frames: c.frames.map(f => ({ ...f, offset: { ...f.offset } })) });
   };
 
@@ -511,6 +581,19 @@ export default function LayoutEditorPage() {
     }
   }, [canvases, activeCanvasIdx]);
 
+  // ── Keyboard shortcuts for undo/redo ─────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (activeCanvasIdx === null) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+      if (mod && e.key === 'z' && e.shiftKey) { e.preventDefault(); handleRedo(); }
+      if (mod && e.key === 'y') { e.preventDefault(); handleRedo(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [activeCanvasIdx, handleUndo, handleRedo]);
+
   // ── Editor save ───────────────────────────────────────────────────────────────
   const handleSaveChanges = async () => {
     if (activeCanvasIdx === null || !editingCanvas) return;
@@ -547,6 +630,7 @@ export default function LayoutEditorPage() {
         let updatedCanvas: CanvasItem | null = null;
         setEditingCanvas(prev => {
           if (!prev) return prev;
+          pushUndo(prev, true);
           updatedCanvas = {
             ...prev,
             frames: prev.frames.map((f, i) => i === frameIdx ? { ...f, processedUrl: imageUrl, isRemovingBg: false } : f),
@@ -570,15 +654,17 @@ export default function LayoutEditorPage() {
   // ── Transform update ──────────────────────────────────────────────────────────
   const handleUpdateTransform = (
     _canvasIdx: number, frameIdx: number,
-    updates: Partial<{ scale: number; x: number; y: number }>,
+    updates: Partial<{ scale: number; x: number; y: number; rotation: number }>,
   ) => {
     if (!editingCanvas) return;
+    pushUndo(editingCanvas);
     const newFrames = editingCanvas.frames.map((f, i) => {
       if (i !== frameIdx) return f;
       const u = { ...f, offset: { ...f.offset } };
       if ('scale' in updates) u.scale = updates.scale!;
       if ('x' in updates) u.offset.x = Math.abs(updates.x!) < 8 ? 0 : updates.x!;
       if ('y' in updates) u.offset.y = Math.abs(updates.y!) < 8 ? 0 : updates.y!;
+      if ('rotation' in updates) u.rotation = updates.rotation!;
       return u;
     });
     const finalized = { ...editingCanvas, frames: newFrames };
@@ -611,6 +697,7 @@ export default function LayoutEditorPage() {
       if (dist < minDist) { minDist = dist; closestFrameIdx = i; }
     });
 
+    setActiveFrameIdx(closestFrameIdx);
     const frameSpec = layout.frames[closestFrameIdx];
     const frameState = (editingCanvas || canvases[canvasIdx]).frames[closestFrameIdx];
     const fx = frameSpec.width <= 1 ? frameSpec.x * canvasW : frameSpec.x;
@@ -621,15 +708,23 @@ export default function LayoutEditorPage() {
     const imgUrl = frameState.processedUrl || getFileUrl(frameState.originalFile);
     const imgSize = imgCache.current.get(imgUrl);
     if (imgSize) {
+      const rot = frameState.rotation || 0;
+      const rad = (rot * Math.PI) / 180;
+      const sinA = Math.abs(Math.sin(rad));
+      const cosA = Math.abs(Math.cos(rad));
+      const eW = imgSize.width * cosA + imgSize.height * sinA;
+      const eH = imgSize.width * sinA + imgSize.height * cosA;
       const baseScale = frameState.fitMode === 'cover'
-        ? Math.max(fw / imgSize.width, fh / imgSize.height)
-        : Math.min(fw / imgSize.width, fh / imgSize.height);
+        ? Math.max(fw / eW, fh / eH)
+        : Math.min(fw / eW, fh / eH);
       setDragState({
         canvasIdx, frameIdx: closestFrameIdx,
         startX: e.clientX, startY: e.clientY,
         initialX: frameState.offset.x, initialY: frameState.offset.y,
         containerRatio, frameRect: { fx, fy, fw, fh },
-        imgRect: { w: imgSize.width * baseScale * frameState.scale, h: imgSize.height * baseScale * frameState.scale },
+        imgRect: { w: eW * baseScale * frameState.scale, h: eH * baseScale * frameState.scale },
+        rotation: rot,
+        origImgRect: { w: imgSize.width * baseScale * frameState.scale, h: imgSize.height * baseScale * frameState.scale },
       });
       setActiveDragFrameUrl(imgUrl);
     }
@@ -655,6 +750,7 @@ export default function LayoutEditorPage() {
   const handleDragEnd = async () => {
     if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = 0; }
     if (!dragState || !editingCanvas) return;
+    pushUndo(editingCanvas, true);
     const { frameIdx } = dragState;
     const newOffset = { ...tempOffsetRef.current };
     const newFrames = editingCanvas.frames.map((f, i) => {
@@ -1063,6 +1159,14 @@ export default function LayoutEditorPage() {
                       <div className="flex items-center gap-2">
                         <button onClick={async (e) => {
                           e.stopPropagation();
+                          const updated = { ...canvas, frames: canvas.frames.map(f => ({ ...f, rotation: ((f.rotation || 0) + 90) % 360 })) };
+                          const dataUrl = await renderCanvas(updated);
+                          const arr = [...canvases]; arr[idx] = { ...updated, dataUrl }; setCanvases(arr);
+                        }} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Rotate 90°">
+                          <RotateCw className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={async (e) => {
+                          e.stopPropagation();
                           const newMode: FitMode = (canvas.frames[0]?.fitMode || 'contain') === 'contain' ? 'cover' : 'contain';
                           const updated = { ...canvas, frames: canvas.frames.map(f => ({ ...f, fitMode: newMode })) };
                           const dataUrl = await renderCanvas(updated);
@@ -1232,113 +1336,36 @@ export default function LayoutEditorPage() {
       {/* Canvas Editor Modal */}
       {activeCanvasIdx !== null && editingCanvas && (
         <div className="fixed inset-0 z-[100000] bg-white flex overflow-hidden animate-in fade-in duration-300">
-          {/* Sidebar */}
-          <div className="w-80 border-r bg-slate-50 flex flex-col overflow-hidden">
-            <div className="p-6 border-b bg-white">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-bold text-slate-900">Canvas Editor</h3>
-                <button onClick={closeEditor} className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-full"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100">
-                <button disabled={activeCanvasIdx === 0} onClick={() => openEditor(activeCanvasIdx! - 1)} className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all hover:bg-white rounded-lg">
-                  <ChevronRight className="w-4 h-4 rotate-180" />
-                </button>
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] font-black text-slate-400 uppercase">Canvas</span>
-                  <span className="text-xs font-bold text-indigo-600">{activeCanvasIdx + 1} / {canvases.length}</span>
-                </div>
-                <button disabled={activeCanvasIdx === canvases.length - 1} onClick={() => openEditor(activeCanvasIdx! + 1)} className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all hover:bg-white rounded-lg">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              {editingCanvas.frames.map((frame, fIdx) => (
-                <div key={fIdx} className="space-y-4">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                    <Layers className="w-3 h-3" /> Frame {fIdx + 1}
-                  </h4>
-                  <div className="space-y-3">
-                    <p className="text-xs font-bold text-slate-700">AI Processing</p>
-                    <button onClick={() => handleRemoveBackground(activeCanvasIdx!, fIdx)}
-                      disabled={frame.isRemovingBg || !!frame.processedUrl}
-                      className="w-full flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:border-indigo-400 hover:text-indigo-600 transition-all disabled:opacity-50">
-                      {frame.isRemovingBg ? <><Loader2 className="w-3 h-3 animate-spin" /><span className="animate-pulse">Processing AI...</span></> : <><Wand2 className="w-3 h-3" />{frame.processedUrl ? 'Background Removed' : 'Remove Background'}</>}
-                    </button>
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-xs font-bold text-slate-700">Image Fit</p>
-                    <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
-                      {(['contain', 'cover'] as FitMode[]).map(mode => (
-                        <button key={mode}
-                          onClick={() => {
-                            const newFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, fitMode: mode } : f);
-                            const updated = { ...editingCanvas, frames: newFrames };
-                            setEditingCanvas(updated);
-                            if (renderTimeoutRef.current) clearTimeout(renderTimeoutRef.current);
-                            const gen = ++renderGenRef.current;
-                            renderTimeoutRef.current = setTimeout(async () => {
-                              const dataUrl = await renderCanvas(updated);
-                              if (renderGenRef.current === gen) setEditingCanvas(p => p ? { ...p, dataUrl } : p);
-                            }, 80);
-                          }}
-                          className={clsx('flex-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-center capitalize',
-                            frame.fitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
-                          {mode === 'contain' ? 'Fit' : 'Cover'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-4 pt-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-slate-700">Zoom</p>
-                      <span className="text-[10px] font-mono text-slate-400">{(frame.scale * 100).toFixed(0)}%</span>
-                    </div>
-                    <input type="range" min="0.1" max="3" step="0.1" value={frame.scale}
-                      onChange={e => handleUpdateTransform(activeCanvasIdx!, fIdx, { scale: parseFloat(e.target.value) })}
-                      className="w-full accent-indigo-600" />
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-xs font-bold text-slate-700">Position</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {([['x', 'X Offset', frame.offset.x], ['y', 'Y Offset', frame.offset.y]] as [string, string, number][]).map(([k, label, val]) => (
-                        <div key={k} className="space-y-1">
-                          <span className="text-[9px] text-slate-400 uppercase">{label}</span>
-                          <input type="number" value={val}
-                            onChange={e => handleUpdateTransform(activeCanvasIdx!, fIdx, { [k]: parseInt(e.target.value) || 0 })}
-                            className="w-full px-2 py-1.5 border rounded-lg text-xs" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="border-b border-slate-200 pt-4" />
-                </div>
-              ))}
-            </div>
-
-            <div className="p-6 border-t bg-white space-y-4">
-              <div className="flex items-start gap-2 text-[10px] text-slate-400 leading-relaxed bg-slate-50 p-3 rounded-xl">
-                <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1 shrink-0" />
-                <p>Click Save to apply changes and update the canvas.</p>
-              </div>
-              <button onClick={handleSaveChanges}
-                className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 flex items-center justify-center gap-2 active:scale-[0.98]">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" /> Save Changes
-              </button>
-            </div>
-          </div>
-
-          {/* Preview workspace */}
+          {/* Workspace */}
           <div ref={workspaceRef}
             className="flex-1 bg-slate-50 flex flex-col items-center justify-center overflow-auto cursor-move select-none p-12 relative"
             onMouseMove={handleDragMove} onMouseUp={handleDragEnd} onMouseLeave={handleDragEnd}>
-            <div className="absolute bottom-8 right-8 z-20 flex items-center gap-1 bg-white/90 backdrop-blur-md border border-slate-200 p-1.5 rounded-2xl shadow-xl hover:bg-white transition-all">
-              <button onClick={() => setViewZoom(p => Math.max(0.1, p - 0.1))} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"><Minus className="w-5 h-5" /></button>
-              <button onClick={() => setViewZoom(0.85)} className="min-w-[64px] text-[10px] font-black text-slate-400 uppercase tracking-tighter hover:text-indigo-600 transition-colors">
-                {(viewZoom * 100).toFixed(0)}%
-              </button>
-              <button onClick={() => setViewZoom(p => Math.min(2, p + 0.1))} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"><Plus className="w-5 h-5" /></button>
+
+            {/* Floating close — top right of workspace */}
+            <button onClick={closeEditor}
+              className="absolute top-4 right-4 z-30 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-white rounded-full shadow-lg transition-all">
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Floating undo/redo + zoom — bottom right, stacked */}
+            <div className="absolute bottom-8 right-8 z-20 flex flex-col items-end gap-2">
+              <div className="flex items-center gap-1 bg-white/90 backdrop-blur-md border border-slate-200 p-1 rounded-xl shadow-lg">
+                <button onClick={handleUndo} disabled={undoCount === 0}
+                  className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all disabled:opacity-20" title="Undo (Ctrl+Z)">
+                  <Undo2 className="w-4 h-4" />
+                </button>
+                <button onClick={handleRedo} disabled={redoCount === 0}
+                  className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)">
+                  <Redo2 className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex items-center gap-1 bg-white/90 backdrop-blur-md border border-slate-200 p-1.5 rounded-2xl shadow-xl hover:bg-white transition-all">
+                <button onClick={() => setViewZoom(p => Math.max(0.1, p - 0.1))} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"><Minus className="w-5 h-5" /></button>
+                <button onClick={() => setViewZoom(0.85)} className="min-w-[64px] text-[10px] font-black text-slate-400 uppercase tracking-tighter hover:text-indigo-600 transition-colors">
+                  {(viewZoom * 100).toFixed(0)}%
+                </button>
+                <button onClick={() => setViewZoom(p => Math.min(2, p + 0.1))} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"><Plus className="w-5 h-5" /></button>
+              </div>
             </div>
 
             <div className="relative shadow-2xl bg-white animate-in zoom-in-95 duration-500"
@@ -1364,7 +1391,7 @@ export default function LayoutEditorPage() {
                     }} />
                   )}
                   {dragState && activeDragFrameUrl && (() => {
-                    const { frameRect: fr, imgRect: ir, containerRatio: cr } = dragState;
+                    const { frameRect: fr, imgRect: ir, containerRatio: cr, rotation: rot, origImgRect: oir } = dragState;
                     return (
                       <div className="active-drag-overlay" style={{
                         position: 'absolute', left: fr.fx / cr, top: fr.fy / cr,
@@ -1372,14 +1399,142 @@ export default function LayoutEditorPage() {
                         pointerEvents: 'none', zIndex: 50, willChange: 'transform',
                       }}>
                         <img src={activeDragFrameUrl} className="transition-none" style={{
-                          position: 'absolute', width: ir.w / cr, height: ir.h / cr, pointerEvents: 'none',
-                          transform: `translate(${((fr.fw - ir.w) / 2 + tempOffsetRef.current.x) / cr}px, ${((fr.fh - ir.h) / 2 + tempOffsetRef.current.y) / cr}px)`,
+                          position: 'absolute', width: oir.w / cr, height: oir.h / cr, pointerEvents: 'none',
+                          left: ((fr.fw - ir.w) / 2 + tempOffsetRef.current.x) / cr + (ir.w - oir.w) / 2 / cr,
+                          top: ((fr.fh - ir.h) / 2 + tempOffsetRef.current.y) / cr + (ir.h - oir.h) / 2 / cr,
+                          transform: rot ? `rotate(${rot}deg)` : undefined,
                         }} alt="" />
                       </div>
                     );
                   })()}
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Right Sidebar */}
+          <div className="w-80 border-l bg-slate-50 flex flex-col overflow-hidden">
+            <div className="px-3 py-2.5 border-b bg-white flex items-center gap-2">
+              <h3 className="text-xs font-bold text-slate-900 mr-auto">Canvas Editor</h3>
+              <button disabled={activeCanvasIdx === 0} onClick={() => openEditor(activeCanvasIdx! - 1)}
+                className="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded">
+                <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+              </button>
+              <span className="text-[10px] font-bold text-slate-400 tabular-nums">{activeCanvasIdx + 1}/{canvases.length}</span>
+              <button disabled={activeCanvasIdx === canvases.length - 1} onClick={() => openEditor(activeCanvasIdx! + 1)}
+                className="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded">
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Frame selector tabs */}
+            {editingCanvas.frames.length > 1 && (
+              <div className="px-3 py-2 border-b bg-white flex items-center gap-1.5 overflow-x-auto">
+                {editingCanvas.frames.map((_, fIdx) => (
+                  <button key={fIdx} onClick={() => setActiveFrameIdx(fIdx)}
+                    className={clsx('px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5',
+                      activeFrameIdx === fIdx
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}>
+                    <Layers className="w-3 h-3" /> Frame {fIdx + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {(() => {
+                const fIdx = editingCanvas.frames.length === 1 ? 0 : activeFrameIdx;
+                const frame = editingCanvas.frames[fIdx];
+                if (!frame) return null;
+                return (
+                  <>
+                    {editingCanvas.frames.length === 1 && (
+                      <h4 className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                        <Layers className="w-3.5 h-3.5" /> Frame 1
+                      </h4>
+                    )}
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold text-slate-700">AI Processing</p>
+                      <button onClick={() => handleRemoveBackground(activeCanvasIdx!, fIdx)}
+                        disabled={frame.isRemovingBg || !!frame.processedUrl}
+                        className="w-full flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:border-indigo-400 hover:text-indigo-600 transition-all disabled:opacity-50">
+                        {frame.isRemovingBg ? <><Loader2 className="w-3 h-3 animate-spin" /><span className="animate-pulse">Processing AI...</span></> : <><Wand2 className="w-3 h-3" />{frame.processedUrl ? 'Background Removed' : 'Remove Background'}</>}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-slate-700">Image Fit</p>
+                      <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+                        {(['contain', 'cover'] as FitMode[]).map(mode => (
+                          <button key={mode}
+                            onClick={() => {
+                              pushUndo(editingCanvas, true);
+                              const newFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, fitMode: mode } : f);
+                              const updated = { ...editingCanvas, frames: newFrames };
+                              setEditingCanvas(updated);
+                              if (renderTimeoutRef.current) clearTimeout(renderTimeoutRef.current);
+                              const gen = ++renderGenRef.current;
+                              renderTimeoutRef.current = setTimeout(async () => {
+                                const dataUrl = await renderCanvas(updated);
+                                if (renderGenRef.current === gen) setEditingCanvas(p => p ? { ...p, dataUrl } : p);
+                              }, 80);
+                            }}
+                            className={clsx('px-3 py-1 text-[10px] font-bold rounded-md transition-all text-center',
+                              frame.fitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                            {mode === 'contain' ? 'Fit' : 'Cover'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-3 pt-2">
+                      <p className="text-xs font-bold text-slate-700">Rotation</p>
+                      <div className="flex items-center gap-1.5">
+                        {[0, 90, 180, 270].map(deg => (
+                          <button key={deg}
+                            onClick={() => handleUpdateTransform(activeCanvasIdx!, fIdx, { rotation: deg })}
+                            className={clsx('flex-1 px-1.5 py-1 text-[10px] font-bold rounded-md transition-all text-center',
+                              (frame.rotation || 0) === deg ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:text-slate-700')}>
+                            {deg}°
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input type="range" min="0" max="359" step="1" value={frame.rotation || 0}
+                          onChange={e => handleUpdateTransform(activeCanvasIdx!, fIdx, { rotation: parseInt(e.target.value) })}
+                          className="flex-1 accent-indigo-600" />
+                        <input type="number" min="0" max="359" value={frame.rotation || 0}
+                          onChange={e => {
+                            let v = parseInt(e.target.value) || 0;
+                            v = ((v % 360) + 360) % 360;
+                            handleUpdateTransform(activeCanvasIdx!, fIdx, { rotation: v });
+                          }}
+                          className="w-14 px-1.5 py-1 text-xs font-mono text-center border border-slate-200 rounded-lg" />
+                      </div>
+                    </div>
+                    <div className="space-y-2 pt-2">
+                      <p className="text-xs font-bold text-slate-700">Zoom</p>
+                      <div className="flex items-center gap-2">
+                        <input type="range" min="10" max="300" step="10" value={Math.round(frame.scale * 100)}
+                          onChange={e => handleUpdateTransform(activeCanvasIdx!, fIdx, { scale: parseInt(e.target.value) / 100 })}
+                          className="flex-1 accent-indigo-600" />
+                        <input type="number" min="10" max="300" value={Math.round(frame.scale * 100)}
+                          onChange={e => {
+                            const v = Math.max(10, Math.min(300, parseInt(e.target.value) || 100));
+                            handleUpdateTransform(activeCanvasIdx!, fIdx, { scale: v / 100 });
+                          }}
+                          className="w-14 px-1.5 py-1 text-xs font-mono text-center border border-slate-200 rounded-lg" />
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            <div className="p-4 border-t bg-white">
+              <button onClick={handleSaveChanges}
+                className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg flex items-center justify-center gap-2 active:scale-[0.98]">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Save Changes
+              </button>
             </div>
           </div>
         </div>
