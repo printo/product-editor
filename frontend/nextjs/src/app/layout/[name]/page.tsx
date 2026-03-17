@@ -609,7 +609,7 @@ export default function LayoutEditorPage() {
   const handleRemoveBackground = async (canvasIdx: number, frameIdx: number) => {
     if (!editingCanvas || editingCanvas.frames[frameIdx].isRemovingBg) return;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min for first model load
 
     setEditingCanvas(prev => prev ? {
       ...prev, frames: prev.frames.map((f, i) => i === frameIdx ? { ...f, isRemovingBg: true } : f),
@@ -647,7 +647,7 @@ export default function LayoutEditorPage() {
       setEditingCanvas(prev => prev ? {
         ...prev, frames: prev.frames.map((f, i) => i === frameIdx ? { ...f, isRemovingBg: false } : f),
       } : prev);
-      setError(err.name === 'AbortError' ? 'Background removal timed out.' : 'Failed to remove background.');
+      setError(err.name === 'AbortError' ? 'Background removal timed out. The AI model may still be loading — try again.' : 'Failed to remove background. Check if the backend is running.');
     }
   };
 
