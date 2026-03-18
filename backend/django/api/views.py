@@ -2317,3 +2317,65 @@ class EmbedSessionValidateView(APIView):
             return Response({'detail': 'Token expired or revoked'}, status=status.HTTP_401_UNAUTHORIZED)
 
         return Response({'api_key': session.api_key.key})
+
+
+# ─── Fonts management ─────────────────────────────────────────────────────────
+
+FONTS_JSON_PATH = os.path.join(settings.STORAGE_ROOT, 'fonts.json')
+
+DEFAULT_FONTS = ['sans-serif', 'serif', 'monospace']
+
+
+def _read_fonts():
+    """Read the fonts config from disk."""
+    try:
+        with open(FONTS_JSON_PATH, 'r') as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else DEFAULT_FONTS
+    except (FileNotFoundError, json.JSONDecodeError):
+        return DEFAULT_FONTS
+
+
+def _write_fonts(fonts):
+    """Write fonts config to disk."""
+    with open(FONTS_JSON_PATH, 'w') as f:
+        json.dump(fonts, f, indent=2)
+
+
+class FontsView(APIView):
+    """
+    GET  /api/fonts  — returns the list of enabled fonts (open to any authenticated user).
+    PUT  /api/fonts  — saves the list of enabled fonts (ops team only).
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({'fonts': _read_fonts()})
+
+    def put(self, request):
+        # Only ops team can modify fonts
+        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        user = None
+        for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
+            try:
+                result = auth_cls.authenticate(request)
+                if result:
+                    user = result[0]
+                    break
+            except Exception:
+                continue
+
+        if not user:
+            return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Check ops team permission
+        is_ops = getattr(user, 'is_ops_team', False) or getattr(user, 'is_staff', False)
+        if not is_ops:
+            return Response({'detail': 'Only ops team can modify fonts'}, status=status.HTTP_403_FORBIDDEN)
+
+        fonts = request.data.get('fonts')
+        if not isinstance(fonts, list) or not all(isinstance(f, str) for f in fonts):
+            return Response({'detail': 'fonts must be a list of strings'}, status=status.HTTP_400_BAD_REQUEST)
+
+        _write_fonts(fonts)
+        return Response({'fonts': fonts})

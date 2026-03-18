@@ -10,9 +10,6 @@ import {
   Trash2,
   Save,
   ChevronRight,
-  Square,
-  Grid,
-  Settings,
   AlertCircle,
   CheckCircle2,
   Loader2,
@@ -20,11 +17,11 @@ import {
   Eye,
   Edit2,
   Copy,
-  User,
-  Search
+  Search,
+  Type,
 } from 'lucide-react';
-import { clsx } from 'clsx';
 import { LayoutSVG } from '@/components/LayoutSVG';
+import { LayoutFabricPreview } from './LayoutFabricPreview';
 
 interface LayoutFrame {
   id?: string;
@@ -145,17 +142,69 @@ export default function LayoutCreatorPage() {
   const [surfaces, setSurfaces] = useState<SurfaceEditorState[]>([]);
   const [activeSurfaceIdx, setActiveSurfaceIdx] = useState(0);
 
-  // Drag state for preview frames
-  const dragRef = useRef<{
-    frameId: string;
-    startX: number;
-    startY: number;
-    startXMm: number;
-    startYMm: number;
-    scale: number;
-  } | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const previewContainerRef = useRef<HTMLDivElement>(null);
+  // Selected frame in Fabric preview
+  const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
+
+  // ── Google Fonts ───────────────────────────────────────────────────────────
+  const [showFontModal, setShowFontModal] = useState(false);
+  const [fontSearch, setFontSearch] = useState('');
+  const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
+  const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
+  const [isSavingFonts, setIsSavingFonts] = useState(false);
+
+  const googleFontsList = [
+    'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Oswald', 'Raleway',
+    'Poppins', 'Nunito', 'Ubuntu', 'Playfair Display', 'Merriweather',
+    'Inter', 'Rubik', 'Work Sans', 'Quicksand', 'Barlow', 'Fira Sans',
+    'Karla', 'Cabin', 'Arvo', 'Bitter', 'Crimson Text', 'Josefin Sans',
+    'Pacifico', 'Dancing Script', 'Lobster', 'Bebas Neue', 'Anton',
+    'Permanent Marker', 'Satisfy', 'Great Vibes', 'Abril Fatface',
+    'Archivo', 'Source Sans 3', 'DM Sans', 'Space Grotesk', 'Outfit',
+    'Sora', 'Manrope', 'Plus Jakarta Sans', 'Lexend',
+  ];
+
+  const loadGoogleFont = useCallback((fontName: string) => {
+    if (fontsLoaded.has(fontName) || ['sans-serif', 'serif', 'monospace', 'cursive'].includes(fontName)) return;
+    const link = document.createElement('link');
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;700&display=swap`;
+    link.rel = 'stylesheet';
+    document.head.appendChild(link);
+    setFontsLoaded(prev => new Set(prev).add(fontName));
+  }, [fontsLoaded]);
+
+  // Fetch selected fonts from the backend on mount
+  useEffect(() => {
+    if (!session?.accessToken) return;
+    fetch('/api/fonts', {
+      headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json' },
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data?.fonts) setSelectedFonts(data.fonts); })
+      .catch(() => {});
+  }, [session?.accessToken]);
+
+  // Save selected fonts to the backend
+  const saveFontsToBackend = useCallback(async (fonts: string[]) => {
+    if (!session?.accessToken) return;
+    setIsSavingFonts(true);
+    try {
+      await fetch('/api/fonts', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ fonts }),
+      });
+    } catch {}
+    setIsSavingFonts(false);
+  }, [session?.accessToken]);
+
+  // Pre-load selected Google Fonts for preview
+  useEffect(() => {
+    selectedFonts.forEach(f => loadGoogleFont(f));
+  }, [selectedFonts, loadGoogleFont]);
 
   // Resolve active frames/dimensions based on layout type
   const activeFrames = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].frames : frames;
@@ -181,64 +230,6 @@ export default function LayoutCreatorPage() {
       }
     }
   }, [layoutType, activeSurfaceIdx]);
-
-  const handleFrameDragStart = useCallback((e: React.MouseEvent, frameId: string, scale: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const frame = activeFrames.find(f => f.id === frameId);
-    if (!frame) return;
-    dragRef.current = {
-      frameId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startXMm: Number(frame.xMm || 0),
-      startYMm: Number(frame.yMm || 0),
-      scale,
-    };
-    setDraggingId(frameId);
-  }, [activeFrames]);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragRef.current) return;
-      const { frameId, startX, startY, startXMm, startYMm, scale } = dragRef.current;
-      const dx = (e.clientX - startX) / scale;
-      const dy = (e.clientY - startY) / scale;
-      let newX = round2(startXMm + dx);
-      let newY = round2(startYMm + dy);
-
-      // Clamp within canvas bounds
-      const curFrames = activeFrames;
-      const curW = activeWidthMm;
-      const curH = activeHeightMm;
-      const frame = curFrames.find(f => f.id === frameId);
-      if (frame) {
-        const fw = Number(frame.widthMm || 0);
-        const fh = Number(frame.heightMm || 0);
-        newX = Math.max(0, Math.min(newX, round2(curW - fw)));
-        newY = Math.max(0, Math.min(newY, round2(curH - fh)));
-      }
-
-      setActiveFrames(prev => prev.map(f => {
-        if (f.id !== frameId) return f;
-        return { ...f, xMm: newX, yMm: newY };
-      }));
-    };
-
-    const handleMouseUp = () => {
-      if (dragRef.current) {
-        dragRef.current = null;
-        setDraggingId(null);
-      }
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [activeFrames, activeWidthMm, activeHeightMm, setActiveFrames]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -703,82 +694,6 @@ export default function LayoutCreatorPage() {
     }));
   };
 
-  // Helper to render preview grid
-  const renderLivePreview = () => {
-    const previewSize = 300;
-    const pW = activeWidthMm;
-    const pH = activeHeightMm;
-    const scale = Math.min(previewSize / pW, previewSize / pH);
-    const canvasPreviewW = pW * scale;
-    const canvasPreviewH = pH * scale;
-
-    return (
-      <div className="relative p-12 bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden w-full h-full min-h-[400px]">
-        <div
-          className="relative bg-white shadow-2xl rounded-sm transition-all duration-300 overflow-hidden"
-          style={{ width: canvasPreviewW, height: canvasPreviewH }}
-        >
-          {activeFrames.map((f, idx) => {
-            const bleed = Number(f.bleedMm || 0);
-            const fxMm = Number(f.xMm || 0);
-            const fyMm = Number(f.yMm || 0);
-            const fwidthMm = Number(f.widthMm || 0);
-            const fheightMm = Number(f.heightMm || 0);
-            return (
-              <React.Fragment key={f.id}>
-                {/* Bleed Area (Red Dotted) */}
-                {bleed > 0 && (
-                  <div 
-                    className="absolute border border-dashed border-rose-400 opacity-60 pointer-events-none"
-                    style={{
-                      left: (fxMm - bleed) * scale,
-                      top: (fyMm - bleed) * scale,
-                      width: (fwidthMm + (bleed * 2)) * scale,
-                      height: (fheightMm + (bleed * 2)) * scale,
-                      boxSizing: 'border-box'
-                    }}
-                  />
-                )}
-
-                {/* Print Area / Safe Zone (Green Dotted) - Draggable */}
-                <div
-                  className={`absolute border border-dashed flex flex-col items-center justify-center overflow-hidden select-none ${
-                    draggingId === f.id
-                      ? 'border-indigo-500 bg-indigo-50/20 shadow-lg z-10'
-                      : 'border-emerald-500 bg-emerald-50/10 hover:border-indigo-400 hover:bg-indigo-50/10'
-                  }`}
-                  style={{
-                    left: fxMm * scale,
-                    top: fyMm * scale,
-                    width: fwidthMm * scale,
-                    height: fheightMm * scale,
-                    boxSizing: 'border-box',
-                    cursor: draggingId === f.id ? 'grabbing' : 'grab',
-                  }}
-                  onMouseDown={(e) => handleFrameDragStart(e, f.id!, scale)}
-                >
-                  <div className={`absolute top-1 left-1 text-white text-[8px] font-bold px-1 rounded-sm opacity-80 ${
-                    draggingId === f.id ? 'bg-indigo-500' : 'bg-emerald-500'
-                  }`}>
-                    {idx + 1}
-                  </div>
-                </div>
-              </React.Fragment>
-            );
-          })}
-
-          {/* Mask Preview */}
-          {(activeMaskFile || activeMaskUrl) && (
-            <img
-              src={activeMaskFile ? URL.createObjectURL(activeMaskFile) : activeMaskUrl!}
-              className="absolute inset-0 w-full h-full object-fill pointer-events-none opacity-80"
-              alt="Mask Preview"
-            />
-          )}
-        </div>
-      </div>
-    );
-  };
 
   if (status === 'loading' || isLoading) {
     return (
@@ -810,6 +725,13 @@ export default function LayoutCreatorPage() {
                 className="w-64 pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
               />
             </div>
+            <button
+              onClick={() => setShowFontModal(true)}
+              className="px-5 py-2.5 bg-white text-slate-700 font-bold rounded-2xl border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 shadow-sm transition-all hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2"
+            >
+              <Type className="w-4 h-4" />
+              Fonts ({selectedFonts.length})
+            </button>
             <button
               onClick={openCreateModal}
               className="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2"
@@ -1329,8 +1251,19 @@ export default function LayoutCreatorPage() {
                     <div className="p-4 border-b border-slate-100 bg-slate-50/50 rounded-t-xl shrink-0">
                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest text-center">Live Preview (To Scale)</label>
                     </div>
-                    <div className="flex-1 overflow-auto flex items-center justify-center p-6 bg-slate-50/30">
-                      {renderLivePreview()}
+                    <div className="flex-1 overflow-auto flex items-center justify-center bg-slate-50/30">
+                      <LayoutFabricPreview
+                        widthMm={activeWidthMm}
+                        heightMm={activeHeightMm}
+                        dpi={activeDpi}
+                        frames={activeFrames}
+                        maskUrl={activeMaskUrl}
+                        maskFile={activeMaskFile}
+                        snapGrid={snapGrid}
+                        onFramesChange={setActiveFrames}
+                        onFrameSelect={setSelectedFrameId}
+                        selectedFrameId={selectedFrameId}
+                      />
                     </div>
                     <div className="p-4 border-t border-slate-100 bg-slate-50/50 rounded-b-xl shrink-0 text-center">
                       <p className="text-xs text-slate-500 font-medium">Areas: {activeFrames.length} &middot; DPI: {activeDpi}{layoutType === 'product' && surfaces[activeSurfaceIdx] ? ` &middot; ${surfaces[activeSurfaceIdx].label}` : ''}</p>
@@ -1419,6 +1352,65 @@ export default function LayoutCreatorPage() {
                   <pre className="text-indigo-400 font-mono text-xs leading-relaxed">
                     {JSON.stringify(selectedLayout, null, 2)}
                   </pre>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Google Fonts Picker Modal */}
+          {showFontModal && (
+            <div className="fixed inset-0 z-[200000] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFontModal(false)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="px-6 py-4 border-b flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-900">Google Fonts</h3>
+                  <button onClick={() => setShowFontModal(false)} className="p-1 text-slate-400 hover:text-slate-900 rounded"><X className="w-4 h-4" /></button>
+                </div>
+                <div className="px-6 py-3 border-b">
+                  <input type="text" placeholder="Search fonts..." value={fontSearch} onChange={e => setFontSearch(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                </div>
+                <div className="flex-1 overflow-y-auto px-6 py-3 space-y-1">
+                  {/* System fonts — always available */}
+                  {['sans-serif', 'serif', 'monospace', 'cursive'].filter(f => f.toLowerCase().includes(fontSearch.toLowerCase())).map(f => (
+                    <label key={f} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer">
+                      <input type="checkbox" checked={selectedFonts.includes(f)}
+                        onChange={e => {
+                          const next = e.target.checked ? [...selectedFonts, f] : selectedFonts.filter(x => x !== f);
+                          setSelectedFonts(next);
+                          saveFontsToBackend(next);
+                        }}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                      <span className="text-sm text-slate-700" style={{ fontFamily: f }}>{f}</span>
+                      <span className="text-[9px] text-slate-400 ml-auto uppercase">System</span>
+                    </label>
+                  ))}
+                  {/* Google Fonts */}
+                  {googleFontsList.filter(f => f.toLowerCase().includes(fontSearch.toLowerCase())).map(f => (
+                    <label key={f} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer"
+                      onMouseEnter={() => loadGoogleFont(f)}>
+                      <input type="checkbox" checked={selectedFonts.includes(f)}
+                        onChange={e => {
+                          let next: string[];
+                          if (e.target.checked) {
+                            loadGoogleFont(f);
+                            next = [...selectedFonts, f];
+                          } else {
+                            next = selectedFonts.filter(x => x !== f);
+                          }
+                          setSelectedFonts(next);
+                          saveFontsToBackend(next);
+                        }}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                      <span className="text-sm text-slate-700" style={{ fontFamily: fontsLoaded.has(f) ? f : 'inherit' }}>{f}</span>
+                      <span className="text-[9px] text-slate-400 ml-auto uppercase">Google</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="px-6 py-3 border-t bg-slate-50 flex items-center justify-between">
+                  <span className="text-xs text-slate-500">
+                    {selectedFonts.length} font{selectedFonts.length !== 1 ? 's' : ''} selected
+                  </span>
+                  {isSavingFonts && <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />}
                 </div>
               </div>
             </div>

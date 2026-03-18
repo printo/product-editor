@@ -4,7 +4,7 @@ from .views import (
     AIStatusView, BackgroundRemovalView, ProductDetectionView, DesignPlacementView, BlendPreviewView,
     CompleteAIProcessingView, AIJobStatusView, ManualOverrideOptionsView, BackgroundJobStatusView,
     CircuitBreakerResetView, LayoutManagementView, ExternalLayoutDetailView, MaskDownloadView,
-    EmbedSessionView, EmbedSessionValidateView,
+    EmbedSessionView, EmbedSessionValidateView, FontsView,
 )
 
 urlpatterns = [
@@ -27,6 +27,9 @@ urlpatterns = [
     path("embed/session", EmbedSessionView.as_view(), name="embed-session-create"),
     path("embed/session/validate", EmbedSessionValidateView.as_view(), name="embed-session-validate"),
     
+    # Fonts management
+    path("fonts", FontsView.as_view(), name="fonts"),
+
     # AI Processing endpoints
     path("ai/status", AIStatusView.as_view(), name="ai-status"),
     path("ai/remove-background", BackgroundRemovalView.as_view(), name="ai-background-removal"),

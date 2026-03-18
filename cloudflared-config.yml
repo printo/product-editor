@@ -4,7 +4,7 @@ credentials-file: /etc/cloudflared/credentials.json
 ingress:
   - hostname: product-editor.printo.in
     path: /api/auth/.*
-    service: http://frontend:5005
+    service: http://frontend:3000
   - hostname: product-editor.printo.in
     path: /api/.*
     service: http://backend:8000
@@ -12,5 +12,5 @@ ingress:
     path: /admin/.*
     service: http://backend:8000
   - hostname: product-editor.printo.in
-    service: http://frontend:5005
+    service: http://frontend:3000
   - service: http_status:404

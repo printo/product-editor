@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  images: {
+    unoptimized: true, // next/image not used — disable optimizer to mitigate GHSA-3x4c-7xq6-9pq8
+  },
   async rewrites() {
     return [
       {

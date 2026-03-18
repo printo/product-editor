@@ -42,7 +42,7 @@ async function resolveApiKey(embedToken: string): Promise<string | null> {
 
 async function handler(
   req: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
   const embedToken = req.headers.get('X-Embed-Token');
   if (!embedToken) {
@@ -55,7 +55,8 @@ async function handler(
   }
 
   // Build the upstream URL — join the path segments
-  const upstreamPath = (params.path || []).join('/');
+  const { path } = await params;
+  const upstreamPath = (path || []).join('/');
   const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${req.nextUrl.search}`;
 
   // Forward only safe, non-hop-by-hop headers

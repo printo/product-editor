@@ -1,0 +1,155 @@
+{
+    "name": "booklet_-_test_",
+    "type": "product",
+    "tags": [],
+    "surfaces": [
+        {
+            "key": "front",
+            "label": "Front",
+            "canvas": {
+                "width": 2835,
+                "height": 3862,
+                "widthMm": 240,
+                "heightMm": 327,
+                "dpi": 300
+            },
+            "frames": [
+                {
+                    "id": "89dc04iem",
+                    "xMm": 14.87,
+                    "yMm": 14.87,
+                    "widthMm": 210,
+                    "heightMm": 297,
+                    "bleedMm": 15,
+                    "x": -0.0007054673721340388,
+                    "y": -0.0005178663904712584,
+                    "width": 1,
+                    "height": 1
+                }
+            ],
+            "maskUrl": null,
+            "maskOnExport": false
+        },
+        {
+            "key": "02",
+            "label": "02",
+            "canvas": {
+                "width": 1200,
+                "height": 1800,
+                "widthMm": 101.6,
+                "heightMm": 152.4,
+                "dpi": 300
+            },
+            "frames": [],
+            "maskUrl": null,
+            "maskOnExport": false
+        },
+        {
+            "key": "03",
+            "label": "03",
+            "canvas": {
+                "width": 1200,
+                "height": 1800,
+                "widthMm": 101.6,
+                "heightMm": 152.4,
+                "dpi": 300
+            },
+            "frames": [],
+            "maskUrl": null,
+            "maskOnExport": false
+        },
+        {
+            "key": "04",
+            "label": "04",
+            "canvas": {
+                "width": 1200,
+                "height": 1800,
+                "widthMm": 101.6,
+                "heightMm": 152.4,
+                "dpi": 300
+            },
+            "frames": [],
+            "maskUrl": null,
+            "maskOnExport": false
+        },
+        {
+            "key": "05",
+            "label": "05",
+            "canvas": {
+                "width": 1200,
+                "height": 1800,
+                "widthMm": 101.6,
+                "heightMm": 152.4,
+                "dpi": 300
+            },
+            "frames": [],
+            "maskUrl": null,
+            "maskOnExport": false
+        },
+        {
+            "key": "back",
+            "label": "back",
+            "canvas": {
+                "width": 1200,
+                "height": 1800,
+                "widthMm": 101.6,
+                "heightMm": 152.4,
+                "dpi": 300
+            },
+            "frames": [],
+            "maskUrl": null,
+            "maskOnExport": false
+        }
+    ],
+    "createdAt": "2026-03-17T06:23:21.484949+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-03-17T06:23:21.484949+00:00",
+    "updatedBy": "Kanna Perumal C",
+    "metadata": [
+        {
+            "key": "createdByName",
+            "label": "Created By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "createdById",
+            "label": "Emp ID",
+            "value": null
+        },
+        {
+            "key": "createdAt",
+            "label": "Created At",
+            "value": "2026-03-17T06:23:21.484949+00:00"
+        },
+        {
+            "key": "updatedByName",
+            "label": "Updated By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "updatedById",
+            "label": "Updated Emp ID",
+            "value": null
+        },
+        {
+            "key": "updatedAt",
+            "label": "Updated At",
+            "value": "2026-03-17T06:23:21.484949+00:00"
+        },
+        {
+            "key": "dimensions",
+            "label": "Dimensions",
+            "value": "front: 240.00x327.00mm | 02: 101.60x152.40mm | 03: 101.60x152.40mm | 04: 101.60x152.40mm | 05: 101.60x152.40mm | back: 101.60x152.40mm"
+        },
+        {
+            "key": "tags",
+            "label": "Tags",
+            "value": ""
+        },
+        {
+            "key": "maskOnExport",
+            "label": "Mask on Export",
+            "value": "Disabled"
+        }
+    ]
+}
