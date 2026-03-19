@@ -780,7 +780,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     const handleTextChanged = (e: any) => {
       const target = e.target as Textbox;
-      if (!target || (target as any)[DATA_KEY] !== 'text') return;
+      if (!target || (target as any).__overlayIdx === undefined) return;
+      
+      // ✅ CRITICAL: Do NOT sync to parent state while actively editing on canvas.
+      // This prevents React re-renders from re-mounting components or interrupting the browser's input focus.
+      // The final state will be synced in handleEditingExited.
+      if (isEditingRef.current) return;
+
       const idx = (target as any).__overlayIdx as number;
       const current = editingCanvasRef.current;
       const newOverlays = current.overlays.map((o, i) => {

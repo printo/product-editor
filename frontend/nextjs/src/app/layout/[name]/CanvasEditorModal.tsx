@@ -825,13 +825,14 @@ export function CanvasEditorModal({
                       }} />
                   </label>
 
+                  {/* Option 2: Bulk Create NEW Canvases (Commented out per user request) */}
+                  {/*
                   <div className="flex items-center gap-3 px-2">
                     <div className="h-[1px] flex-1 bg-slate-200/60" />
                     <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">or</span>
                     <div className="h-[1px] flex-1 bg-slate-200/60" />
                   </div>
 
-                  {/* Option 2: Bulk Create NEW Canvases */}
                   <label className="group relative flex flex-col items-center justify-center gap-2 p-5 bg-gradient-to-br from-sky-50 to-cyan-50 border-2 border-dashed border-sky-200/50 rounded-3xl text-sky-600 hover:from-sky-100 hover:to-cyan-100 transition-all cursor-pointer overflow-hidden opacity-80 hover:opacity-100">
                     <div className="p-3 bg-white rounded-2xl shadow-sm text-sky-500 group-hover:scale-110 transition-transform">
                       <Upload className="w-5 h-5" />
@@ -840,40 +841,9 @@ export function CanvasEditorModal({
                       <p className="text-[10px] font-black uppercase tracking-tight">Bulk Create Layouts</p>
                       <p className="text-[8px] text-sky-400 font-bold uppercase tracking-widest opacity-60 mt-0.5">Generate multiple new pages</p>
                     </div>
-                    <input type="file" multiple accept="image/*" className="hidden"
-                      onChange={async (e) => {
-                        if (!e.target.files?.length || !layout) return;
-                        const addedFiles = Array.from(e.target.files);
-                        e.target.value = '';
-                        const frameCount = layout.frames?.length || 1;
-                        const startId = canvases.length;
-                        const newCanvasCount = Math.ceil(addedFiles.length / frameCount);
-                        const newCanvases: CanvasItem[] = [];
-                        for (let i = 0; i < newCanvasCount; i++) {
-                          const canvasFrames: FrameState[] = [];
-                          for (let f = 0; f < frameCount; f++) {
-                            const file = addedFiles[(i * frameCount + f) % addedFiles.length];
-                            if (file) canvasFrames.push({
-                              id: f, originalFile: file, processedUrl: null,
-                              offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: globalFitMode,
-                              isRemovingBg: false, isDetectingProduct: false,
-                            });
-                          }
-                          const item: CanvasItem = {
-                            id: startId + i,
-                            frames: canvasFrames,
-                            overlays: [],
-                            bgColor: '#ffffff',
-                            dataUrl: null
-                          };
-                          item.dataUrl = await renderCanvas(item);
-                          newCanvases.push(item);
-                        }
-                        setCanvases(prev => [...prev, ...newCanvases]);
-                        skipNextGenerateRef.current = true;
-                        setFiles(prev => [...prev, ...addedFiles]);
-                      }} />
+                    <input type="file" multiple accept="image/*" className="hidden" />
                   </label>
+                  */}
                 </div>
               )}
             </div>
