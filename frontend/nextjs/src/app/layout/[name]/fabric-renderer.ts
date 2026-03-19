@@ -132,136 +132,111 @@ export async function renderCanvas(
     }
   }
 
-  // ── Shape overlays ──────────────────────────────────────────────────────────
-  if (canvasItem.shapeOverlays.length > 0) {
-    for (const shape of canvasItem.shapeOverlays) {
-      const sx = (shape.x / 100) * canvasW;
-      const sy = (shape.y / 100) * canvasH;
-      const sw = (shape.width / 100) * canvasW;
-      const sh = (shape.height / 100) * canvasH;
-
-      const commonOpts = {
-        fill: shape.fill || 'transparent',
-        stroke: shape.strokeWidth > 0 ? (shape.stroke || '#000000') : undefined,
-        strokeWidth: shape.strokeWidth > 0 ? shape.strokeWidth : 0,
-        opacity: shape.opacity ?? 1,
-        angle: shape.rotation || 0,
-        selectable: false,
-        evented: false,
-      };
-
-      try {
-        let fabricObj;
-        const def = getShapeDef(shape.shapeType);
-
-        if (def?.fabricType === 'rect') {
-          const isRounded = shape.shapeType === 'rounded-rect';
-          fabricObj = new Rect({
-            left: sx, top: sy, width: sw, height: sh,
-            originX: 'left', originY: 'top',
-            rx: isRounded ? Math.min(sw, sh) * 0.15 : 0,
-            ry: isRounded ? Math.min(sw, sh) * 0.15 : 0,
-            ...commonOpts,
-          });
-        } else if (def?.fabricType === 'circle') {
-          const radius = Math.min(sw, sh) / 2;
-          fabricObj = new Circle({
-            left: sx + sw / 2, top: sy + sh / 2, radius,
-            originX: 'center', originY: 'center',
-            ...commonOpts,
-          });
-        } else if (def?.fabricType === 'ellipse') {
-          fabricObj = new Ellipse({
-            left: sx + sw / 2, top: sy + sh / 2,
-            rx: sw / 2, ry: sh / 2,
-            originX: 'center', originY: 'center',
-            ...commonOpts,
-          });
-        } else if (def?.fabricType === 'triangle') {
-          fabricObj = new Triangle({
-            left: sx, top: sy, width: sw, height: sh,
-            originX: 'left', originY: 'top',
-            ...commonOpts,
-          });
-        } else if (def?.fabricType === 'polygon' && def.polygonPoints) {
-          const points = def.polygonPoints.map(p => ({
-            x: (p.x / 100) * sw,
-            y: (p.y / 100) * sh,
-          }));
-          fabricObj = new Polygon(points, {
-            left: sx, top: sy,
-            originX: 'left', originY: 'top',
-            ...commonOpts,
-          });
-        } else {
-          const pathStr = getShapePath(shape.shapeType, shape.svgPath);
-          fabricObj = new Path(pathStr, {
-            left: sx + sw / 2, top: sy + sh / 2,
-            originX: 'center', originY: 'center',
-            scaleX: sw / 100, scaleY: sh / 100,
-            ...commonOpts,
-          });
-        }
-
-        fabricCanvas.add(fabricObj);
-      } catch {
-        // Skip invalid shapes
-      }
-    }
-  }
-
-  // ── Image overlays (clipart / icons) ──────────────────────────────────────
-  if (canvasItem.imageOverlays?.length > 0) {
-    for (const imgOverlay of canvasItem.imageOverlays) {
-      const ix = (imgOverlay.x / 100) * canvasW;
-      const iy = (imgOverlay.y / 100) * canvasH;
-      const iw = (imgOverlay.width / 100) * canvasW;
-      const ih = (imgOverlay.height / 100) * canvasH;
-
-      try {
-        const img = await FabricImage.fromURL(imgOverlay.src, { crossOrigin: 'anonymous' });
-        img.set({
-          left: ix, top: iy,
-          originX: 'left', originY: 'top',
-          scaleX: iw / (img.width || 1),
-          scaleY: ih / (img.height || 1),
-          angle: imgOverlay.rotation || 0,
-          opacity: imgOverlay.opacity ?? 1,
-          selectable: false,
-          evented: false,
-        });
-        fabricCanvas.add(img);
-      } catch {
-        // Skip failed image loads
-      }
-    }
-  }
-
-  // ── Text overlays ───────────────────────────────────────────────────────────
-  if (canvasItem.textOverlays.length > 0) {
+  // ── Overlays (Unified) ─────────────────────────────────────────────────────
+  if (canvasItem.overlays && canvasItem.overlays.length > 0) {
     if (typeof document !== 'undefined' && document.fonts) {
       await document.fonts.ready;
     }
-    for (const t of canvasItem.textOverlays) {
-      if (!t.text.trim()) continue;
-      const tx = (t.x / 100) * canvasW;
-      const ty = (t.y / 100) * canvasH;
-      const fontFam = t.fontFamily || 'sans-serif';
 
-      const textObj = new Textbox(t.text, {
-        left: tx,
-        top: ty,
-        originX: t.textAlign === 'left' ? 'left' : t.textAlign === 'right' ? 'right' : 'center',
-        originY: 'center',
-        fontSize: t.fontSize,
-        fontFamily: fontFam,
-        fill: t.color || '#000000',
-        textAlign: (t.textAlign || 'center') as 'left' | 'center' | 'right' | 'justify',
-        selectable: false,
-        evented: false,
-        splitByGrapheme: false,
-      });
-      fabricCanvas.add(textObj);
+    for (const o of canvasItem.overlays) {
+      try {
+        if (o.type === 'text') {
+          if (!o.text.trim()) continue;
+          const tx = (o.x / 100) * canvasW;
+          const ty = (o.y / 100) * canvasH;
+          const textObj = new Textbox(o.text, {
+            left: tx, top: ty,
+            originX: o.textAlign === 'left' ? 'left' : o.textAlign === 'right' ? 'right' : 'center',
+            originY: 'center',
+            fontSize: o.fontSize,
+            fontFamily: o.fontFamily || 'sans-serif',
+            fill: o.color || '#000000',
+            textAlign: (o.textAlign || 'center') as 'left' | 'center' | 'right' | 'justify',
+            angle: o.rotation || 0,
+            selectable: false, evented: false,
+          });
+          fabricCanvas.add(textObj);
+        } else if (o.type === 'shape') {
+          const sx = (o.x / 100) * canvasW;
+          const sy = (o.y / 100) * canvasH;
+          const sw = (o.width / 100) * canvasW;
+          const sh = (o.height / 100) * canvasH;
+          const commonOpts = {
+            fill: o.fill || 'transparent',
+            stroke: o.strokeWidth > 0 ? (o.stroke || '#000000') : undefined,
+            strokeWidth: o.strokeWidth > 0 ? o.strokeWidth : 0,
+            opacity: o.opacity ?? 1,
+            angle: o.rotation || 0,
+            selectable: false, evented: false,
+          };
+          let fabricObj;
+          const def = getShapeDef(o.shapeType);
+          if (def?.fabricType === 'rect') {
+            const isRounded = o.shapeType === 'rounded-rect';
+            fabricObj = new Rect({
+              left: sx, top: sy, width: sw, height: sh,
+              originX: 'left', originY: 'top',
+              rx: isRounded ? Math.min(sw, sh) * 0.15 : 0,
+              ry: isRounded ? Math.min(sw, sh) * 0.15 : 0,
+              ...commonOpts,
+            });
+          } else if (def?.fabricType === 'circle') {
+            const radius = Math.min(sw, sh) / 2;
+            fabricObj = new Circle({
+              left: sx + sw / 2, top: sy + sh / 2, radius,
+              originX: 'center', originY: 'center',
+              ...commonOpts,
+            });
+          } else if (def?.fabricType === 'ellipse') {
+            fabricObj = new Ellipse({
+              left: sx + sw / 2, top: sy + sh / 2,
+              rx: sw / 2, ry: sh / 2,
+              originX: 'center', originY: 'center',
+              ...commonOpts,
+            });
+          } else if (def?.fabricType === 'triangle') {
+            fabricObj = new Triangle({
+              left: sx, top: sy, width: sw, height: sh,
+              originX: 'left', originY: 'top',
+              ...commonOpts,
+            });
+          } else if (def?.fabricType === 'polygon' && def.polygonPoints) {
+            const points = def.polygonPoints.map(p => ({ x: (p.x / 100) * sw, y: (p.y / 100) * sh }));
+            fabricObj = new Polygon(points, {
+              left: sx, top: sy,
+              originX: 'left', originY: 'top',
+              ...commonOpts,
+            });
+          } else {
+            const pathStr = getShapePath(o.shapeType, o.svgPath);
+            fabricObj = new Path(pathStr, {
+              left: sx + sw / 2, top: sy + sh / 2,
+              originX: 'center', originY: 'center',
+              scaleX: sw / 100, scaleY: sh / 100,
+              ...commonOpts,
+            });
+          }
+          if (fabricObj) fabricCanvas.add(fabricObj);
+        } else if (o.type === 'image') {
+          const ix = (o.x / 100) * canvasW;
+          const iy = (o.y / 100) * canvasH;
+          const iw = (o.width / 100) * canvasW;
+          const ih = (o.height / 100) * canvasH;
+          const img = await FabricImage.fromURL(o.src, { crossOrigin: 'anonymous' });
+          img.set({
+            left: ix, top: iy,
+            originX: 'left', originY: 'top',
+            scaleX: iw / (img.width || 1),
+            scaleY: ih / (img.height || 1),
+            angle: o.rotation || 0,
+            opacity: o.opacity ?? 1,
+            selectable: false, evented: false,
+          });
+          fabricCanvas.add(img);
+        }
+      } catch (err) {
+        console.error('Failed to render overlay:', o, err);
+      }
     }
   }
 

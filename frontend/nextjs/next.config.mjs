@@ -7,9 +7,9 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        // /api/embed/proxy/* is handled by a Next.js Route Handler — must NOT be
+        // /api/embed/proxy/* and /api/upload-layout are handled by Next.js Route Handlers — must NOT be
         // forwarded to Django.  All other /api/* routes go to the backend.
-        source: '/api/:path((?!auth|embed/proxy).*)',
+        source: '/api/:path((?!auth|embed/proxy|upload-layout).*)',
         destination: process.env.INTERNAL_API_URL
           ? `${process.env.INTERNAL_API_URL}/:path`
           : process.env.NEXT_PUBLIC_API_BASE_URL

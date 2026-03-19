@@ -19,46 +19,50 @@ export interface TextOverlay {
   text: string;
   x: number;      // percentage 0–100 from left
   y: number;      // percentage 0–100 from top
-  fontSize: number; // px relative to canvas height (default ~4% of height)
+  fontSize: number; // px relative to canvas height
   color: string;
   fontFamily: string;
   textAlign: CanvasTextAlign;
+  rotation: number; // degrees
 }
 
 export interface ShapeOverlay {
   id: number;
-  shapeType: string;       // 'rect' | 'circle' | 'star' | 'heart' | etc.
-  svgPath?: string;        // custom SVG path d attribute (viewBox 0 0 100 100)
-  x: number;               // percentage 0-100
-  y: number;               // percentage 0-100
-  width: number;           // percentage of canvas width
-  height: number;          // percentage of canvas height
-  rotation: number;        // degrees
-  fill: string;            // hex color
-  stroke: string;          // hex color
+  shapeType: string;
+  svgPath?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  fill: string;
+  stroke: string;
   strokeWidth: number;
-  opacity: number;         // 0-1
+  opacity: number;
 }
 
 export interface ImageOverlay {
   id: number;
-  src: string;            // URL of the clipart/icon image (SVG or PNG)
-  source: 'clipart' | 'icon'; // where it came from
-  label: string;          // display name
-  x: number;              // percentage 0-100
-  y: number;              // percentage 0-100
-  width: number;          // percentage of canvas width
-  height: number;         // percentage of canvas height
-  rotation: number;       // degrees
-  opacity: number;        // 0-1
+  src: string;
+  source: 'clipart' | 'icon';
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  opacity: number;
 }
+
+export type Overlay =
+  | ({ type: 'text' } & TextOverlay)
+  | ({ type: 'shape' } & ShapeOverlay)
+  | ({ type: 'image' } & ImageOverlay);
 
 export interface CanvasItem {
   id: number;
   frames: FrameState[];
-  textOverlays: TextOverlay[];
-  shapeOverlays: ShapeOverlay[];
-  imageOverlays: ImageOverlay[];
+  overlays: Overlay[];
   bgColor: string; // canvas background color, default '#ffffff'
   dataUrl: string | null;
 }

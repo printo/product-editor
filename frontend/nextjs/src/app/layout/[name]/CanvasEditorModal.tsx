@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { FabricImage } from 'fabric';
-import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode } from './types';
+import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay } from './types';
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
@@ -90,9 +90,7 @@ export function CanvasEditorModal({
   const cloneCanvas = useCallback((c: CanvasItem): CanvasItem => ({
     ...c,
     frames: c.frames.map(f => ({ ...f, offset: { ...f.offset }, originalFile: f.originalFile })),
-    textOverlays: c.textOverlays.map(t => ({ ...t })),
-    shapeOverlays: c.shapeOverlays.map(s => ({ ...s })),
-    imageOverlays: c.imageOverlays.map(img => ({ ...img })),
+    overlays: c.overlays.map(o => ({ ...o })),
   }), []);
 
   // ── Undo / Redo ───────────────────────────────────────────────────────────
@@ -303,12 +301,12 @@ export function CanvasEditorModal({
 
         {/* Floating close */}
         <button onClick={onClose}
-          className="absolute top-4 left-4 z-30 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-white rounded-full shadow-lg transition-all">
+          className="absolute top-4 right-4 z-30 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-white rounded-full shadow-lg transition-all">
           <X className="w-5 h-5" />
         </button>
 
         {/* Floating undo/redo + zoom — Gen-Z pill style */}
-        <div className="absolute bottom-6 left-6 z-20 flex items-center gap-2">
+        <div className="absolute bottom-6 right-6 z-20 flex items-center gap-2">
           <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-violet-200/50 p-1 rounded-2xl shadow-lg">
             <button onClick={handleUndo} disabled={undoCount === 0}
               className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-xl transition-all disabled:opacity-20" title="Undo (Ctrl+Z)">
@@ -451,13 +449,13 @@ export function CanvasEditorModal({
           {/* ── Text properties ──────────────────────────────────────── */}
           {selectedLayer.type === 'text' && (() => {
             const oIdx = selectedLayer.index;
-            const overlay = editingCanvas.textOverlays[oIdx];
-            if (!overlay) return null;
+            const overlay = editingCanvas.overlays[oIdx];
+            if (!overlay || overlay.type !== 'text') return null;
             const updateOverlay = (patch: Partial<TextOverlay>) => {
               if (!editingCanvas) return;
               pushUndo(editingCanvas);
-              const newOverlays = editingCanvas.textOverlays.map((t, i) => i === oIdx ? { ...t, ...patch } : t);
-              debouncedRender({ ...editingCanvas, textOverlays: newOverlays });
+              const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
+              debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
             };
             return (
               <div className="space-y-4">
@@ -494,7 +492,7 @@ export function CanvasEditorModal({
                   </div>
                 </div>
 
-                {/* Text Alignment — Fabric-native (directly sets textAlign) */}
+                {/* Text Alignment */}
                 <div className="space-y-2">
                   <p className="text-[10px] font-extrabold text-cyan-500 uppercase tracking-wider">Alignment</p>
                   <div className="flex items-center gap-2">
@@ -522,7 +520,7 @@ export function CanvasEditorModal({
                 <button onClick={() => {
                   if (!editingCanvas) return;
                   pushUndo(editingCanvas, true);
-                  debouncedRender({ ...editingCanvas, textOverlays: editingCanvas.textOverlays.filter((_, i) => i !== oIdx) });
+                  debouncedRender({ ...editingCanvas, overlays: editingCanvas.overlays.filter((_, i) => i !== oIdx) });
                   setSelectedLayer({ type: 'frame', index: 0 });
                 }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all w-full">
                   <Trash2 className="w-3 h-3" /> Delete Text
@@ -533,14 +531,14 @@ export function CanvasEditorModal({
 
           {/* ── Shape properties ──────────────────────────────────────── */}
           {selectedLayer.type === 'shape' && (() => {
-            const sIdx = selectedLayer.index;
-            const shape = editingCanvas.shapeOverlays[sIdx];
-            if (!shape) return null;
+            const oIdx = selectedLayer.index;
+            const shape = editingCanvas.overlays[oIdx];
+            if (!shape || shape.type !== 'shape') return null;
             const updateShape = (patch: Partial<ShapeOverlay>) => {
               if (!editingCanvas) return;
               pushUndo(editingCanvas);
-              const newShapes = editingCanvas.shapeOverlays.map((s, i) => i === sIdx ? { ...s, ...patch } : s);
-              debouncedRender({ ...editingCanvas, shapeOverlays: newShapes });
+              const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
+              debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
             };
             return (
               <div className="space-y-4">
@@ -595,7 +593,7 @@ export function CanvasEditorModal({
                 <button onClick={() => {
                   if (!editingCanvas) return;
                   pushUndo(editingCanvas, true);
-                  debouncedRender({ ...editingCanvas, shapeOverlays: editingCanvas.shapeOverlays.filter((_, i) => i !== sIdx) });
+                  debouncedRender({ ...editingCanvas, overlays: editingCanvas.overlays.filter((_, i) => i !== oIdx) });
                   setSelectedLayer({ type: 'frame', index: 0 });
                 }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all w-full">
                   <Trash2 className="w-3 h-3" /> Delete Shape
@@ -606,14 +604,14 @@ export function CanvasEditorModal({
 
           {/* ── Image overlay properties ───────────────────────────── */}
           {selectedLayer.type === 'image' && (() => {
-            const iIdx = selectedLayer.index;
-            const imgOverlay = (editingCanvas.imageOverlays || [])[iIdx];
-            if (!imgOverlay) return null;
+            const oIdx = selectedLayer.index;
+            const imgOverlay = editingCanvas.overlays[oIdx];
+            if (!imgOverlay || imgOverlay.type !== 'image') return null;
             const updateImage = (patch: Partial<ImageOverlay>) => {
               if (!editingCanvas) return;
               pushUndo(editingCanvas);
-              const newImages = (editingCanvas.imageOverlays || []).map((img, i) => i === iIdx ? { ...img, ...patch } : img);
-              debouncedRender({ ...editingCanvas, imageOverlays: newImages });
+              const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
+              debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
             };
             return (
               <div className="space-y-4">
@@ -655,7 +653,7 @@ export function CanvasEditorModal({
                 <button onClick={() => {
                   if (!editingCanvas) return;
                   pushUndo(editingCanvas, true);
-                  debouncedRender({ ...editingCanvas, imageOverlays: (editingCanvas.imageOverlays || []).filter((_, i) => i !== iIdx) });
+                  debouncedRender({ ...editingCanvas, overlays: editingCanvas.overlays.filter((_, i) => i !== oIdx) });
                   setSelectedLayer({ type: 'frame', index: 0 });
                 }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all w-full">
                   <Trash2 className="w-3 h-3" /> Delete Icon
@@ -681,7 +679,8 @@ export function CanvasEditorModal({
             <button onClick={() => {
               if (!editingCanvas) return;
               pushUndo(editingCanvas, true);
-              const newOverlay: TextOverlay = {
+              const newOverlay: Overlay = {
+                type: 'text',
                 id: Date.now(),
                 text: 'Text',
                 x: 50, y: 50,
@@ -689,10 +688,11 @@ export function CanvasEditorModal({
                 color: '#000000',
                 fontFamily: selectedFonts[0] || 'sans-serif',
                 textAlign: 'center',
+                rotation: 0,
               };
-              const updated = { ...editingCanvas, textOverlays: [...editingCanvas.textOverlays, newOverlay] };
+              const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
               debouncedRender(updated);
-              setSelectedLayer({ type: 'text', index: updated.textOverlays.length - 1 });
+              setSelectedLayer({ type: 'text', index: updated.overlays.length - 1 });
             }} className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gradient-to-r from-pink-50 to-violet-50 text-pink-600 rounded-2xl text-xs font-extrabold hover:from-pink-100 hover:to-violet-100 transition-all border border-pink-200/50">
               <Type className="w-3.5 h-3.5" /> Add Text
             </button>
@@ -701,18 +701,20 @@ export function CanvasEditorModal({
             <ShapesPicker onAddShape={(shape) => {
               if (!editingCanvas) return;
               pushUndo(editingCanvas, true);
-              const updated = { ...editingCanvas, shapeOverlays: [...editingCanvas.shapeOverlays, shape] };
+              const newOverlay: Overlay = { type: 'shape', ...shape };
+              const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
               debouncedRender(updated);
-              setSelectedLayer({ type: 'shape', index: updated.shapeOverlays.length - 1 });
+              setSelectedLayer({ type: 'shape', index: updated.overlays.length - 1 });
             }} />
 
-            {/* Icon Browser (local storage + Iconify fallback) */}
+            {/* Icon Browser */}
             <IconBrowser onAddImage={(imgOverlay) => {
               if (!editingCanvas) return;
               pushUndo(editingCanvas, true);
-              const updated = { ...editingCanvas, imageOverlays: [...(editingCanvas.imageOverlays || []), imgOverlay] };
+              const newOverlay: Overlay = { type: 'image', ...imgOverlay };
+              const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
               debouncedRender(updated);
-              setSelectedLayer({ type: 'image', index: updated.imageOverlays.length - 1 });
+              setSelectedLayer({ type: 'image', index: updated.overlays.length - 1 });
             }} />
 
             {/* Add More Images */}
@@ -737,7 +739,13 @@ export function CanvasEditorModal({
                         isRemovingBg: false, isDetectingProduct: false,
                       });
                     }
-                    const item: CanvasItem = { id: startId + i, frames: canvasFrames, textOverlays: [], shapeOverlays: [], imageOverlays: [], bgColor: '#ffffff', dataUrl: null };
+                    const item: CanvasItem = {
+                      id: startId + i,
+                      frames: canvasFrames,
+                      overlays: [],
+                      bgColor: '#ffffff',
+                      dataUrl: null
+                    };
                     item.dataUrl = await renderCanvas(item);
                     newCanvases.push(item);
                   }
@@ -749,43 +757,23 @@ export function CanvasEditorModal({
           </div>
         </div>
 
-        {/* Layers Panel — collapsible, bottom */}
+        {/* Layers Panel */}
         <LayersPanel
           editingCanvas={editingCanvas}
           selected={selectedLayer}
           onSelect={setSelectedLayer}
-          onDeleteText={(oIdx) => {
+          onDeleteOverlay={(oIdx) => {
             if (!editingCanvas) return;
             pushUndo(editingCanvas, true);
-            const updated = { ...editingCanvas, textOverlays: editingCanvas.textOverlays.filter((_, i) => i !== oIdx) };
+            const updated = { ...editingCanvas, overlays: editingCanvas.overlays.filter((_, i) => i !== oIdx) };
             debouncedRender(updated);
-            if (selectedLayer.type === 'text' && selectedLayer.index === oIdx) {
-              setSelectedLayer({ type: 'frame', index: 0 });
-            } else if (selectedLayer.type === 'text' && selectedLayer.index > oIdx) {
-              setSelectedLayer({ type: 'text', index: selectedLayer.index - 1 });
-            }
+            if (selectedLayer.index === oIdx) setSelectedLayer({ type: 'frame', index: 0 });
+            else if (selectedLayer.index > oIdx) setSelectedLayer({ ...selectedLayer, index: selectedLayer.index - 1 });
           }}
-          onDeleteShape={(sIdx) => {
+          onReorderOverlays={(newOverlays) => {
             if (!editingCanvas) return;
             pushUndo(editingCanvas, true);
-            const updated = { ...editingCanvas, shapeOverlays: editingCanvas.shapeOverlays.filter((_, i) => i !== sIdx) };
-            debouncedRender(updated);
-            if (selectedLayer.type === 'shape' && selectedLayer.index === sIdx) {
-              setSelectedLayer({ type: 'frame', index: 0 });
-            } else if (selectedLayer.type === 'shape' && selectedLayer.index > sIdx) {
-              setSelectedLayer({ type: 'shape', index: selectedLayer.index - 1 });
-            }
-          }}
-          onDeleteImage={(iIdx) => {
-            if (!editingCanvas) return;
-            pushUndo(editingCanvas, true);
-            const updated = { ...editingCanvas, imageOverlays: (editingCanvas.imageOverlays || []).filter((_, i) => i !== iIdx) };
-            debouncedRender(updated);
-            if (selectedLayer.type === 'image' && selectedLayer.index === iIdx) {
-              setSelectedLayer({ type: 'frame', index: 0 });
-            } else if (selectedLayer.type === 'image' && selectedLayer.index > iIdx) {
-              setSelectedLayer({ type: 'image', index: selectedLayer.index - 1 });
-            }
+            debouncedRender({ ...editingCanvas, overlays: newOverlays });
           }}
           onClearFrame={(fIdx) => {
             if (!editingCanvas) return;

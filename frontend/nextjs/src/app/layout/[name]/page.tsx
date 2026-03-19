@@ -299,7 +299,13 @@ export default function LayoutEditorPage() {
           isRemovingBg: false, isDetectingProduct: false,
         });
       }
-      const item: CanvasItem = { id: i, frames: canvasFrames, textOverlays: [], shapeOverlays: [], imageOverlays: [], bgColor: '#ffffff', dataUrl: null };
+      const item: CanvasItem = {
+        id: i,
+        frames: canvasFrames,
+        overlays: [],
+        bgColor: '#ffffff',
+        dataUrl: null
+      };
       item.dataUrl = await renderCanvas(item, null, false, true, layoutDef);
       newCanvases.push(item);
     }
@@ -327,7 +333,7 @@ export default function LayoutEditorPage() {
     if (canvases.length === 0) return;
     let cancelled = false;
     (async () => {
-      const updated = [];
+      const updated: any[] = [];
       for (const c of canvases) {
         const dataUrl = await renderCanvas(c);
         if (cancelled) return;
@@ -347,7 +353,11 @@ export default function LayoutEditorPage() {
     const sp = new URLSearchParams(window.location.search);
     sp.set('canvas', idx.toString());
     window.history.pushState({}, '', '?' + sp.toString());
-    setEditingCanvas({ ...c, frames: c.frames.map(f => ({ ...f, offset: { ...f.offset } })), textOverlays: c.textOverlays.map(t => ({ ...t })), shapeOverlays: c.shapeOverlays.map(s => ({ ...s })), imageOverlays: (c.imageOverlays || []).map(img => ({ ...img })) });
+    setEditingCanvas({
+      ...c,
+      frames: c.frames.map(f => ({ ...f, offset: { ...f.offset } })),
+      overlays: c.overlays.map(o => ({ ...o })),
+    });
   };
 
   const closeEditor = () => {
@@ -368,7 +378,11 @@ export default function LayoutEditorPage() {
       if (!isNaN(idx) && idx >= 0 && idx < canvases.length) {
         setActiveCanvasIdx(idx);
         const c = canvases[idx];
-        setEditingCanvas({ ...c, frames: c.frames.map(f => ({ ...f, offset: { ...f.offset } })), textOverlays: c.textOverlays.map(t => ({ ...t })), shapeOverlays: c.shapeOverlays.map(s => ({ ...s })), imageOverlays: (c.imageOverlays || []).map(img => ({ ...img })) });
+        setEditingCanvas({
+          ...c,
+          frames: c.frames.map(f => ({ ...f, offset: { ...f.offset } })),
+          overlays: c.overlays.map(o => ({ ...o })),
+        });
       }
     }
   }, [canvases, activeCanvasIdx]);

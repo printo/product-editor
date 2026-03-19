@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+export async function GET() {
+  return NextResponse.json({ status: "ok" });
+}
+
 export async function POST(req: NextRequest) {
   const backendUrl = process.env.INTERNAL_API_URL || 'http://backend:8000/api';
   const url = `${backendUrl}/ops/layouts`;

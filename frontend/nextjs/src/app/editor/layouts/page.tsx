@@ -574,7 +574,7 @@ export default function LayoutCreatorPage() {
           const cH = (data.canvas?.heightMm || pxToMm(data.canvas?.height || 0, displayDpi));
           const cellW = (cW - (data.grid.cols + 1) * paddMm) / data.grid.cols;
           const cellH = (cH - (data.grid.rows + 1) * paddMm) / data.grid.rows;
-          const fallbackFrames = [];
+          const fallbackFrames: any[] = [];
           for (let r = 0; r < data.grid.rows; r++) {
             for (let c = 0; c < data.grid.cols; c++) {
               fallbackFrames.push({
