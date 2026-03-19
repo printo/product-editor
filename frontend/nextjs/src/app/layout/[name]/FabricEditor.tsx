@@ -15,6 +15,10 @@ export interface FabricEditorHandle {
   toDataURL: () => string | null;
   toFullResDataURL: () => string | null;
   getZoomToFit: () => number;
+  /** Snapshot the Fabric canvas state as a plain JSON object */
+  getCanvasJSON: () => object | null;
+  /** Restore the Fabric canvas from a previously captured JSON snapshot */
+  loadCanvasJSON: (json: object) => Promise<void>;
 }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -717,6 +721,23 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       return url;
     },
     getZoomToFit: () => fitZoomRef.current,
+
+    // ✅ #7 Fabric native JSON snapshot/restore for undo/redo
+    getCanvasJSON: () => {
+      const fc = fabricRef.current;
+      if (!fc) return null;
+      return fc.toJSON();
+    },
+    loadCanvasJSON: (json: object) => {
+      return new Promise<void>((resolve) => {
+        const fc = fabricRef.current;
+        if (!fc) { resolve(); return; }
+        fc.loadFromJSON(json).then(() => {
+          fc.requestRenderAll();
+          resolve();
+        });
+      });
+    },
   }), [canvasW, canvasH]);
 
   return (

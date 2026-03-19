@@ -59,8 +59,10 @@ export function CanvasEditorModal({
   const [redoCount, setRedoCount] = useState(0);
 
   // Refs
-  const undoStack = useRef<CanvasItem[]>([]);
-  const redoStack = useRef<CanvasItem[]>([]);
+  // Undo/redo entry: React state + Fabric canvas JSON snapshot
+  type UndoEntry = { canvas: CanvasItem; fabricJSON: object | null };
+  const undoStack = useRef<UndoEntry[]>([]);
+  const redoStack = useRef<UndoEntry[]>([]);
   const lastPushTime = useRef(0);
   const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderGenRef = useRef(0);
@@ -98,7 +100,9 @@ export function CanvasEditorModal({
     const now = Date.now();
     if (!force && now - lastPushTime.current < 300 && undoStack.current.length > 0) return;
     lastPushTime.current = now;
-    undoStack.current.push(cloneCanvas(snapshot));
+    // ✅ #7 Pair React state with Fabric canvas JSON for reliable undo
+    const fabricJSON = fabricEditorRef.current?.getCanvasJSON() ?? null;
+    undoStack.current.push({ canvas: cloneCanvas(snapshot), fabricJSON });
     if (undoStack.current.length > 50) undoStack.current.shift();
     redoStack.current = [];
     setUndoCount(undoStack.current.length);
@@ -107,30 +111,39 @@ export function CanvasEditorModal({
 
   const handleUndo = useCallback(async () => {
     if (undoStack.current.length === 0 || !editingCanvas) return;
-    redoStack.current.push(cloneCanvas(editingCanvas));
-    const prev = undoStack.current.pop()!;
-    setEditingCanvas(prev);
+    const currentFabricJSON = fabricEditorRef.current?.getCanvasJSON() ?? null;
+    redoStack.current.push({ canvas: cloneCanvas(editingCanvas), fabricJSON: currentFabricJSON });
+    const entry = undoStack.current.pop()!;
+    setEditingCanvas(entry.canvas);
     setUndoCount(undoStack.current.length);
     setRedoCount(redoStack.current.length);
+    // ✅ Restore Fabric canvas visuals instantly from JSON snapshot
+    if (entry.fabricJSON && fabricEditorRef.current?.loadCanvasJSON) {
+      await fabricEditorRef.current.loadCanvasJSON(entry.fabricJSON);
+    }
     const gen = ++renderGenRef.current;
     setTimeout(async () => {
-      const dataUrl = fabricEditorRef.current?.toDataURL() ?? await renderCanvas(prev);
+      const dataUrl = fabricEditorRef.current?.toDataURL() ?? await renderCanvas(entry.canvas);
       if (renderGenRef.current === gen) setEditingCanvas(p => p ? { ...p, dataUrl } : p);
-    }, 150);
+    }, 100);
   }, [editingCanvas, renderCanvas, cloneCanvas, setEditingCanvas]);
 
   const handleRedo = useCallback(async () => {
     if (redoStack.current.length === 0 || !editingCanvas) return;
-    undoStack.current.push(cloneCanvas(editingCanvas));
-    const next = redoStack.current.pop()!;
-    setEditingCanvas(next);
+    const currentFabricJSON = fabricEditorRef.current?.getCanvasJSON() ?? null;
+    undoStack.current.push({ canvas: cloneCanvas(editingCanvas), fabricJSON: currentFabricJSON });
+    const entry = redoStack.current.pop()!;
+    setEditingCanvas(entry.canvas);
     setUndoCount(undoStack.current.length);
     setRedoCount(redoStack.current.length);
+    if (entry.fabricJSON && fabricEditorRef.current?.loadCanvasJSON) {
+      await fabricEditorRef.current.loadCanvasJSON(entry.fabricJSON);
+    }
     const gen = ++renderGenRef.current;
     setTimeout(async () => {
-      const dataUrl = fabricEditorRef.current?.toDataURL() ?? await renderCanvas(next);
+      const dataUrl = fabricEditorRef.current?.toDataURL() ?? await renderCanvas(entry.canvas);
       if (renderGenRef.current === gen) setEditingCanvas(p => p ? { ...p, dataUrl } : p);
-    }, 150);
+    }, 100);
   }, [editingCanvas, renderCanvas, cloneCanvas, setEditingCanvas]);
 
   // Keyboard shortcuts
