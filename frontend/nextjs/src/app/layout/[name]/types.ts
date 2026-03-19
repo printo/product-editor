@@ -3,7 +3,7 @@ import type { SurfaceDefinition } from '@/lib/layout-utils';
 export type FitMode = 'contain' | 'cover';
 
 export interface FrameState {
-  id: number;
+  id: string | number;
   originalFile: File;
   processedUrl: string | null;
   offset: { x: number; y: number };
@@ -15,7 +15,7 @@ export interface FrameState {
 }
 
 export interface TextOverlay {
-  id: number;
+  id: string | number;
   text: string;
   x: number;      // percentage 0–100 from left
   y: number;      // percentage 0–100 from top
@@ -27,7 +27,7 @@ export interface TextOverlay {
 }
 
 export interface ShapeOverlay {
-  id: number;
+  id: string | number;
   shapeType: string;
   svgPath?: string;
   x: number;
@@ -42,9 +42,10 @@ export interface ShapeOverlay {
 }
 
 export interface ImageOverlay {
-  id: number;
+  id: string | number;
   src: string;
-  source: 'clipart' | 'icon';
+  originalFile?: File;
+  source: 'clipart' | 'icon' | 'local';
   label: string;
   x: number;
   y: number;

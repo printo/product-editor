@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, ChevronRight, Loader2, CheckCircle2, X,
-  Wand2, Minus, Undo2, Redo2, Plus,
+  Wand2, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus,
   Type, Trash2, AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -57,6 +57,7 @@ export function CanvasEditorModal({
   const [selectedLayer, setSelectedLayer] = useState<LayerSelection>({ type: 'frame', index: 0 });
   const [undoCount, setUndoCount] = useState(0);
   const [redoCount, setRedoCount] = useState(0);
+  const [activeAddTab, setActiveAddTab] = useState<'background' | 'text' | 'icon' | 'image' | 'shape'>('text');
 
   // Refs
   // Undo/redo entry: React state + Fabric canvas JSON snapshot
@@ -299,6 +300,14 @@ export function CanvasEditorModal({
     }, 80);
   }, [renderCanvas, setEditingCanvas]);
 
+  const ADD_TABS = [
+    { key: 'background' as const, icon: Palette, label: 'BG', activeClass: 'text-amber-600 ring-amber-100' },
+    { key: 'text' as const, icon: Type, label: 'Text', activeClass: 'text-pink-600 ring-pink-100' },
+    { key: 'shape' as const, icon: Hexagon, label: 'Shape', activeClass: 'text-purple-600 ring-purple-100' },
+    { key: 'icon' as const, icon: Sparkles, label: 'Icon', activeClass: 'text-violet-600 ring-violet-100' },
+    { key: 'image' as const, icon: Image, label: 'Image', activeClass: 'text-sky-600 ring-sky-100' },
+  ];
+
   // ── Fabric canvas change handler ──────────────────────────────────────────
   const handleFabricChange = useCallback((updated: CanvasItem) => {
     pushUndo(editingCanvas, true);
@@ -349,11 +358,13 @@ export function CanvasEditorModal({
           onCanvasChange={handleFabricChange}
           onLayerSelect={setSelectedLayer}
           getFileUrl={getFileUrl}
+          canvasWidth={layout?.canvas?.width}
+          canvasHeight={layout?.canvas?.height}
         />
       </div>
 
       {/* ═══ Right Sidebar — Gen-Z colorful minimalist ═══ */}
-      <div className="w-80 border-l border-slate-200/60 bg-gradient-to-b from-white via-slate-50/50 to-white flex flex-col overflow-hidden">
+      <div className="w-112 border-l border-slate-200/60 bg-gradient-to-b from-white via-slate-50/50 to-white flex flex-col overflow-hidden shrink-0">
         {/* Header — canvas navigation with gradient accent */}
         <div className="px-4 py-3 border-b border-slate-200/60 bg-gradient-to-r from-violet-50/80 to-cyan-50/80 flex items-center gap-2">
           <h3 className="text-xs font-extrabold bg-gradient-to-r from-violet-600 to-cyan-600 bg-clip-text text-transparent mr-auto tracking-tight">Canvas Editor</h3>
@@ -372,8 +383,8 @@ export function CanvasEditorModal({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
           {/* ── Frame properties ─────────────────────────────────────── */}
-          {selectedLayer.type === 'frame' && (() => {
-            const fIdx = selectedLayer.index;
+          {(selectedLayer.type === 'frame' || selectedLayer.type === 'canvas') && (() => {
+            const fIdx = selectedLayer.type === 'canvas' ? 0 : selectedLayer.index;
             const frame = editingCanvas.frames[fIdx];
             if (!frame) return null;
             return (
@@ -466,67 +477,91 @@ export function CanvasEditorModal({
             if (!overlay || overlay.type !== 'text') return null;
             const updateOverlay = (patch: Partial<TextOverlay>) => {
               if (!editingCanvas) return;
-              pushUndo(editingCanvas);
+              pushUndo(editingCanvas, true);
               const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
               debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
             };
+
             return (
               <div className="space-y-4">
-                {/* Text input */}
-                <div className="space-y-2">
-                  <p className="text-[10px] font-extrabold text-pink-500 uppercase tracking-wider">Text Content</p>
-                  <textarea value={overlay.text} rows={3}
-                    onChange={e => updateOverlay({ text: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-pink-200/50 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-pink-500/20 focus:border-pink-400 bg-pink-50/30"
-                    placeholder="Enter text..." />
-                </div>
-
-                {/* Size, Color, Font */}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <label className="text-[9px] font-extrabold text-violet-400 uppercase">Size</label>
-                    <input type="number" min="8" max="500" value={overlay.fontSize}
-                      onChange={e => updateOverlay({ fontSize: Math.max(8, parseInt(e.target.value) || 24) })}
-                      className="w-full px-1.5 py-1 text-xs font-mono text-center border border-violet-200/50 rounded-xl bg-violet-50/30" />
-                  </div>
-                  <div className="flex-1">
-                    <ColorPicker label="Color" value={overlay.color} showHex={false}
-                      onChange={color => updateOverlay({ color })} />
-                  </div>
-                  <div className="flex-[1.5]">
-                    <label className="text-[9px] font-extrabold text-violet-400 uppercase">Font</label>
-                    <select value={overlay.fontFamily}
-                      onChange={e => { loadGoogleFont(e.target.value); updateOverlay({ fontFamily: e.target.value }); }}
-                      className="w-full px-1 py-1 text-[10px] border border-violet-200/50 rounded-xl bg-violet-50/30">
-                      {selectedFonts.map(f => (
-                        <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
-                      ))}
+                {/* ── Text Properties Toolbar (Modern Single Row) ──────────────── */}
+                <div className="flex items-center gap-1.5 p-1.5 bg-slate-100/50 rounded-2xl border border-slate-200/40">
+                  {/* Font Dropdown */}
+                  <div className="flex-1 min-w-0">
+                    <select
+                      value={overlay.fontFamily}
+                      onChange={(e) => {
+                        loadGoogleFont(e.target.value);
+                        updateOverlay({ fontFamily: e.target.value });
+                      }}
+                      className="w-full h-8 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-700 px-1.5 focus:ring-1 focus:ring-violet-400 outline-none appearance-none cursor-pointer hover:bg-slate-50 transition-colors"
+                      title="Font Family"
+                    >
+                      {selectedFonts.map(f => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
                     </select>
                   </div>
+
+                  {/* Font Size controls */}
+                  <div className="flex items-center bg-white border border-slate-200 rounded-lg h-8 px-1 gap-1">
+                    <button onClick={() => updateOverlay({ fontSize: Math.max(8, (overlay.fontSize || 24) - 2) })}
+                      className="p-1 text-slate-400 hover:text-violet-600 transition-colors">
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <input
+                      type="number"
+                      value={overlay.fontSize}
+                      onChange={(e) => updateOverlay({ fontSize: Math.max(8, parseInt(e.target.value) || 24) })}
+                      className="w-8 text-center text-[10px] font-black text-slate-700 bg-transparent border-none outline-none p-0"
+                    />
+                    <button onClick={() => updateOverlay({ fontSize: (overlay.fontSize || 24) + 2 })}
+                      className="p-1 text-slate-400 hover:text-violet-600 transition-colors">
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  {/* Mini Color Picker */}
+                  <div className="flex shrink-0">
+                    <ColorPicker
+                      value={overlay.color || '#000000'}
+                      showHex={false}
+                      onChange={color => updateOverlay({ color })}
+                    />
+                  </div>
+
+                  {/* Alignment Toggles */}
+                  <div className="flex items-center bg-white border border-slate-200 rounded-lg h-8 p-0.5 shadow-sm">
+                    {([
+                      { key: 'left' as const, icon: AlignLeft, tip: 'Left' },
+                      { key: 'center' as const, icon: AlignCenter, tip: 'Center' },
+                      { key: 'right' as const, icon: AlignRight, tip: 'Right' },
+                    ]).map(({ key, icon: Icon, tip }) => (
+                      <button
+                        key={key}
+                        onClick={() => updateOverlay({ textAlign: key })}
+                        className={clsx(
+                          'p-1.5 rounded-md transition-all',
+                          overlay.textAlign === key ? 'bg-violet-100 text-violet-600 shadow-inner' : 'text-slate-400 hover:text-slate-600'
+                        )}
+                        title={`Align ${tip}`}
+                      >
+                        <Icon className="w-3 h-3" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Text Alignment */}
-                <div className="space-y-2">
-                  <p className="text-[10px] font-extrabold text-cyan-500 uppercase tracking-wider">Alignment</p>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center bg-cyan-50 rounded-xl p-0.5 border border-cyan-200/50">
-                      {([
-                        { key: 'left' as const, icon: AlignLeft, tip: 'Left' },
-                        { key: 'center' as const, icon: AlignCenter, tip: 'Center' },
-                        { key: 'right' as const, icon: AlignRight, tip: 'Right' },
-                      ]).map(({ key, icon: Icon, tip }) => (
-                        <button key={key} title={tip}
-                          onClick={() => updateOverlay({ textAlign: key })}
-                          className={clsx('p-1.5 rounded-lg transition-all',
-                            overlay.textAlign === key
-                              ? 'bg-white text-cyan-600 shadow-sm'
-                              : 'text-cyan-400 hover:text-cyan-600 hover:bg-white/50')}>
-                          <Icon className="w-3.5 h-3.5" />
-                        </button>
-                      ))}
-                    </div>
-                    <span className="text-[9px] text-slate-400 ml-auto">Double-click to edit on canvas</span>
+                {/* Text Content area (retained but polished) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Edit Content</p>
+                    <span className="text-[9px] text-slate-300 font-medium">Synced with Canvas</span>
                   </div>
+                  <textarea
+                    value={overlay.text}
+                    onChange={(e) => updateOverlay({ text: e.target.value })}
+                    className="w-full h-24 text-xs bg-slate-50/80 border border-slate-200/60 rounded-xl p-3 focus:ring-2 focus:ring-violet-400 outline-none transition-all placeholder-slate-300 font-medium leading-relaxed"
+                    placeholder="Type your text here..."
+                  />
                 </div>
 
                 {/* Delete text */}
@@ -675,98 +710,173 @@ export function CanvasEditorModal({
             );
           })()}
 
-          {/* ── Canvas-level controls (always visible) ───────────────── */}
-          <div className="pt-4 border-t border-slate-200/60 space-y-3">
-            {/* Background Color */}
-            <div className="flex items-center justify-between p-2.5 bg-gradient-to-r from-amber-50/60 to-orange-50/60 rounded-2xl border border-amber-200/40">
-              <p className="text-[10px] font-extrabold text-amber-600 uppercase tracking-wider">Background</p>
-              <ColorPicker value={editingCanvas?.bgColor || '#ffffff'}
-                onChange={color => {
-                  if (!editingCanvas) return;
-                  pushUndo(editingCanvas, true);
-                  debouncedRender({ ...editingCanvas, bgColor: color });
-                }} />
+          {/* ── Add Objects Tabs ────────────────────────────────────────── */}
+          <div className="pt-2 space-y-3">
+            <div className="flex items-center p-1 bg-slate-100/80 backdrop-blur-sm rounded-2xl border border-slate-200/50 w-full">
+              {ADD_TABS.map(tab => {
+                const isActive = activeAddTab === tab.key;
+                const Icon = tab.icon;
+                return (
+                  <button key={tab.key} onClick={() => setActiveAddTab(tab.key)}
+                    className={clsx('flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all',
+                      isActive ? `bg-white shadow-sm ring-1 ${tab.activeClass}` : 'text-slate-400 hover:text-slate-600 hover:bg-white/40')}>
+                    <Icon className="w-4 h-4" />
+                    <span className="text-[9px] font-black uppercase tracking-tighter">{tab.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Add Text */}
-            <button onClick={() => {
-              if (!editingCanvas) return;
-              pushUndo(editingCanvas, true);
-              const newOverlay: Overlay = {
-                type: 'text',
-                id: Date.now(),
-                text: 'Text',
-                x: 50, y: 50,
-                fontSize: Math.round((layout?.canvas?.height || 1800) * 0.04),
-                color: '#000000',
-                fontFamily: selectedFonts[0] || 'sans-serif',
-                textAlign: 'center',
-                rotation: 0,
-              };
-              const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
-              debouncedRender(updated);
-              setSelectedLayer({ type: 'text', index: updated.overlays.length - 1 });
-            }} className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gradient-to-r from-pink-50 to-violet-50 text-pink-600 rounded-2xl text-xs font-extrabold hover:from-pink-100 hover:to-violet-100 transition-all border border-pink-200/50">
-              <Type className="w-3.5 h-3.5" /> Add Text
-            </button>
+            <div className="min-h-[60px] animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {activeAddTab === 'background' && (
+                <div className="flex items-center justify-between p-3 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-200/40">
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] font-extrabold text-amber-600 uppercase tracking-wider">Canvas BG</p>
+                    <p className="text-[9px] text-amber-500/70 font-medium tracking-tight">Set base paper color</p>
+                  </div>
+                  <ColorPicker value={editingCanvas?.bgColor || '#ffffff'}
+                    onChange={color => {
+                      if (!editingCanvas) return;
+                      pushUndo(editingCanvas, true);
+                      debouncedRender({ ...editingCanvas, bgColor: color });
+                    }} />
+                </div>
+              )}
 
-            {/* Shapes Picker */}
-            <ShapesPicker onAddShape={(shape) => {
-              if (!editingCanvas) return;
-              pushUndo(editingCanvas, true);
-              const newOverlay: Overlay = { type: 'shape', ...shape };
-              const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
-              debouncedRender(updated);
-              setSelectedLayer({ type: 'shape', index: updated.overlays.length - 1 });
-            }} />
+              {activeAddTab === 'text' && (
+                <button onClick={() => {
+                  if (!editingCanvas) return;
+                  pushUndo(editingCanvas, true);
+                  const newOverlay: Overlay = {
+                    type: 'text',
+                    id: Date.now(),
+                    text: 'New Text',
+                    x: 50, y: 50,
+                    fontSize: Math.round((layout?.canvas?.height || 1800) * 0.04),
+                    color: '#000000',
+                    fontFamily: selectedFonts[0] || 'sans-serif',
+                    textAlign: 'center',
+                    rotation: 0,
+                  };
+                  const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
+                  debouncedRender(updated);
+                  setSelectedLayer({ type: 'text', index: updated.overlays.length - 1 });
+                }} className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-gradient-to-r from-pink-500 to-violet-500 text-white rounded-2xl text-xs font-black hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all border-none">
+                  <Type className="w-4 h-4 shadow-sm" /> ADD TEXT OVERLAY
+                </button>
+              )}
 
-            {/* Icon Browser */}
-            <IconBrowser onAddImage={(imgOverlay) => {
-              if (!editingCanvas) return;
-              pushUndo(editingCanvas, true);
-              const newOverlay: Overlay = { type: 'image', ...imgOverlay };
-              const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
-              debouncedRender(updated);
-              setSelectedLayer({ type: 'image', index: updated.overlays.length - 1 });
-            }} />
-
-            {/* Add More Images */}
-            <label className="flex items-center gap-2 px-3 py-2.5 bg-gradient-to-r from-sky-50 to-cyan-50 border border-sky-200/50 rounded-2xl text-xs font-extrabold text-sky-600 hover:from-sky-100 hover:to-cyan-100 transition-all cursor-pointer">
-              <Upload className="w-3.5 h-3.5" /> Add More Images
-              <input type="file" multiple accept="image/*" className="hidden"
-                onChange={async (e) => {
-                  if (!e.target.files?.length || !layout) return;
-                  const addedFiles = Array.from(e.target.files);
-                  e.target.value = '';
-                  const frameCount = layout.frames?.length || 1;
-                  const startId = canvases.length;
-                  const newCanvasCount = Math.ceil(addedFiles.length / frameCount);
-                  const newCanvases: CanvasItem[] = [];
-                  for (let i = 0; i < newCanvasCount; i++) {
-                    const canvasFrames: FrameState[] = [];
-                    for (let f = 0; f < frameCount; f++) {
-                      const file = addedFiles[(i * frameCount + f) % addedFiles.length];
-                      if (file) canvasFrames.push({
-                        id: f, originalFile: file, processedUrl: null,
-                        offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: globalFitMode,
-                        isRemovingBg: false, isDetectingProduct: false,
-                      });
-                    }
-                    const item: CanvasItem = {
-                      id: startId + i,
-                      frames: canvasFrames,
-                      overlays: [],
-                      bgColor: '#ffffff',
-                      dataUrl: null
-                    };
-                    item.dataUrl = await renderCanvas(item);
-                    newCanvases.push(item);
-                  }
-                  setCanvases(prev => [...prev, ...newCanvases]);
-                  skipNextGenerateRef.current = true;
-                  setFiles(prev => [...prev, ...addedFiles]);
+              {activeAddTab === 'shape' && (
+                <ShapesPicker onAddShape={(shape) => {
+                  if (!editingCanvas) return;
+                  pushUndo(editingCanvas, true);
+                  const newOverlay: Overlay = { type: 'shape', ...shape };
+                  const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
+                  debouncedRender(updated);
+                  setSelectedLayer({ type: 'shape', index: updated.overlays.length - 1 });
                 }} />
-            </label>
+              )}
+
+              {activeAddTab === 'icon' && (
+                <IconBrowser onAddImage={(imgOverlay) => {
+                  if (!editingCanvas) return;
+                  pushUndo(editingCanvas, true);
+                  const newOverlay: Overlay = { type: 'image', ...imgOverlay };
+                  const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
+                  debouncedRender(updated);
+                  setSelectedLayer({ type: 'image', index: updated.overlays.length - 1 });
+                }} />
+              )}
+
+              {activeAddTab === 'image' && (
+                <div className="space-y-4">
+                  {/* Option 1: Add as Overlay to CURRENT */}
+                  <label className="group relative flex flex-col items-center justify-center gap-2 p-5 bg-gradient-to-br from-violet-50 to-fuchsia-50 border-2 border-dashed border-violet-200/50 rounded-3xl text-violet-600 hover:from-violet-100 hover:to-fuchsia-100 transition-all cursor-pointer overflow-hidden shadow-sm">
+                    <div className="p-3 bg-white rounded-2xl shadow-sm text-violet-500 group-hover:scale-110 transition-transform">
+                      <ImagePlus className="w-6 h-6" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[10px] font-black uppercase tracking-tight">Add to Current Canvas</p>
+                      <p className="text-[9px] text-violet-400 font-bold uppercase tracking-widest opacity-60 mt-0.5">Add as floating overlay</p>
+                    </div>
+                    <input type="file" multiple accept="image/*" className="hidden"
+                      onChange={async (e) => {
+                        if (!e.target.files?.length || !editingCanvas) return;
+                        pushUndo(editingCanvas, true);
+                        const files = Array.from(e.target.files);
+                        e.target.value = '';
+                        
+                        let updated = { ...editingCanvas };
+                        for (const file of files) {
+                          const newOverlay: Overlay = {
+                            id: Math.random().toString(36).substr(2, 9),
+                            type: 'image',
+                            src: getFileUrl(file),
+                            originalFile: file,
+                            source: 'local',
+                            x: 50, y: 50, width: 30, height: 30, rotation: 0, opacity: 1,
+                            label: file.name
+                          };
+                          updated = { ...updated, overlays: [...updated.overlays, newOverlay] };
+                        }
+                        
+                        debouncedRender(updated);
+                        setSelectedLayer({ type: 'image', index: updated.overlays.length - 1 });
+                      }} />
+                  </label>
+
+                  <div className="flex items-center gap-3 px-2">
+                    <div className="h-[1px] flex-1 bg-slate-200/60" />
+                    <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">or</span>
+                    <div className="h-[1px] flex-1 bg-slate-200/60" />
+                  </div>
+
+                  {/* Option 2: Bulk Create NEW Canvases */}
+                  <label className="group relative flex flex-col items-center justify-center gap-2 p-5 bg-gradient-to-br from-sky-50 to-cyan-50 border-2 border-dashed border-sky-200/50 rounded-3xl text-sky-600 hover:from-sky-100 hover:to-cyan-100 transition-all cursor-pointer overflow-hidden opacity-80 hover:opacity-100">
+                    <div className="p-3 bg-white rounded-2xl shadow-sm text-sky-500 group-hover:scale-110 transition-transform">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[10px] font-black uppercase tracking-tight">Bulk Create Layouts</p>
+                      <p className="text-[8px] text-sky-400 font-bold uppercase tracking-widest opacity-60 mt-0.5">Generate multiple new pages</p>
+                    </div>
+                    <input type="file" multiple accept="image/*" className="hidden"
+                      onChange={async (e) => {
+                        if (!e.target.files?.length || !layout) return;
+                        const addedFiles = Array.from(e.target.files);
+                        e.target.value = '';
+                        const frameCount = layout.frames?.length || 1;
+                        const startId = canvases.length;
+                        const newCanvasCount = Math.ceil(addedFiles.length / frameCount);
+                        const newCanvases: CanvasItem[] = [];
+                        for (let i = 0; i < newCanvasCount; i++) {
+                          const canvasFrames: FrameState[] = [];
+                          for (let f = 0; f < frameCount; f++) {
+                            const file = addedFiles[(i * frameCount + f) % addedFiles.length];
+                            if (file) canvasFrames.push({
+                              id: f, originalFile: file, processedUrl: null,
+                              offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: globalFitMode,
+                              isRemovingBg: false, isDetectingProduct: false,
+                            });
+                          }
+                          const item: CanvasItem = {
+                            id: startId + i,
+                            frames: canvasFrames,
+                            overlays: [],
+                            bgColor: '#ffffff',
+                            dataUrl: null
+                          };
+                          item.dataUrl = await renderCanvas(item);
+                          newCanvases.push(item);
+                        }
+                        setCanvases(prev => [...prev, ...newCanvases]);
+                        skipNextGenerateRef.current = true;
+                        setFiles(prev => [...prev, ...addedFiles]);
+                      }} />
+                  </label>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

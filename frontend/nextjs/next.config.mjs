@@ -4,6 +4,8 @@ const nextConfig = {
   images: {
     unoptimized: true, // next/image not used — disable optimizer to mitigate GHSA-3x4c-7xq6-9pq8
   },
+  allowedDevOrigins: ['product-editor.printo.in'],
+  turbopack: {}, // ✅ Required in Next 16 if 'webpack' block is present
   async rewrites() {
     return [
       {
@@ -31,6 +33,18 @@ const nextConfig = {
         ],
       },
     ]
+  },
+  // ✅ Fix HMR WebSocket for tunneled/proxied development
+  webpack: (config, { dev, isServer }) => {
+    if (dev && !isServer) {
+      if (config.devServer) {
+        config.devServer.client = {
+          ...config.devServer.client,
+          webSocketURL: 'wss://product-editor.printo.in/_next/webpack-hmr',
+        };
+      }
+    }
+    return config;
   },
 }
 export default nextConfig

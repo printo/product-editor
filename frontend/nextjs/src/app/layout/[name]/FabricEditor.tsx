@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
-  Canvas, Rect, Circle, Ellipse, Triangle, Polygon, FabricImage, Textbox, Path, Point,
+  Canvas, Rect, Circle, Ellipse, Triangle, Polygon, FabricImage, Textbox, Path, Point, Shadow,
   type FabricObject,
 } from 'fabric';
 import type { CanvasItem } from './types';
@@ -31,6 +31,8 @@ interface FabricEditorProps {
   onCanvasChange: (updated: CanvasItem) => void;
   onLayerSelect: (layer: LayerSelection) => void;
   getFileUrl: (file: File) => string;
+  canvasWidth?: number;
+  canvasHeight?: number;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -188,6 +190,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   onCanvasChange,
   onLayerSelect,
   getFileUrl,
+  canvasWidth,
+  canvasHeight,
 }, ref) {
   const canvasElRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -201,15 +205,22 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const isEditingRef = useRef(false);       // TRUE while Fabric inline text editing is active
   const buildGenRef = useRef(0);
   const fitZoomRef = useRef(1);
+  const spacePressedRef = useRef(false);
 
   // Track structural state for smart rebuild vs in-place update
   const prevOverlayCountRef = useRef(-1);
   const prevFrameCountRef = useRef(-1);
   const prevOverlayTypesRef = useRef<string>('');
+  
+  // ✅ Stabilize callbacks with refs to prevent listener churn in useEffect
+  const onCanvasChangeRef = useRef(onCanvasChange);
+  const onLayerSelectRef = useRef(onLayerSelect);
+  useEffect(() => { onCanvasChangeRef.current = onCanvasChange; }, [onCanvasChange]);
+  useEffect(() => { onLayerSelectRef.current = onLayerSelect; }, [onLayerSelect]);
 
-  // Canvas logical dimensions (from layout definition)
-  const canvasW = layout?.canvas?.width || 1200;
-  const canvasH = layout?.canvas?.height || 1800;
+  // Canvas logical dimensions (passed from surface or fallback)
+  const canvasW = canvasWidth || layout?.canvas?.width || (layout?.surfaces?.[0] as any)?.width || 1200;
+  const canvasH = canvasHeight || layout?.canvas?.height || (layout?.surfaces?.[0] as any)?.height || 1800;
 
   // ── Initialize Fabric canvas ──────────────────────────────────────────────
 
@@ -220,7 +231,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     const fc = new Canvas(el, {
       width: 100, height: 100,
-      backgroundColor: '#f1f5f9',
+      backgroundColor: 'transparent', // Allow CSS background to show through workspace
       selection: true,
       controlsAboveOverlay: true,
       fireRightClick: true,
@@ -228,7 +239,33 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       imageSmoothingEnabled: true,
       renderOnAddRemove: false,
     });
+    
+    // ✅ Apply canvas-level clipping to keep content within layout bounds
+    fc.clipPath = new Rect({
+      left: 0, top: 0, width: canvasW, height: canvasH,
+      originX: 'left', originY: 'top', absolutePositioned: true,
+    });
+
     fabricRef.current = fc;
+
+    // ── Viewport Centering Helper ──────────────────────────────────────────
+    const centerViewport = (width: number, height: number, zoom: number) => {
+      if (!fc || width === 0 || height === 0) return;
+      const pad = 40;
+      const fitZoom = Math.min((width - pad * 2) / canvasW, (height - pad * 2) / canvasH);
+      fitZoomRef.current = fitZoom;
+
+      if (!interactingRef.current) {
+        const targetZoom = fitZoom * zoom;
+        const vpt = fc.viewportTransform.slice();
+        vpt[0] = targetZoom;
+        vpt[3] = targetZoom;
+        vpt[4] = (width / 2) - (canvasW * targetZoom / 2);
+        vpt[5] = (height / 2) - (canvasH * targetZoom / 2);
+        fc.setViewportTransform(vpt as any);
+        fc.requestRenderAll();
+      }
+    };
 
     // ── Handle resizing ──────────────────────────────────────────────────
     const observer = new ResizeObserver((entries) => {
@@ -242,6 +279,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
       if (!fc.lowerCanvasEl) return;
       fc.setDimensions({ width, height });
+      centerViewport(width, height, viewZoom);
     });
     observer.observe(container);
 
@@ -257,11 +295,15 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       opt.e.stopPropagation();
     });
 
-    // ── #2 Native Pan with relativePan() (Alt+drag) ──────────────────────
+    // ── #2 Native Pan with relativePan() (Alt/Cmd/Space+drag) ──────────────
     fc.on('mouse:down', (opt) => {
       interactingRef.current = true;
-      if (opt.e.altKey) {
+      const isSpace = spacePressedRef.current;
+      const isMod = opt.e.altKey || opt.e.metaKey; // Alt/Option or Cmd/Ctrl
+      // ✅ Allow panning if Alt/Cmd/Space is held OR clicking background (no target)
+      if (isSpace || isMod || (!opt.target && !opt.e.shiftKey)) {
         (fc as any).__isPanning = true;
+        fc.selection = false; // Disable selection box while panning
         fc.defaultCursor = 'grabbing';
         fc.setCursor('grabbing');
       }
@@ -276,8 +318,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     fc.on('mouse:up', () => {
       interactingRef.current = false;
       (fc as any).__isPanning = false;
+      fc.selection = true; // Re-enable selection
       fc.defaultCursor = 'default';
-      setTimeout(() => { interactingRef.current = false; }, 100);
+      setTimeout(() => { interactingRef.current = false; }, 200);
     });
 
     // Text editing guards — CRITICAL: prevents rebuild during inline editing
@@ -286,7 +329,27 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       setTimeout(() => { isEditingRef.current = false; }, 150);
     });
 
+    // Keyboard listeners for space-panning
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !isEditingRef.current) {
+        spacePressedRef.current = true;
+        fc.defaultCursor = 'grab';
+        if (!fc.getActiveObject()) fc.setCursor('grab');
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        spacePressedRef.current = false;
+        fc.defaultCursor = 'default';
+        fc.setCursor('default');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
     return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       observer.disconnect();
       fc.dispose();
       fabricRef.current = null;
@@ -299,8 +362,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const fc = fabricRef.current;
     if (!fc || containerSize.width === 0) return;
 
-    // Skip rebuild if user is interacting or inline-editing text
-    if (interactingRef.current || isEditingRef.current) return;
+    // ── #1 Guard: skip if canvas is current busy with internal dragging ────────
+    // However, if it's a structural change, we MUST rebuild.
+    // AND if it's a property update from props (like sliders), we SHOULD apply it.
+    // So we ONLY skip if it's a "silent" update or similar.
+    // For now, let's remove the aggressive interactingRef guard to solve unresponsive sliders.
+    if (isEditingRef.current) return;
 
     const currentOverlayCount = editingCanvas.overlays.length;
     const currentFrameCount = editingCanvas.frames.length;
@@ -330,10 +397,49 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           obj.setCoords();
         }
       });
-
       // Update background color
       const paperObj = objs.find((o: any) => o[PAPER_KEY]);
-      if (paperObj) paperObj.set({ fill: editingCanvas.bgColor || '#ffffff' });
+      if (paperObj) {
+        paperObj.set({ 
+          fill: editingCanvas.bgColor || '#ffffff',
+          shadow: new Shadow({ color: 'rgba(0,0,0,0.1)', blur: 15, offsetX: 0, offsetY: 0 }),
+        });
+      }
+
+      // ── #4 In-place frame property updates ────────────────────────────────
+      const frameObjs = objs
+        .filter((o: any) => (o as any)[DATA_KEY] === 'frame')
+        .sort((a: any, b: any) => (a as any).__frameIdx - (b as any).__frameIdx);
+
+      editingCanvas.frames.forEach((frameState, idx) => {
+        const img = frameObjs.find((o: any) => (o as any).__frameIdx === idx) as FabricImage;
+        if (!img) return;
+
+        const clip = (img as any).__clipRect as { fx: number; fy: number; fw: number; fh: number };
+        if (!clip) return;
+
+        const imgW = img.width!;
+        const imgH = img.height!;
+        let scale = frameState.scale;
+
+        if (frameState.fitMode === 'contain' || frameState.fitMode === 'cover') {
+          const sX = clip.fw / imgW;
+          const sY = clip.fh / imgH;
+          const baseScale = frameState.fitMode === 'contain' ? Math.min(sX, sY) : Math.max(sX, sY);
+          scale = baseScale * frameState.scale;
+        }
+
+        const imgX = clip.fx + (clip.fw - imgW * scale) / 2 + frameState.offset.x;
+        const imgY = clip.fy + (clip.fh - imgH * scale) / 2 + frameState.offset.y;
+
+        img.set({
+          left: imgX + (imgW * scale) / 2,
+          top: imgY + (imgH * scale) / 2,
+          scaleX: scale, scaleY: scale,
+          angle: frameState.rotation,
+        });
+        img.setCoords();
+      });
 
       fc.requestRenderAll();
       return;
@@ -345,7 +451,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     // Clean managed clear — preserves viewportTransform
     fc.getObjects().forEach(o => fc.remove(o));
     fc.discardActiveObject();
-    fc.backgroundColor = '#f1f5f9';
+    fc.backgroundColor = 'transparent';
     fc.set({ renderOnAddRemove: false });
 
     // Track Z positions for precise ordering
@@ -358,11 +464,26 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       fill: editingCanvas.bgColor || '#ffffff',
       selectable: false, evented: false,
       strokeWidth: 0,
+      shadow: new Shadow({ color: 'rgba(0,0,0,0.1)', blur: 15, offsetX: 0, offsetY: 0 }),
     });
     (paper as any)[PAPER_KEY] = true;
-    fc.add(paper);
-    // ✅ #4 Use moveObjectTo for precise Z-order on add
     fc.moveObjectTo(paper, zIndex++);
+
+    // ✅ Center viewport synchronously IMMEDIATELY after paper add
+    // This prevents the "top-left flash" before images load
+    const { width: cW, height: cH } = containerSize;
+    if (cW > 0 && cH > 0) {
+      const pad = 40;
+      const fitZoom = Math.min((cW - pad * 2) / canvasW, (cH - pad * 2) / canvasH);
+      fitZoomRef.current = fitZoom;
+      const targetZoom = fitZoom * viewZoom;
+      const vpt = fc.viewportTransform.slice();
+      vpt[0] = targetZoom;
+      vpt[3] = targetZoom;
+      vpt[4] = (cW / 2) - (canvasW * targetZoom / 2);
+      vpt[5] = (cH / 2) - (canvasH * targetZoom / 2);
+      fc.setViewportTransform(vpt as any);
+    }
 
     // ── Frame images ──────────────────────────────────────────────────────
     const frames = layout?.frames?.length > 0
@@ -517,17 +638,28 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     Promise.all([...loadFramePromises, ...loadOverlayPromises, maskPromise]).then(() => {
       if (fc !== fabricRef.current || buildGenRef.current !== gen) return;
 
-      // Restore selection
+      // Restore selection or Auto-select
+      const objs = fc.getObjects();
+      let targetObj: FabricObject | undefined;
+      
       if (selectedLayer) {
-        const objs = fc.getObjects();
-        let targetObj: FabricObject | undefined;
         if (selectedLayer.type === 'frame') {
           targetObj = objs.find((o: any) => o.__frameIdx === selectedLayer.index);
         } else {
           targetObj = objs.find((o: any) => o.__overlayIdx === selectedLayer.index);
         }
-        if (targetObj) fc.setActiveObject(targetObj);
+      } 
+      
+      // Auto-select first frame if nothing else selected and only 1 frame exists
+      if (!targetObj && editingCanvas.frames.length === 1 && editingCanvas.overlays.length === 0) {
+        targetObj = objs.find((o: any) => o.__frameIdx === 0);
+        if (targetObj) onLayerSelect({ type: 'frame', index: 0 });
       }
+
+      if (targetObj) {
+        fc.setActiveObject(targetObj);
+      }
+      
       fc.requestRenderAll();
     });
 
@@ -536,26 +668,25 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
   // ── Standalone Viewport Centering ──────────────────────────────────────────
 
+  // ── Standalone Viewport Centering (props changes) ──────────────────────────
   useEffect(() => {
     const fc = fabricRef.current;
+    if (!fc || containerSize.width === 0) return;
+    
+    // Replicate centering on props change
     const { width, height } = containerSize;
-    if (!fc || width === 0 || height === 0) return;
-
     const pad = 40;
     const fitZoom = Math.min((width - pad * 2) / canvasW, (height - pad * 2) / canvasH);
     fitZoomRef.current = fitZoom;
-
-    if (!interactingRef.current) {
-      const targetZoom = fitZoom * viewZoom;
-      fc.setZoom(targetZoom);
-
-      // ✅ #8 Use absolutePan() instead of direct viewportTransform mutation
-      const panX = -(width - canvasW * targetZoom) / 2;
-      const panY = -(height - canvasH * targetZoom) / 2;
-      fc.absolutePan(new Point(panX, panY));
-      fc.requestRenderAll();
-    }
-  }, [containerSize, viewZoom, canvasW, canvasH]);
+    const targetZoom = fitZoom * viewZoom;
+    const vpt = fc.viewportTransform.slice();
+    vpt[0] = targetZoom;
+    vpt[3] = targetZoom;
+    vpt[4] = (width / 2) - (canvasW * targetZoom / 2);
+    vpt[5] = (height / 2) - (canvasH * targetZoom / 2);
+    fc.setViewportTransform(vpt as any);
+    fc.requestRenderAll();
+  }, [viewZoom, canvasW, canvasH, containerSize, buildGenRef.current]);
 
   // ── Fabric events → parent state ──────────────────────────────────────────
 
@@ -594,7 +725,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           };
         });
 
-        onCanvasChange({ ...current, frames: newFrames });
+        onCanvasChangeRef.current({ ...current, frames: newFrames });
       } else {
         const idx = (target as any).__overlayIdx as number;
         const newX = ((target.left ?? 0) / canvasW) * 100;
@@ -629,7 +760,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           }
           return { ...(o as any), ...commonUpdates };
         });
-        onCanvasChange({ ...current, overlays: newOverlays });
+        onCanvasChangeRef.current({ ...current, overlays: newOverlays });
       }
     };
 
@@ -641,9 +772,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       }
       const type = (selected as any)[DATA_KEY];
       if (type === 'frame') {
-        onLayerSelect({ type: 'frame', index: (selected as any).__frameIdx });
+        onLayerSelectRef.current({ type: 'frame', index: (selected as any).__frameIdx });
       } else if (type === 'text' || type === 'shape' || type === 'image') {
-        onLayerSelect({ type: type, index: (selected as any).__overlayIdx });
+        onLayerSelectRef.current({ type: type, index: (selected as any).__overlayIdx });
       }
     };
 
@@ -656,7 +787,17 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         if (i !== idx || o.type !== 'text') return o;
         return { ...o, text: target.text || o.text };
       });
-      onCanvasChange({ ...current, overlays: newOverlays });
+      onCanvasChangeRef.current({ ...current, overlays: newOverlays });
+    };
+
+    const handleEditingEntered = () => {
+      isEditingRef.current = true;
+    };
+    const handleEditingExited = () => {
+      isEditingRef.current = false;
+      // Also trigger a final mod on exit to ensure state is perfectly in sync
+      const active = fc.getActiveObject();
+      if (active) handleModified({ target: active });
     };
 
     fc.on('object:modified', handleModified);
@@ -664,6 +805,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     fc.on('selection:updated', handleSelection);
     fc.on('selection:cleared', handleSelection);
     fc.on('text:changed', handleTextChanged);
+    fc.on('text:editing:entered', handleEditingEntered);
+    fc.on('text:editing:exited', handleEditingExited);
 
     return () => {
       fc.off('object:modified', handleModified);
@@ -671,9 +814,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       fc.off('selection:updated', handleSelection);
       fc.off('selection:cleared', handleSelection);
       fc.off('text:changed', handleTextChanged);
+      fc.off('text:editing:entered', handleEditingEntered);
+      fc.off('text:editing:entered', handleEditingEntered);
+      fc.off('text:editing:exited', handleEditingExited);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasW, canvasH, onCanvasChange, onLayerSelect]);
+  }, [canvasW, canvasH]); // Removed unstable callbacks from dependencies
 
   // ── Expose handle to parent ───────────────────────────────────────────────
 
@@ -741,7 +887,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   }), [canvasW, canvasH]);
 
   return (
-    <div ref={containerRef} className="flex-1 w-full h-full overflow-hidden">
+    <div ref={containerRef} className="flex-1 w-full h-full overflow-hidden bg-slate-100/50">
       <canvas ref={canvasElRef} />
     </div>
   );

@@ -21,8 +21,11 @@ export async function renderCanvas(
   const usedLayout = layoutOverride || layoutDef;
   if (!usedLayout) return '';
 
-  const canvasW = usedLayout.canvas?.width || 1200;
-  const canvasH = usedLayout.canvas?.height || 1800;
+  const canvasW = usedLayout.canvas?.width || usedLayout.surfaces?.[0]?.canvas?.width || 1200;
+  const canvasH = usedLayout.canvas?.height || usedLayout.surfaces?.[0]?.canvas?.height || 1800;
+
+  const frames = (usedLayout.canvas?.width ? usedLayout.frames : usedLayout.surfaces?.[0]?.frames) || 
+               (usedLayout.frames?.length > 0 ? usedLayout.frames : [{ x: 0, y: 0, width: canvasW, height: canvasH }]);
 
   // Create an off-screen Fabric canvas
   const canvasEl = document.createElement('canvas');
@@ -36,11 +39,6 @@ export async function renderCanvas(
   });
 
   try {
-
-  const frames = usedLayout.frames?.length > 0
-    ? usedLayout.frames
-    : [{ x: 0, y: 0, width: canvasW, height: canvasH }];
-
   // ── Frame images ────────────────────────────────────────────────────────────
   for (let frameIdx = 0; frameIdx < frames.length; frameIdx++) {
     if (excludeFrameIdx !== null && frameIdx === excludeFrameIdx) continue;

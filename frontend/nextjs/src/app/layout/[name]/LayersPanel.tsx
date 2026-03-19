@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Pentagon, ImagePlus, GripVertical } from 'lucide-react';
+import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ImagePlus, GripVertical } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { CanvasItem, Overlay } from './types';
 
@@ -91,7 +91,7 @@ export function LayersPanel({
                 <GripVertical className="w-3 h-3 text-slate-300 group-hover:text-slate-400 cursor-grab" />
                 
                 {overlay.type === 'text' && <Type className="w-3 h-3 text-pink-400" />}
-                {overlay.type === 'shape' && <Pentagon className="w-3 h-3 text-purple-400" />}
+                {overlay.type === 'shape' && <Hexagon className="w-3 h-3 text-purple-400" />}
                 {overlay.type === 'image' && <ImagePlus className="w-3 h-3 text-emerald-400" />}
 
                 <span className={clsx('text-[11px] font-medium truncate flex-1', isSelected ? 'text-violet-700' : 'text-slate-600')}>

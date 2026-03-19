@@ -107,6 +107,8 @@ services:
       - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY}
       - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_TRUST_HOST=true
+      - AUTH_URL=${NEXTAUTH_URL:-http://localhost:5004}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:5004}
     depends_on:
       - backend
     labels:
@@ -117,6 +119,9 @@ services:
       - traefik.http.routers.product-editor-frontend.priority=1
       - traefik.http.services.product-editor-frontend.loadbalancer.server.port=3000
       - traefik.docker.network=product-editor_web
+      - traefik.http.routers.product-editor-nextauth.rule=PathPrefix(`/api/auth`)
+      - traefik.http.routers.product-editor-nextauth.entrypoints=web
+      - traefik.http.routers.product-editor-nextauth.priority=3
       - traefik.http.routers.product-editor-frontend-tls.rule=Host(`${PUBLIC_HOST}`)
       - traefik.http.routers.product-editor-frontend-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-frontend-tls.tls.certresolver=le
