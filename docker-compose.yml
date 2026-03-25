@@ -24,7 +24,7 @@ services:
   db:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-product_editor}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
@@ -45,7 +45,7 @@ services:
       context: .
       dockerfile: backend/django/Dockerfile
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev}
       - DEBUG=${DEBUG:-0}  # Set to 0 for production, 1 for development

@@ -14,6 +14,9 @@ importers:
       fabric:
         specifier: ^7.2.0
         version: 7.2.0
+      fabric-guideline-plugin:
+        specifier: ^0.0.11
+        version: 0.0.11(fabric@7.2.0)
       jose:
         specifier: ^6.2.1
         version: 6.2.2
@@ -1135,6 +1138,11 @@ packages:
   expand-template@2.0.3:
     resolution: {integrity: sha512-XYfuKMvj4O35f/pOXLObndIRvyQ+/+6AhODh+OKWj9S9498pHHn/IMszH+gt0fBCRWMNfk1ZSp5x3AifmnI2vg==}
     engines: {node: '>=6'}
+
+  fabric-guideline-plugin@0.0.11:
+    resolution: {integrity: sha512-qeocIwDR8KHMQpGlVUZeiOlm1IyHpnCYNHt+nAUxcq3dckOuXA/40X3No5Haeoj49nsNWsmBUlMxffxjpTOsKQ==}
+    peerDependencies:
+      fabric: ^5.2.1
 
   fabric@7.2.0:
     resolution: {integrity: sha512-XSYmSqSMrlbCg+/j7/uU/PFeZuA5hHRDp7sGbDlMvz/T6BHt2MQSOYtz/AIdr+kmReA1s5jTzHJ8AjHwYUcmfQ==}
@@ -3520,6 +3528,10 @@ snapshots:
 
   expand-template@2.0.3:
     optional: true
+
+  fabric-guideline-plugin@0.0.11(fabric@7.2.0):
+    dependencies:
+      fabric: 7.2.0
 
   fabric@7.2.0:
     optionalDependencies:

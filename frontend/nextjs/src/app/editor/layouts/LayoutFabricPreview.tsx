@@ -9,8 +9,8 @@ import {
   createCenterGuides,
   createGridLines,
   snapToGrid,
-  applySnapToObjects,
   constrainToCanvas,
+  initAligningGuidelines,
 } from '@/lib/fabric-utils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -99,6 +99,10 @@ export function LayoutFabricPreview({
       // preserveObjectStacking defaults to true in Fabric 7
     });
     fabricRef.current = fc;
+
+    // Initialize aligning guidelines — visual snap lines on object:moving
+    // Uses fabric-guideline-plugin for Canva/Figma-style alignment guides
+    initAligningGuidelines(fc, { lineMargin: SNAP_THRESHOLD_PX });
 
     return () => {
       fc.dispose();
@@ -309,11 +313,8 @@ export function LayoutFabricPreview({
         });
       }
 
-      // Snap to other frame edges
-      const frameObjs = fc.getObjects().filter(
-        (o: any) => o[DATA_KEY] === 'frame' && o !== target,
-      );
-      applySnapToObjects(target, frameObjs, SNAP_THRESHOLD_PX);
+      // Note: Aligning guidelines handle object-to-object snapping with visual
+      // feedback via initAligningGuidelines(). No manual snap call needed here.
 
       // Constrain
       constrainToCanvas(target, cw, ch);

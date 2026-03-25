@@ -1,6 +1,6 @@
-import { Canvas, Rect, Circle, Ellipse, Triangle, Polygon, FabricImage, Textbox, Path, FabricText } from 'fabric';
+import { Canvas, Rect, FabricImage, Textbox, FabricText } from 'fabric';
 import type { CanvasItem } from './types';
-import { getShapePath, getShapeDef } from '@/lib/shape-catalog';
+import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
 
 // ─── Fabric-based canvas rendering ───────────────────────────────────────────
 
@@ -77,10 +77,10 @@ export async function renderCanvas(
       const y = fy + (fh - h) / 2 + frameState.offset.y;
 
       // Clip to frame region
+      // Clip to frame region using relative clipPath
       const clipRect = new Rect({
-        left: fx, top: fy, width: fw, height: fh,
-        originX: 'left', originY: 'top',
-        absolutePositioned: true,
+        left: 0, top: 0, width: fw, height: fh,
+        originX: 'center', originY: 'center',
       });
 
       fabricImg.set({
@@ -95,6 +95,7 @@ export async function renderCanvas(
         selectable: false,
         evented: false,
       });
+      updateRelativeClipPath(fabricImg, fx, fy, fw, fh);
 
       fabricCanvas.add(fabricImg);
     } catch {
@@ -155,65 +156,9 @@ export async function renderCanvas(
           });
           fabricCanvas.add(textObj);
         } else if (o.type === 'shape') {
-          const sx = (o.x / 100) * canvasW;
-          const sy = (o.y / 100) * canvasH;
-          const sw = (o.width / 100) * canvasW;
-          const sh = (o.height / 100) * canvasH;
-          const commonOpts = {
-            fill: o.fill || 'transparent',
-            stroke: o.strokeWidth > 0 ? (o.stroke || '#000000') : undefined,
-            strokeWidth: o.strokeWidth > 0 ? o.strokeWidth : 0,
-            opacity: o.opacity ?? 1,
-            angle: o.rotation || 0,
+          const fabricObj = createShapeFromOverlay(o, canvasW, canvasH, {
             selectable: false, evented: false,
-          };
-          let fabricObj;
-          const def = getShapeDef(o.shapeType);
-          if (def?.fabricType === 'rect') {
-            const isRounded = o.shapeType === 'rounded-rect';
-            fabricObj = new Rect({
-              left: sx, top: sy, width: sw, height: sh,
-              originX: 'left', originY: 'top',
-              rx: isRounded ? Math.min(sw, sh) * 0.15 : 0,
-              ry: isRounded ? Math.min(sw, sh) * 0.15 : 0,
-              ...commonOpts,
-            });
-          } else if (def?.fabricType === 'circle') {
-            const radius = Math.min(sw, sh) / 2;
-            fabricObj = new Circle({
-              left: sx + sw / 2, top: sy + sh / 2, radius,
-              originX: 'center', originY: 'center',
-              ...commonOpts,
-            });
-          } else if (def?.fabricType === 'ellipse') {
-            fabricObj = new Ellipse({
-              left: sx + sw / 2, top: sy + sh / 2,
-              rx: sw / 2, ry: sh / 2,
-              originX: 'center', originY: 'center',
-              ...commonOpts,
-            });
-          } else if (def?.fabricType === 'triangle') {
-            fabricObj = new Triangle({
-              left: sx, top: sy, width: sw, height: sh,
-              originX: 'left', originY: 'top',
-              ...commonOpts,
-            });
-          } else if (def?.fabricType === 'polygon' && def.polygonPoints) {
-            const points = def.polygonPoints.map(p => ({ x: (p.x / 100) * sw, y: (p.y / 100) * sh }));
-            fabricObj = new Polygon(points, {
-              left: sx, top: sy,
-              originX: 'left', originY: 'top',
-              ...commonOpts,
-            });
-          } else {
-            const pathStr = getShapePath(o.shapeType, o.svgPath);
-            fabricObj = new Path(pathStr, {
-              left: sx + sw / 2, top: sy + sh / 2,
-              originX: 'center', originY: 'center',
-              scaleX: sw / 100, scaleY: sh / 100,
-              ...commonOpts,
-            });
-          }
+          });
           if (fabricObj) fabricCanvas.add(fabricObj);
         } else if (o.type === 'image') {
           const ix = (o.x / 100) * canvasW;
@@ -259,7 +204,10 @@ export async function renderCanvas(
 
   // ── Render and export ───────────────────────────────────────────────────────
   fabricCanvas.renderAll();
-  return fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+  const dataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+  
+  const targetDpi = usedLayout.canvas?.dpi || 300;
+  return changeDpiDataUrl(dataUrl, targetDpi);
 
   } finally {
     fabricCanvas.dispose();

@@ -2,12 +2,13 @@
 
 import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
-  Canvas, Rect, Circle, Ellipse, Triangle, Polygon, FabricImage, Textbox, Path, Point, Shadow,
+  Canvas, Rect, FabricImage, Textbox, Point, Shadow, Path,
   type FabricObject,
 } from 'fabric';
 import type { CanvasItem } from './types';
 import type { LayerSelection } from './LayersPanel';
-import { getShapePath, getShapeDef } from '@/lib/shape-catalog';
+import { getShapeDef } from '@/lib/shape-catalog';
+import { createShapeFromOverlay, centerCanvasViewport, updateRelativeClipPath } from '@/lib/fabric-utils';
 
 // ─── Handle type exposed to parent ──────────────────────────────────────────
 
@@ -40,81 +41,23 @@ interface FabricEditorProps {
 const DATA_KEY = '__fabricEditor';
 const PAPER_KEY = '__paper';
 
-// ─── Helper: create a Fabric shape object from overlay state ─────────────────
+// ─── Interactive shape controls styling ──────────────────────────────────────
 
+const INTERACTIVE_SHAPE_OPTS = {
+  cornerColor: '#6366f1',
+  cornerSize: 14,
+  cornerStyle: 'circle' as const,
+  transparentCorners: false,
+  borderColor: '#a855f7',
+};
+
+/** Create a Fabric shape from overlay state — delegates to shared factory */
 function makeShapeObject(
   overlay: Extract<CanvasItem['overlays'][number], { type: 'shape' }>,
   canvasW: number,
   canvasH: number,
 ): FabricObject | null {
-  const sx = (overlay.x / 100) * canvasW;
-  const sy = (overlay.y / 100) * canvasH;
-  const sw = (overlay.width / 100) * canvasW;
-  const sh = (overlay.height / 100) * canvasH;
-
-  const commonOpts = {
-    fill: overlay.fill || 'transparent',
-    stroke: overlay.strokeWidth > 0 ? (overlay.stroke || '#000000') : undefined,
-    strokeWidth: overlay.strokeWidth > 0 ? overlay.strokeWidth : 0,
-    opacity: overlay.opacity ?? 1,
-    angle: overlay.rotation || 0,
-    cornerColor: '#6366f1',
-    cornerSize: 14,
-    cornerStyle: 'circle' as const,
-    transparentCorners: false,
-    borderColor: '#a855f7',
-  };
-
-  const def = getShapeDef(overlay.shapeType);
-
-  if (def?.fabricType === 'rect') {
-    const isRounded = overlay.shapeType === 'rounded-rect';
-    return new Rect({
-      left: sx, top: sy, width: sw, height: sh,
-      originX: 'left', originY: 'top',
-      rx: isRounded ? Math.min(sw, sh) * 0.15 : 0,
-      ry: isRounded ? Math.min(sw, sh) * 0.15 : 0,
-      ...commonOpts,
-    });
-  } else if (def?.fabricType === 'circle') {
-    const radius = Math.min(sw, sh) / 2;
-    return new Circle({
-      left: sx + sw / 2, top: sy + sh / 2, radius,
-      originX: 'center', originY: 'center',
-      ...commonOpts,
-    });
-  } else if (def?.fabricType === 'ellipse') {
-    return new Ellipse({
-      left: sx + sw / 2, top: sy + sh / 2,
-      rx: sw / 2, ry: sh / 2,
-      originX: 'center', originY: 'center',
-      ...commonOpts,
-    });
-  } else if (def?.fabricType === 'triangle') {
-    return new Triangle({
-      left: sx, top: sy, width: sw, height: sh,
-      originX: 'left', originY: 'top',
-      ...commonOpts,
-    });
-  } else if (def?.fabricType === 'polygon' && def.polygonPoints) {
-    const points = def.polygonPoints.map(p => ({
-      x: (p.x / 100) * sw,
-      y: (p.y / 100) * sh,
-    }));
-    return new Polygon(points, {
-      left: sx, top: sy,
-      originX: 'left', originY: 'top',
-      ...commonOpts,
-    });
-  } else {
-    const pathStr = getShapePath(overlay.shapeType, overlay.svgPath);
-    return new Path(pathStr, {
-      left: sx, top: sy,
-      originX: 'left', originY: 'top',
-      scaleX: sw / 100, scaleY: sh / 100,
-      ...commonOpts,
-    });
-  }
+  return createShapeFromOverlay(overlay, canvasW, canvasH, INTERACTIVE_SHAPE_OPTS);
 }
 
 // ─── Helper: apply overlay state to an existing Fabric object in-place ───────
@@ -222,6 +165,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const canvasW = canvasWidth || layout?.canvas?.width || (layout?.surfaces?.[0] as any)?.width || 1200;
   const canvasH = canvasHeight || layout?.canvas?.height || (layout?.surfaces?.[0] as any)?.height || 1800;
 
+  console.log('[FabricEditor] 🎨 Init Render:', {
+    canvasW, canvasH, viewZoom,
+    framesCount: editingCanvas?.frames?.length,
+    containerSize
+  });
+
   // ── Initialize Fabric canvas ──────────────────────────────────────────────
 
   useEffect(() => {
@@ -233,6 +182,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       width: 100, height: 100,
       backgroundColor: 'transparent', // Allow CSS background to show through workspace
       selection: true,
+      preserveObjectStacking: true, // ✅ Keep images behind the white paper mask even when selected/dragged
       controlsAboveOverlay: true,
       fireRightClick: true,
       stopContextMenu: true,
@@ -240,10 +190,11 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       renderOnAddRemove: false,
     });
     
-    // ✅ Apply canvas-level clipping to keep content within layout bounds
+    // ✅ Keep content strictly within the layout logical bounds to stop infinite bleeding
     fc.clipPath = new Rect({
       left: 0, top: 0, width: canvasW, height: canvasH,
-      originX: 'left', originY: 'top', absolutePositioned: true,
+      originX: 'left', originY: 'top',
+      absolutePositioned: false, // This ensures it scales flawlessly with viewport zoom
     });
 
     fabricRef.current = fc;
@@ -251,18 +202,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     // ── Viewport Centering Helper ──────────────────────────────────────────
     const centerViewport = (width: number, height: number, zoom: number) => {
       if (!fc || width === 0 || height === 0) return;
-      const pad = 40;
-      const fitZoom = Math.min((width - pad * 2) / canvasW, (height - pad * 2) / canvasH);
-      fitZoomRef.current = fitZoom;
-
       if (!interactingRef.current) {
-        const targetZoom = fitZoom * zoom;
-        const vpt = fc.viewportTransform.slice();
-        vpt[0] = targetZoom;
-        vpt[3] = targetZoom;
-        vpt[4] = (width / 2) - (canvasW * targetZoom / 2);
-        vpt[5] = (height / 2) - (canvasH * targetZoom / 2);
-        fc.setViewportTransform(vpt as any);
+        fitZoomRef.current = centerCanvasViewport(fc, width, height, canvasW, canvasH, zoom);
         fc.requestRenderAll();
       }
     };
@@ -291,6 +232,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (zoom > 20) zoom = 20;
       if (zoom < 0.01) zoom = 0.01;
       fc.zoomToPoint(new Point(opt.e.offsetX, opt.e.offsetY), zoom);
+      fc.requestRenderAll();
       opt.e.preventDefault();
       opt.e.stopPropagation();
     });
@@ -313,13 +255,21 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const me = opt.e as MouseEvent;
         // ✅ Use Fabric's built-in relativePan instead of manual viewportTransform mutation
         fc.relativePan(new Point(me.movementX ?? 0, me.movementY ?? 0));
+        fc.setViewportTransform(fc.viewportTransform!); // Force recalc of clipPath and bbox cache
+        fc.renderAll(); // Force visual update to avoid delay
       }
     });
     fc.on('mouse:up', () => {
       interactingRef.current = false;
-      (fc as any).__isPanning = false;
-      fc.selection = true; // Re-enable selection
-      fc.defaultCursor = 'default';
+      if ((fc as any).__isPanning) {
+        (fc as any).__isPanning = false;
+        fc.selection = true; // Re-enable selection
+        const newCursor = spacePressedRef.current ? 'grab' : 'default';
+        fc.defaultCursor = newCursor;
+        fc.setCursor(newCursor);
+        fc.setViewportTransform(fc.viewportTransform!);
+        fc.renderAll();
+      }
       setTimeout(() => { interactingRef.current = false; }, 200);
     });
 
@@ -439,6 +389,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           angle: frameState.rotation,
         });
         img.setCoords();
+        console.log(`[FabricEditor] ⚡ In-Place Update Frame ${idx}:`, { left: img.left, top: img.top, scale: scale, angle: frameState.rotation });
       });
 
       fc.requestRenderAll();
@@ -446,6 +397,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     }
 
     // ── Full structural rebuild ──────────────────────────────────────────
+    console.log('[FabricEditor] 🏗️ Full Structural Rebuild triggered');
     const gen = ++buildGenRef.current;
 
     // Clean managed clear — preserves viewportTransform
@@ -458,31 +410,14 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     // Order: paper(0), frames(1..N), overlays(N+1..M), mask(last)
     let zIndex = 0;
 
-    // ── Paper background ───────────────────────────────────────────────
-    const paper = new Rect({
-      left: 0, top: 0, width: canvasW, height: canvasH,
-      fill: editingCanvas.bgColor || '#ffffff',
-      selectable: false, evented: false,
-      strokeWidth: 0,
-      shadow: new Shadow({ color: 'rgba(0,0,0,0.1)', blur: 15, offsetX: 0, offsetY: 0 }),
-    });
-    (paper as any)[PAPER_KEY] = true;
-    fc.moveObjectTo(paper, zIndex++);
+    // We will render the shadow and background dynamically in the rebuild process.
+    // So we don't need a static paper rect here anymore.
 
     // ✅ Center viewport synchronously IMMEDIATELY after paper add
     // This prevents the "top-left flash" before images load
     const { width: cW, height: cH } = containerSize;
     if (cW > 0 && cH > 0) {
-      const pad = 40;
-      const fitZoom = Math.min((cW - pad * 2) / canvasW, (cH - pad * 2) / canvasH);
-      fitZoomRef.current = fitZoom;
-      const targetZoom = fitZoom * viewZoom;
-      const vpt = fc.viewportTransform.slice();
-      vpt[0] = targetZoom;
-      vpt[3] = targetZoom;
-      vpt[4] = (cW / 2) - (canvasW * targetZoom / 2);
-      vpt[5] = (cH / 2) - (canvasH * targetZoom / 2);
-      fc.setViewportTransform(vpt as any);
+      fitZoomRef.current = centerCanvasViewport(fc, cW, cH, canvasW, canvasH, viewZoom);
     }
 
     // ── Frame images ──────────────────────────────────────────────────────
@@ -521,6 +456,10 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const imgX = fx + (fw - imgW * scale) / 2 + frameState.offset.x;
         const imgY = fy + (fh - imgH * scale) / 2 + frameState.offset.y;
 
+        console.log(`[FabricEditor] 🖼️ Loading frame ${frameIdx}:`, {
+          fx, fy, fw, fh, imgW, imgH, scale, imgX, imgY, rotation: frameState.rotation
+        });
+
         img.set({
           left: imgX + (imgW * scale) / 2,
           top: imgY + (imgH * scale) / 2,
@@ -532,12 +471,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           cornerColor: '#6366f1', cornerSize: 12, cornerStyle: 'circle',
           transparentCorners: false, borderColor: '#6366f1',
         });
-
-        img.clipPath = new Rect({
-          left: fx, top: fy, width: fw, height: fh,
-          originX: 'left', originY: 'top', absolutePositioned: true,
-        });
-
+        // Buggy clipPath removed. The image will be masked by the paperOverlay instead.
         (img as any)[DATA_KEY] = 'frame';
         (img as any).__frameIdx = frameIdx;
         fc.add(img);
@@ -547,8 +481,37 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       }
     });
 
+    // ── Paper Overlay Mask (Hole-punching) ───────────────────────────────────
+    // A white paper layer rendered ABOVE the images, with transparent holes cut out 
+    // for each frame using SVG `evenodd` fill rule.
+    let paperPathStr = `M 0 0 L ${canvasW} 0 L ${canvasW} ${canvasH} L 0 ${canvasH} Z`;
+    
+    frames.forEach((frameSpec) => {
+      const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+      const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
+      const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
+      const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+      const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+      // Counter-clockwise rectangular hole
+      paperPathStr += ` M ${fx} ${fy} L ${fx} ${fy+fh} L ${fx+fw} ${fy+fh} L ${fx+fw} ${fy} Z`;
+    });
+
+    const paperOverlay = new Path(paperPathStr, {
+      left: 0, top: 0,
+      originX: 'left', originY: 'top', // ✅ Force top-left alignment so the holes register perfectly over the image frames
+      fill: editingCanvas.bgColor || '#ffffff',
+      selectable: false, evented: false,
+      fillRule: 'evenodd', 
+      shadow: new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 })
+    });
+    (paperOverlay as any)[PAPER_KEY] = true;
+    fc.add(paperOverlay);
+    
+    const paperOverlayZ = frameZStart + editingCanvas.frames.length;
+    fc.moveObjectTo(paperOverlay, paperOverlayZ);
+
     // ── Overlays (Text, shapes, icons) ───────────────────────────────────
-    const overlayZStart = frameZStart + editingCanvas.frames.length;
+    const overlayZStart = paperOverlayZ + 1;
 
     const loadOverlayPromises = editingCanvas.overlays.map(async (overlay, oIdx) => {
       let fabricObj: FabricObject | null = null;
@@ -672,19 +635,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   useEffect(() => {
     const fc = fabricRef.current;
     if (!fc || containerSize.width === 0) return;
-    
-    // Replicate centering on props change
     const { width, height } = containerSize;
-    const pad = 40;
-    const fitZoom = Math.min((width - pad * 2) / canvasW, (height - pad * 2) / canvasH);
-    fitZoomRef.current = fitZoom;
-    const targetZoom = fitZoom * viewZoom;
-    const vpt = fc.viewportTransform.slice();
-    vpt[0] = targetZoom;
-    vpt[3] = targetZoom;
-    vpt[4] = (width / 2) - (canvasW * targetZoom / 2);
-    vpt[5] = (height / 2) - (canvasH * targetZoom / 2);
-    fc.setViewportTransform(vpt as any);
+    fitZoomRef.current = centerCanvasViewport(fc, width, height, canvasW, canvasH, viewZoom);
     fc.requestRenderAll();
   }, [viewZoom, canvasW, canvasH, containerSize, buildGenRef.current]);
 

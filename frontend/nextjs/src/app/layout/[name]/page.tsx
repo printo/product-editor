@@ -32,7 +32,7 @@ import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/li
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
-import { Canvas as FabricCanvas, FabricImage, Line } from 'fabric';
+import { Canvas as FabricCanvas, StaticCanvas, Rect as FabricRect, FabricImage, Line } from 'fabric';
 import { MM_TO_IN, computeImpositionLayout, resolveSheetSize } from './imposition';
 import { CanvasEditorModal } from './CanvasEditorModal';
 
@@ -90,8 +90,9 @@ export default function LayoutEditorPage() {
   const fileUrlCache = useRef<Map<File, string>>(new Map());
   const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impositionPreviewRef = useRef<HTMLCanvasElement>(null);
+  const impositionFabricRef = useRef<StaticCanvas | null>(null);
   const skipNextGenerateRef = useRef(false);
-  const previewImgCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  // previewImgCache removed — Fabric handles image loading internally
   const [previewSheetIdx, setPreviewSheetIdx] = useState(0);
 
   // ── Multi-surface state ──────────────────────────────────────────────────────
@@ -453,61 +454,111 @@ export default function LayoutEditorPage() {
   }, [impositionSettings, canvases.length, layout]);
 
   useEffect(() => {
-    const canvas = impositionPreviewRef.current;
+    const canvasEl = impositionPreviewRef.current;
     const { sheets } = impositionResult;
-    if (!canvas || sheets.length === 0 || !showImpositionModal) return;
+    if (!canvasEl || sheets.length === 0 || !showImpositionModal) return;
     const sheetIdx = Math.min(previewSheetIdx, sheets.length - 1);
     const sheet = sheets[sheetIdx];
     if (!sheet) return;
+
     const { w: sheetWIn, h: sheetHIn } = resolveSheetSize(impositionSettings);
     const scale = Math.min(520 / sheetWIn, 340 / sheetHIn);
     const pw = Math.round(sheetWIn * scale), ph = Math.round(sheetHIn * scale);
-    canvas.width = pw; canvas.height = ph;
-    const ctx = canvas.getContext('2d')!;
     const mPx = (impositionSettings.marginMm / MM_TO_IN) * scale;
-    ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, pw, ph);
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(mPx, mPx, pw - 2 * mPx, ph - 2 * mPx);
-    ctx.setLineDash([4, 3]); ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
-    ctx.strokeRect(mPx, mPx, pw - 2 * mPx, ph - 2 * mPx);
-    ctx.setLineDash([]);
-    ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1.5; ctx.strokeRect(0, 0, pw, ph);
+    const markLen = (5 / MM_TO_IN) * scale, markOffset = (2 / MM_TO_IN) * scale;
+
+    // Dispose previous Fabric instance if canvas size changed
+    if (impositionFabricRef.current) {
+      impositionFabricRef.current.dispose();
+      impositionFabricRef.current = null;
+    }
+
+    const fc = new StaticCanvas(canvasEl, {
+      width: pw, height: ph, backgroundColor: '#f8fafc', renderOnAddRemove: false,
+    });
+    impositionFabricRef.current = fc;
+
+    // Content area (white region inside margins)
+    fc.add(new FabricRect({
+      left: mPx, top: mPx, width: pw - 2 * mPx, height: ph - 2 * mPx,
+      fill: '#ffffff', stroke: '#e2e8f0', strokeWidth: 1,
+      strokeDashArray: [4, 3], selectable: false, evented: false,
+    }));
+
+    // Sheet border
+    fc.add(new FabricRect({
+      left: 0, top: 0, width: pw, height: ph,
+      fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1.5,
+      selectable: false, evented: false,
+    }));
+
     let aborted = false;
-    const markLen = (5 / MM_TO_IN) * scale, offset = (2 / MM_TO_IN) * scale;
-    const draw = async () => {
+
+    const drawItems = async () => {
       for (const item of sheet.items) {
         if (aborted) return;
         const [px, py, iw, ih] = [item.x * scale, item.y * scale, item.w * scale, item.h * scale];
-        ctx.fillStyle = '#eef2ff'; ctx.fillRect(px, py, iw, ih);
-        ctx.strokeStyle = '#a5b4fc'; ctx.lineWidth = 1; ctx.strokeRect(px, py, iw, ih);
+
+        // Item placeholder rect
+        fc.add(new FabricRect({
+          left: px, top: py, width: iw, height: ih,
+          fill: '#eef2ff', stroke: '#a5b4fc', strokeWidth: 1,
+          selectable: false, evented: false,
+        }));
+
+        // Load canvas preview image
         const c = canvases[item.canvasIdx];
         if (c?.dataUrl) {
           try {
-            let img = previewImgCache.current.get(c.dataUrl);
-            if (!img || !img.complete) {
-              img = await new Promise<HTMLImageElement>((res, rej) => {
-                const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = c.dataUrl!;
-              });
-              previewImgCache.current.set(c.dataUrl, img);
-            }
+            const img = await FabricImage.fromURL(c.dataUrl, { crossOrigin: 'anonymous' });
             if (aborted) return;
             if (item.rotated) {
-              ctx.save(); ctx.translate(px + iw / 2, py + ih / 2); ctx.rotate(-Math.PI / 2);
-              ctx.drawImage(img, -ih / 2, -iw / 2, ih, iw); ctx.restore();
-            } else { ctx.drawImage(img, px, py, iw, ih); }
-          } catch { /* skip */ }
+              img.set({
+                left: px + iw / 2, top: py + ih / 2,
+                originX: 'center', originY: 'center',
+                scaleX: ih / (img.width || 1), scaleY: iw / (img.height || 1),
+                angle: -90,
+                selectable: false, evented: false,
+              });
+            } else {
+              img.set({
+                left: px, top: py,
+                originX: 'left', originY: 'top',
+                scaleX: iw / (img.width || 1), scaleY: ih / (img.height || 1),
+                selectable: false, evented: false,
+              });
+            }
+            fc.add(img);
+          } catch { /* skip failed images */ }
         }
-        ctx.strokeStyle = '#64748b'; ctx.lineWidth = 0.5;
+
+        // Cut marks (4 corners × 2 lines each)
         for (const [cx, cy, dx, dy] of [
           [px, py, -1, -1], [px + iw, py, 1, -1],
           [px, py + ih, -1, 1], [px + iw, py + ih, 1, 1],
         ] as [number, number, number, number][]) {
-          ctx.beginPath(); ctx.moveTo(cx, cy + dy * offset); ctx.lineTo(cx, cy + dy * (offset + markLen)); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(cx + dx * offset, cy); ctx.lineTo(cx + dx * (offset + markLen), cy); ctx.stroke();
+          fc.add(new Line(
+            [cx, cy + dy * markOffset, cx, cy + dy * (markOffset + markLen)],
+            { stroke: '#64748b', strokeWidth: 0.5, selectable: false, evented: false },
+          ));
+          fc.add(new Line(
+            [cx + dx * markOffset, cy, cx + dx * (markOffset + markLen), cy],
+            { stroke: '#64748b', strokeWidth: 0.5, selectable: false, evented: false },
+          ));
         }
       }
+
+      if (!aborted) fc.requestRenderAll();
     };
-    draw();
-    return () => { aborted = true; };
+
+    drawItems();
+    return () => {
+      aborted = true;
+      if (impositionFabricRef.current) {
+        impositionFabricRef.current.dispose();
+        impositionFabricRef.current = null;
+      }
+    };
   }, [impositionResult, previewSheetIdx, impositionSettings, canvases, showImpositionModal]);
 
   // ── Downloads ─────────────────────────────────────────────────────────────────
