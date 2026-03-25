@@ -97,3 +97,4 @@ Thumbs.db
 
 # Added by ggshield
 .cache_ggshield
+frontend/nextjs/next-env.d.ts
