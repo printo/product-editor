@@ -49,21 +49,18 @@ const ADD_TABS: { key: TabKey; label: string; icon: React.ElementType; activeCla
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
 
-/** Rotation preset buttons + slider + number input */
-function RotationControl({
-  value, accent = 'orange',
-  onChange,
-}: { value: number; accent?: string; onChange: (v: number) => void }) {
+/** Rotation preset buttons + slider + number input — always uses orange palette */
+function RotationControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
     <div className="space-y-1.5">
-      <label className={`text-[9px] font-extrabold text-${accent}-400 uppercase`}>Rotation</label>
+      <label className="text-[9px] font-extrabold text-orange-400 uppercase">Rotation</label>
       <div className="flex items-center gap-1 mb-1">
         {[0, 90, 180, 270].map(deg => (
           <button key={deg} onClick={() => onChange(deg)}
             className={clsx('flex-1 py-0.5 text-[9px] font-extrabold rounded-lg transition-all text-center',
               value === deg
-                ? `bg-gradient-to-r from-${accent}-500 to-pink-500 text-white shadow`
-                : `bg-${accent}-50 text-${accent}-400 hover:text-${accent}-600 border border-${accent}-200/40`)}>
+                ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow'
+                : 'bg-orange-50 text-orange-400 hover:text-orange-600 border border-orange-200/40')}>
             {deg}°
           </button>
         ))}
@@ -71,24 +68,21 @@ function RotationControl({
       <div className="flex items-center gap-2">
         <input type="range" min="0" max="359" step="1" value={value}
           onChange={e => onChange(parseInt(e.target.value))}
-          className={`flex-1 accent-${accent}-500`} />
+          className="flex-1 accent-orange-500" />
         <input type="number" min="0" max="359" value={value}
           onChange={e => onChange(((parseInt(e.target.value) || 0) % 360 + 360) % 360)}
-          className={`w-14 px-1.5 py-1 text-xs font-mono text-center border border-${accent}-200/50 rounded-xl bg-${accent}-50/50`} />
+          className="w-14 px-1.5 py-1 text-xs font-mono text-center border border-orange-200/50 rounded-xl bg-orange-50/50" />
       </div>
     </div>
   );
 }
 
-/** Proportional scale slider for overlay width/height */
-function ScaleControl({
-  width, height, accent = 'emerald',
-  onScale,
-}: { width: number; height: number; accent?: string; onScale: (w: number, h: number) => void }) {
+/** Proportional scale slider — always uses emerald palette */
+function ScaleControl({ width, height, onScale }: { width: number; height: number; onScale: (w: number, h: number) => void }) {
   const baseRef = useRef<{ w: number; h: number } | null>(null);
   return (
     <div className="space-y-1.5">
-      <label className={`text-[9px] font-extrabold text-${accent}-400 uppercase`}>Scale</label>
+      <label className="text-[9px] font-extrabold text-emerald-400 uppercase">Scale</label>
       <div className="flex items-center gap-2">
         <input type="range" min="5" max="100" step="1" value={Math.round(width)}
           onMouseDown={() => { baseRef.current = { w: width, h: height }; }}
@@ -98,8 +92,8 @@ function ScaleControl({
             const ratio = base.h / (base.w || 1);
             onScale(newW, Math.max(1, Math.min(100, Math.round(newW * ratio))));
           }}
-          className={`flex-1 accent-${accent}-500`} />
-        <span className={`text-[10px] font-mono text-${accent}-400 w-10 text-center`}>
+          className="flex-1 accent-emerald-500" />
+        <span className="text-[10px] font-mono text-emerald-400 w-10 text-center">
           {Math.round(width)}%
         </span>
       </div>
@@ -257,7 +251,7 @@ export function CanvasEditorSidebar({
               {/* Rotation */}
               <RotationControl
                 value={frame.rotation || 0}
-                accent="orange"
+               
                 onChange={v => handleUpdateTransform(fIdx, { rotation: v })}
               />
 
@@ -394,7 +388,7 @@ export function CanvasEditorSidebar({
 
                     {/* Common: Rotation + Alignment */}
                     <div className="space-y-3 pt-2 border-t border-slate-100">
-                      <RotationControl value={overlay.rotation || 0} accent="orange"
+                      <RotationControl value={overlay.rotation || 0}
                         onChange={v => updateOverlay({ rotation: v })} />
                       <OverlayAlignControl type="text"
                         onUpdate={patch => updateOverlay(patch as Partial<TextOverlay>)} />
@@ -482,9 +476,9 @@ export function CanvasEditorSidebar({
 
                     {/* ── Common controls ── */}
                     <div className="space-y-3 pt-3 border-t border-slate-100">
-                      <RotationControl value={shape.rotation || 0} accent="orange"
+                      <RotationControl value={shape.rotation || 0}
                         onChange={v => updateShape({ rotation: v })} />
-                      <ScaleControl width={shape.width} height={shape.height} accent="emerald"
+                      <ScaleControl width={shape.width} height={shape.height}
                         onScale={(w, h) => updateShape({ width: w, height: h })} />
                       <OverlayAlignControl type="shape" width={shape.width} height={shape.height}
                         onUpdate={patch => updateShape(patch as Partial<ShapeOverlay>)} />
@@ -550,9 +544,9 @@ export function CanvasEditorSidebar({
 
                     {/* ── Common controls ── */}
                     <div className="space-y-3 pt-3 border-t border-slate-100">
-                      <RotationControl value={imgOverlay.rotation || 0} accent="orange"
+                      <RotationControl value={imgOverlay.rotation || 0}
                         onChange={v => updateImage({ rotation: v })} />
-                      <ScaleControl width={imgOverlay.width} height={imgOverlay.height} accent="emerald"
+                      <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
                         onScale={(w, h) => updateImage({ width: w, height: h })} />
                       <OverlayAlignControl type="image" width={imgOverlay.width} height={imgOverlay.height}
                         onUpdate={patch => updateImage(patch as Partial<ImageOverlay>)} />
@@ -611,9 +605,9 @@ export function CanvasEditorSidebar({
                       </div>
                     </div>
                     <div className="space-y-3 pt-3 border-t border-slate-100">
-                      <RotationControl value={imgOverlay.rotation || 0} accent="orange"
+                      <RotationControl value={imgOverlay.rotation || 0}
                         onChange={v => updateImage({ rotation: v })} />
-                      <ScaleControl width={imgOverlay.width} height={imgOverlay.height} accent="emerald"
+                      <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
                         onScale={(w, h) => updateImage({ width: w, height: h })} />
                       <OverlayAlignControl type="image" width={imgOverlay.width} height={imgOverlay.height}
                         onUpdate={patch => updateImage(patch as Partial<ImageOverlay>)} />
