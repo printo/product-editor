@@ -305,6 +305,7 @@ export default function LayoutEditorPage() {
         frames: canvasFrames,
         overlays: [],
         bgColor: '#ffffff',
+        paperColor: '#ffffff',
         dataUrl: null
       };
       item.dataUrl = await renderCanvas(item, null, false, true, layoutDef);

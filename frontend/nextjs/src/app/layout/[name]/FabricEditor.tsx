@@ -40,6 +40,7 @@ interface FabricEditorProps {
 
 const DATA_KEY = '__fabricEditor';
 const PAPER_KEY = '__paper';
+const BG_KEY   = '__bgLayer';
 
 // ─── Interactive shape controls styling ──────────────────────────────────────
 
@@ -149,6 +150,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const buildGenRef = useRef(0);
   const fitZoomRef = useRef(1);
   const spacePressedRef = useRef(false);
+  // TRUE during toDataURL export — suppresses selection:cleared so the active object is not lost
+  const suppressSelectionEventsRef = useRef(false);
 
   // Track structural state for smart rebuild vs in-place update
   const prevOverlayCountRef = useRef(-1);
@@ -347,11 +350,16 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           obj.setCoords();
         }
       });
-      // Update background color
+      // ✅ Update background colour layer (the Rect at z=0, behind frames)
+      const bgObj = objs.find((o: any) => o[BG_KEY]);
+      if (bgObj) {
+        bgObj.set({ fill: editingCanvas.bgColor || '#ffffff' });
+      }
+      // Paper/mat overlay uses its own paperColor — separate from bgColor
       const paperObj = objs.find((o: any) => o[PAPER_KEY]);
       if (paperObj) {
-        paperObj.set({ 
-          fill: editingCanvas.bgColor || '#ffffff',
+        paperObj.set({
+          fill: editingCanvas.paperColor || '#ffffff',
           shadow: new Shadow({ color: 'rgba(0,0,0,0.1)', blur: 15, offsetX: 0, offsetY: 0 }),
         });
       }
@@ -407,11 +415,20 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     fc.set({ renderOnAddRemove: false });
 
     // Track Z positions for precise ordering
-    // Order: paper(0), frames(1..N), overlays(N+1..M), mask(last)
+    // Order: bgLayer(0), frames(1..N), paper(N+1), overlays(N+2..M), mask(last)
     let zIndex = 0;
 
-    // We will render the shadow and background dynamically in the rebuild process.
-    // So we don't need a static paper rect here anymore.
+    // ── Background colour layer (bottom-most, shows through transparent frame pixels) ──
+    const bgRect = new Rect({
+      left: 0, top: 0,
+      originX: 'left', originY: 'top',
+      width: canvasW, height: canvasH,
+      fill: editingCanvas.bgColor || '#ffffff',
+      selectable: false, evented: false,
+    });
+    (bgRect as any)[BG_KEY] = true;
+    fc.add(bgRect);
+    fc.moveObjectTo(bgRect, zIndex++); // z = 0
 
     // ✅ Center viewport synchronously IMMEDIATELY after paper add
     // This prevents the "top-left flash" before images load
@@ -425,7 +442,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       ? layout.frames
       : [{ x: 0, y: 0, width: canvasW, height: canvasH }];
 
-    const frameZStart = zIndex;
+    const frameZStart = zIndex; // starts at 1 (bgRect occupies 0)
     const loadFramePromises = editingCanvas.frames.map(async (frameState, frameIdx) => {
       const frameSpec = frames[frameIdx];
       if (!frameSpec || !frameState) return;
@@ -499,9 +516,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const paperOverlay = new Path(paperPathStr, {
       left: 0, top: 0,
       originX: 'left', originY: 'top', // ✅ Force top-left alignment so the holes register perfectly over the image frames
-      fill: editingCanvas.bgColor || '#ffffff',
+      fill: editingCanvas.paperColor || '#ffffff', // ✅ Paper/mat border colour — controlled separately from bgColor
       selectable: false, evented: false,
-      fillRule: 'evenodd', 
+      fillRule: 'evenodd',
       shadow: new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 })
     });
     (paperOverlay as any)[PAPER_KEY] = true;
@@ -719,6 +736,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const handleSelection = (e: any) => {
       const selected = e.selected?.[0];
       if (!selected || !(selected as any)[DATA_KEY]) {
+        // Don't reset selectedLayer while we're mid-export (toDataURL discards then restores)
+        if (suppressSelectionEventsRef.current) return;
         onLayerSelect({ type: 'canvas', index: -1 });
         return;
       }
@@ -785,6 +804,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     toDataURL: () => {
       const fc = fabricRef.current;
       if (!fc) return null;
+      // ✅ Save active object so selection survives the export snapshot
+      const prevActiveObject = fc.getActiveObject();
+      suppressSelectionEventsRef.current = true;
       fc.discardActiveObject();
       const prevZoom = fc.getZoom();
       const prevVpt = [...fc.viewportTransform!];
@@ -800,12 +822,18 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const rect = container.getBoundingClientRect();
         fc.setDimensions({ width: rect.width, height: rect.height });
       }
+      // ✅ Restore the previously selected object after export
+      if (prevActiveObject) fc.setActiveObject(prevActiveObject);
+      suppressSelectionEventsRef.current = false;
       fc.renderAll();
       return url;
     },
     toFullResDataURL: () => {
       const fc = fabricRef.current;
       if (!fc) return null;
+      // ✅ Save active object so selection survives the export snapshot
+      const prevActiveObject = fc.getActiveObject();
+      suppressSelectionEventsRef.current = true;
       fc.discardActiveObject();
       const prevZoom = fc.getZoom();
       const prevVpt = [...fc.viewportTransform!];
@@ -821,6 +849,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const rect = container.getBoundingClientRect();
         fc.setDimensions({ width: rect.width, height: rect.height });
       }
+      // ✅ Restore the previously selected object after export
+      if (prevActiveObject) fc.setActiveObject(prevActiveObject);
+      suppressSelectionEventsRef.current = false;
       fc.renderAll();
       return url;
     },

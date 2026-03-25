@@ -64,7 +64,8 @@ export interface CanvasItem {
   id: number;
   frames: FrameState[];
   overlays: Overlay[];
-  bgColor: string; // canvas background color, default '#ffffff'
+  bgColor: string;    // bottom background layer colour (shows inside frame holes), default '#ffffff'
+  paperColor: string; // mat / border overlay colour (the paper around frames), default '#ffffff'
   dataUrl: string | null;
 }
 
