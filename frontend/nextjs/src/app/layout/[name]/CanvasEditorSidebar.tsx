@@ -617,7 +617,7 @@ export function CanvasEditorSidebar({
       </div>
 
       {/* ── Layers Panel ────────────────────────────────────────────────── */}
-      <div className="mt-auto px-6 py-1 border-t border-slate-100 bg-slate-50/30 backdrop-blur-md">
+      <div className="mt-auto px-5 py-1.5 border-t border-amber-300 bg-amber-100/95 backdrop-blur-md">
         <LayersPanel 
           editingCanvas={editingCanvas}
           selected={selectedLayer}
@@ -638,6 +638,50 @@ export function CanvasEditorSidebar({
             const newFrames = editingCanvas.frames.map((f, i) =>
               i === fIdx ? { ...f, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f);
             debouncedRender({ ...editingCanvas, frames: newFrames });
+          }}
+          onMoveFrameToOverlay={(fIdx, targetOIdx) => {
+            const frame = editingCanvas.frames[fIdx];
+            if (!frame || !frame.originalFile) return;
+            pushUndo(editingCanvas, true);
+            
+            const canvasW = layout?.canvas?.width || 1200;
+            const canvasH = layout?.canvas?.height || 1800;
+            const layoutFrame = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
+            
+            // Normalize layout dimensions if they are percentages
+            const isPercent = layoutFrame.width <= 1 && layoutFrame.height <= 1;
+            const fw = isPercent ? layoutFrame.width * canvasW : layoutFrame.width;
+            const fh = isPercent ? layoutFrame.height * canvasH : layoutFrame.height;
+            const fx = isPercent ? layoutFrame.x * canvasW : layoutFrame.x;
+            const fy = isPercent ? layoutFrame.y * canvasH : layoutFrame.y;
+
+            // Convert frame to image overlay (Overlay expects percentages 0-100)
+            const newOverlay: Overlay = {
+              type: 'image',
+              id: `ov-${Date.now()}`,
+              src: getFileUrl(frame.originalFile),
+              originalFile: frame.originalFile,
+              source: 'local',
+              x: (fx / canvasW) * 100,
+              y: (fy / canvasH) * 100,
+              width: (fw / canvasW) * 100,
+              height: (fh / canvasH) * 100,
+              rotation: frame.rotation,
+              opacity: 1,
+              label: frame.originalFile.name || 'Moved Image',
+            };
+
+            const newOverlays = [...editingCanvas.overlays];
+            newOverlays.splice(targetOIdx, 0, newOverlay);
+            
+            // Important: We don't remove the frame because the layout requires N frames.
+            // We just clear its content so it's not redundant.
+            const newFrames = editingCanvas.frames.map((f, i) => 
+              i === fIdx ? { ...f, originalFile: null, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f
+            );
+
+            debouncedRender({ ...editingCanvas, overlays: newOverlays, frames: newFrames });
+            setSelectedLayer({ type: 'image', index: targetOIdx });
           }}
         />
       </div>

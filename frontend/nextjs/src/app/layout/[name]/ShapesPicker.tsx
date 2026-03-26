@@ -46,10 +46,10 @@ export function ShapesPicker({ onAddShape }: ShapesPickerProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col">
+      {/* <div className="flex flex-col">
         <p className="text-[11px] font-medium text-slate-500 uppercase">Add Shape</p>
         <span className="text-[10px] text-slate-400 uppercase opacity-60">Vector Library</span>
-      </div>
+      </div> */}
 
       {/* Category tabs */}
       <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100 shadow-inner w-full">

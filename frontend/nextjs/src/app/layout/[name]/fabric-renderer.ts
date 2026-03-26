@@ -1,4 +1,4 @@
-import { Canvas, Rect, FabricImage, Textbox, FabricText } from 'fabric';
+import { Canvas, Rect, FabricImage, Textbox, FabricText, Path, Shadow } from 'fabric';
 import type { CanvasItem } from './types';
 import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
 
@@ -104,6 +104,33 @@ export async function renderCanvas(
       // Skip frames with failed images
     }
   }
+
+  // ── Paper Overlay Mask (Hole-punching) — matches FabricEditor logic ─────────
+  // A white paper layer rendered ABOVE the images, with transparent holes cut out 
+  // for each frame using SVG `evenodd` fill rule.
+  let paperPathStr = `M 0 0 L ${canvasW} 0 L ${canvasW} ${canvasH} L 0 ${canvasH} Z`;
+  frames.forEach((frameSpec: any) => {
+    const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+    const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
+    const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
+    const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+    const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+    // Counter-clockwise rectangular hole
+    paperPathStr += ` M ${fx} ${fy} L ${fx} ${fy + fh} L ${fx + fw} ${fy + fh} L ${fx + fw} ${fy} Z`;
+  });
+
+  const paperOverlay = new Path(paperPathStr, {
+    left: 0,
+    top: 0,
+    originX: 'left',
+    originY: 'top',
+    fill: canvasItem.paperColor || '#ffffff',
+    selectable: false,
+    evented: false,
+    fillRule: 'evenodd',
+    shadow: new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 }),
+  });
+  fabricCanvas.add(paperOverlay);
 
   // ── Frame placeholder labels — preview only ─────────────────────────────────
   if (!isExport && frames.length > 1) {

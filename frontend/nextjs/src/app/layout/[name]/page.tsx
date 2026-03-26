@@ -881,6 +881,8 @@ export default function LayoutEditorPage() {
           activeCanvasIdx={activeCanvasIdx}
           editingCanvas={editingCanvas}
           canvases={canvases}
+          surfaceStates={surfaceStates}
+          activeSurfaceKey={activeSurfaceKey}
           layout={layout}
           globalFitMode={globalFitMode}
           selectedFonts={selectedFonts}

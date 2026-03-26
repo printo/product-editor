@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Upload, CheckCircle2, X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus, Type, Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { clsx } from 'clsx';
-import { FabricImage } from 'fabric';
-import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay } from './types';
+  import { FabricImage } from 'fabric';
+import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
@@ -20,7 +20,7 @@ export interface CanvasEditorModalProps {
   activeCanvasIdx: number;
   editingCanvas: CanvasItem;
   canvases: CanvasItem[];
-  surfaceStates?: any[];
+  surfaceStates?: SurfaceState[];
   activeSurfaceKey?: string;
   layout: any;
   globalFitMode: FitMode;
