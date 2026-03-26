@@ -482,7 +482,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
       const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
 
-      const imgSource = frameState.processedUrl || getFileUrl(frameState.originalFile);
+      const imgSource = frameState.originalFile ? getFileUrl(frameState.originalFile) : (frameState as any).url;
+      if (!imgSource) return;
       try {
         const img = await FabricImage.fromURL(imgSource, { crossOrigin: 'anonymous' });
         if (buildGenRef.current !== gen) return; // stale

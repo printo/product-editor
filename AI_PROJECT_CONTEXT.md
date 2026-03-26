@@ -1,50 +1,29 @@
 # AI Project Context - Product Editor
 
-This file serves as the primary context for AI assistants working on the Product Editor repository.
+Business logic and operational context for AI agents.
 
-## Project Overview
-The **Product Editor** is a production-ready system designed for generating photo layouts and collages. It leverages AI for advanced image processing (background removal, product detection, blending) and provides a professional layout management system for high-resolution print exports.
+## Purpose
+The Product Editor is used to create printable photo layouts for various products (e.g., photo prints, cards, personalized items). It bridges the gap between digital photos and physical print production.
 
-## Project Goals
-- Provide a seamless UI for photo layout creation and **interactive canvas editing**.
-- Automate canvas generation using AI-driven image analysis.
-- Ensure professional print quality (LANCZOS resampling, "Cover" fit consistency).
-- Support **batch downloading** of high-res canvases via client-side zipping.
-- Maintain a secure, rate-limited, and audited API for third-party integrations.
+## Key Concepts
 
-## Tech Stack
-- **Frontend**: Next.js 15 (React 19), TypeScript, Tailwind CSS, Lucide React, NextAuth.
-- **Backend**: Django 5.0, Django REST Framework (DRF), PostgreSQL.
-- **Image Processing**: Pillow (PIL), OpenCV, Torch/Ultralytics (AI models).
-- **Communication**: Unified `multipart/form-data` for all non-login POST requests.
-- **Infrastructure**: Docker Compose, Traefik (Reverse Proxy).
+### Layouts
+A layout is a JSON template defining one or more "frames" where user photos are placed. It also specifies the canvas dimensions in millimeters and pixels (DPI).
 
-## Runtime Environment
-- All services run within Docker containers.
-- **Frontend**: Port 5004
-- **Backend**: Port 8000 (proxied via `/api`)
-- **Storage**: Persistent volumes for `/uploads`, `/layouts`, `/exports`, and `/masks`.
+### Multi-Surface Products
+Some products (like a folded card) have multiple "surfaces". The editor allows users to switch between these surfaces and place different photos on each.
 
-## Approved Dependencies
-- **Backend**: `django`, `djangorestframework`, `Pillow`, `rembg`, `ultralytics`, `psycopg2-binary`, `whitenoise`.
-- **Frontend**: `next`, `react`, `lucide-react`, `js-cookie`, `jszip`, `clsx`, `tailwind-merge`, `jose`, `next-auth`.
+### Export Flow
+1. **Interactive Preview**: Users see a low-resolution representation in the browser.
+2. **High-Resolution Export**: The backend `LayoutEngine` generates a production-ready PNG at the target DPI (usually 300) for printing.
 
-## Coding Standards
-- **TypeScript**: Strict type checking. Use functional components with hooks.
-- **CSS**: Vanilla CSS or Tailwind. Favor reusable utility classes.
-- **Python**: PEP 8 compliance. Use DRF `APIView` for endpoints.
-- **Security**: Robust path traversal checks and CORS restriction are mandatory.
-- **Persistence**: Layouts are stored as JSON files with associated binary masks.
+## User Persona
+- **Internal Ops**: Create and manage layout templates.
+- **External Customers**: Use the editor via iframe embed to design their products.
 
-## Environment Configuration
-- Configuration is strictly driven by `.env` files.
-- Never hardcode API keys or database credentials.
-
-## Testing Strategy
-- **Backend**: Django unit tests and system checks.
-- **Frontend**: Next.js linting and build validation.
-
-## AI Assistant Instructions
-- Read `AI_GUARDRAILS.md` before making any structural changes.
-- Refer to `ARCHITECTURE.md` to understand component boundaries.
-- Follow the workflow defined in `TASK_RULES.md`.
+## Design Aesthetic
+The project uses a modern "Gen-Z" design style:
+- Glassmorphism (blur, transparency).
+- Vibrant gradients (violet, fuchsia, cyan).
+- Bold typography and uppercase labels.
+- Rounded corners (2xl, 3xl).

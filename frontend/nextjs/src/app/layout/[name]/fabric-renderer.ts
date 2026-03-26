@@ -52,7 +52,9 @@ export async function renderCanvas(
     const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
     const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
 
-    const imgSource = frameState.processedUrl || getFileUrlFn(frameState.originalFile);
+    const file = frameState.originalFile;
+    if (!file) continue;
+    const imgSource = getFileUrlFn(file);
 
     try {
       const fabricImg = await FabricImage.fromURL(imgSource, { crossOrigin: 'anonymous' });

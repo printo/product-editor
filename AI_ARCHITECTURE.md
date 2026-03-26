@@ -1,44 +1,34 @@
-# System Architecture - Product Editor
+# AI Architecture - Product Editor
 
-## High-Level Design
-The system follows a decoupled **Client-Server architecture** using Next.js for the frontend and Django (DRF) for the backend. Communication is handled via a Traefik reverse proxy.
+This document provides a high-level overview of the Product Editor architecture for AI agents.
 
-## Project Folder Structure
+## System Overview
+The Product Editor is a full-stack application for generating photo layouts. It consists of a Django-based backend for layout management and rendering, and a Next.js-based frontend for interactive editing.
 
-### Root
-- `/frontend`: Next.js application.
-- `/backend`: Django application.
-- `/storage`: Centralized persistent storage for files.
-- `/proxy`: Reverse proxy configuration (Traefik).
+## Component Map
 
-### Backend Details (`/backend/django`)
-- `api/`: Primary DRF app containing views, models, and business logic.
-- `ai_engine/`: AI processing logic, caching, and resource management.
-- `layout_engine/`: Python/PIL logic for rendering high-resolution canvases.
-- `services/`: Low-level utilities (e.g., storage abstraction).
-- `product_editor/`: Project configuration and settings.
+### 1. Frontend (Next.js)
+- **Interactive Editor**: Located in `frontend/nextjs/src/app/layout/[name]`. Uses [fabric.js](https://fabricjs.com/) for canvas manipulation.
+- **Renderer**: `fabric-renderer.ts` handles off-screen rendering for previews and exports.
+- **Multi-surface Logic**: Supports products with multiple printable areas (e.g., front and back of a card).
 
-### Frontend Details (`/frontend/nextjs/src`)
-- `app/`: Next.js App Router (pages and layouts).
-- `components/`: Reusable UI components.
-- `lib/`: Utility functions, API clients, and **zip processing**.
-- `context/`: React context providers.
+### 2. Backend (Django)
+- **API**: Django REST Framework endpoints in `backend/django/api`.
+- **Layout Engine**: `backend/django/layout_engine/engine.py` uses Pillow to render high-resolution PNGs based on JSON templates.
+- **Storage**: Centralized storage for uploads, layouts, and exports.
 
-## Data Flow
-1. **Request**: Frontend sends `multipart/form-data` with images and layout parameters to the backend.
-2. **Analysis**: `ai_engine` detects products and removes backgrounds if needed.
-3. **Generation**: `layout_engine` arranges results into a canvas grid and applies masks.
-4. **Interactive Edit**: Frontend maintains a structured state (`CanvasItem`) allowing users to zoom, move, and trigger manual AI processing (e.g., Background Removal).
-5. **Persistence**: The final PNG (re-rendered on change) is saved or downloaded.
-6. **Batch Export**: Client-side zipping via `JSZip` handles multi-canvas downloads.
+### 3. Data Flow
+1. **Layout Retrieval**: Frontend fetches JSON layout definitions from `/api/layouts/{name}`.
+2. **Interactive Editing**: Users upload images, adjust position/scale/rotation on the Fabric.js canvas.
+3. **Rendering**:
+   - **Client-side**: Fabric.js renders real-time previews.
+   - **Server-side**: The `LayoutEngine` renders the final high-resolution output for production.
 
-## Key Architectural Decisions
-- **Multipart Standard**: All data-heavy API requests use `multipart/form-data` for stability.
-- **Structured Editor State**: Canvases are managed as `CanvasItem` objects with `FrameState` metadata to persist interactive edits.
-- **File-Based Layouts**: Layout templates are stored as JSON files for easy portability.
-- **Resource Management**: AI operations are throttled and cached in `ai_engine/resource_manager.py`.
-- **Stateless API**: Authentication is handled via Bearer tokens; sessions are managed in Next.js (NextAuth).
+## Technology Stack
+- **Backend**: Django, DRF, Pillow, PostgreSQL.
+- **Frontend**: Next.js, React, Fabric.js, Tailwind CSS.
+- **Infrastructure**: Docker, Traefik.
 
-## Boundaries & Interfacing
-- **AI Engine**: Encapsulated. Does not interact with the DB directly; takes paths and returns metadata/processed paths.
-- **Layout Management**: Reads/Writes to `/storage/layouts` and `/storage/masks`.
+## Recent Changes
+- All AI-related features (background removal, product detection) have been removed to simplify the core editing experience.
+- The system now relies entirely on user-driven interactive editing.

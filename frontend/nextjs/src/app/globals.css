@@ -2,6 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --primary: #4f46e5;
+  --primary-glow: #6366f1;
+  --secondary: #8b5cf6;
+  --secondary-glow: #a78bfa;
+  --accent: #f43f5e;
+  --bg-subtle: #f8fafc;
+}
+
 html, body, #__next {
   height: 100%;
+}
+
+body {
+  background: radial-gradient(circle at top right, rgba(79, 70, 229, 0.03), transparent 40%),
+              radial-gradient(circle at bottom left, rgba(139, 92, 246, 0.03), transparent 40%),
+              var(--bg-subtle);
+  background-attachment: fixed;
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600;
+  }
+  .bg-gradient-dual {
+    @apply bg-gradient-to-br from-indigo-600 to-violet-600;
+  }
+}
+
+/* Thin, subtle scrollbars for scrollable containers */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }

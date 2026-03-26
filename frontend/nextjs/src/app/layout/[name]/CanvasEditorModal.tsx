@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Upload, ChevronRight, CheckCircle2, X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus, Type, Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { Upload, CheckCircle2, X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus, Type, Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { clsx } from 'clsx';
 import { FabricImage } from 'fabric';
 import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay } from './types';
@@ -20,6 +20,8 @@ export interface CanvasEditorModalProps {
   activeCanvasIdx: number;
   editingCanvas: CanvasItem;
   canvases: CanvasItem[];
+  surfaceStates?: any[];
+  activeSurfaceKey?: string;
   layout: any;
   globalFitMode: FitMode;
   selectedFonts: string[];
@@ -32,7 +34,7 @@ export interface CanvasEditorModalProps {
   setFiles: React.Dispatch<React.SetStateAction<File[]>>;
   setError: (msg: string | null) => void;
   onClose: () => void;
-  onOpenCanvas: (idx: number) => void;
+  onOpenCanvas: (idx: number, surfaceKey?: string) => void;
 
   // Bound image helpers from parent (using parent's caches)
   getFileUrl: (file: File) => string;
@@ -43,7 +45,7 @@ export interface CanvasEditorModalProps {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function CanvasEditorModal({
-  activeCanvasIdx, editingCanvas, canvases, layout, globalFitMode, selectedFonts,
+  activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, globalFitMode, selectedFonts,
   apiBase, getAuthHeaders,
   setEditingCanvas, setCanvases, setFiles, setError, onClose, onOpenCanvas,
   getFileUrl, loadGoogleFont, skipNextGenerateRef,
@@ -204,7 +206,9 @@ export function CanvasEditorModal({
     const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
     const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
 
-    const imgSource = frameState.processedUrl || getFileUrl(frameState.originalFile);
+    const file = frameState.originalFile;
+    if (!file) return;
+    const imgSource = getFileUrl(file);
     const fabricImg = await FabricImage.fromURL(imgSource, { crossOrigin: 'anonymous' });
     const imgW = fabricImg.width!;
     const imgH = fabricImg.height!;
@@ -310,11 +314,22 @@ export function CanvasEditorModal({
         />
       </div>
 
-      {/* ═══ Right Sidebar — Gen-Z colorful minimalist ═══ */}
+      {/* ═══ Right Sidebar — Gen-Z vibrant glassmorphism ═══ */}
       <CanvasEditorSidebar
-        activeCanvasIdx={activeCanvasIdx}
-        canvasesCount={canvases.length}
-        onOpenCanvas={onOpenCanvas}
+        key={`sidebar-${surfaceStates && surfaceStates.length > 1 ? activeSurfaceKey : activeCanvasIdx}`}
+        activeCanvasIdx={
+          surfaceStates && surfaceStates.length > 1 
+            ? surfaceStates.findIndex(s => s.key === activeSurfaceKey)
+            : activeCanvasIdx
+        }
+        canvasesCount={surfaceStates && surfaceStates.length > 1 ? surfaceStates.length : canvases.length}
+        onOpenCanvas={(idx) => {
+          if (surfaceStates && surfaceStates.length > 1) {
+            onOpenCanvas(0, surfaceStates[idx].key);
+          } else {
+            onOpenCanvas(idx);
+          }
+        }}
         editingCanvas={editingCanvas}
         layout={layout}
         selectedLayer={selectedLayer}

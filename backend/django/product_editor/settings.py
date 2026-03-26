@@ -23,7 +23,6 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "corsheaders",
     "api",
-    "ai_engine",  # AI processing engine
     "layout_engine",
 ]
 
@@ -38,7 +37,6 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "product_editor.middleware.ProxyAuthenticationMiddleware",
-    "api.middleware.ImageProcessingGatewayMiddleware",  # AI processing gateway
     "api.middleware.APIRequestLoggingMiddleware",  # API request logging
     "api.middleware.RateLimitMiddleware",  # Rate limiting
 ]
@@ -66,9 +64,9 @@ WSGI_APPLICATION = "product_editor.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "product_editor"),
-        "USER": os.getenv("POSTGRES_USER", "postgres"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "postgres"),
+        "NAME": os.getenv("POSTGRES_DB"),
+        "USER": os.getenv("POSTGRES_USER"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
         "HOST": os.getenv("POSTGRES_HOST", "localhost"),
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
     }
@@ -133,7 +131,6 @@ SPECTACULAR_SETTINGS = {
         {"name": "generate", "description": "Canvas generation from uploaded images"},
         {"name": "embed", "description": "Short-lived iframe embed tokens — external site integration"},
         {"name": "exports", "description": "Secure download of exported files"},
-        {"name": "ai", "description": "AI-powered image processing (background removal, product detection, blend preview)"},
         {"name": "ops", "description": "Ops team layout management (internal only)"},
     ],
     "SWAGGER_UI_SETTINGS": {
@@ -181,16 +178,6 @@ os.makedirs(EXPORTS_DIR, exist_ok=True)
 MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
-
-# AI Processing Configuration (Auto-configured based on system resources)
-AI_PROCESSING_ENABLED = os.getenv("AI_PROCESSING_ENABLED", "true").lower() == "true"
-AI_CACHE_TTL = int(os.getenv("AI_CACHE_TTL", "3600"))  # 1 hour cache
-AI_MAINTENANCE_INTERVAL = int(os.getenv("AI_MAINTENANCE_INTERVAL", "1800"))  # 30 minutes
-AI_PROCESSING_TIMEOUT = int(os.getenv("AI_PROCESSING_TIMEOUT", "60"))  # 1 minute timeout
-AI_BACKGROUND_PROCESSING = os.getenv("AI_BACKGROUND_PROCESSING", "true").lower() == "true"
-
-# Force CPU-only mode (can be overridden by environment variable)
-AI_FORCE_CPU_ONLY = os.getenv("AI_FORCE_CPU_ONLY", "false").lower() == "true"
 
 # Security Headers
 SECURE_BROWSER_XSS_FILTER = True

@@ -1,6 +1,7 @@
 import "./globals.css"
 import { ReactNode } from "react"
 import { AuthProvider } from "@/components/AuthProvider"
+import { AppWrapper } from "@/components/AppWrapper"
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -12,7 +13,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body className="min-h-screen bg-white text-slate-900 antialiased" suppressHydrationWarning>
         <AuthProvider>
-          {children}
+          <AppWrapper>
+            {children}
+          </AppWrapper>
         </AuthProvider>
       </body>
     </html>

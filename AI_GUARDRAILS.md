@@ -1,28 +1,22 @@
 # AI Guardrails - Product Editor
 
-**STRICT SAFETY RULES: AI ASSISTANTS MUST NEVER VIOLATE THE FOLLOWING.**
+Development rules and safety guidelines for AI agents working on this project.
 
-## Critical Prohibitions
-- **No Mass Rewrites**: Never rewrite more than 20% of a file in one go without explicit confirmation.
-- **No Framework Swapping**: Do not attempt to replace Django or Next.js with other frameworks.
-- **No Secret Creation**: Never hardcode API keys, tokens, or credentials.
-- **No Volume Deletion**: Never delete or purge `/storage` volumes.
+## General Rules
+- **No AI Processing**: Do not re-introduce background removal, product detection, or other AI-based image processing features unless explicitly requested.
+- **Maintain multi-surface support**: Ensure changes do not break the ability to handle layouts with multiple surfaces (e.g., front/back).
+- **TypeScript Strictness**: Always fix linter errors and maintain type safety in the frontend.
 
-## Architecture Protection
-- **Module Boundaries**: Do not move files between `frontend` and `backend`.
-- **Path Safety**: Never implement file paths without using `os.path.join` and verifying path safety (preventing traversal).
-- **Core Stability**: Do not modify the `Traefik` proxy configuration unless specifically asked to fix a routing bug.
+## Backend Guardrails (Django)
+- **Path Safety**: Always use `_is_path_safe` or similar validation when handling file paths from requests to prevent path traversal.
+- **Authentication**: All new endpoints must require appropriate permissions (e.g., `IsAuthenticatedWithAPIKey`).
+- **Resource Management**: Large image processing tasks should be handled carefully to avoid memory exhaustion (Pillow uses significant RAM).
 
-## Dependency Control
-- **No Shadow Dependencies**: Do not install packages without updating `package.json` or `requirements.txt`.
-- **Strict Versioning**: Use fixed versions for packages if you must add them.
+## Frontend Guardrails (Next.js/Fabric.js)
+- **Object Cleanup**: Always dispose of Fabric canvas instances and revoke Object URLs to prevent memory leaks.
+- **State Sync**: Keep the Fabric canvas state in sync with the React state (see `handleFabricChange` in `CanvasEditorModal.tsx`).
+- **Responsive Design**: Ensure the editor remains functional on various screen sizes, using the Gen-Z "glassmorphism" aesthetic established in the project.
 
-## Safe Coding Rules
-- **Dry Run**: Use `find` and `grep` to check for similar code before implementing new logic.
-- **Audit Preservation**: Do not disable the `api/middleware.py` logging or rate-limiting layers.
-- **Client-Side Heavy Lifting**: Do not move heavy AI processing (e.g., RemBG) to the frontend; use the existing backend API.
-- **Zip Standards**: Use `JSZip` exclusively for multi-file exports.
-
-## Decision Policy
-- **When in Doubt, Ask**: If an architectural decision is ambiguous, prompt the user for clarification.
-- **No Guessing**: Do not "hallucinate" API endpoints or internal utility names; verify them using `grep` or `list_dir`.
+## Data Consistency
+- Layout JSON files in `storage/layouts` must follow the established schema (canvas dimensions, frame coordinates, etc.).
+- Ensure `metadata` in layouts remains an object or array as expected by the management views.

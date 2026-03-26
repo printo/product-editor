@@ -130,7 +130,7 @@ class ListLayoutsView(APIView):
 
 
 class GenerateLayoutView(APIView):
-    """Generate layout from images with AI processing - requires API key."""
+    """Generate layout from images - requires API key."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanGenerateLayouts]
 
     @extend_schema(
@@ -142,8 +142,7 @@ class GenerateLayoutView(APIView):
             "| Field | Type | Description |\n"
             "|-------|------|-------------|\n"
             "| `layout` | string/JSON | Layout name (e.g. `retro_polaroid_4.2x3.5`) or full layout JSON |\n"
-            "| `images` | file[] | One or more image files to place in the layout |\n"
-            "| `ai_enhance` | boolean | Optional — run AI background removal / product detection |\n\n"
+            "| `images` | file[] | One or more image files to place in the layout |\n\n"
             "Returns a list of canvas objects, one per layout slot."
         ),
         request=inline_serializer(

@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Header } from '@/components/Header';
 import {
   Layout,
   Plus,
@@ -17,10 +16,11 @@ import {
   Eye,
   Edit2,
   Copy,
-  Search,
   Type,
 } from 'lucide-react';
 import { LayoutSVG } from '@/components/LayoutSVG';
+import { SearchInput } from '@/components/ui/SearchInput';
+import { useHeader } from '@/context/HeaderContext';
 import { LayoutFabricPreview } from './LayoutFabricPreview';
 
 interface LayoutFrame {
@@ -96,6 +96,7 @@ const AVAILABLE_TAGS = [
 export default function LayoutCreatorPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
 
   const [layouts, setLayouts] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -130,6 +131,15 @@ export default function LayoutCreatorPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  useEffect(() => {
+    if (isModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => { document.body.style.overflow = 'auto'; };
+  }, [isModalOpen]);
+
   // Mask State
   const [maskFile, setMaskFile] = useState<File | null>(null);
   const [maskUrl, setMaskUrl] = useState<string | null>(null);
@@ -142,14 +152,64 @@ export default function LayoutCreatorPage() {
   const [surfaces, setSurfaces] = useState<SurfaceEditorState[]>([]);
   const [activeSurfaceIdx, setActiveSurfaceIdx] = useState(0);
 
+  const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
+  const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
+  const [showFontModal, setShowFontModal] = useState(false);
+  const [fontSearch, setFontSearch] = useState('');
+
   // Selected frame in Fabric preview
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
 
-  // ── Google Fonts ───────────────────────────────────────────────────────────
-  const [showFontModal, setShowFontModal] = useState(false);
-  const [fontSearch, setFontSearch] = useState('');
-  const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
-  const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
+  useEffect(() => {
+    if (isModalOpen) {
+      setTitle(isEditMode ? 'Edit Template' : 'Create Template');
+      setDescription('Define canvas dimensions and print areas');
+      setCenterActions(null);
+      setRightActions(
+        <button
+          onClick={() => setIsModalOpen(false)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded border border-slate-200 hover:border-slate-300 transition-colors"
+        >
+          <X className="w-3.5 h-3.5" />
+          Close Editor
+        </button>
+      );
+    } else {
+      setTitle('Template Library');
+      setDescription('Manage reusable designs');
+      setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Filter templates..." />);
+      setRightActions(
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowFontModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded border border-slate-200 hover:border-slate-300 transition-colors"
+          >
+            <Type className="w-3.5 h-3.5" />
+            Fonts ({selectedFonts.length})
+          </button>
+          <button
+            onClick={() => {
+              setIsEditMode(false);
+              setLayoutName('');
+              setTags('');
+              setFrames([]);
+              setSurfaces([]);
+              setLayoutType('single');
+              setMaskUrl(null);
+              setMaskFile(null);
+              setMaskOnExport(false);
+              setIsModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded hover:bg-indigo-700 transition-colors shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Create
+          </button>
+        </div>
+      );
+    }
+  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, selectedFonts.length]);
+
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 
   const googleFontsList = [
@@ -704,43 +764,8 @@ export default function LayoutCreatorPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Header />
-
-      <main className="max-w-[1440px] mx-auto px-6 py-8">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Layout Management</h1>
-            <p className="text-slate-500 mt-1">Create and manage your reusable print layouts.</p>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
-              <input
-                type="text"
-                placeholder="Search layouts..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-64 pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
-              />
-            </div>
-            <button
-              onClick={() => setShowFontModal(true)}
-              className="px-5 py-2.5 bg-white text-slate-700 font-bold rounded-2xl border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 shadow-sm transition-all hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2"
-            >
-              <Type className="w-4 h-4" />
-              Fonts ({selectedFonts.length})
-            </button>
-            <button
-              onClick={openCreateModal}
-              className="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Create New Layout
-            </button>
-          </div>
-        </div>
+    <div className="min-h-screen bg-transparent flex flex-col">
+      <main className="max-w-[1440px] mx-auto px-8 py-8 w-full">
 
         {error && (
           <div className="mb-6 p-4 bg-rose-50 border border-rose-100 text-rose-800 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
@@ -756,7 +781,7 @@ export default function LayoutCreatorPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {layouts
             .filter((l: any) => {
               const q = searchQuery.toLowerCase();
@@ -888,31 +913,17 @@ export default function LayoutCreatorPage() {
         </div>
       </main>
 
-      {/* Create / Edit Modal */}
+      {/* Create / Edit Modal (Full Screen mode - sits under the persistent Header) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
-                  {isEditMode ? <Edit2 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900">{isEditMode ? 'Edit Layout' : 'Create New Layout'}</h2>
-                  <p className="text-sm text-slate-500">Define precise canvas dimensions and frames in millimeters.</p>
-                </div>
-              </div>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                <X className="w-6 h-6 text-slate-400" />
-              </button>
-            </div>
+        <div className="fixed top-16 inset-x-0 bottom-0 z-[1000] flex flex-col bg-white overflow-hidden animate-in fade-in duration-200">
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Redundant local header removed — Titles now in global header */}
 
-            <div className="flex-1 overflow-y-auto px-6 py-6 bg-slate-50/50">
-              <form id="layout-form" onSubmit={handleCreateLayout} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="flex-1 min-h-0 bg-slate-50/50">
+              <form id="layout-form" onSubmit={handleCreateLayout} className="grid grid-cols-1 lg:grid-cols-12 h-full overflow-hidden">
 
-                {/* Left Column: Form Controls */}
-                <div className="lg:col-span-7 space-y-6">
+                {/* Left Column: Form Controls (Scrollable) */}
+                <div className="lg:col-span-7 h-full overflow-y-auto px-6 py-6 space-y-6 custom-scrollbar">
 
                   {/* Basic Info & Canvas */}
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -1245,31 +1256,33 @@ export default function LayoutCreatorPage() {
 
                 </div>
 
-                {/* Right Column: Live Preview */}
-                <div className="lg:col-span-5 flex flex-col">
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col sticky top-0 h-full min-h-[400px]">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50/50 rounded-t-xl shrink-0">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest text-center">Live Preview (To Scale)</label>
+                {/* Right Column: Live Preview (Fixed Viewport) */}
+                <div className="lg:col-span-5 h-full bg-slate-50 border-l border-slate-200">
+                  <div className="h-full flex flex-col overflow-hidden">
+                    <div className="p-3 border-b border-slate-100 bg-white shrink-0">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Live Preview (To Scale)</label>
                     </div>
-                    <div className="flex-1 overflow-auto flex items-center justify-center bg-slate-50/30">
-                      <LayoutFabricPreview
-                        widthMm={activeWidthMm}
-                        heightMm={activeHeightMm}
-                        dpi={activeDpi}
-                        frames={activeFrames}
-                        maskUrl={activeMaskUrl}
-                        maskFile={activeMaskFile}
-                        snapGrid={snapGrid}
-                        onFramesChange={setActiveFrames}
-                        onFrameSelect={setSelectedFrameId}
-                        selectedFrameId={selectedFrameId}
-                      />
+                    <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <LayoutFabricPreview
+                          widthMm={activeWidthMm}
+                          heightMm={activeHeightMm}
+                          dpi={activeDpi}
+                          frames={activeFrames}
+                          maskUrl={activeMaskUrl}
+                          maskFile={activeMaskFile}
+                          snapGrid={snapGrid}
+                          onFramesChange={setActiveFrames}
+                          onFrameSelect={setSelectedFrameId}
+                          selectedFrameId={selectedFrameId}
+                        />
+                      </div>
                     </div>
-                    <div className="p-4 border-t border-slate-100 bg-slate-50/50 rounded-b-xl shrink-0 text-center">
-                      <p className="text-xs text-slate-500 font-medium">Areas: {activeFrames.length} &middot; DPI: {activeDpi}{layoutType === 'product' && surfaces[activeSurfaceIdx] ? ` &middot; ${surfaces[activeSurfaceIdx].label}` : ''}</p>
-                      <div className="flex justify-center gap-4 mt-2">
-                        <span className="flex items-center text-[10px] text-emerald-600 font-medium gap-1"><div className="w-2 h-2 rounded border border-emerald-400 border-dashed"></div> Safe Area</span>
-                        <span className="flex items-center text-[10px] text-rose-500 font-medium gap-1"><div className="w-2 h-2 rounded border border-rose-400 border-dashed"></div> Bleed Zone</span>
+                    <div className="p-3 border-t border-slate-100 bg-white shrink-0 text-center">
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">Areas: {activeFrames.length} &middot; {activeDpi} DPI</p>
+                      <div className="flex justify-center gap-4 mt-1.5 font-bold uppercase tracking-[0.05em]">
+                        <span className="flex items-center text-[8px] text-emerald-600 gap-1"><div className="w-1.5 h-1.5 rounded-sm border border-emerald-400 border-dashed"></div> Safe Area</span>
+                        <span className="flex items-center text-[8px] text-rose-500 gap-1"><div className="w-1.5 h-1.5 rounded-sm border border-rose-400 border-dashed"></div> Bleed Zone</span>
                       </div>
                     </div>
                   </div>
@@ -1278,11 +1291,11 @@ export default function LayoutCreatorPage() {
               </form>
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-100 bg-white flex justify-end gap-3 shrink-0">
+            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/30 flex justify-end gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="px-5 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                className="px-4 py-1.5 text-[11px] font-bold uppercase tracking-tight text-slate-500 hover:bg-slate-100 hover:text-slate-700 rounded-lg transition-all"
                 disabled={isSaving}
               >
                 Cancel
@@ -1291,10 +1304,10 @@ export default function LayoutCreatorPage() {
                 type="submit"
                 form="layout-form"
                 disabled={isSaving || !layoutName}
-                className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95"
+                className="px-5 py-1.5 bg-indigo-600 text-white text-[11px] font-bold uppercase tracking-tight rounded-lg hover:bg-indigo-700 shadow-sm transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95"
               >
-                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {isEditMode ? 'Update Canvas' : 'Create Context'}
+                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                {isEditMode ? 'Update Template' : 'Create Template'}
               </button>
             </div>
           </div>

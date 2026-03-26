@@ -1,10 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, Hexagon } from 'lucide-react';
+import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, Hexagon, RotateCw } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
-import { AlignmentToolbar } from './AlignmentToolbar';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { ShapesPicker } from './ShapesPicker';
 import { IconBrowser } from './IconBrowser';
@@ -44,91 +43,74 @@ const ADD_TABS: { key: TabKey; label: string; icon: React.ElementType; activeCla
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
 
-/** Rotation preset buttons + slider + number input — always uses orange palette */
+/** Rotation slider + 90deg increment + number input — always uses orange palette */
 function RotationControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-[9px] font-extrabold text-orange-400 uppercase">Rotation</label>
-      <div className="flex items-center gap-1 mb-1">
-        {[0, 90, 180, 270].map(deg => (
-          <button key={deg} onClick={() => onChange(deg)}
-            className={clsx('flex-1 py-0.5 text-[9px] font-extrabold rounded-lg transition-all text-center',
-              value === deg
-                ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow'
-                : 'bg-orange-50 text-orange-400 hover:text-orange-600 border border-orange-200/40')}>
-            {deg}°
-          </button>
-        ))}
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">Rotation</label>
+        <div className="flex items-center gap-1 bg-orange-50 dark:bg-orange-500/10 px-2 py-0.5 rounded-lg border border-orange-100 dark:border-orange-500/20">
+          <span className="text-[11px] font-mono font-black text-orange-600 dark:text-orange-400">{value}°</span>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <input type="range" min="0" max="359" step="1" value={value}
-          onChange={e => onChange(parseInt(e.target.value))}
-          className="flex-1 accent-orange-500" />
-        <input type="number" min="0" max="359" value={value}
-          onChange={e => onChange(((parseInt(e.target.value) || 0) % 360 + 360) % 360)}
-          className="w-14 px-1.5 py-1 text-xs font-mono text-center border border-orange-200/50 rounded-xl bg-orange-50/50" />
+      <div className="flex items-center gap-4">
+        <div className="flex-1 relative h-6 flex items-center group">
+          <div className="absolute inset-0 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 my-auto" />
+          <input type="range" min="0" max="359" step="1" value={value}
+            onChange={e => onChange(parseInt(e.target.value))}
+            className="w-full relative z-10 appearance-none bg-transparent cursor-pointer accent-orange-500" />
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <button onClick={() => onChange((value + 90) % 360)}
+            className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-orange-400 hover:shadow-lg hover:shadow-orange-500/10 active:scale-90 transition-all">
+            <RotateCw className="w-5 h-5" />
+          </button>
+          
+          <input type="number" min="0" max="359" value={value}
+            onChange={e => onChange(((parseInt(e.target.value) || 0) % 360 + 360) % 360)}
+            className="w-14 h-10 px-0 text-[11px] font-mono font-black text-center border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none" />
+        </div>
       </div>
     </div>
   );
 }
 
-/** Proportional scale slider — always uses emerald palette */
-function ScaleControl({ width, height, onScale }: { width: number; height: number; onScale: (w: number, h: number) => void }) {
+/** Proportional scale slider + number input — always uses emerald palette */
+function ScaleControl({ label = "Scale", width, height, onScale }: { label?: string; width: number; height: number; onScale: (w: number, h: number) => void }) {
   const baseRef = useRef<{ w: number; h: number } | null>(null);
   return (
-    <div className="space-y-1.5">
-      <label className="text-[9px] font-extrabold text-emerald-400 uppercase">Scale</label>
-      <div className="flex items-center gap-2">
-        <input type="range" min="5" max="100" step="1" value={Math.round(width)}
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">{label}</label>
+        <div className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-100 dark:border-emerald-500/20">
+          <span className="text-[11px] font-mono font-black text-emerald-600 dark:text-emerald-400">{Math.round(width)}%</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-4">
+        <div className="flex-1 relative h-6 flex items-center group">
+          <div className="absolute inset-0 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 my-auto" />
+          <input type="range" min="5" max="250" step="1" value={Math.round(width)}
+            onMouseDown={() => { baseRef.current = { w: width, h: height }; }}
+            onChange={e => {
+              const newW = parseInt(e.target.value);
+              const base = baseRef.current ?? { w: width, h: height };
+              const ratio = base.h / (base.w || 1);
+              onScale(newW, Math.max(1, Math.min(250, Math.round(newW * ratio))));
+            }}
+            className="w-full relative z-10 appearance-none bg-transparent cursor-pointer accent-emerald-500" />
+        </div>
+        
+        <input type="number" min="5" max="250" value={Math.round(width)}
           onMouseDown={() => { baseRef.current = { w: width, h: height }; }}
           onChange={e => {
-            const newW = parseInt(e.target.value);
+            const newW = parseInt(e.target.value) || 0;
             const base = baseRef.current ?? { w: width, h: height };
             const ratio = base.h / (base.w || 1);
-            onScale(newW, Math.max(1, Math.min(100, Math.round(newW * ratio))));
+            onScale(Math.max(5, Math.min(250, newW)), Math.max(1, Math.min(250, Math.round(newW * ratio))));
           }}
-          className="flex-1 accent-emerald-500" />
-        <span className="text-[10px] font-mono text-emerald-400 w-10 text-center">
-          {Math.round(width)}%
-        </span>
+          className="w-14 h-10 px-0 text-[11px] font-mono font-black text-center border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none" />
       </div>
-    </div>
-  );
-}
-
-/** Alignment toolbar wired for a canvas-percent-positioned overlay */
-function OverlayAlignControl({
-  width, height, type,
-  onUpdate,
-}: {
-  width?: number; height?: number; type: 'shape' | 'image' | 'text';
-  onUpdate: (patch: Record<string, number>) => void;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-[9px] font-extrabold text-cyan-400 uppercase">Align on Canvas</label>
-      <AlignmentToolbar
-        onHAlign={alignment => {
-          if (type === 'text') {
-            const x = alignment === 'left' ? 5 : alignment === 'center' ? 50 : 95;
-            onUpdate({ x });
-          } else {
-            const w = width ?? 25;
-            const x = alignment === 'left' ? w / 2 : alignment === 'center' ? 50 : 100 - w / 2;
-            onUpdate({ x });
-          }
-        }}
-        onVAlign={alignment => {
-          if (type === 'text') {
-            const y = alignment === 'top' ? 5 : alignment === 'middle' ? 50 : 95;
-            onUpdate({ y });
-          } else {
-            const h = height ?? 25;
-            const y = alignment === 'top' ? h / 2 : alignment === 'middle' ? 50 : 100 - h / 2;
-            onUpdate({ y });
-          }
-        }}
-      />
     </div>
   );
 }
@@ -176,26 +158,40 @@ export function CanvasEditorSidebar({
   };
 
   return (
-    <div className="w-[360px] md:w-[400px] max-w-[400px] shrink-0 flex-none border-l border-slate-200/60 bg-gradient-to-b from-white via-slate-50/50 to-white flex flex-col overflow-hidden relative">
-
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="px-4 py-3 border-b border-slate-200/60 bg-gradient-to-r from-violet-50/80 to-cyan-50/80 flex items-center gap-2">
-        <h3 className="text-xs font-extrabold bg-gradient-to-r from-violet-600 to-cyan-600 bg-clip-text text-transparent mr-auto tracking-tight">Canvas Editor</h3>
-        <button disabled={activeCanvasIdx === 0} onClick={() => onOpenCanvas(activeCanvasIdx - 1)}
-          className="p-1.5 text-violet-400 hover:text-violet-600 disabled:opacity-20 transition-all rounded-lg hover:bg-violet-100/50">
-          <ChevronRight className="w-3.5 h-3.5 rotate-180" />
-        </button>
-        <span className="text-[10px] font-extrabold text-violet-400 tabular-nums bg-violet-100/60 px-2 py-0.5 rounded-full">
-          {activeCanvasIdx + 1}/{canvasesCount}
-        </span>
-        <button disabled={activeCanvasIdx === canvasesCount - 1} onClick={() => onOpenCanvas(activeCanvasIdx + 1)}
-          className="p-1.5 text-violet-400 hover:text-violet-600 disabled:opacity-20 transition-all rounded-lg hover:bg-violet-100/50">
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
+    <div className="w-[340px] md:w-[380px] max-w-[380px] shrink-0 flex-none border-l border-slate-200/50 dark:border-white/5 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-3xl flex flex-col overflow-hidden relative shadow-2xl z-20">
+      {/* Background Blobs for Gen-Z glassmorphism */}
+      <div className="absolute -top-32 -right-32 w-64 h-64 bg-violet-400/20 dark:bg-violet-600/20 blur-[100px] -z-10 rounded-full" />
+      <div className="absolute -bottom-32 -left-32 w-64 h-64 bg-cyan-400/20 dark:bg-cyan-600/20 blur-[100px] -z-10 rounded-full" />
+      {/* ── Header glassmorphism ─────────────────────────────────────────── */}
+      <div className="px-4 py-3 border-b border-white/50 dark:border-white/5 bg-white/50 dark:bg-black/20 sticky top-0 z-20 flex items-center gap-2">
+        <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-500 p-[1.5px] shadow-sm">
+          <div className="w-full h-full bg-white dark:bg-slate-900 rounded-[10px] flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-violet-500" />
+          </div>
+        </div>
+        <h3 className="text-sm font-black bg-gradient-to-r from-violet-600 via-fuchsia-600 to-cyan-600 bg-clip-text text-transparent uppercase tracking-widest mr-auto">
+          Editor
+        </h3>
+        
+        <div className="flex items-center gap-0.5 bg-white/80 dark:bg-white/10 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-white/5 shadow-sm">
+          <button disabled={activeCanvasIdx === 0} onClick={() => onOpenCanvas(activeCanvasIdx - 1)}
+            className="p-1 text-slate-500 hover:text-violet-600 dark:text-slate-400 dark:hover:text-violet-300 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 active:scale-95">
+            <ChevronRight className="w-4 h-4 rotate-180" />
+          </button>
+          <span className="text-[10px] font-black text-slate-600 dark:text-slate-300 tabular-nums px-2 min-w-[40px] text-center">
+            {activeCanvasIdx + 1}
+            <span className="mx-0.5 text-slate-300 dark:text-slate-600 text-[8px]">OF</span>
+            {canvasesCount}
+          </span>
+          <button disabled={activeCanvasIdx === canvasesCount - 1} onClick={() => onOpenCanvas(activeCanvasIdx + 1)}
+            className="p-1 text-slate-500 hover:text-violet-600 dark:text-slate-400 dark:hover:text-violet-300 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 active:scale-95">
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* ── Scrollable body ────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6 custom-scrollbar">
 
         {/* ═══ Frame properties (shown when a frame/canvas is selected) ════ */}
         {(selectedLayer.type === 'frame' || selectedLayer.type === 'canvas') && (() => {
@@ -203,12 +199,12 @@ export function CanvasEditorSidebar({
           const frame = editingCanvas.frames[fIdx];
           if (!frame) return null;
           return (
-            <div className="space-y-4">
-              {/* Fit + Alignment */}
-              <div className="space-y-2">
+            <div className="space-y-6">
+              {/* Fit */}
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-extrabold text-cyan-500 uppercase tracking-wider">Fit & Alignment</p>
-                  <div className="flex items-center bg-cyan-50 rounded-xl p-0.5 border border-cyan-200/50">
+                  <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">Fit Mode</p>
+                  <div className="flex items-center gap-1 bg-white/80 dark:bg-white/5 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-white/5 shadow-sm">
                     {(['contain', 'cover'] as FitMode[]).map(mode => (
                       <button key={mode}
                         onClick={() => {
@@ -217,17 +213,15 @@ export function CanvasEditorSidebar({
                             i === fIdx ? { ...f, fitMode: mode, scale: 1, offset: { x: 0, y: 0 } } : f);
                           debouncedRender({ ...editingCanvas, frames: newFrames });
                         }}
-                        className={clsx('px-3 py-1 text-[10px] font-extrabold rounded-lg transition-all text-center',
-                          frame.fitMode === mode ? 'bg-white text-cyan-600 shadow-sm' : 'text-cyan-400 hover:text-cyan-600')}>
+                        className={clsx('px-6 py-2 text-[10px] font-black rounded-xl transition-all text-center min-w-[70px]',
+                          frame.fitMode === mode 
+                            ? 'bg-white dark:bg-slate-700 text-cyan-600 dark:text-cyan-400 shadow-md ring-1 ring-cyan-500/20' 
+                            : 'text-slate-400 dark:text-slate-500 hover:text-cyan-600 dark:hover:text-cyan-400')}>
                         {mode === 'contain' ? 'Fit' : 'Cover'}
                       </button>
                     ))}
                   </div>
                 </div>
-                <AlignmentToolbar
-                  onHAlign={key => handleAlign(fIdx, key)}
-                  onVAlign={key => handleAlign(fIdx, key)}
-                />
               </div>
 
               {/* Rotation */}
@@ -238,17 +232,8 @@ export function CanvasEditorSidebar({
               />
 
               {/* Zoom */}
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-extrabold text-emerald-500 uppercase tracking-wider">Zoom</p>
-                <div className="flex items-center gap-2">
-                  <input type="range" min="10" max="300" step="10" value={Math.round(frame.scale * 100)}
-                    onChange={e => handleUpdateTransform(fIdx, { scale: parseInt(e.target.value) / 100 })}
-                    className="flex-1 accent-emerald-500" />
-                  <input type="number" min="10" max="300" value={Math.round(frame.scale * 100)}
-                    onChange={e => handleUpdateTransform(fIdx, { scale: Math.max(10, Math.min(300, parseInt(e.target.value) || 100)) / 100 })}
-                    className="w-14 px-1.5 py-1 text-xs font-mono text-center border border-emerald-200/50 rounded-xl bg-emerald-50/50" />
-                </div>
-              </div>
+              <ScaleControl label="Zoom" width={frame.scale * 100} height={100}
+                onScale={(w) => handleUpdateTransform(fIdx, { scale: w / 100 })} />
             </div>
           );
         })()}
@@ -256,16 +241,20 @@ export function CanvasEditorSidebar({
         {/* ═══ Add-object tabs ════════════════════════════════════════════ */}
         <div className="pt-1 space-y-3">
           {/* Tab bar */}
-          <div className="flex items-center p-1 bg-slate-100/80 backdrop-blur-sm rounded-2xl border border-slate-200/50 w-full overflow-x-auto">
+          <div className="flex items-center p-1 bg-white/60 dark:bg-white/5 backdrop-blur-xl rounded-xl border border-white/50 dark:border-white/10 w-full overflow-x-auto shadow-sm custom-scrollbar">
             {ADD_TABS.map(tab => {
               const isActive = activeAddTab === tab.key;
               const Icon = tab.icon;
               return (
                 <button key={tab.key} onClick={() => setActiveAddTab(tab.key)}
-                  className={clsx('flex-1 min-w-[50px] flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl transition-all',
-                    isActive ? `bg-white shadow-sm ring-1 ${tab.activeClass}` : 'text-slate-400 hover:text-slate-600 hover:bg-white/40')}>
-                  <Icon className="w-3.5 h-3.5" />
-                  <span className="text-[9px] font-black uppercase tracking-tighter truncate max-w-[50px]">{tab.label}</span>
+                  className={clsx('flex-1 min-w-[50px] flex flex-col items-center justify-center gap-1 py-2 rounded-lg transition-all',
+                    isActive 
+                      ? 'bg-white/90 dark:bg-white/10 shadow-sm ring-1 ring-black/5 dark:ring-white/10' 
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-white/5')}>
+                  <Icon className={clsx('w-5 h-5 transition-all duration-300', isActive ? tab.activeClass : 'text-slate-400')} />
+                  <span className={clsx('text-[9px] font-black uppercase tracking-widest truncate transition-all', isActive ? tab.activeClass : 'text-slate-400')}>
+                    {tab.label}
+                  </span>
                 </button>
               );
             })}
@@ -278,10 +267,10 @@ export function CanvasEditorSidebar({
             {activeAddTab === 'background' && (
               <div className="space-y-2">
                 {/* Background layer colour */}
-                <div className="flex items-center justify-between p-3 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-200/40">
-                  <div className="space-y-0.5">
-                    <p className="text-[10px] font-extrabold text-amber-600 uppercase tracking-wider">Background</p>
-                    <p className="text-[9px] text-amber-500/70 font-medium tracking-tight">Bottom layer — shows inside frames</p>
+                <div className="flex items-center justify-between p-3 bg-white/80 dark:bg-white/5 backdrop-blur-sm rounded-xl border border-white/50 dark:border-white/5 shadow-sm hover:shadow-md transition-all">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest">Workspace</p>
+                    <p className="text-[9px] text-amber-500/70 dark:text-amber-500/50 font-medium tracking-tight">Bottom layer color</p>
                   </div>
                   <ColorPicker value={editingCanvas.bgColor || '#ffffff'}
                     onChange={color => {
@@ -290,10 +279,10 @@ export function CanvasEditorSidebar({
                     }} />
                 </div>
                 {/* Paper / Mat border colour */}
-                <div className="flex items-center justify-between p-3 bg-gradient-to-r from-slate-50 to-zinc-50 rounded-2xl border border-slate-200/40">
-                  <div className="space-y-0.5">
-                    <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">Paper / Mat</p>
-                    <p className="text-[9px] text-slate-400 font-medium tracking-tight">Mask border around frames</p>
+                <div className="flex items-center justify-between p-3 bg-white/80 dark:bg-white/5 backdrop-blur-sm rounded-xl border border-white/50 dark:border-white/5 shadow-sm hover:shadow-md transition-all">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-slate-600 dark:text-slate-400 uppercase tracking-widest">Matte / Mask</p>
+                    <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium tracking-tight">Edge protection border</p>
                   </div>
                   <ColorPicker value={editingCanvas.paperColor || '#ffffff'}
                     onChange={color => {
@@ -317,10 +306,10 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-4">
+                  <div className="space-y-6">
                     {/* Header row */}
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-extrabold text-violet-500 uppercase tracking-wider">Text Properties</p>
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+                      <p className="text-[10px] font-black text-violet-500 dark:text-violet-400 uppercase tracking-[0.2em]">Text Context</p>
                       <div className="flex items-center gap-1">
                         <button onClick={handleSaveChanges} title="Save"
                           className="p-1.5 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all">
@@ -334,29 +323,31 @@ export function CanvasEditorSidebar({
                     </div>
 
                     {/* Font + size + colour + align */}
-                    <div className="flex items-center gap-1.5 p-1.5 bg-slate-100/50 rounded-2xl border border-slate-200/40">
+                    <div className="flex items-center gap-1.5 p-1 bg-white/60 dark:bg-white/5 rounded-xl border border-white/50 dark:border-white/10 shadow-sm">
                       <div className="flex-1 min-w-0">
                         <select value={overlay.fontFamily}
                           onChange={e => { loadGoogleFont(e.target.value); updateOverlay({ fontFamily: e.target.value }); }}
-                          className="w-full h-8 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-700 px-1.5 focus:ring-1 focus:ring-violet-400 outline-none appearance-none cursor-pointer hover:bg-slate-50 transition-colors">
+                          className="w-full h-7 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 rounded-lg text-[9px] font-bold text-slate-700 dark:text-slate-300 px-1.5 focus:ring-1 focus:ring-violet-400 outline-none appearance-none cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                           {selectedFonts.map(f => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
                         </select>
                       </div>
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg h-8 px-1 gap-1">
+                      <div className="flex items-center bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 rounded-lg h-7 px-1 gap-1">
                         <button onClick={() => updateOverlay({ fontSize: Math.max(8, (overlay.fontSize || 24) - 2) })}
-                          className="p-1 text-slate-400 hover:text-violet-600 transition-colors"><Minus className="w-3 h-3" /></button>
+                          className="p-1 text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"><Minus className="w-2.5 h-2.5" /></button>
                         <input type="number" value={overlay.fontSize}
                           onChange={e => updateOverlay({ fontSize: Math.max(8, parseInt(e.target.value) || 24) })}
-                          className="w-8 text-center text-[10px] font-black text-slate-700 bg-transparent border-none outline-none p-0" />
+                          className="w-6 text-center text-[9px] font-black text-slate-700 dark:text-slate-300 bg-transparent border-none outline-none p-0" />
                         <button onClick={() => updateOverlay({ fontSize: (overlay.fontSize || 24) + 2 })}
-                          className="p-1 text-slate-400 hover:text-violet-600 transition-colors"><Plus className="w-3 h-3" /></button>
+                          className="p-1 text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"><Plus className="w-2.5 h-2.5" /></button>
                       </div>
                       <ColorPicker value={overlay.color || '#000000'} showHex={false} onChange={color => updateOverlay({ color })} />
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg h-8 p-0.5 shadow-sm">
+                      <div className="flex items-center bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 rounded-lg h-7 p-0.5 shadow-sm">
                         {[{ key: 'left' as const, icon: AlignLeft }, { key: 'center' as const, icon: AlignCenter }, { key: 'right' as const, icon: AlignRight }].map(({ key, icon: Icon }) => (
                           <button key={key} onClick={() => updateOverlay({ textAlign: key })}
-                            className={clsx('p-1.5 rounded-md transition-all',
-                              overlay.textAlign === key ? 'bg-violet-100 text-violet-600 shadow-inner' : 'text-slate-400 hover:text-slate-600')}>
+                            className={clsx('p-1 rounded-md transition-all',
+                            overlay.textAlign === key 
+                              ? 'bg-violet-100 dark:bg-violet-500/20 text-violet-700 dark:text-violet-400 shadow-inner' 
+                              : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-300')}>
                             <Icon className="w-3 h-3" />
                           </button>
                         ))}
@@ -368,12 +359,10 @@ export function CanvasEditorSidebar({
                       className="w-full h-20 text-xs bg-slate-50/80 border border-slate-200/60 rounded-xl p-3 focus:ring-2 focus:ring-violet-400 outline-none transition-all placeholder-slate-300 font-medium leading-relaxed"
                       placeholder="Type your text here…" />
 
-                    {/* Common: Rotation + Alignment */}
-                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                    {/* Common: Rotation */}
+                    <div className="pt-4 border-t border-slate-100">
                       <RotationControl value={overlay.rotation || 0}
                         onChange={v => updateOverlay({ rotation: v })} />
-                      <OverlayAlignControl type="text"
-                        onUpdate={patch => updateOverlay(patch as Partial<TextOverlay>)} />
                     </div>
                   </div>
                 );
@@ -392,8 +381,8 @@ export function CanvasEditorSidebar({
                   const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
                   debouncedRender(updated);
                   setSelectedLayer({ type: 'text', index: updated.overlays.length - 1 });
-                }} className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-gradient-to-r from-pink-500 to-violet-500 text-white rounded-2xl text-xs font-black hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all border-none">
-                  <Type className="w-4 h-4" /> ADD TEXT OVERLAY
+                }} className="w-full flex items-center justify-center gap-2 px-3 py-3 bg-white/80 dark:bg-white/5 backdrop-blur-sm text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-500/20 rounded-xl text-[10px] font-black hover:bg-violet-50 dark:hover:bg-violet-500/10 hover:shadow-sm active:scale-[0.98] transition-all">
+                  <Type className="w-3.5 h-3.5" /> ADD NEW TEXT
                 </button>
               );
             })()}
@@ -410,10 +399,10 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-3">
+                  <div className="space-y-6">
                     {/* Header */}
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-extrabold text-indigo-500 uppercase tracking-wider">
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+                      <p className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-[0.2em]">
                         {shape.shapeType.charAt(0).toUpperCase() + shape.shapeType.slice(1).replace(/-/g, ' ')}
                       </p>
                       <div className="flex items-center gap-1">
@@ -457,13 +446,11 @@ export function CanvasEditorSidebar({
                     </div>
 
                     {/* ── Common controls ── */}
-                    <div className="space-y-3 pt-3 border-t border-slate-100">
+                    <div className="space-y-4 pt-4 border-t border-slate-100">
                       <RotationControl value={shape.rotation || 0}
                         onChange={v => updateShape({ rotation: v })} />
                       <ScaleControl width={shape.width} height={shape.height}
                         onScale={(w, h) => updateShape({ width: w, height: h })} />
-                      <OverlayAlignControl type="shape" width={shape.width} height={shape.height}
-                        onUpdate={patch => updateShape(patch as Partial<ShapeOverlay>)} />
                     </div>
                   </div>
                 );
@@ -494,12 +481,12 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-3">
+                  <div className="space-y-6">
                     {/* Header */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <img src={imgOverlay.src} alt={imgOverlay.label} className="w-7 h-7 object-contain shrink-0" />
-                        <p className="text-[10px] font-extrabold text-emerald-600 uppercase tracking-wider truncate">{imgOverlay.label}</p>
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img src={imgOverlay.src} alt={imgOverlay.label} className="w-8 h-8 object-contain shrink-0 bg-slate-50 dark:bg-slate-800 rounded-lg p-1" />
+                        <p className="text-[10px] font-black text-emerald-500 dark:text-emerald-400 uppercase tracking-[0.2em] truncate">{imgOverlay.label}</p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={handleSaveChanges} title="Save"
@@ -525,13 +512,11 @@ export function CanvasEditorSidebar({
                     </div>
 
                     {/* ── Common controls ── */}
-                    <div className="space-y-3 pt-3 border-t border-slate-100">
+                    <div className="space-y-4 pt-4 border-t border-slate-100">
                       <RotationControl value={imgOverlay.rotation || 0}
                         onChange={v => updateImage({ rotation: v })} />
                       <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
                         onScale={(w, h) => updateImage({ width: w, height: h })} />
-                      <OverlayAlignControl type="image" width={imgOverlay.width} height={imgOverlay.height}
-                        onUpdate={patch => updateImage(patch as Partial<ImageOverlay>)} />
                     </div>
                   </div>
                 );
@@ -562,10 +547,10 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-3">
+                  <div className="space-y-6">
                     {/* Header */}
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-extrabold text-fuchsia-500 uppercase tracking-wider truncate max-w-[70%]">{imgOverlay.label}</p>
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+                      <p className="text-[10px] font-black text-fuchsia-500 dark:text-fuchsia-400 uppercase tracking-[0.2em] truncate max-w-[70%]">{imgOverlay.label}</p>
                       <div className="flex items-center gap-1">
                         <button onClick={handleSaveChanges} title="Save"
                           className="p-1.5 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all">
@@ -586,13 +571,11 @@ export function CanvasEditorSidebar({
                         <span className="text-[10px] font-mono text-fuchsia-400 w-8 text-center">{Math.round(imgOverlay.opacity * 100)}%</span>
                       </div>
                     </div>
-                    <div className="space-y-3 pt-3 border-t border-slate-100">
+                    <div className="space-y-4 pt-4 border-t border-slate-100">
                       <RotationControl value={imgOverlay.rotation || 0}
                         onChange={v => updateImage({ rotation: v })} />
                       <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
                         onScale={(w, h) => updateImage({ width: w, height: h })} />
-                      <OverlayAlignControl type="image" width={imgOverlay.width} height={imgOverlay.height}
-                        onUpdate={patch => updateImage(patch as Partial<ImageOverlay>)} />
                     </div>
                   </div>
                 );
@@ -600,9 +583,9 @@ export function CanvasEditorSidebar({
               // Upload UI
               return (
                 <div className="space-y-4">
-                  <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-5 bg-gradient-to-br from-violet-50 to-fuchsia-50 border-2 border-dashed border-violet-200/50 rounded-3xl text-violet-600 hover:from-violet-100 hover:to-fuchsia-100 transition-all cursor-pointer overflow-hidden shadow-sm">
-                    <div className="p-3 bg-white rounded-2xl shadow-sm text-violet-500 group-hover:scale-110 transition-transform">
-                      <ImagePlus className="w-6 h-6" />
+                  <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-4 bg-white/60 dark:bg-white/5 backdrop-blur-md border border-dashed border-violet-300 dark:border-white/10 rounded-2xl text-violet-600 dark:text-violet-400 hover:bg-white/80 dark:hover:bg-white/10 transition-all cursor-pointer overflow-hidden shadow-sm">
+                    <div className="p-2.5 bg-violet-100 dark:bg-violet-500/20 rounded-xl shadow-sm group-hover:scale-110 transition-transform">
+                      <ImagePlus className="w-5 h-5" />
                     </div>
                     <div className="text-center">
                       <p className="text-[10px] font-black uppercase tracking-tight">Add to Current Canvas</p>
@@ -655,16 +638,16 @@ export function CanvasEditorSidebar({
         onClearFrame={fIdx => {
           pushUndo(editingCanvas, true);
           const newFrames = editingCanvas.frames.map((f, i) =>
-            i === fIdx ? { ...f, processedUrl: null, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f);
+            i === fIdx ? { ...f, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f);
           debouncedRender({ ...editingCanvas, frames: newFrames });
         }}
       />
 
       {/* ── Save button ──────────────────────────────────────────────────────── */}
-      <div className="px-3 py-2.5 bg-white border-t border-slate-200/60 z-10 relative">
+      <div className="px-3 py-3 bg-white/50 dark:bg-black/20 backdrop-blur-xl border-t border-white/50 dark:border-white/5 z-10 relative">
         <button onClick={handleSaveChanges}
-          className="w-full py-2.5 bg-gradient-to-r from-violet-600 via-purple-600 to-pink-600 text-white rounded-2xl text-xs font-extrabold hover:from-violet-700 hover:via-purple-700 hover:to-pink-700 transition-all flex items-center justify-center gap-1.5 active:scale-[0.98] shadow-lg shadow-purple-200">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" /> Save Changes
+          className="w-full py-2.5 bg-violet-600 dark:bg-violet-500 text-white rounded-xl text-[11px] font-black hover:bg-violet-700 dark:hover:bg-violet-600 transition-all flex items-center justify-center gap-2 active:scale-[0.98] shadow-md shadow-violet-500/20">
+          <CheckCircle2 className="w-4 h-4 text-white/80" /> SAVE CHANGES
         </button>
       </div>
     </div>

@@ -1,0 +1,112 @@
+{
+    "name": "laptop_sleeve",
+    "type": "product",
+    "tags": [],
+    "surfaces": [
+        {
+            "key": "front",
+            "label": "Front",
+            "canvas": {
+                "width": 1200,
+                "height": 1800,
+                "widthMm": 101.59,
+                "heightMm": 152.4,
+                "dpi": 300
+            },
+            "frames": [
+                {
+                    "id": "5r93dqwqt",
+                    "xMm": 0,
+                    "yMm": 0,
+                    "widthMm": 101.59,
+                    "heightMm": 152.4,
+                    "bleedMm": 0,
+                    "x": 0,
+                    "y": 0,
+                    "width": 1,
+                    "height": 1
+                }
+            ],
+            "maskUrl": null,
+            "maskOnExport": false
+        },
+        {
+            "key": "sleeve-backside",
+            "label": "Sleeve Backside",
+            "canvas": {
+                "width": 1200,
+                "height": 1800,
+                "widthMm": 101.6,
+                "heightMm": 152.4,
+                "dpi": 300
+            },
+            "frames": [
+                {
+                    "id": "h1bj6nhtn",
+                    "xMm": 0,
+                    "yMm": 0,
+                    "widthMm": 101.6,
+                    "heightMm": 152.4,
+                    "bleedMm": 0,
+                    "x": 0,
+                    "y": 0,
+                    "width": 1,
+                    "height": 1
+                }
+            ],
+            "maskUrl": null,
+            "maskOnExport": false
+        }
+    ],
+    "createdAt": "2026-03-26T16:40:36.621196+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-03-26T16:40:36.621196+00:00",
+    "updatedBy": "Kanna Perumal C",
+    "metadata": [
+        {
+            "key": "createdByName",
+            "label": "Created By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "createdById",
+            "label": "Emp ID",
+            "value": null
+        },
+        {
+            "key": "createdAt",
+            "label": "Created At",
+            "value": "2026-03-26T16:40:36.621196+00:00"
+        },
+        {
+            "key": "updatedByName",
+            "label": "Updated By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "updatedById",
+            "label": "Updated Emp ID",
+            "value": null
+        },
+        {
+            "key": "updatedAt",
+            "label": "Updated At",
+            "value": "2026-03-26T16:40:36.621196+00:00"
+        },
+        {
+            "key": "dimensions",
+            "label": "Dimensions",
+            "value": "front: 101.59x152.40mm | sleeve-backside: 101.60x152.40mm"
+        },
+        {
+            "key": "tags",
+            "label": "Tags",
+            "value": ""
+        },
+        {
+            "key": "maskOnExport",
+            "label": "Mask on Export",
+            "value": "Disabled"
+        }
+    ]
+}

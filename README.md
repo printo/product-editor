@@ -7,12 +7,13 @@ A production-ready full-stack application for generating photo layouts and colla
 **Backend**
 - Django 5.0.6 with Django REST Framework
 - PostgreSQL 16
-- Pillow for image processing
+- Pillow for high-resolution image processing
 - Bearer token API authentication
 - Gunicorn for production
 
 **Frontend**
 - Next.js 14.2.4
+- Fabric.js 7.2.0 for interactive canvas editing
 - React 18.2.0
 - TypeScript 5.4.5
 - Tailwind CSS 3.4.3

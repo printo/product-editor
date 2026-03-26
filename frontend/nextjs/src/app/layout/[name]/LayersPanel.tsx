@@ -127,7 +127,6 @@ export function LayersPanel({
                 <span className={clsx('text-[11px] font-medium truncate flex-1', isSelected ? 'text-sky-700' : 'text-slate-600')}>
                   {frames.length > 1 ? `Frame ${fIdx + 1}` : (frame.originalFile?.name || 'Base Image')}
                 </span>
-                {frame.processedUrl && <span className="text-[8px] font-black text-emerald-500 bg-emerald-50 px-1 py-0.5 rounded-full border border-emerald-100 uppercase tracking-tighter">AI</span>}
                 <button
                   onClick={e => { e.stopPropagation(); onClearFrame(fIdx); }}
                   className="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-red-50"

@@ -3,15 +3,12 @@ import type { SurfaceDefinition } from '@/lib/layout-utils';
 export type FitMode = 'contain' | 'cover';
 
 export interface FrameState {
-  id: string | number;
-  originalFile: File;
-  processedUrl: string | null;
+  id: number;
+  originalFile: File | null;
   offset: { x: number; y: number };
   scale: number;
   rotation: number; // 0, 90, 180, 270
   fitMode: FitMode;
-  isRemovingBg: boolean;
-  isDetectingProduct: boolean;
 }
 
 export interface TextOverlay {

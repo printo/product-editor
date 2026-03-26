@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Production Startup Script for AI Image Processing System
+Production Startup Script for Product Editor
 Handles system verification, configuration, and startup
 """
 import os
 import sys
 import subprocess
-import json
 from pathlib import Path
 
 def check_python_version():
@@ -24,22 +23,11 @@ def check_dependencies():
         'djangorestframework',
         'django-cors-headers',
         'pillow',
-        'numpy',
-    ]
-    
-    optional_packages = [
-        'torch',
-        'transformers',
-        'ultralytics',
-        'rembg',
-        'opencv-python',
-        'psutil',
     ]
     
     print("Checking dependencies...")
     
     missing_required = []
-    missing_optional = []
     
     for package in required_packages:
         try:
@@ -49,53 +37,12 @@ def check_dependencies():
             print(f"  ❌ {package} (REQUIRED)")
             missing_required.append(package)
     
-    for package in optional_packages:
-        try:
-            __import__(package.replace('-', '_'))
-            print(f"  ✅ {package}")
-        except ImportError:
-            print(f"  ⚠️  {package} (optional - AI features may be limited)")
-            missing_optional.append(package)
-    
     if missing_required:
         print(f"\n❌ Missing required packages: {', '.join(missing_required)}")
         print("Install with: pip install " + " ".join(missing_required))
         return False
     
-    if missing_optional:
-        print(f"\n⚠️  Missing optional packages: {', '.join(missing_optional)}")
-        print("AI features will be limited. Install with:")
-        print("pip install " + " ".join(missing_optional))
-    
     return True
-
-def check_system_configuration():
-    """Check system configuration"""
-    print("\nChecking system configuration...")
-    
-    try:
-        # Add current directory to Python path
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        
-        from ai_engine.system_info import get_system_info
-        
-        system_info = get_system_info()
-        
-        print(f"  CPU cores: {system_info['cpu']['cores']}")
-        print(f"  Memory: {system_info['memory']['total_gb']:.1f} GB")
-        print(f"  GPU available: {system_info['gpu']['available']}")
-        
-        recommendations = system_info['recommendations']
-        print(f"  Recommended max concurrent: {recommendations['max_concurrent_requests']}")
-        print(f"  Max image size: {recommendations['max_image_size_mb']} MB")
-        print(f"  Target image size: {recommendations['target_image_size_mb'] or 'No limit'}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"  ⚠️  Could not load system configuration: {e}")
-        print("  System will use fallback configuration")
-        return True
 
 def check_database():
     """Check database connectivity"""
@@ -182,7 +129,7 @@ def start_server(mode='development'):
 
 def main():
     """Main startup function"""
-    print("🚀 AI Image Processing System - Production Startup")
+    print("🚀 Product Editor - Production Startup")
     print("=" * 60)
     
     # Check system requirements
@@ -191,8 +138,6 @@ def main():
     
     if not check_dependencies():
         sys.exit(1)
-    
-    check_system_configuration()
     
     # Database setup
     if not check_database():
@@ -219,7 +164,6 @@ def main():
         print("2. Set up Gunicorn/uWSGI")
         print("3. Configure SSL certificates")
         print("4. Set up monitoring")
-        print("\nSee DEPLOYMENT_GUIDE.md for detailed instructions")
 
 if __name__ == "__main__":
     main()

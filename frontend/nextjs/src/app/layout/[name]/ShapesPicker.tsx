@@ -49,16 +49,16 @@ export function ShapesPicker({ onAddShape }: ShapesPickerProps) {
       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Add Shape</p>
 
       {/* Category tabs */}
-      <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+      <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 backdrop-blur-md shadow-inner w-full">
         {CATEGORIES.map(cat => (
           <button
             key={cat.key}
             onClick={() => setCategory(cat.key)}
             className={clsx(
-              'flex-1 px-2 py-1 text-[10px] font-bold rounded-md transition-all text-center',
+              'flex-1 px-2 py-2 text-[10px] font-black rounded-xl transition-all text-center',
               category === cat.key
-                ? 'bg-white text-indigo-600 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700',
+                ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md ring-1 ring-indigo-500/20'
+                : 'text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400',
             )}
           >
             {cat.label}
@@ -67,24 +67,24 @@ export function ShapesPicker({ onAddShape }: ShapesPickerProps) {
       </div>
 
       {/* Shape grid */}
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-4 gap-2 p-2 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800/50">
         {filtered.map(shape => (
           <button
             key={shape.key}
             onClick={() => handleAdd(shape)}
             title={shape.label}
-            className="aspect-square p-2 bg-white border border-slate-200 rounded-lg hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group"
+            className="aspect-square p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-lg hover:shadow-indigo-500/10 transition-all group active:scale-95"
           >
             <svg
               viewBox="0 0 100 100"
-              className="w-full h-full text-slate-400 group-hover:text-indigo-500 transition-colors"
+              className="w-full h-full text-slate-400 dark:text-slate-600 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors"
             >
               <path
                 d={shape.svgPath}
                 fill="currentColor"
-                fillOpacity={0.2}
+                fillOpacity={0.15}
                 stroke="currentColor"
-                strokeWidth={3}
+                strokeWidth={4}
               />
             </svg>
           </button>

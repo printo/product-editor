@@ -1,29 +1,26 @@
-# Task Implementation Rules - Product Editor
+# AI Task Rules - Product Editor
 
-This file defines the workflow and coding rules for AI assistants implementing tasks.
+Guidelines for approaching common engineering tasks in this project.
 
-## Workflow Rules
-1. **Research First**: Always check `AI_FILE_INDEX.md` and `ARCHITECTURE.md` before editing.
-2. **Atomic Changes**: Implement features in small, logical increments.
-3. **Verify Early**: Run `python manage.py check` (backend) or `next lint` (frontend) after every significant change.
-4. **No Duplication**: Reuse existing utilities in `api/storage.py` and `src/lib/` instead of rewriting them.
+## Adding a New Layout Property
+1. Update `types.ts` in the frontend.
+2. Update the `renderCanvas` logic in `fabric-renderer.ts`.
+3. Update the server-side `LayoutEngine` in `engine.py` to support the new property during high-res export.
+4. Ensure the layout management view in `views.py` persists the new property correctly.
 
-## Editing Guidelines
-- **Minimal Modification**: Always prefer the smallest possible diff that achieves the goal safely.
-- **Style Consistency**: Match the existing indentation and naming conventions exactly.
-- **Multipart Standard**: All new POST/PUT endpoints must handle `multipart/form-data`.
-- **Error Handling**: Use DRF's `Response` with appropriate HTTP status codes.
+## Modifying UI Components
+1. Maintain the "glassmorphism" style.
+2. Use `lucide-react` for icons.
+3. Use `clsx` or `tailwind-merge` for conditional styling.
+4. Test interactions (drag-and-drop, zoom, rotation) to ensure they feel fluid.
 
-## Dependency Management
-- **Avoid New Libraries**: Exhaust internal solutions before suggesting new `npm` or `pip` packages.
-- **Explicit Rationale**: If a new dependency is required, explain why in the implementation plan.
+## Debugging Rendering Issues
+1. Check DPI settings in the layout JSON.
+2. Verify coordinate systems (Fabric.js uses pixels, while layouts often specify mm).
+3. Inspect `fabric-renderer.ts` for off-screen rendering bugs.
+4. Verify Pillow's `Resampling.LANCZOS` is used for high-quality scaling on the server.
 
-## File Creation Rules
-- **Logical Placement**: Place new components in `src/components/` and new logic in the appropriate backend app.
-- **Structured State**: New dashboard features must adhere to the `CanvasItem` and `FrameState` definitions for transform persistence.
-- **Zip Utilities**: Always use `src/lib/zip-utils.ts` for batch file archiving.
-- **Naming**: Use PascalCase for React components and snake_case for Python files.
-
-## Documentation Rules
-- **Task List**: Maintain a `task.md` artifact during long tasks.
-- **Walkthrough**: Create a `walkthrough.md` artifact summarizing your changes and verification steps.
+## Security Updates
+1. Prioritize path traversal protection in any file-handling logic.
+2. Ensure API keys are never exposed in the URL (use the `EmbedSession` token system).
+3. Validate all user-provided data (dimensions, colors, text) before processing.

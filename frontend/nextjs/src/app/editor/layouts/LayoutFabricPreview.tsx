@@ -96,19 +96,27 @@ export function LayoutFabricPreview({
       height: ch,
       backgroundColor: '#ffffff',
       selection: false,
-      // preserveObjectStacking defaults to true in Fabric 7
     });
     fabricRef.current = fc;
 
-    // Initialize aligning guidelines — visual snap lines on object:moving
-    // Uses fabric-guideline-plugin for Canva/Figma-style alignment guides
+    // Synchronize selectedFrameId to Fabric's internal state
+    const handleSelection = (e: any) => {
+      const selected = e.selected?.[0];
+      if (selected && (selected as any)[DATA_KEY] === 'frame') {
+        onFrameSelect((selected as any).__frameId || null);
+      }
+    };
+    fc.on('selection:created', handleSelection);
+    fc.on('selection:updated', handleSelection);
+    fc.on('selection:cleared', () => onFrameSelect(null));
+
     initAligningGuidelines(fc, { lineMargin: SNAP_THRESHOLD_PX });
 
     return () => {
       fc.dispose();
       fabricRef.current = null;
     };
-    // Only re-initialize when dimensions change
+    // Re-initialize only when basic dimensions change
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widthMm, heightMm]);
 
@@ -206,8 +214,32 @@ export function LayoutFabricPreview({
     });
 
     fc.renderAll();
+    // Re-run only when structural frame changes or dimensions change.
+    // NOTE: selectedFrameId is EXCLUDED from this dependency array to prevent flushes on selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frames, widthMm, heightMm, snapGrid, selectedFrameId, getScale]);
+  }, [frames.length, widthMm, heightMm, snapGrid, getScale]);
+
+  // ── Sync selection color → Fabric objects ─────────────────────────────────
+
+  useEffect(() => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+
+    const objects = fc.getObjects().filter((o: any) => o[DATA_KEY] === 'frame');
+    objects.forEach((obj: any) => {
+      const isSelected = obj.__frameId === selectedFrameId;
+      obj.set({
+        stroke: isSelected ? '#6366f1' : '#10b981',
+        fill: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+        strokeWidth: isSelected ? 2 : 1,
+      });
+      // If selected prop changed from parent, ensure Fabric's internal selection matches
+      if (isSelected && fc.getActiveObject() !== obj) {
+        fc.setActiveObject(obj);
+      }
+    });
+    fc.requestRenderAll();
+  }, [selectedFrameId]);
 
   // ── Mask overlay ─────────────────────────────────────────────────────────
 
@@ -267,18 +299,15 @@ export function LayoutFabricPreview({
       const curFrames = framesRef.current;
       if (idx < 0 || idx >= curFrames.length) return;
 
-      // Constrain
       const cw = widthMm * scale;
       const ch = heightMm * scale;
       constrainToCanvas(target, cw, ch);
 
-      // Read back position/size
       const left = target.left ?? 0;
       const top = target.top ?? 0;
       const w = (target.width ?? 0) * (target.scaleX ?? 1);
       const h = (target.height ?? 0) * (target.scaleY ?? 1);
 
-      // Reset scale to 1 after reading (we store actual width/height)
       target.set({ width: w, height: h, scaleX: 1, scaleY: 1 });
 
       const newXMm = round2(left / scale);
@@ -302,7 +331,6 @@ export function LayoutFabricPreview({
       const cw = widthMm * scale;
       const ch = heightMm * scale;
 
-      // Snap
       if (snapGrid) {
         const gridPx = GRID_SNAP_MM * scale;
         const left = target.left ?? 0;
@@ -312,11 +340,6 @@ export function LayoutFabricPreview({
           top: snapToGrid(top, gridPx),
         });
       }
-
-      // Note: Aligning guidelines handle object-to-object snapping with visual
-      // feedback via initAligningGuidelines(). No manual snap call needed here.
-
-      // Constrain
       constrainToCanvas(target, cw, ch);
     };
 
@@ -327,7 +350,6 @@ export function LayoutFabricPreview({
       const cw = widthMm * scale;
       const ch = heightMm * scale;
 
-      // Constrain minimum size (5mm equivalent)
       const minPx = 5 * scale;
       const w = (target.width ?? 0) * (target.scaleX ?? 1);
       const h = (target.height ?? 0) * (target.scaleY ?? 1);
@@ -337,34 +359,18 @@ export function LayoutFabricPreview({
       constrainToCanvas(target, cw, ch);
     };
 
-    const handleSelection = (e: any) => {
-      const selected = e.selected?.[0];
-      if (selected && (selected as any)[DATA_KEY] === 'frame') {
-        onFrameSelect((selected as any).__frameId || null);
-      }
-    };
-
-    const handleDeselection = () => {
-      onFrameSelect(null);
-    };
-
     fc.on('object:modified', handleModified);
     fc.on('object:moving', handleMoving);
     fc.on('object:scaling', handleScaling);
-    fc.on('selection:created', handleSelection);
-    fc.on('selection:updated', handleSelection);
-    fc.on('selection:cleared', handleDeselection);
 
     return () => {
       fc.off('object:modified', handleModified);
       fc.off('object:moving', handleMoving);
       fc.off('object:scaling', handleScaling);
-      fc.off('selection:created', handleSelection);
-      fc.off('selection:updated', handleSelection);
-      fc.off('selection:cleared', handleDeselection);
+      // selection events are handled in initialization effect
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [widthMm, heightMm, snapGrid, onFramesChange, onFrameSelect, getScale]);
+  }, [widthMm, heightMm, snapGrid, onFramesChange, getScale]);
 
   return (
     <div
