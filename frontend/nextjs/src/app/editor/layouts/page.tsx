@@ -177,7 +177,7 @@ export default function LayoutCreatorPage() {
     } else {
       setTitle('Template Library');
       setDescription('Manage reusable designs');
-      setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Filter templates..." />);
+      setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter templates for ${layouts.length} templates...`} />);
       setRightActions(
         <div className="flex items-center gap-2">
           <button
@@ -208,7 +208,7 @@ export default function LayoutCreatorPage() {
         </div>
       );
     }
-  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, selectedFonts.length]);
+  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, selectedFonts.length, layouts.length]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 

@@ -132,9 +132,9 @@ export default function Dashboard() {
   useEffect(() => {
     setTitle('Select Template');
     setDescription('Choose a design');
-    setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} />);
+    setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter templates for ${layouts.length} templates...`} />);
     setRightActions(null);
-  }, [searchQuery, setTitle, setDescription, setCenterActions, setRightActions]);
+  }, [searchQuery, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
 
   useEffect(() => {
     if (session?.accessToken) {

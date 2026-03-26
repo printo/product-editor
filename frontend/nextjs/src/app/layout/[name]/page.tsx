@@ -87,7 +87,7 @@ export default function LayoutEditorPage() {
     setRightActions(
       <button 
         onClick={() => router.push('/dashboard')}
-        className="text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-indigo-600 px-4 py-2 rounded-2xl border-2 border-transparent hover:border-indigo-100/50 transition-all flex items-center gap-2 group"
+        className="text-[11px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 px-4 py-2 rounded-2xl border-2 border-indigo-100/50 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center gap-2 group shadow-sm shadow-indigo-100/50"
       >
         <span className="group-hover:-translate-x-1 transition-transform">←</span> Back to Templates
       </button>
