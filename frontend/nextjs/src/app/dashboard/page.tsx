@@ -13,15 +13,55 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { clsx } from 'clsx';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { useHeader } from '@/context/HeaderContext';
 import { LayoutSVG } from '@/components/LayoutSVG';
 
-const LayoutPreview = ({ layout }: { layout: any }) => (
-  <div className="w-full aspect-square flex items-center justify-center p-4 bg-slate-50 border-b border-slate-100">
-    <LayoutSVG layout={layout} />
-  </div>
-);
+const LayoutPreview = ({ layout }: { layout: any }) => {
+  const isMulti = layout.surfaceCount > 1;
+  const raw = layout._raw;
+
+  if (isMulti && raw?.surfaces) {
+    return (
+      <div className="w-full aspect-square relative flex items-center justify-center p-4 bg-slate-50 border-b border-slate-100 group-hover:bg-slate-100/50 transition-colors overflow-hidden">
+        {/* Render up to 2 surfaces in a stacked/offset view */}
+        <div className="relative w-full h-full flex items-center justify-center">
+          {raw.surfaces.slice(0, 2).map((s: any, idx: number) => (
+            <div 
+              key={s.key} 
+              className={clsx(
+                "absolute transition-all duration-500 shadow-sm border border-slate-200/50 bg-white rounded-sm overflow-hidden",
+                idx === 0 
+                  ? "w-[75%] h-[75%] z-10 -translate-x-3 -translate-y-3 group-hover:-translate-x-5 group-hover:-translate-y-5" 
+                  : "w-[75%] h-[75%] z-20 translate-x-3 translate-y-3 group-hover:translate-x-5 group-hover:translate-y-5"
+              )}
+            >
+              <LayoutSVG layout={raw} surfaceKey={s.key} className="w-full h-full object-contain" />
+              <div className="absolute bottom-0 left-0 right-0 bg-black/5 py-0.5 px-1">
+                <p className="text-[6px] font-black uppercase text-slate-500 tracking-tighter text-center">{s.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {/* Surface count indicator */}
+        <div className="absolute top-3 right-3 z-30 flex items-center gap-1.5 px-2 py-1 bg-white/90 backdrop-blur-md border border-indigo-100 rounded-full shadow-sm">
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+          <span className="text-[9px] font-black text-indigo-600 uppercase tracking-tighter">
+            {layout.surfaceCount} Surfaces
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full aspect-square flex items-center justify-center p-4 bg-slate-50 border-b border-slate-100 group-hover:bg-white transition-colors">
+      <LayoutSVG layout={layout} />
+    </div>
+  );
+};
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
@@ -60,6 +100,7 @@ export default function Dashboard() {
       updatedAt: item.updatedAt || null,
       createdBy: item.createdBy || 'System',
       surfaceCount: isProduct ? item.surfaces.length : 0,
+      _raw: item,
     };
   }, []);
 
@@ -151,8 +192,16 @@ export default function Dashboard() {
                       {layout.name.replace(/_/g, ' ')}
                     </h3>
                     {layout.dimensions && (
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-                        {layout.dimensions} • {layout.frames?.length || 0} Frames
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
+                        <span>{layout.dimensions}</span>
+                        <span>•</span>
+                        <span>{layout.frames?.length || 0} Frames</span>
+                        {layout.surfaceCount > 1 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-indigo-500 font-black">Multi-Surface</span>
+                          </>
+                        )}
                       </p>
                     )}
                   </div>

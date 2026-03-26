@@ -676,6 +676,17 @@ export default function LayoutEditorPage() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col">
+      {uploadWarning && (
+        <div className="fixed top-24 right-8 z-[200000] max-w-xs bg-white/80 backdrop-blur-2xl border border-amber-200/50 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-amber-900/5 flex items-center gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
+          <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
+            <span className="text-[14px] font-black">!</span>
+          </div>
+          <span className="flex-1 text-[10px] font-bold text-amber-900/80 uppercase tracking-tight leading-none">{uploadWarning}</span>
+          <button onClick={() => setUploadWarning(null)} className="p-2 hover:bg-amber-50 rounded-xl transition-all group-hover:rotate-90">
+            <X className="w-3.5 h-3.5 text-amber-400" />
+          </button>
+        </div>
+      )}
       {error && (
         <div className="fixed top-4 right-4 z-[200000] max-w-sm bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
           <span className="flex-1">{error}</span>
@@ -712,7 +723,9 @@ export default function LayoutEditorPage() {
                 <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">
                   {totalUploadedCount > 0 
                     ? `Upload Photos | Currently uploaded (${totalUploadedCount})` 
-                    : 'Select Files'}
+                    : surfaceStates.length > 1 
+                      ? `Select Files | Multi-Surface: Select ${surfaceStates.length} photos`
+                      : 'Select Files'}
                 </p>
               </div>
             </div>
@@ -737,7 +750,7 @@ export default function LayoutEditorPage() {
           {canvases.length > 0 && (
             <section className="space-y-6 pt-0">
               {surfaceStates.length > 1 ? (
-                <div className="flex gap-6 items-start overflow-x-auto pb-4 px-4 w-full custom-scrollbar">
+                <div className="flex gap-6 items-start justify-center overflow-x-auto pb-4 px-4 w-full custom-scrollbar">
                   {surfaceStates.map((surface, sIdx) => {
                     const cw = surface.def.canvas?.width || 1200;
                     const ch = surface.def.canvas?.height || 1800;
@@ -785,7 +798,7 @@ export default function LayoutEditorPage() {
                   })}
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 justify-center">
                   {canvases.map((canvas, idx) => (
                     <div key={idx} className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl transition-all cursor-pointer group/card relative" onClick={() => openEditor(idx)}>
                       <div className="relative rounded-t-2xl overflow-hidden bg-slate-50" style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}>
