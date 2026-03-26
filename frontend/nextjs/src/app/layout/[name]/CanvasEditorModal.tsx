@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Upload, ChevronRight, Loader2, CheckCircle2, X,
-  Wand2, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus,
+  Upload, ChevronRight, CheckCircle2, X,
+  Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus,
   Type, Trash2, AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -171,55 +171,6 @@ export function CanvasEditorModal({
     onClose();
   };
 
-  // ── AI background removal ─────────────────────────────────────────────────
-  const handleRemoveBackground = async (frameIdx: number) => {
-    if (!editingCanvas || editingCanvas.frames[frameIdx].isRemovingBg) return;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-    setEditingCanvas(prev => prev ? {
-      ...prev, frames: prev.frames.map((f, i) => i === frameIdx ? { ...f, isRemovingBg: true } : f),
-    } : prev);
-
-    try {
-      const formData = new FormData();
-      formData.append('image', editingCanvas.frames[frameIdx].originalFile);
-
-      const res = await fetch(`${apiBase}/ai/remove-background`, {
-        method: 'POST', headers: getAuthHeaders(), body: formData, signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = await res.json();
-        const imageUrl = `${apiBase}/exports/${data.processed_image}`;
-        let updatedCanvas: CanvasItem | null = null;
-        setEditingCanvas(prev => {
-          if (!prev) return prev;
-          pushUndo(prev, true);
-          updatedCanvas = {
-            ...prev,
-            frames: prev.frames.map((f, i) => i === frameIdx ? { ...f, processedUrl: imageUrl, isRemovingBg: false } : f),
-          };
-          return updatedCanvas;
-        });
-        if (updatedCanvas) {
-          const gen = ++renderGenRef.current;
-          setTimeout(async () => {
-            const dataUrl = fabricEditorRef.current?.toDataURL() ?? await renderCanvas(updatedCanvas!);
-            if (renderGenRef.current === gen) setEditingCanvas(p => p ? { ...p, dataUrl } : p);
-          }, 200);
-        }
-      } else { throw new Error('Server error'); }
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      setEditingCanvas(prev => prev ? {
-        ...prev, frames: prev.frames.map((f, i) => i === frameIdx ? { ...f, isRemovingBg: false } : f),
-      } : prev);
-      setError(err.name === 'AbortError' ? 'Background removal timed out. The AI model may still be loading — try again.' : 'Failed to remove background. Check if the backend is running.');
-    }
-  };
-
   // ── Transform update ──────────────────────────────────────────────────────
   const handleUpdateTransform = useCallback((
     frameIdx: number,
@@ -372,7 +323,6 @@ export function CanvasEditorModal({
         layout={layout}
         selectedLayer={selectedLayer}
         setSelectedLayer={setSelectedLayer}
-        handleRemoveBackground={handleRemoveBackground}
         handleAlign={handleAlign}
         handleUpdateTransform={handleUpdateTransform}
         handleSaveChanges={handleSaveChanges}

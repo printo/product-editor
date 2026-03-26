@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  ChevronRight, Wand2, Loader2, Minus, Plus, AlignLeft, AlignCenter, AlignRight,
+  ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight,
   Trash2, Type, ImagePlus, CheckCircle2,
   Image, Sparkles, Hexagon,
 } from 'lucide-react';
@@ -24,7 +24,6 @@ export interface CanvasEditorSidebarProps {
   layout: any;
   selectedLayer: LayerSelection;
   setSelectedLayer: React.Dispatch<React.SetStateAction<LayerSelection>>;
-  handleRemoveBackground: (fIdx: number) => void;
   handleAlign: (fIdx: number, alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
   handleUpdateTransform: (fIdx: number, updates: Partial<{ scale: number; x: number; y: number; rotation: number }>) => void;
   handleSaveChanges: () => void;
@@ -148,7 +147,6 @@ export function CanvasEditorSidebar({
   layout,
   selectedLayer,
   setSelectedLayer,
-  handleRemoveBackground,
   handleAlign,
   handleUpdateTransform,
   handleSaveChanges,
@@ -210,18 +208,6 @@ export function CanvasEditorSidebar({
           if (!frame) return null;
           return (
             <div className="space-y-4">
-              {/* AI bg removal */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-extrabold text-violet-500 uppercase tracking-wider">AI Processing</p>
-                <button onClick={() => handleRemoveBackground(fIdx)}
-                  disabled={frame.isRemovingBg || !!frame.processedUrl}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-gradient-to-r from-violet-50 to-pink-50 border border-violet-200/50 rounded-2xl text-xs font-bold text-violet-700 hover:from-violet-100 hover:to-pink-100 transition-all disabled:opacity-50">
-                  {frame.isRemovingBg
-                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin text-pink-500" /><span className="animate-pulse">Processing AI…</span></>
-                    : <><Wand2 className="w-3.5 h-3.5 text-pink-500" />{frame.processedUrl ? 'Background Removed' : 'Remove Background'}</>}
-                </button>
-              </div>
-
               {/* Fit + Alignment */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">

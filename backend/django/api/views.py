@@ -182,12 +182,7 @@ class GenerateLayoutView(APIView):
             
             layout_name = layout_data.get('name') if isinstance(layout_data, dict) else layout_data
             files = request.FILES.getlist("images")
-            
-            # AI processing options
-            remove_backgrounds = request.data.get("remove_backgrounds", "false").lower() == "true"
-            detect_products = request.data.get("detect_products", "false").lower() == "true"
-            realistic_blending = request.data.get("realistic_blending", "false").lower() == "true"
-            blend_mode = request.data.get("blend_mode", "multiply")
+
             fit_mode = request.data.get("fit_mode", "cover")
             if fit_mode not in ("contain", "cover"):
                 fit_mode = "cover"
@@ -643,32 +638,10 @@ class SecureExportDownloadView(APIView):
             return False
 
 
-# AI Processing Views
-
-from ai_engine.smart_layout import get_smart_engine
-from ai_engine.background_removal import get_background_remover
-from ai_engine.product_detection import get_product_detector
-from ai_engine.design_placement import get_design_placer
-from ai_engine.blend_engine import get_blend_engine, BlendMode, BlendSettings
-from ai_engine.health_monitor import get_health_monitor
-from ai_engine.failure_handler import get_failure_handler
-from ai_engine.background_processor import get_background_processor
-from ai_engine.resource_manager import get_resource_manager
-from ai_engine.network_resilience import get_resilient_client
-from .models import AIProcessingJob
 
 
-class AIStatusView(APIView):
-    """AI service health and availability status with comprehensive resource monitoring."""
-    permission_classes = [IsAuthenticatedWithAPIKey]
-
-    @extend_schema(
-        tags=["ai"],
-        summary="AI service status",
-        description="Returns health and availability of all AI sub-services (background removal, product detection, blend preview) plus resource metrics.",
-        responses={200: OpenApiResponse(description="Comprehensive AI status object")},
-    )
-    def get(self, request):
+class _AIViewsRemovedPlaceholder:
+    pass
         try:
             health_monitor = get_health_monitor()
             failure_handler = get_failure_handler()
