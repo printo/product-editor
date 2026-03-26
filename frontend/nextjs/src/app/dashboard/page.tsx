@@ -105,7 +105,7 @@ export default function Dashboard() {
       <Header />
 
       <main className="w-full px-8 py-8 flex-1">
-        <div className="max-w-6xl mx-auto space-y-8">
+        <div className="max-w-[1440px] mx-auto space-y-8">
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl">
@@ -141,7 +141,7 @@ export default function Dashboard() {
                 : 'No layouts match your search.'}
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
               {filtered.map(layout => (
                 <div
                   key={layout.id}

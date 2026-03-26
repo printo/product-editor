@@ -1,11 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Upload, ChevronRight, CheckCircle2, X,
-  Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus,
-  Type, Trash2, AlignLeft, AlignCenter, AlignRight,
-} from 'lucide-react';
+import { Upload, ChevronRight, CheckCircle2, X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus, Type, Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { clsx } from 'clsx';
 import { FabricImage } from 'fabric';
 import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay } from './types';

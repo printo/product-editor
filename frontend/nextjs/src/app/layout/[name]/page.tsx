@@ -758,7 +758,7 @@ export default function LayoutEditorPage() {
       )}
 
       <main className="w-full px-8 py-8 flex-1">
-        <div className="max-w-6xl mx-auto space-y-8">
+        <div className="max-w-[1440px] mx-auto space-y-8">
 
           {/* Header row */}
           <div className="flex flex-col lg:flex-row items-stretch justify-between gap-8 mb-10">

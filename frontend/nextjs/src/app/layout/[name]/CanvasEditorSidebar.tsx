@@ -1,11 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight,
-  Trash2, Type, ImagePlus, CheckCircle2,
-  Image, Sparkles, Hexagon,
-} from 'lucide-react';
+import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, Hexagon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
 import { AlignmentToolbar } from './AlignmentToolbar';

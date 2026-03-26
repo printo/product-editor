@@ -707,7 +707,7 @@ export default function LayoutCreatorPage() {
     <div className="min-h-screen bg-slate-50">
       <Header />
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-[1440px] mx-auto px-6 py-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Layout Management</h1>
@@ -756,7 +756,7 @@ export default function LayoutCreatorPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           {layouts
             .filter((l: any) => {
               const q = searchQuery.toLowerCase();

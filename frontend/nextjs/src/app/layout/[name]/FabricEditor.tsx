@@ -8,7 +8,13 @@ import {
 import type { CanvasItem } from './types';
 import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
-import { createShapeFromOverlay, centerCanvasViewport, updateRelativeClipPath } from '@/lib/fabric-utils';
+import {
+  createShapeFromOverlay,
+  centerCanvasViewport,
+  updateRelativeClipPath,
+  createCenterGuides,
+  createGridLines,
+} from '@/lib/fabric-utils';
 
 // ─── Handle type exposed to parent ──────────────────────────────────────────
 
@@ -41,6 +47,8 @@ interface FabricEditorProps {
 const DATA_KEY = '__fabricEditor';
 const PAPER_KEY = '__paper';
 const BG_KEY   = '__bgLayer';
+const GUIDE_KEY = '__guideLayer';
+const GRID_KEY  = '__gridLayer';
 
 // ─── Interactive shape controls styling ──────────────────────────────────────
 
@@ -430,6 +438,27 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     fc.add(bgRect);
     fc.moveObjectTo(bgRect, zIndex++); // z = 0
 
+    // ── Grid & Center Guides ───────────────────────────────────────────
+    // Positioned above frames but BELOW the paperOverlay (mask)
+    const numFrames = editingCanvas.frames.length;
+    const centerGuides = createCenterGuides(canvasW, canvasH);
+    centerGuides.forEach((g, i) => {
+      (g as any)[GUIDE_KEY] = true;
+      g.visible = false;
+      fc.add(g);
+      fc.moveObjectTo(g, 1 + numFrames + i);
+    });
+
+    const gridLines = createGridLines(canvasW, canvasH, 50); 
+    gridLines.forEach((l, i) => {
+      (l as any)[GRID_KEY] = true;
+      l.visible = false;
+      fc.add(l);
+      fc.moveObjectTo(l, 1 + numFrames + centerGuides.length + i);
+    });
+
+    const guidesCount = centerGuides.length + gridLines.length;
+
     // ✅ Center viewport synchronously IMMEDIATELY after paper add
     // This prevents the "top-left flash" before images load
     const { width: cW, height: cH } = containerSize;
@@ -524,7 +553,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     (paperOverlay as any)[PAPER_KEY] = true;
     fc.add(paperOverlay);
     
-    const paperOverlayZ = frameZStart + editingCanvas.frames.length;
+    const paperOverlayZ = 1 + numFrames + guidesCount;
     fc.moveObjectTo(paperOverlay, paperOverlayZ);
 
     // ── Overlays (Text, shapes, icons) ───────────────────────────────────
@@ -777,7 +806,36 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (active) handleModified({ target: active });
     };
 
-    fc.on('object:modified', handleModified);
+    const handleMoving = () => {
+      const objs = fc.getObjects();
+      let changed = false;
+      objs.forEach(obj => {
+        if (((obj as any)[GUIDE_KEY] || (obj as any)[GRID_KEY]) && !obj.visible) {
+          obj.set({ visible: true });
+          changed = true;
+        }
+      });
+      if (changed) fc.requestRenderAll();
+    };
+
+    const hideGuides = () => {
+      const objs = fc.getObjects();
+      let changed = false;
+      objs.forEach(obj => {
+        if (((obj as any)[GUIDE_KEY] || (obj as any)[GRID_KEY]) && obj.visible) {
+          obj.set({ visible: false });
+          changed = true;
+        }
+      });
+      if (changed) fc.requestRenderAll();
+    };
+
+    fc.on('object:modified', (e) => {
+      handleModified(e);
+      hideGuides();
+    });
+    fc.on('object:moving', handleMoving);
+    fc.on('mouse:up', hideGuides);
     fc.on('selection:created', handleSelection);
     fc.on('selection:updated', handleSelection);
     fc.on('selection:cleared', handleSelection);
@@ -787,6 +845,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     return () => {
       fc.off('object:modified', handleModified);
+      fc.off('object:moving', handleMoving);
+      fc.off('mouse:up', hideGuides);
       fc.off('selection:created', handleSelection);
       fc.off('selection:updated', handleSelection);
       fc.off('selection:cleared', handleSelection);
