@@ -891,6 +891,7 @@ export default function LayoutEditorPage() {
 
       {activeCanvasIdx !== null && editingCanvas && (
         <CanvasEditorModal
+          key={`modal-${activeSurfaceKey}-${activeCanvasIdx}`}
           activeCanvasIdx={activeCanvasIdx}
           editingCanvas={editingCanvas}
           canvases={canvases}

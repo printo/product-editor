@@ -670,7 +670,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         fc.setActiveObject(targetObj);
       }
       
-      fc.requestRenderAll();
+      fc.renderAll();
     });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
