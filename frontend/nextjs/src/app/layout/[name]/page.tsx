@@ -711,7 +711,7 @@ export default function LayoutEditorPage() {
                 </div>
                 <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">
                   {totalUploadedCount > 0 
-                    ? `Update Photos | Currently uploaded (${totalUploadedCount})` 
+                    ? `Upload Photos | Currently uploaded (${totalUploadedCount})` 
                     : 'Select Files'}
                 </p>
               </div>

@@ -45,20 +45,23 @@ export function ShapesPicker({ onAddShape }: ShapesPickerProps) {
   };
 
   return (
-    <div className="space-y-2">
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Add Shape</p>
+    <div className="space-y-4">
+      <div className="flex flex-col">
+        <p className="text-[11px] font-medium text-slate-500 uppercase">Add Shape</p>
+        <span className="text-[10px] text-slate-400 uppercase opacity-60">Vector Library</span>
+      </div>
 
       {/* Category tabs */}
-      <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 backdrop-blur-md shadow-inner w-full">
+      <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100 shadow-inner w-full">
         {CATEGORIES.map(cat => (
           <button
             key={cat.key}
             onClick={() => setCategory(cat.key)}
             className={clsx(
-              'flex-1 px-2 py-2 text-[10px] font-black rounded-xl transition-all text-center',
+              'flex-1 px-2 py-2 text-[10px] font-medium rounded-lg transition-all text-center uppercase',
               category === cat.key
-                ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md ring-1 ring-indigo-500/20'
-                : 'text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400',
+                ? 'bg-white text-indigo-600 shadow-sm border border-slate-200 scale-100'
+                : 'text-slate-400 hover:text-indigo-500 scale-[0.98]',
             )}
           >
             {cat.label}
@@ -67,22 +70,22 @@ export function ShapesPicker({ onAddShape }: ShapesPickerProps) {
       </div>
 
       {/* Shape grid */}
-      <div className="grid grid-cols-4 gap-2 p-2 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800/50">
+      <div className="grid grid-cols-4 gap-2.5 p-3 bg-white border border-slate-100 rounded-2xl shadow-sm max-h-64 overflow-y-auto custom-scrollbar">
         {filtered.map(shape => (
           <button
             key={shape.key}
             onClick={() => handleAdd(shape)}
             title={shape.label}
-            className="aspect-square p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-lg hover:shadow-indigo-500/10 transition-all group active:scale-95"
+            className="aspect-square p-2.5 bg-slate-50 border border-slate-100 rounded-xl hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all group active:scale-90"
           >
             <svg
               viewBox="0 0 100 100"
-              className="w-full h-full text-slate-400 dark:text-slate-600 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors"
+              className="w-full h-full text-slate-400 group-hover:text-indigo-500 transition-all duration-300"
             >
               <path
                 d={shape.svgPath}
                 fill="currentColor"
-                fillOpacity={0.15}
+                fillOpacity={0.1}
                 stroke="currentColor"
                 strokeWidth={4}
               />

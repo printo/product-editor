@@ -115,49 +115,55 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
   if (!expanded) {
     return (
       <button onClick={() => setExpanded(true)}
-        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-br from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 text-violet-600 dark:text-violet-400 border border-violet-200/50 dark:border-violet-500/20 rounded-2xl text-xs font-black uppercase tracking-widest hover:shadow-lg hover:shadow-violet-500/10 transition-all active:scale-95 group">
-        <Sparkles className="w-4 h-4 transition-transform group-hover:rotate-12" /> 
-        Add Icon
+        className="w-full h-11 flex items-center justify-center gap-3 bg-white border border-slate-200 rounded-xl text-[11px] font-medium uppercase hover:bg-slate-50 transition-all active:scale-[0.98] group shadow-sm">
+        <Sparkles className="w-4 h-4 text-indigo-600 transition-transform group-hover:rotate-12" /> 
+        Add New Icon
       </button>
     );
   }
 
   return (
-    <div className="space-y-4 py-1">
-      <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-        <p className="text-[10px] font-black text-violet-500 dark:text-violet-400 uppercase tracking-[0.2em]">
-          {searched ? 'Detected Icons' : 'Premium Library'}
-        </p>
-        <button onClick={() => setExpanded(false)} className="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-all">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-4">
+        <div className="flex flex-col">
+          <p className="text-[11px] font-medium text-slate-900 uppercase">
+            {searched ? 'Detected Icons' : 'Premium Library'}
+          </p>
+          <span className="text-[10px] text-slate-400 uppercase opacity-60">Iconify API</span>
+        </div>
+        <button onClick={() => setExpanded(false)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all">
           <X className="w-4 h-4" />
         </button>
       </div>
 
       <div className="relative group">
-        <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-          <Search className="w-3.5 h-3.5 text-slate-400 group-focus-within:text-violet-500 transition-colors" />
+        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+          <Search className="w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
         </div>
         <input type="text" value={query} onChange={e => handleInput(e.target.value)}
           placeholder="Search icons..." autoFocus
-          className="w-full pl-9 pr-4 py-2.5 text-xs font-medium bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-4 focus:ring-violet-500/10 focus:border-violet-500 dark:focus:border-violet-400 transition-all placeholder:text-slate-400" />
+          className="w-full pl-11 pr-4 py-3 text-[11px] font-medium bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-300 shadow-sm" />
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-4">
-          <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
+        <div className="flex flex-col items-center justify-center py-6 gap-2">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+          <p className="text-[10px] font-medium text-slate-400 uppercase">Searching...</p>
         </div>
       )}
 
       {!loading && results.length === 0 && (
-        <p className="text-[10px] text-slate-400 text-center py-3">No icons found.</p>
+        <div className="py-6 text-center">
+          <p className="text-[10px] text-slate-400 uppercase">No icons found.</p>
+        </div>
       )}
 
       {!loading && results.length > 0 && (
-        <div className="grid grid-cols-5 gap-2 p-1.5 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800/50 max-h-56 overflow-y-auto custom-scrollbar">
+        <div className="grid grid-cols-4 gap-2.5 p-3 bg-white border border-slate-100 rounded-2xl shadow-sm max-h-72 overflow-y-auto custom-scrollbar">
           {results.map(item => (
             <button key={`${item.prefix}:${item.name}`} onClick={() => handleAdd(item)} title={item.name}
-              className="aspect-square bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-violet-400 dark:hover:border-violet-500 hover:shadow-lg hover:shadow-violet-500/10 transition-all p-2 group relative active:scale-90">
-              {item.isLocal && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white dark:border-slate-800 shadow-sm" title="Storage" />}
+              className="aspect-square bg-slate-50 border border-slate-100 rounded-xl hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all p-2.5 group relative active:scale-90">
+              {item.isLocal && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white shadow-sm z-10" />}
               <img src={item.svgUrl} alt={item.name} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300" loading="lazy" />
             </button>
           ))}

@@ -33,74 +33,67 @@ export interface CanvasEditorSidebarProps {
 
 type TabKey = 'background' | 'text' | 'shape' | 'icon' | 'image';
 
-const ADD_TABS: { key: TabKey; label: string; icon: React.ElementType; activeClass: string }[] = [
-  { key: 'background', label: 'BG',      icon: Sparkles, activeClass: 'text-amber-500' },
-  { key: 'text',       label: 'Text',    icon: Type,     activeClass: 'text-violet-500' },
-  { key: 'shape',      label: 'Shapes',  icon: Hexagon,  activeClass: 'text-indigo-500' },
-  { key: 'icon',       label: 'Icons',   icon: Sparkles, activeClass: 'text-emerald-500' },
-  { key: 'image',      label: 'Uploads', icon: Image,    activeClass: 'text-fuchsia-500' },
+const ADD_TABS: { key: TabKey; label: string; icon: React.ElementType; activeClass: string; gradient: string }[] = [
+  { key: 'background', label: 'BG',      icon: Sparkles, activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
+  { key: 'text',       label: 'Text',    icon: Type,     activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
+  { key: 'shape',      label: 'Shapes',  icon: Hexagon,  activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
+  { key: 'icon',       label: 'Icons',   icon: Sparkles, activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
+  { key: 'image',      label: 'Uploads', icon: Image,    activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
 ];
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
 
-/** Rotation slider + 90deg increment + number input — always uses orange palette */
+/** Rotation slider + 90deg increment + number input — Premium version */
 function RotationControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">Rotation</label>
-        <div className="flex items-center gap-1 bg-orange-50 dark:bg-orange-500/10 px-2 py-0.5 rounded-lg border border-orange-100 dark:border-orange-500/20">
-          <span className="text-[11px] font-mono font-black text-orange-600 dark:text-orange-400">{value}°</span>
-        </div>
+    <div className="flex items-center gap-4 py-2 bg-transparent">
+      <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">Rotate</label>
+      
+      <div className="flex-1 relative h-6 flex items-center group">
+        <div className="absolute inset-0 bg-slate-100 rounded-full h-1 my-auto" />
+        <input type="range" min="0" max="359" step="1" value={value}
+          onChange={e => onChange(parseInt(e.target.value))}
+          className="w-full relative z-10 appearance-none bg-transparent cursor-pointer accent-indigo-500" />
       </div>
-      <div className="flex items-center gap-4">
-        <div className="flex-1 relative h-6 flex items-center group">
-          <div className="absolute inset-0 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 my-auto" />
-          <input type="range" min="0" max="359" step="1" value={value}
-            onChange={e => onChange(parseInt(e.target.value))}
-            className="w-full relative z-10 appearance-none bg-transparent cursor-pointer accent-orange-500" />
-        </div>
+      
+      <div className="flex items-center gap-2">
+        <button onClick={() => onChange((value + 90) % 360)}
+          className="w-8 h-8 flex items-center justify-center bg-white text-slate-400 border border-slate-200 rounded-lg hover:text-indigo-600 hover:border-indigo-100 transition-all group/btn">
+          <RotateCw className="w-3.5 h-3.5 group-hover/btn:rotate-90 transition-transform duration-500" />
+        </button>
         
-        <div className="flex items-center gap-2">
-          <button onClick={() => onChange((value + 90) % 360)}
-            className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-orange-400 hover:shadow-lg hover:shadow-orange-500/10 active:scale-90 transition-all">
-            <RotateCw className="w-5 h-5" />
-          </button>
-          
+        <div className="relative">
           <input type="number" min="0" max="359" value={value}
             onChange={e => onChange(((parseInt(e.target.value) || 0) % 360 + 360) % 360)}
-            className="w-14 h-10 px-0 text-[11px] font-mono font-black text-center border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none" />
+            className="w-11 h-8 px-0 text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
+          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-300 pointer-events-none">°</span>
         </div>
       </div>
     </div>
   );
 }
 
-/** Proportional scale slider + number input — always uses emerald palette */
-function ScaleControl({ label = "Scale", width, height, onScale }: { label?: string; width: number; height: number; onScale: (w: number, h: number) => void }) {
+/** Proportional scale slider + number input — Premium version */
+function ScaleControl({ label = "Zoom", width, height, onScale }: { label?: string; width: number; height: number; onScale: (w: number, h: number) => void }) {
   const baseRef = useRef<{ w: number; h: number } | null>(null);
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">{label}</label>
-        <div className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-100 dark:border-emerald-500/20">
-          <span className="text-[11px] font-mono font-black text-emerald-600 dark:text-emerald-400">{Math.round(width)}%</span>
-        </div>
+    <div className="flex items-center gap-4 py-2 bg-transparent">
+      <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">{label}</label>
+      
+      <div className="flex-1 relative h-6 flex items-center group">
+        <div className="absolute inset-0 bg-slate-100 rounded-full h-1 my-auto" />
+        <input type="range" min="5" max="250" step="1" value={Math.round(width)}
+          onMouseDown={() => { baseRef.current = { w: width, h: height }; }}
+          onChange={e => {
+            const newW = parseInt(e.target.value);
+            const base = baseRef.current ?? { w: width, h: height };
+            const ratio = base.h / (base.w || 1);
+            onScale(newW, Math.max(1, Math.min(250, Math.round(newW * ratio))));
+          }}
+          className="w-full relative z-10 appearance-none bg-transparent cursor-pointer accent-indigo-500" />
       </div>
-      <div className="flex items-center gap-4">
-        <div className="flex-1 relative h-6 flex items-center group">
-          <div className="absolute inset-0 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 my-auto" />
-          <input type="range" min="5" max="250" step="1" value={Math.round(width)}
-            onMouseDown={() => { baseRef.current = { w: width, h: height }; }}
-            onChange={e => {
-              const newW = parseInt(e.target.value);
-              const base = baseRef.current ?? { w: width, h: height };
-              const ratio = base.h / (base.w || 1);
-              onScale(newW, Math.max(1, Math.min(250, Math.round(newW * ratio))));
-            }}
-            className="w-full relative z-10 appearance-none bg-transparent cursor-pointer accent-emerald-500" />
-        </div>
-        
+      
+      <div className="relative">
         <input type="number" min="5" max="250" value={Math.round(width)}
           onMouseDown={() => { baseRef.current = { w: width, h: height }; }}
           onChange={e => {
@@ -109,7 +102,8 @@ function ScaleControl({ label = "Scale", width, height, onScale }: { label?: str
             const ratio = base.h / (base.w || 1);
             onScale(Math.max(5, Math.min(250, newW)), Math.max(1, Math.min(250, Math.round(newW * ratio))));
           }}
-          className="w-14 h-10 px-0 text-[11px] font-mono font-black text-center border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none" />
+          className="w-11 h-8 px-0 text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
+        <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-300 pointer-events-none">%</span>
       </div>
     </div>
   );
@@ -158,76 +152,77 @@ export function CanvasEditorSidebar({
   };
 
   return (
-    <div className="w-[340px] md:w-[380px] max-w-[380px] shrink-0 flex-none border-l border-slate-200/50 dark:border-white/5 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-3xl flex flex-col overflow-hidden relative shadow-2xl z-20">
-      {/* Background Blobs for Gen-Z glassmorphism */}
-      <div className="absolute -top-32 -right-32 w-64 h-64 bg-violet-400/20 dark:bg-violet-600/20 blur-[100px] -z-10 rounded-full" />
-      <div className="absolute -bottom-32 -left-32 w-64 h-64 bg-cyan-400/20 dark:bg-cyan-600/20 blur-[100px] -z-10 rounded-full" />
-      {/* ── Header glassmorphism ─────────────────────────────────────────── */}
-      <div className="px-4 py-3 border-b border-white/50 dark:border-white/5 bg-white/50 dark:bg-black/20 sticky top-0 z-20 flex items-center gap-2">
-        <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-500 p-[1.5px] shadow-sm">
-          <div className="w-full h-full bg-white dark:bg-slate-900 rounded-[10px] flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-violet-500" />
+    <div className="w-[340px] md:w-[380px] max-w-[380px] shrink-0 flex-none border-l border-slate-200/50 bg-white/95 backdrop-blur-3xl flex flex-col overflow-hidden relative shadow-xl z-20">
+      {/* Subtle Background Blobs for Premium feel */}
+      <div className="absolute -top-32 -right-32 w-80 h-80 bg-indigo-50/50 blur-[100px] -z-10 rounded-full" />
+      <div className="absolute top-1/2 -left-32 w-64 h-64 bg-fuchsia-50/30 blur-[80px] -z-10 rounded-full" />
+      
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <div className="px-6 py-5 border-b border-slate-100 bg-white/80 sticky top-0 z-20 flex items-center justify-between backdrop-blur-xl">
+        <div className="flex items-center gap-4">
+          <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
+            <Sparkles className="w-4.5 h-4.5 text-white" />
+          </div>
+          <div className="flex flex-col">
+            <h3 className="text-sm font-medium text-slate-900 uppercase">
+              Editor
+            </h3>
+            <span className="text-[10px] text-slate-400 uppercase">Canvas Workspace</span>
           </div>
         </div>
-        <h3 className="text-sm font-black bg-gradient-to-r from-violet-600 via-fuchsia-600 to-cyan-600 bg-clip-text text-transparent uppercase tracking-widest mr-auto">
-          Editor
-        </h3>
         
-        <div className="flex items-center gap-0.5 bg-white/80 dark:bg-white/10 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-white/5 shadow-sm">
+        <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100">
           <button disabled={activeCanvasIdx === 0} onClick={() => onOpenCanvas(activeCanvasIdx - 1)}
-            className="p-1 text-slate-500 hover:text-violet-600 dark:text-slate-400 dark:hover:text-violet-300 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 active:scale-95">
+            className="p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-white active:scale-90">
             <ChevronRight className="w-4 h-4 rotate-180" />
           </button>
-          <span className="text-[10px] font-black text-slate-600 dark:text-slate-300 tabular-nums px-2 min-w-[40px] text-center">
+          <span className="text-[11px] font-medium text-slate-700 tabular-nums px-2 min-w-[40px] text-center">
             {activeCanvasIdx + 1}
-            <span className="mx-0.5 text-slate-300 dark:text-slate-600 text-[8px]">OF</span>
+            <span className="mx-1 text-slate-300">/</span>
             {canvasesCount}
           </span>
           <button disabled={activeCanvasIdx === canvasesCount - 1} onClick={() => onOpenCanvas(activeCanvasIdx + 1)}
-            className="p-1 text-slate-500 hover:text-violet-600 dark:text-slate-400 dark:hover:text-violet-300 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 active:scale-95">
+            className="p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-white active:scale-90">
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* ── Scrollable body ────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-10 custom-scrollbar">
 
-        {/* ═══ Frame properties (shown when a frame/canvas is selected) ════ */}
+        {/* ═══ Frame properties ════ */}
         {(selectedLayer.type === 'frame' || selectedLayer.type === 'canvas') && (() => {
           const fIdx = selectedLayer.type === 'canvas' ? 0 : selectedLayer.index;
           const frame = editingCanvas.frames[fIdx];
           if (!frame) return null;
           return (
-            <div className="space-y-6">
+            <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-500">
               {/* Fit */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">Fit Mode</p>
-                  <div className="flex items-center gap-1 bg-white/80 dark:bg-white/5 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-white/5 shadow-sm">
-                    {(['contain', 'cover'] as FitMode[]).map(mode => (
-                      <button key={mode}
-                        onClick={() => {
-                          pushUndo(editingCanvas, true);
-                          const newFrames = editingCanvas.frames.map((f, i) =>
-                            i === fIdx ? { ...f, fitMode: mode, scale: 1, offset: { x: 0, y: 0 } } : f);
-                          debouncedRender({ ...editingCanvas, frames: newFrames });
-                        }}
-                        className={clsx('px-6 py-2 text-[10px] font-black rounded-xl transition-all text-center min-w-[70px]',
-                          frame.fitMode === mode 
-                            ? 'bg-white dark:bg-slate-700 text-cyan-600 dark:text-cyan-400 shadow-md ring-1 ring-cyan-500/20' 
-                            : 'text-slate-400 dark:text-slate-500 hover:text-cyan-600 dark:hover:text-cyan-400')}>
-                        {mode === 'contain' ? 'Fit' : 'Cover'}
-                      </button>
-                    ))}
-                  </div>
+              <div className="flex items-center gap-4 py-2 bg-transparent">
+                <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">Fit Mode</label>
+                <div className="flex-1 flex gap-1 p-1 bg-slate-50 rounded-lg border border-slate-100 shadow-inner">
+                  {(['contain', 'cover'] as FitMode[]).map(mode => (
+                    <button key={mode}
+                      onClick={() => {
+                        pushUndo(editingCanvas, true);
+                        const newFrames = editingCanvas.frames.map((f, i) =>
+                          i === fIdx ? { ...f, fitMode: mode, scale: 1, offset: { x: 0, y: 0 } } : f);
+                        debouncedRender({ ...editingCanvas, frames: newFrames });
+                      }}
+                      className={clsx('flex-1 py-1.5 text-[10px] font-medium rounded-md transition-all uppercase',
+                        frame.fitMode === mode 
+                          ? 'bg-indigo-600 text-white shadow-sm' 
+                          : 'text-slate-400 hover:text-slate-600')}>
+                      {mode === 'contain' ? 'Fit' : 'Cover'}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               {/* Rotation */}
               <RotationControl
                 value={frame.rotation || 0}
-               
                 onChange={v => handleUpdateTransform(fIdx, { rotation: v })}
               />
 
@@ -239,20 +234,20 @@ export function CanvasEditorSidebar({
         })()}
 
         {/* ═══ Add-object tabs ════════════════════════════════════════════ */}
-        <div className="pt-1 space-y-3">
+        <div className="space-y-6">
           {/* Tab bar */}
-          <div className="flex items-center p-1 bg-white/60 dark:bg-white/5 backdrop-blur-xl rounded-xl border border-white/50 dark:border-white/10 w-full overflow-x-auto shadow-sm custom-scrollbar">
+          <div className="flex items-center p-1 bg-slate-50 rounded-xl border border-slate-100">
             {ADD_TABS.map(tab => {
               const isActive = activeAddTab === tab.key;
               const Icon = tab.icon;
               return (
                 <button key={tab.key} onClick={() => setActiveAddTab(tab.key)}
-                  className={clsx('flex-1 min-w-[50px] flex flex-col items-center justify-center gap-1 py-2 rounded-lg transition-all',
+                  className={clsx('flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-lg transition-all duration-300 relative overflow-hidden',
                     isActive 
-                      ? 'bg-white/90 dark:bg-white/10 shadow-sm ring-1 ring-black/5 dark:ring-white/10' 
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-white/5')}>
-                  <Icon className={clsx('w-5 h-5 transition-all duration-300', isActive ? tab.activeClass : 'text-slate-400')} />
-                  <span className={clsx('text-[9px] font-black uppercase tracking-widest truncate transition-all', isActive ? tab.activeClass : 'text-slate-400')}>
+                      ? 'bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-200' 
+                      : 'text-slate-400 hover:text-slate-600 scale-95')}>
+                  <Icon className={clsx('w-4 h-4 transition-all', isActive ? 'text-white' : 'text-slate-300')} />
+                  <span className={clsx('text-[9px] font-medium uppercase transition-all', isActive ? 'text-white' : 'text-slate-400')}>
                     {tab.label}
                   </span>
                 </button>
@@ -261,16 +256,15 @@ export function CanvasEditorSidebar({
           </div>
 
           {/* Tab content */}
-          <div className="min-h-[60px] animate-in fade-in slide-in-from-bottom-2 duration-300 w-full">
+          <div className="min-h-[80px] animate-in fade-in slide-in-from-bottom-2 duration-300 w-full">
 
             {/* ── Background tab ────────────────────────────────────────── */}
             {activeAddTab === 'background' && (
-              <div className="space-y-2">
-                {/* Background layer colour */}
-                <div className="flex items-center justify-between p-3 bg-white/80 dark:bg-white/5 backdrop-blur-sm rounded-xl border border-white/50 dark:border-white/5 shadow-sm hover:shadow-md transition-all">
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest">Workspace</p>
-                    <p className="text-[9px] text-amber-500/70 dark:text-amber-500/50 font-medium tracking-tight">Bottom layer color</p>
+              <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                <div className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all group">
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] font-medium text-slate-800 uppercase">Workspace</p>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-tight">Base canvas color</p>
                   </div>
                   <ColorPicker value={editingCanvas.bgColor || '#ffffff'}
                     onChange={color => {
@@ -278,11 +272,10 @@ export function CanvasEditorSidebar({
                       debouncedRender({ ...editingCanvas, bgColor: color });
                     }} />
                 </div>
-                {/* Paper / Mat border colour */}
-                <div className="flex items-center justify-between p-3 bg-white/80 dark:bg-white/5 backdrop-blur-sm rounded-xl border border-white/50 dark:border-white/5 shadow-sm hover:shadow-md transition-all">
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black text-slate-600 dark:text-slate-400 uppercase tracking-widest">Matte / Mask</p>
-                    <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium tracking-tight">Edge protection border</p>
+                <div className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all group">
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] font-medium text-slate-800 uppercase">Matte / Mask</p>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-tight">Border protection</p>
                   </div>
                   <ColorPicker value={editingCanvas.paperColor || '#ffffff'}
                     onChange={color => {
@@ -295,7 +288,6 @@ export function CanvasEditorSidebar({
 
             {/* ── Text tab ──────────────────────────────────────────────── */}
             {activeAddTab === 'text' && (() => {
-              // If a text overlay is selected, show its properties
               if (selectedLayer.type === 'text') {
                 const oIdx = selectedLayer.index;
                 const overlay = editingCanvas.overlays[oIdx];
@@ -306,68 +298,84 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-6">
-                    {/* Header row */}
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-                      <p className="text-[10px] font-black text-violet-500 dark:text-violet-400 uppercase tracking-[0.2em]">Text Context</p>
-                      <div className="flex items-center gap-1">
-                        <button onClick={handleSaveChanges} title="Save"
-                          className="p-1.5 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                      <div className="flex flex-col">
+                        <p className="text-[11px] font-medium text-slate-900 uppercase">Text Styling</p>
+                        <span className="text-[10px] text-slate-400 uppercase">Edit content & style</span>
                       </div>
+                      <button onClick={() => deleteOverlay(oIdx)} title="Delete"
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all active:scale-90">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
 
-                    {/* Font + size + colour + align */}
-                    <div className="flex items-center gap-1.5 p-1 bg-white/60 dark:bg-white/5 rounded-xl border border-white/50 dark:border-white/10 shadow-sm">
-                      <div className="flex-1 min-w-0">
-                        <select value={overlay.fontFamily}
-                          onChange={e => { loadGoogleFont(e.target.value); updateOverlay({ fontFamily: e.target.value }); }}
-                          className="w-full h-7 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 rounded-lg text-[9px] font-bold text-slate-700 dark:text-slate-300 px-1.5 focus:ring-1 focus:ring-violet-400 outline-none appearance-none cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                          {selectedFonts.map(f => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
-                        </select>
+                    <div className="space-y-6">
+                      <div className="space-y-3">
+                        <label className="text-[11px] font-medium text-slate-500 uppercase">Font Family</label>
+                        <div className="relative group">
+                          <select value={overlay.fontFamily}
+                            onChange={e => { loadGoogleFont(e.target.value); updateOverlay({ fontFamily: e.target.value }); }}
+                            className="w-full h-11 bg-white border border-slate-200 rounded-xl text-[11px] font-medium text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none appearance-none cursor-pointer hover:bg-slate-50 transition-all shadow-sm">
+                            {selectedFonts.map(f => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+                          </select>
+                          <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                            <ChevronRight className="w-3.5 h-3.5 rotate-90" />
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 rounded-lg h-7 px-1 gap-1">
-                        <button onClick={() => updateOverlay({ fontSize: Math.max(8, (overlay.fontSize || 24) - 2) })}
-                          className="p-1 text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"><Minus className="w-2.5 h-2.5" /></button>
-                        <input type="number" value={overlay.fontSize}
-                          onChange={e => updateOverlay({ fontSize: Math.max(8, parseInt(e.target.value) || 24) })}
-                          className="w-6 text-center text-[9px] font-black text-slate-700 dark:text-slate-300 bg-transparent border-none outline-none p-0" />
-                        <button onClick={() => updateOverlay({ fontSize: (overlay.fontSize || 24) + 2 })}
-                          className="p-1 text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"><Plus className="w-2.5 h-2.5" /></button>
-                      </div>
-                      <ColorPicker value={overlay.color || '#000000'} showHex={false} onChange={color => updateOverlay({ color })} />
-                      <div className="flex items-center bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 rounded-lg h-7 p-0.5 shadow-sm">
-                        {[{ key: 'left' as const, icon: AlignLeft }, { key: 'center' as const, icon: AlignCenter }, { key: 'right' as const, icon: AlignRight }].map(({ key, icon: Icon }) => (
-                          <button key={key} onClick={() => updateOverlay({ textAlign: key })}
-                            className={clsx('p-1 rounded-md transition-all',
-                            overlay.textAlign === key 
-                              ? 'bg-violet-100 dark:bg-violet-500/20 text-violet-700 dark:text-violet-400 shadow-inner' 
-                              : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-300')}>
-                            <Icon className="w-3 h-3" />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
 
-                    {/* Text content */}
-                    <textarea value={overlay.text} onChange={e => updateOverlay({ text: e.target.value })}
-                      className="w-full h-20 text-xs bg-slate-50/80 border border-slate-200/60 rounded-xl p-3 focus:ring-2 focus:ring-violet-400 outline-none transition-all placeholder-slate-300 font-medium leading-relaxed"
-                      placeholder="Type your text here…" />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-3">
+                          <label className="text-[11px] font-medium text-slate-500 uppercase">Size</label>
+                          <div className="flex items-center bg-white border border-slate-200 rounded-xl h-11 px-2 shadow-sm">
+                            <button onClick={() => updateOverlay({ fontSize: Math.max(8, (overlay.fontSize || 24) - 2) })}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg"><Minus className="w-3.5 h-3.5" /></button>
+                            <input type="number" value={overlay.fontSize}
+                              onChange={e => updateOverlay({ fontSize: Math.max(8, parseInt(e.target.value) || 24) })}
+                              className="flex-1 text-center text-[11px] font-mono font-medium text-slate-700 bg-transparent border-none outline-none p-0" />
+                            <button onClick={() => updateOverlay({ fontSize: (overlay.fontSize || 24) + 2 })}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg"><Plus className="w-3.5 h-3.5" /></button>
+                          </div>
+                        </div>
+                        <div className="space-y-3">
+                          <label className="text-[11px] font-medium text-slate-500 uppercase">Color</label>
+                          <div className="bg-white border border-slate-200 rounded-xl h-11 flex items-center justify-center shadow-sm">
+                            <ColorPicker value={overlay.color || '#000000'} showHex={false} onChange={color => updateOverlay({ color })} />
+                          </div>
+                        </div>
+                      </div>
 
-                    {/* Common: Rotation */}
-                    <div className="pt-4 border-t border-slate-100">
-                      <RotationControl value={overlay.rotation || 0}
-                        onChange={v => updateOverlay({ rotation: v })} />
+                      <div className="space-y-3">
+                        <label className="text-[11px] font-medium text-slate-500 uppercase">Alignment</label>
+                        <div className="flex items-center bg-slate-50 rounded-xl h-11 p-1 shadow-inner border border-slate-100">
+                          {[{ key: 'left' as const, icon: AlignLeft }, { key: 'center' as const, icon: AlignCenter }, { key: 'right' as const, icon: AlignRight }].map(({ key, icon: Icon }) => (
+                            <button key={key} onClick={() => updateOverlay({ textAlign: key })}
+                              className={clsx('flex-1 flex items-center justify-center h-full rounded-lg transition-all',
+                              overlay.textAlign === key 
+                                ? 'bg-white text-indigo-600 shadow-sm border border-slate-200' 
+                                : 'text-slate-400 hover:text-slate-600')}>
+                              <Icon className="w-4 h-4" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <label className="text-[11px] font-medium text-slate-500 uppercase">Content</label>
+                        <textarea value={overlay.text} onChange={e => updateOverlay({ text: e.target.value })}
+                          className="w-full h-28 text-[12px] font-normal bg-white border border-slate-200 rounded-xl p-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all placeholder-slate-300 text-slate-700 resize-none shadow-sm leading-relaxed"
+                          placeholder="Type your message…" />
+                      </div>
+
+                      <div className="pt-6 border-t border-slate-100">
+                        <RotationControl value={overlay.rotation || 0}
+                          onChange={v => updateOverlay({ rotation: v })} />
+                      </div>
                     </div>
                   </div>
                 );
               }
-              // No text selected — show Add Text button
               return (
                 <button onClick={() => {
                   pushUndo(editingCanvas, true);
@@ -381,8 +389,8 @@ export function CanvasEditorSidebar({
                   const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
                   debouncedRender(updated);
                   setSelectedLayer({ type: 'text', index: updated.overlays.length - 1 });
-                }} className="w-full flex items-center justify-center gap-2 px-3 py-3 bg-white/80 dark:bg-white/5 backdrop-blur-sm text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-500/20 rounded-xl text-[10px] font-black hover:bg-violet-50 dark:hover:bg-violet-500/10 hover:shadow-sm active:scale-[0.98] transition-all">
-                  <Type className="w-3.5 h-3.5" /> ADD NEW TEXT
+                }} className="w-full h-11 flex items-center justify-center gap-3 bg-indigo-600 text-white rounded-xl text-[11px] font-medium uppercase hover:bg-indigo-700 hover:shadow-lg transition-all active:scale-[0.98]">
+                  <Type className="w-4 h-4" /> Add New Text
                 </button>
               );
             })()}
@@ -399,54 +407,54 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-6">
-                    {/* Header */}
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-                      <p className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-[0.2em]">
-                        {shape.shapeType.charAt(0).toUpperCase() + shape.shapeType.slice(1).replace(/-/g, ' ')}
-                      </p>
-                      <div className="flex items-center gap-1">
-                        <button onClick={handleSaveChanges} title="Save"
-                          className="p-1.5 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                      <div className="flex flex-col">
+                        <p className="text-[11px] font-medium text-slate-900 uppercase">
+                          {shape.shapeType.charAt(0).toUpperCase() + shape.shapeType.slice(1).replace(/-/g, ' ')}
+                        </p>
+                        <span className="text-[10px] text-slate-400 uppercase">Vector properties</span>
+                      </div>
+                      <button onClick={() => deleteOverlay(oIdx)} title="Delete"
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all active:scale-90">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 bg-white rounded-xl border border-slate-100 shadow-sm flex items-center justify-between group">
+                        <span className="text-[11px] font-medium text-slate-500 uppercase">Fill</span>
+                        <ColorPicker value={shape.fill} showHex={false} onChange={fill => updateShape({ fill })} />
+                      </div>
+                      <div className="p-4 bg-white rounded-xl border border-slate-100 shadow-sm flex items-center justify-between group">
+                        <span className="text-[11px] font-medium text-slate-500 uppercase">Stroke</span>
+                        <ColorPicker value={shape.stroke} showHex={false} onChange={stroke => updateShape({ stroke })} />
                       </div>
                     </div>
 
-                    {/* Fill + Stroke */}
-                    <div className="flex items-center gap-3">
-                      <ColorPicker label="Fill"   value={shape.fill}   showHex={false} onChange={fill   => updateShape({ fill })} />
-                      <ColorPicker label="Stroke" value={shape.stroke} showHex={false} onChange={stroke => updateShape({ stroke })} />
-                    </div>
-
-                    {/* Stroke Width */}
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-extrabold text-indigo-400 uppercase">Stroke Width</label>
-                      <div className="flex items-center gap-2">
+                    <div className="space-y-6">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-medium text-slate-500 uppercase">Stroke Width</label>
+                          <span className="text-[11px] font-mono font-medium text-indigo-600">{shape.strokeWidth}px</span>
+                        </div>
                         <input type="range" min="0" max="20" step="1" value={shape.strokeWidth}
                           onChange={e => updateShape({ strokeWidth: parseInt(e.target.value) })}
-                          className="flex-1 accent-indigo-500" />
-                        <span className="text-[10px] font-mono text-indigo-400 w-6 text-center">{shape.strokeWidth}</span>
+                          className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600" />
                       </div>
-                    </div>
 
-                    {/* Opacity */}
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-extrabold text-indigo-400 uppercase">Opacity</label>
-                      <div className="flex items-center gap-2">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-medium text-slate-500 uppercase">Opacity</label>
+                          <span className="text-[11px] font-mono font-medium text-indigo-600">{Math.round(shape.opacity * 100)}%</span>
+                        </div>
                         <input type="range" min="0" max="100" step="5" value={Math.round(shape.opacity * 100)}
                           onChange={e => updateShape({ opacity: parseInt(e.target.value) / 100 })}
-                          className="flex-1 accent-indigo-500" />
-                        <span className="text-[10px] font-mono text-indigo-400 w-8 text-center">{Math.round(shape.opacity * 100)}%</span>
+                          className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600" />
                       </div>
                     </div>
 
-                    {/* ── Common controls ── */}
-                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <div className="space-y-8 pt-8 border-t border-slate-100">
                       <RotationControl value={shape.rotation || 0}
                         onChange={v => updateShape({ rotation: v })} />
                       <ScaleControl width={shape.width} height={shape.height}
@@ -455,9 +463,8 @@ export function CanvasEditorSidebar({
                   </div>
                 );
               }
-              // No shape selected — show picker
               return (
-                <div className="w-full overflow-hidden">
+                <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <ShapesPicker onAddShape={shape => {
                     pushUndo(editingCanvas, true);
                     const newOverlay: Overlay = { type: 'shape', ...shape };
@@ -481,38 +488,34 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-6">
-                    {/* Header */}
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <img src={imgOverlay.src} alt={imgOverlay.label} className="w-8 h-8 object-contain shrink-0 bg-slate-50 dark:bg-slate-800 rounded-lg p-1" />
-                        <p className="text-[10px] font-black text-emerald-500 dark:text-emerald-400 uppercase tracking-[0.2em] truncate">{imgOverlay.label}</p>
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="w-11 h-11 bg-slate-50 rounded-xl p-2 border border-slate-100 flex items-center justify-center shrink-0 shadow-sm">
+                          <img src={imgOverlay.src} alt={imgOverlay.label} className="w-full h-full object-contain" />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
+                          <span className="text-[10px] text-slate-400 uppercase">Icon Overlay</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={handleSaveChanges} title="Save"
-                          className="p-1.5 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      <button onClick={() => deleteOverlay(oIdx)} title="Delete"
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all active:scale-90">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
 
-                    {/* Opacity */}
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-extrabold text-emerald-400 uppercase">Opacity</label>
-                      <div className="flex items-center gap-2">
-                        <input type="range" min="0" max="100" step="5" value={Math.round(imgOverlay.opacity * 100)}
-                          onChange={e => updateImage({ opacity: parseInt(e.target.value) / 100 })}
-                          className="flex-1 accent-emerald-500" />
-                        <span className="text-[10px] font-mono text-emerald-400 w-8 text-center">{Math.round(imgOverlay.opacity * 100)}%</span>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-medium text-slate-500 uppercase">Opacity</label>
+                        <span className="text-[11px] font-mono font-medium text-emerald-600">{Math.round(imgOverlay.opacity * 100)}%</span>
                       </div>
+                      <input type="range" min="0" max="100" step="5" value={Math.round(imgOverlay.opacity * 100)}
+                        onChange={e => updateImage({ opacity: parseInt(e.target.value) / 100 })}
+                        className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-emerald-500" />
                     </div>
 
-                    {/* ── Common controls ── */}
-                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <div className="space-y-8 pt-8 border-t border-slate-100">
                       <RotationControl value={imgOverlay.rotation || 0}
                         onChange={v => updateImage({ rotation: v })} />
                       <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
@@ -521,9 +524,8 @@ export function CanvasEditorSidebar({
                   </div>
                 );
               }
-              // No image overlay selected — show icon browser
               return (
-                <div className="w-full overflow-hidden">
+                <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <IconBrowser onAddImage={imgOverlay => {
                     pushUndo(editingCanvas, true);
                     const newOverlay: Overlay = { type: 'image', ...imgOverlay };
@@ -547,31 +549,27 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-6">
-                    {/* Header */}
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-                      <p className="text-[10px] font-black text-fuchsia-500 dark:text-fuchsia-400 uppercase tracking-[0.2em] truncate max-w-[70%]">{imgOverlay.label}</p>
-                      <div className="flex items-center gap-1">
-                        <button onClick={handleSaveChanges} title="Save"
-                          className="p-1.5 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                      <div className="flex flex-col min-w-0 max-w-[70%]">
+                        <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
+                        <span className="text-[10px] text-slate-400 uppercase">Image Overlay</span>
                       </div>
+                      <button onClick={() => deleteOverlay(oIdx)} title="Delete"
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all active:scale-90">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-extrabold text-fuchsia-400 uppercase">Opacity</label>
-                      <div className="flex items-center gap-2">
-                        <input type="range" min="0" max="100" step="5" value={Math.round(imgOverlay.opacity * 100)}
-                          onChange={e => updateImage({ opacity: parseInt(e.target.value) / 100 })}
-                          className="flex-1 accent-fuchsia-500" />
-                        <span className="text-[10px] font-mono text-fuchsia-400 w-8 text-center">{Math.round(imgOverlay.opacity * 100)}%</span>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-medium text-slate-500 uppercase">Opacity</label>
+                        <span className="text-[11px] font-mono font-medium text-rose-600">{Math.round(imgOverlay.opacity * 100)}%</span>
                       </div>
+                      <input type="range" min="0" max="100" step="5" value={Math.round(imgOverlay.opacity * 100)}
+                        onChange={e => updateImage({ opacity: parseInt(e.target.value) / 100 })}
+                        className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-rose-500" />
                     </div>
-                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <div className="space-y-8 pt-8 border-t border-slate-100">
                       <RotationControl value={imgOverlay.rotation || 0}
                         onChange={v => updateImage({ rotation: v })} />
                       <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
@@ -580,16 +578,15 @@ export function CanvasEditorSidebar({
                   </div>
                 );
               }
-              // Upload UI
               return (
-                <div className="space-y-4">
-                  <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-4 bg-white/60 dark:bg-white/5 backdrop-blur-md border border-dashed border-violet-300 dark:border-white/10 rounded-2xl text-violet-600 dark:text-violet-400 hover:bg-white/80 dark:hover:bg-white/10 transition-all cursor-pointer overflow-hidden shadow-sm">
-                    <div className="p-2.5 bg-violet-100 dark:bg-violet-500/20 rounded-xl shadow-sm group-hover:scale-110 transition-transform">
-                      <ImagePlus className="w-5 h-5" />
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <label className="group relative w-full flex flex-col items-center justify-center gap-3 p-6 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-rose-500 hover:bg-white hover:border-rose-200 transition-all cursor-pointer overflow-hidden shadow-sm">
+                    <div className="p-3 bg-rose-50 rounded-xl shadow-inner group-hover:scale-110 transition-all duration-500">
+                      <ImagePlus className="w-6 h-6" />
                     </div>
                     <div className="text-center">
-                      <p className="text-[10px] font-black uppercase tracking-tight">Add to Current Canvas</p>
-                      <p className="text-[9px] text-violet-400 font-bold uppercase tracking-widest opacity-60 mt-0.5">Add as floating overlay</p>
+                      <p className="text-[11px] font-medium uppercase">Add Photo</p>
+                      <p className="text-[10px] text-slate-400 uppercase tracking-tight opacity-80">Floating overlay</p>
                     </div>
                     <input type="file" multiple accept="image/*" className="hidden"
                       onChange={async e => {
@@ -619,35 +616,38 @@ export function CanvasEditorSidebar({
         </div>
       </div>
 
-      {/* ── Layers Panel ────────────────────────────────────────────────────── */}
-      <LayersPanel
-        editingCanvas={editingCanvas}
-        selected={selectedLayer}
-        onSelect={setSelectedLayer}
-        onDeleteOverlay={oIdx => {
-          pushUndo(editingCanvas, true);
-          const updated = { ...editingCanvas, overlays: editingCanvas.overlays.filter((_, i) => i !== oIdx) };
-          debouncedRender(updated);
-          if (selectedLayer.index === oIdx) setSelectedLayer({ type: 'frame', index: 0 });
-          else if (selectedLayer.index > oIdx) setSelectedLayer({ ...selectedLayer, index: selectedLayer.index - 1 });
-        }}
-        onReorderOverlays={newOverlays => {
-          pushUndo(editingCanvas, true);
-          debouncedRender({ ...editingCanvas, overlays: newOverlays });
-        }}
-        onClearFrame={fIdx => {
-          pushUndo(editingCanvas, true);
-          const newFrames = editingCanvas.frames.map((f, i) =>
-            i === fIdx ? { ...f, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f);
-          debouncedRender({ ...editingCanvas, frames: newFrames });
-        }}
-      />
+      {/* ── Layers Panel ────────────────────────────────────────────────── */}
+      <div className="mt-auto px-6 py-1 border-t border-slate-100 bg-slate-50/30 backdrop-blur-md">
+        <LayersPanel 
+          editingCanvas={editingCanvas}
+          selected={selectedLayer}
+          onSelect={setSelectedLayer}
+          onDeleteOverlay={oIdx => {
+            pushUndo(editingCanvas, true);
+            const updated = { ...editingCanvas, overlays: editingCanvas.overlays.filter((_, i) => i !== oIdx) };
+            debouncedRender(updated);
+            if (selectedLayer.index === oIdx) setSelectedLayer({ type: 'frame', index: 0 });
+            else if (selectedLayer.index > oIdx) setSelectedLayer({ ...selectedLayer, index: selectedLayer.index - 1 });
+          }}
+          onReorderOverlays={newOverlays => {
+            pushUndo(editingCanvas, true);
+            debouncedRender({ ...editingCanvas, overlays: newOverlays });
+          }}
+          onClearFrame={fIdx => {
+            pushUndo(editingCanvas, true);
+            const newFrames = editingCanvas.frames.map((f, i) =>
+              i === fIdx ? { ...f, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f);
+            debouncedRender({ ...editingCanvas, frames: newFrames });
+          }}
+        />
+      </div>
 
-      {/* ── Save button ──────────────────────────────────────────────────────── */}
-      <div className="px-3 py-3 bg-white/50 dark:bg-black/20 backdrop-blur-xl border-t border-white/50 dark:border-white/5 z-10 relative">
+      {/* ── Save Button ─────────────────────────────────────────────────── */}
+      <div className="px-6 py-5 bg-white border-t border-slate-100">
         <button onClick={handleSaveChanges}
-          className="w-full py-2.5 bg-violet-600 dark:bg-violet-500 text-white rounded-xl text-[11px] font-black hover:bg-violet-700 dark:hover:bg-violet-600 transition-all flex items-center justify-center gap-2 active:scale-[0.98] shadow-md shadow-violet-500/20">
-          <CheckCircle2 className="w-4 h-4 text-white/80" /> SAVE CHANGES
+          className="w-full h-12 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-medium uppercase text-[11px] hover:shadow-lg hover:shadow-indigo-100 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
+          <CheckCircle2 className="w-4 h-4 transition-transform group-hover:scale-110" />
+          Save Changes
         </button>
       </div>
     </div>
