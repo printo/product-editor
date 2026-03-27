@@ -12,9 +12,6 @@ import type { CanvasItem, FitMode, Overlay, TextOverlay, ShapeOverlay, ImageOver
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 export interface CanvasEditorSidebarProps {
-  activeCanvasIdx: number;
-  canvasesCount: number;
-  onOpenCanvas: (idx: number) => void;
   editingCanvas: CanvasItem | null;
   layout: any;
   selectedLayer: LayerSelection;
@@ -112,9 +109,6 @@ function ScaleControl({ label = "Zoom", width, height, onScale }: { label?: stri
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function CanvasEditorSidebar({
-  activeCanvasIdx,
-  canvasesCount,
-  onOpenCanvas,
   editingCanvas,
   layout,
   selectedLayer,
@@ -169,22 +163,6 @@ export function CanvasEditorSidebar({
             </h3>
             <span className="text-[10px] text-slate-400 uppercase">Canvas Workspace</span>
           </div>
-        </div>
-        
-        <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100">
-          <button disabled={activeCanvasIdx === 0} onClick={() => onOpenCanvas(activeCanvasIdx - 1)}
-            className="p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-white active:scale-90">
-            <ChevronRight className="w-4 h-4 rotate-180" />
-          </button>
-          <span className="text-[11px] font-medium text-slate-700 tabular-nums px-2 min-w-[40px] text-center">
-            {activeCanvasIdx + 1}
-            <span className="mx-1 text-slate-300">/</span>
-            {canvasesCount}
-          </span>
-          <button disabled={activeCanvasIdx === canvasesCount - 1} onClick={() => onOpenCanvas(activeCanvasIdx + 1)}
-            className="p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-white active:scale-90">
-            <ChevronRight className="w-4 h-4" />
-          </button>
         </div>
       </div>
 
