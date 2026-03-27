@@ -18,8 +18,9 @@ import {
 // ─── Handle type exposed to parent ──────────────────────────────────────────
 
 export interface FabricEditorHandle {
-  toDataURL: () => string | null;
-  toFullResDataURL: () => string | null;
+  toDataURL: (includeShadow?: boolean) => string | null;
+  toFullResDataURL: (includeShadow?: boolean) => string | null;
+  toMockupDataURL: () => string | null;
   getZoomToFit: () => number;
   /** Snapshot the Fabric canvas state as a plain JSON object */
   getCanvasJSON: () => object | null;
@@ -181,11 +182,11 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       : [{ x: 0, y: 0, width: canvasW, height: canvasH }];
 
     frames.forEach((frameSpec: any) => {
-      const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-      let fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
-      let fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
-      let fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-      let fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+        const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+        let fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
+        let fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
+        let fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+        let fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
 
       const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
       let frMm = Number(frameSpec.borderRadiusMm || 0);
@@ -377,7 +378,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const paperObj = objs.find((o: any) => o[PAPER_KEY]) as Path;
       if (paperObj) {
         if (transformChanged || !paperObj.path) {
-          paperObj.set({ path: getPaperPath(isTransforming) });
+          // Use Path constructor to parse string into array of commands to avoid TypeError in toDataURL/toJSON
+          const tempPath = new Path(getPaperPath(isTransforming));
+          paperObj.set({ path: tempPath.path });
         }
         paperObj.set({
           fill: editingCanvas.paperColor || '#ffffff',
@@ -485,7 +488,6 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const frMm = Number(frameSpec.borderRadiusMm || 0);
       const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
       const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
-
       const sr = new Rect({
         left: fx, top: fy, width: fw, height: fh,
         fill: 'transparent', stroke: '#06b6d4', strokeWidth: 1.5, strokeDashArray: [6, 4],
@@ -510,7 +512,6 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const bleedPx = bleed * pxPerMm;
       const frMm = Number(frameSpec.borderRadiusMm || 0);
       const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
-
       const br = new Rect({
         left: fx - bleedPx, top: fy - bleedPx, width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
         fill: 'transparent', stroke: '#f43f5e', strokeWidth: 1.5, strokeDashArray: [8, 5],
@@ -730,9 +731,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (changed) fc.requestRenderAll();
     };
 
-    const handleMouseUp = () => {
+        const handleMouseUp = () => {
       interactingRef.current = false;
-      if (isTransforming) setIsTransforming(false);
+      setIsTransforming(false);
       hideGuides();
       if ((fc as any).__isPanning) {
         (fc as any).__isPanning = false; fc.selection = true;
@@ -761,16 +762,52 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     };
   }, [canvasW, canvasH]);
 
-  useImperativeHandle(ref, () => ({
-    toDataURL: () => fabricRef.current?.toDataURL({ format: 'png', quality: 1, multiplier: 2 }) || null,
-    toFullResDataURL: () => fabricRef.current?.toDataURL({ format: 'png', quality: 1, multiplier: 4 }) || null,
+    useImperativeHandle(ref, () => ({
+    toDataURL: (includeShadow = true) => {
+      const fc = fabricRef.current;
+      if (!fc) return null;
+      const paperObj = fc.getObjects().find((o: any) => o[PAPER_KEY]);
+      const originalShadow = paperObj?.shadow;
+      if (paperObj && !includeShadow) {
+        paperObj.set({ shadow: undefined });
+        fc.renderAll();
+      }
+      const dataUrl = fc.toDataURL({ format: 'png', quality: 1, multiplier: 2 });
+      if (paperObj && !includeShadow) {
+        paperObj.set({ shadow: originalShadow });
+        fc.renderAll();
+      }
+      return dataUrl;
+    },
+    toFullResDataURL: (includeShadow = true) => {
+      const fc = fabricRef.current;
+      if (!fc) return null;
+      const paperObj = fc.getObjects().find((o: any) => o[PAPER_KEY]);
+      const originalShadow = paperObj?.shadow;
+      if (paperObj && !includeShadow) {
+        paperObj.set({ shadow: undefined });
+        fc.renderAll();
+      }
+      const dataUrl = fc.toDataURL({ format: 'png', quality: 1, multiplier: 4 });
+      if (paperObj && !includeShadow) {
+        paperObj.set({ shadow: originalShadow });
+        fc.renderAll();
+      }
+      return dataUrl;
+    },
+    toMockupDataURL: () => {
+      const fc = fabricRef.current;
+      if (!fc) return null;
+      const dataUrl = fc.toDataURL({ format: 'png', quality: 0.5, multiplier: 1 });
+      return dataUrl;
+    },
     getZoomToFit: () => fitZoomRef.current,
     getCanvasJSON: () => fabricRef.current?.toJSON() || null,
     loadCanvasJSON: async (json) => { if (fabricRef.current) await fabricRef.current.loadFromJSON(json); }
   }));
 
   return (
-    <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-[#f1f5f9] select-none">
+        <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-[#f1f5f9] select-none">
       <canvas ref={canvasElRef} />
     </div>
   );

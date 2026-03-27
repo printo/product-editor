@@ -121,8 +121,8 @@ export function CanvasEditorModal({
       await fabricEditorRef.current.loadCanvasJSON(entry.fabricJSON);
     }
     const gen = ++renderGenRef.current;
-    setTimeout(async () => {
-      const dataUrl = fabricEditorRef.current?.toDataURL() ?? await renderCanvas(entry.canvas);
+        setTimeout(async () => {
+      const dataUrl = fabricEditorRef.current?.toDataURL(true) ?? await renderCanvas(entry.canvas);
       if (renderGenRef.current === gen) setEditingCanvas(p => p ? { ...p, dataUrl } : p);
     }, 100);
   }, [editingCanvas, renderCanvas, cloneCanvas, setEditingCanvas]);
@@ -158,11 +158,11 @@ export function CanvasEditorModal({
   }, [handleUndo, handleRedo]);
 
   // ── Editor save ───────────────────────────────────────────────────────────
-  const handleSaveChanges = async () => {
+    const handleSaveChanges = async () => {
     if (!editingCanvas) return;
     if (renderTimeoutRef.current) { clearTimeout(renderTimeoutRef.current); renderTimeoutRef.current = null; }
-    const freshDataUrl = fabricEditorRef.current?.toFullResDataURL()
-      ?? await renderCanvas(editingCanvas);
+    const freshDataUrl = fabricEditorRef.current?.toFullResDataURL(false)
+      ?? await renderCanvas(editingCanvas, null, true, false);
     const updated = [...canvases];
     updated[activeCanvasIdx] = { ...editingCanvas, dataUrl: freshDataUrl };
     setCanvases(updated);

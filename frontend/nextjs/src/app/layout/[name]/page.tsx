@@ -597,21 +597,47 @@ export default function LayoutEditorPage() {
   const executeBatchDownload = async () => {
     setIsDownloading(true);
     try {
-      const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
+            const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
       
       // Structure: 
       // zip/cx_file/ -> Original uploaded files
-      // zip/output/print_ready/ -> Rendered canvases (PNGs)
+      // zip/mockup_file/ -> Low-quality reference PNGs
+      // zip/print_file/ -> High-quality, print-ready PNGs (no shadow)
       
       const filesToZip: { name: string; url?: string; blob?: Blob }[] = [];
       
-      // 1. Output Files (Rendered Canvases)
+      // 1. High-quality Print Files (no shadow)
+      if (surfaceStates.length > 1) {
+        for (const s of surfaceStates) {
+          const printCanvases = await Promise.all(s.canvases.map(c => renderCanvas(c, null, true, false, s.def)));
+          printCanvases.forEach((dataUrl, ci) => {
+            if (dataUrl) {
+              filesToZip.push({ 
+                name: `print_file/${s.key}-${ci + 1}.png`, 
+                url: dataUrl 
+              });
+            }
+          });
+        }
+      } else {
+        const printCanvases = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
+        printCanvases.forEach((dataUrl, i) => {
+          if (dataUrl) {
+            filesToZip.push({ 
+              name: `print_file/canvas-${i + 1}.png`, 
+              url: dataUrl 
+            });
+          }
+        });
+      }
+
+      // 2. Low-quality Mockup Files (with shadow)
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
           s.canvases.forEach((c, ci) => {
-            if (c.dataUrl) {
+            if (c.dataUrl) { // Use existing low-res data URL with shadow
               filesToZip.push({ 
-                name: `print_ready/${s.key}-${ci + 1}.png`, 
+                name: `mockup_file/${s.key}-${ci + 1}.png`, 
                 url: c.dataUrl 
               });
             }
@@ -621,14 +647,14 @@ export default function LayoutEditorPage() {
         canvases.forEach((c, i) => {
           if (c.dataUrl) {
             filesToZip.push({ 
-              name: `print_ready/canvas-${i + 1}.png`, 
+              name: `mockup_file/canvas-${i + 1}.png`, 
               url: c.dataUrl 
             });
           }
         });
       }
 
-      // 2. Original Files (CX Files)
+      // 3. Original Files (CX Files)
       const allOriginalFiles = surfaceStates.length > 1 
         ? surfaceStates.flatMap(s => s.files)
         : files;
@@ -715,7 +741,7 @@ export default function LayoutEditorPage() {
     if (canvases.length === 0) return;
     setIsDownloading(true);
     try {
-      const rendered = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
+            const rendered = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
       const surfacesPayload: Record<string, { index: number; dataUrl: string }[]> = {};
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {

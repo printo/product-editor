@@ -138,7 +138,7 @@ export async function renderCanvas(
     selectable: false,
     evented: false,
     fillRule: 'evenodd',
-    shadow: isExport ? undefined : new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 }),
+        shadow: isExport ? undefined : new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 }),
   });
   fabricCanvas.add(paperOverlay);
 
