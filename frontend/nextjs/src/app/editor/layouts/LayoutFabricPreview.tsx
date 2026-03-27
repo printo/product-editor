@@ -26,6 +26,7 @@ interface LayoutFrame {
   widthMm?: number | string;
   heightMm?: number | string;
   bleedMm?: number | string;
+  borderRadiusMm?: number | string;
 }
 
 interface LayoutFabricPreviewProps {
@@ -39,6 +40,7 @@ interface LayoutFabricPreviewProps {
   onFramesChange: (frames: LayoutFrame[]) => void;
   onFrameSelect: (frameId: string | null) => void;
   selectedFrameId?: string | null;
+  zoom?: number;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -62,6 +64,7 @@ export function LayoutFabricPreview({
   onFramesChange,
   onFrameSelect,
   selectedFrameId,
+  zoom = 1,
 }: LayoutFabricPreviewProps) {
   const canvasElRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<Canvas | null>(null);
@@ -78,8 +81,9 @@ export function LayoutFabricPreview({
     if (!container) return 1;
     const maxW = container.clientWidth - 48; // padding
     const maxH = container.clientHeight - 48;
-    return Math.min(maxW / widthMm, maxH / heightMm, 4);
-  }, [widthMm, heightMm]);
+    const fitZoom = Math.min(maxW / widthMm, maxH / heightMm, 4);
+    return fitZoom * zoom;
+  }, [widthMm, heightMm, zoom]);
 
   // ── Initialize Fabric canvas ─────────────────────────────────────────────
 
@@ -165,6 +169,7 @@ export function LayoutFabricPreview({
       const fyMm = Number(frame.yMm || 0);
       const fwMm = Number(frame.widthMm || 0);
       const fhMm = Number(frame.heightMm || 0);
+      const radiusMm = Number(frame.borderRadiusMm || 0);
 
       // Bleed rect (non-interactive)
       if (bleed > 0) {
@@ -173,6 +178,7 @@ export function LayoutFabricPreview({
           (fyMm - bleed) * scale,
           (fwMm + bleed * 2) * scale,
           (fhMm + bleed * 2) * scale,
+          radiusMm > 0 ? (radiusMm + bleed) * scale : 0
         );
         (br as any)[DATA_KEY] = 'bleed';
         (br as any).__frameIdx = idx;
@@ -189,6 +195,8 @@ export function LayoutFabricPreview({
         {
           stroke: isSelected ? '#6366f1' : '#10b981',
           fill: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+          rx: radiusMm * scale,
+          ry: radiusMm * scale,
         },
       );
       (rect as any)[DATA_KEY] = 'frame';
@@ -214,10 +222,9 @@ export function LayoutFabricPreview({
     });
 
     fc.renderAll();
-    // Re-run only when structural frame changes or dimensions change.
-    // NOTE: selectedFrameId is EXCLUDED from this dependency array to prevent flushes on selection.
+    // Re-run structural changes or dimensions change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frames.length, widthMm, heightMm, snapGrid, getScale]);
+  }, [frames, widthMm, heightMm, snapGrid, getScale]);
 
   // ── Sync selection color → Fabric objects ─────────────────────────────────
 
@@ -328,6 +335,7 @@ export function LayoutFabricPreview({
       const target = e.target as FabricObject;
       if (!target || (target as any)[DATA_KEY] !== 'frame') return;
 
+      const idx = (target as any).__frameIdx as number;
       const cw = widthMm * scale;
       const ch = heightMm * scale;
 
@@ -341,12 +349,35 @@ export function LayoutFabricPreview({
         });
       }
       constrainToCanvas(target, cw, ch);
+
+      // Sync associated objects (bleed, label)
+      const left = target.left ?? 0;
+      const top = target.top ?? 0;
+      const curFrames = framesRef.current;
+      const frame = curFrames[idx];
+      const bleed = Number(frame?.bleedMm || 0);
+
+      const objects = fc.getObjects().filter((o: any) => o.__frameIdx === idx);
+      objects.forEach((obj: any) => {
+        if (obj[DATA_KEY] === 'bleed') {
+          obj.set({
+            left: left - bleed * scale,
+            top: top - bleed * scale,
+          });
+        } else if (obj[DATA_KEY] === 'label') {
+          obj.set({
+            left: left + 3,
+            top: top + 2,
+          });
+        }
+      });
     };
 
     const handleScaling = (e: any) => {
       const target = e.target as FabricObject;
       if (!target || (target as any)[DATA_KEY] !== 'frame') return;
 
+      const idx = (target as any).__frameIdx as number;
       const cw = widthMm * scale;
       const ch = heightMm * scale;
 
@@ -357,6 +388,33 @@ export function LayoutFabricPreview({
       if (h < minPx) target.set({ scaleY: minPx / (target.height ?? 1) });
 
       constrainToCanvas(target, cw, ch);
+
+      // Sync associated objects (bleed, label)
+      const left = target.left ?? 0;
+      const top = target.top ?? 0;
+      const curFrames = framesRef.current;
+      const frame = curFrames[idx];
+      const bleed = Number(frame?.bleedMm || 0);
+      const radiusMm = Number(frame?.borderRadiusMm || 0);
+
+      const objects = fc.getObjects().filter((o: any) => o.__frameIdx === idx);
+      objects.forEach((obj: any) => {
+        if (obj[DATA_KEY] === 'bleed') {
+          obj.set({
+            left: left - bleed * scale,
+            top: top - bleed * scale,
+            width: w + (bleed * 2) * scale,
+            height: h + (bleed * 2) * scale,
+            rx: radiusMm > 0 ? (radiusMm + bleed) * scale : 0,
+            ry: radiusMm > 0 ? (radiusMm + bleed) * scale : 0,
+          });
+        } else if (obj[DATA_KEY] === 'label') {
+          obj.set({
+            left: left + 3,
+            top: top + 2,
+          });
+        }
+      });
     };
 
     fc.on('object:modified', handleModified);

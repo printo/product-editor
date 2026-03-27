@@ -5,63 +5,68 @@
         "width": 1200,
         "height": 1800,
         "widthMm": 101.6,
-        "heightMm": 152.39999999999998,
+        "heightMm": 152.4,
         "dpi": 300
     },
     "frames": [
         {
-            "id": "4w43uad2s",
-            "xMm": 10,
+            "id": "uftehe7n1",
+            "xMm": 6,
             "yMm": 10,
             "widthMm": 40,
             "heightMm": 60,
             "bleedMm": 0,
-            "x": 0.09833333333333333,
+            "x": 0.059166666666666666,
             "y": 0.06555555555555556,
             "width": 0.3933333333333333,
-            "height": 0.3938888888888889
+            "height": 0.3938888888888889,
+            "borderRadiusMm": 0
         },
         {
-            "id": "nliazcv9h",
-            "xMm": 10,
-            "yMm": 75,
+            "id": "3zeuycjhs",
+            "xMm": 6,
+            "yMm": 82,
             "widthMm": 40,
             "heightMm": 60,
             "bleedMm": 0,
-            "x": 0.09833333333333333,
-            "y": 0.4922222222222222,
+            "x": 0.059166666666666666,
+            "y": 0.5383333333333333,
             "width": 0.3933333333333333,
-            "height": 0.3938888888888889
+            "height": 0.3938888888888889,
+            "borderRadiusMm": 0
         },
         {
-            "id": "cw17ncl4s",
-            "xMm": 55,
+            "id": "s3xv32v4l",
+            "xMm": 56,
             "yMm": 10,
             "widthMm": 40,
             "heightMm": 60,
             "bleedMm": 0,
-            "x": 0.5416666666666666,
+            "x": 0.5508333333333333,
             "y": 0.06555555555555556,
             "width": 0.3933333333333333,
-            "height": 0.3938888888888889
+            "height": 0.3938888888888889,
+            "borderRadiusMm": 0
         },
         {
-            "id": "0abwl4y2d",
-            "xMm": 55,
-            "yMm": 75,
+            "id": "kk2mpw0fn",
+            "xMm": 56,
+            "yMm": 82,
             "widthMm": 40,
             "heightMm": 60,
             "bleedMm": 0,
-            "x": 0.5416666666666666,
-            "y": 0.4922222222222222,
+            "x": 0.5508333333333333,
+            "y": 0.5383333333333333,
             "width": 0.3933333333333333,
-            "height": 0.3938888888888889
+            "height": 0.3938888888888889,
+            "borderRadiusMm": 0
         }
     ],
+    "maskUrl": null,
     "maskOnExport": false,
     "createdAt": "2026-03-13T12:28:43.653043+00:00",
     "createdBy": "Kanna Perumal C",
-    "updatedAt": "2026-03-13T12:28:43.653043+00:00",
+    "updatedAt": "2026-03-27T06:39:05.687929+00:00",
     "updatedBy": "Kanna Perumal C",
     "metadata": [
         {
@@ -92,7 +97,7 @@
         {
             "key": "updatedAt",
             "label": "Updated At",
-            "value": "2026-03-13T12:28:43.653043+00:00"
+            "value": "2026-03-27T06:39:05.687929+00:00"
         },
         {
             "key": "dimensions",

@@ -48,42 +48,43 @@ export async function renderCanvas(
 
     const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
     const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
-    const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
-    const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-    const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+      const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
+      const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+      const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+      const fr = isPercent ? (frameSpec.borderRadiusMm || 0) * (canvasW / usedLayout.canvas?.widthMm) : (frameSpec.borderRadiusMm || 0);
 
-    const file = frameState.originalFile;
-    if (!file) continue;
-    const imgSource = getFileUrlFn(file);
+      const file = frameState.originalFile;
+      if (!file) continue;
+      const imgSource = getFileUrlFn(file);
 
-    try {
-      const fabricImg = await FabricImage.fromURL(imgSource, { crossOrigin: 'anonymous' });
-      const imgW = fabricImg.width!;
-      const imgH = fabricImg.height!;
+      try {
+        const fabricImg = await FabricImage.fromURL(imgSource, { crossOrigin: 'anonymous' });
+        const imgW = fabricImg.width!;
+        const imgH = fabricImg.height!;
 
-      const rot = frameState.rotation || 0;
-      const rad = (rot * Math.PI) / 180;
-      const sinA = Math.abs(Math.sin(rad));
-      const cosA = Math.abs(Math.cos(rad));
-      const effW = imgW * cosA + imgH * sinA;
-      const effH = imgW * sinA + imgH * cosA;
+        const rot = frameState.rotation || 0;
+        const rad = (rot * Math.PI) / 180;
+        const sinA = Math.abs(Math.sin(rad));
+        const cosA = Math.abs(Math.cos(rad));
+        const effW = imgW * cosA + imgH * sinA;
+        const effH = imgW * sinA + imgH * cosA;
 
-      const baseScale = frameState.fitMode === 'cover'
-        ? Math.max(fw / effW, fh / effH)
-        : Math.min(fw / effW, fh / effH);
-      const finalScale = baseScale * frameState.scale;
+        const baseScale = frameState.fitMode === 'cover'
+          ? Math.max(fw / effW, fh / effH)
+          : Math.min(fw / effW, fh / effH);
+        const finalScale = baseScale * frameState.scale;
 
-      const w = effW * finalScale;
-      const h = effH * finalScale;
-      const x = fx + (fw - w) / 2 + frameState.offset.x;
-      const y = fy + (fh - h) / 2 + frameState.offset.y;
+        const w = effW * finalScale;
+        const h = effH * finalScale;
+        const x = fx + (fw - w) / 2 + frameState.offset.x;
+        const y = fy + (fh - h) / 2 + frameState.offset.y;
 
-      // Clip to frame region
-      // Clip to frame region using relative clipPath
-      const clipRect = new Rect({
-        left: 0, top: 0, width: fw, height: fh,
-        originX: 'center', originY: 'center',
-      });
+        // Clip to frame region using relative clipPath
+        const clipRect = new Rect({
+          left: 0, top: 0, width: fw, height: fh,
+          originX: 'center', originY: 'center',
+          rx: fr, ry: fr,
+        });
 
       fabricImg.set({
         left: x + w / 2,
@@ -115,8 +116,22 @@ export async function renderCanvas(
     const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
     const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
     const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-    // Counter-clockwise rectangular hole
-    paperPathStr += ` M ${fx} ${fy} L ${fx} ${fy + fh} L ${fx + fw} ${fy + fh} L ${fx + fw} ${fy} Z`;
+    const fr = Math.min(fw / 2, fh / 2, isPercent ? (frameSpec.borderRadiusMm || 0) * (canvasW / usedLayout.canvas?.widthMm) : (frameSpec.borderRadiusMm || 0));
+
+    if (fr > 0) {
+      // Counter-clockwise rounded rectangular hole
+      paperPathStr += ` M ${fx + fr} ${fy} 
+        A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} 
+        L ${fx} ${fy + fh - fr} 
+        A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} 
+        L ${fx + fw - fr} ${fy + fh} 
+        A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} 
+        L ${fx + fw} ${fy + fr} 
+        A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
+    } else {
+      // Counter-clockwise rectangular hole
+      paperPathStr += ` M ${fx} ${fy} L ${fx} ${fy + fh} L ${fx + fw} ${fy + fh} L ${fx + fw} ${fy} Z`;
+    }
   });
 
   const paperOverlay = new Path(paperPathStr, {

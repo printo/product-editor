@@ -58,7 +58,7 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
 
   return (
     <div className="w-full aspect-square flex items-center justify-center p-4 bg-slate-50 border-b border-slate-100 group-hover:bg-white transition-colors">
-      <LayoutSVG layout={layout} />
+      <LayoutSVG layout={layout} maskUrl={layout.maskUrl} />
     </div>
   );
 };

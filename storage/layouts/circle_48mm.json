@@ -1,0 +1,79 @@
+{
+    "name": "circle_48mm",
+    "tags": [],
+    "canvas": {
+        "width": 685,
+        "height": 685,
+        "widthMm": 58,
+        "heightMm": 58,
+        "dpi": 300
+    },
+    "frames": [
+        {
+            "id": "fqa006h2s",
+            "xMm": 4.75,
+            "yMm": 4.5,
+            "widthMm": 48,
+            "heightMm": 48,
+            "bleedMm": 2,
+            "x": 0.04671532846715328,
+            "y": 0.043795620437956206,
+            "width": 0.8963503649635036,
+            "height": 0.8963503649635036,
+            "borderRadiusMm": 100
+        }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "createdAt": "2026-03-27T06:53:08.224746+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-03-27T06:53:08.224746+00:00",
+    "updatedBy": "Kanna Perumal C",
+    "metadata": [
+        {
+            "key": "createdByName",
+            "label": "Created By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "createdById",
+            "label": "Emp ID",
+            "value": null
+        },
+        {
+            "key": "createdAt",
+            "label": "Created At",
+            "value": "2026-03-27T06:53:08.224746+00:00"
+        },
+        {
+            "key": "updatedByName",
+            "label": "Updated By",
+            "value": "Kanna Perumal C"
+        },
+        {
+            "key": "updatedById",
+            "label": "Updated Emp ID",
+            "value": null
+        },
+        {
+            "key": "updatedAt",
+            "label": "Updated At",
+            "value": "2026-03-27T06:53:08.224746+00:00"
+        },
+        {
+            "key": "dimensions",
+            "label": "Dimensions",
+            "value": "58.00 x 58.00mm"
+        },
+        {
+            "key": "tags",
+            "label": "Tags",
+            "value": ""
+        },
+        {
+            "key": "maskOnExport",
+            "label": "Mask on Export",
+            "value": "Disabled"
+        }
+    ]
+}

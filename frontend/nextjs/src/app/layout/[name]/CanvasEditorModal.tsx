@@ -235,6 +235,21 @@ export function CanvasEditorModal({
     }
   };
 
+  const handleOverlayAlign = (
+    overlayIdx: number,
+    alignment: 'center' | 'middle',
+  ) => {
+    if (!editingCanvas) return;
+    pushUndo(editingCanvas);
+    const newOverlays = editingCanvas.overlays.map((o, i) => {
+      if (i !== overlayIdx) return o;
+      if (alignment === 'center') return { ...o, x: 50 };
+      if (alignment === 'middle') return { ...o, y: 50 };
+      return o;
+    });
+    debouncedRender({ ...editingCanvas, overlays: newOverlays });
+  };
+
   // ── Debounced render helper ───────────────────────────────────────────────
   const debouncedRender = useCallback((updated: CanvasItem) => {
     setEditingCanvas(updated);
@@ -388,6 +403,7 @@ export function CanvasEditorModal({
         selectedLayer={selectedLayer}
         setSelectedLayer={setSelectedLayer}
         handleAlign={handleAlign}
+        handleOverlayAlign={handleOverlayAlign}
         handleUpdateTransform={handleUpdateTransform}
         handleSaveChanges={handleSaveChanges}
         getFileUrl={getFileUrl}

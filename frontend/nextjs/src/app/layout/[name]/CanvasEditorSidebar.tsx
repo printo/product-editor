@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, Hexagon, RotateCw } from 'lucide-react';
+import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, Hexagon, RotateCw, AlignCenterHorizontal, AlignCenterVertical } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { ShapesPicker } from './ShapesPicker';
 import { IconBrowser } from './IconBrowser';
+import { AlignmentToolbar } from './AlignmentToolbar';
 import type { CanvasItem, FitMode, Overlay, TextOverlay, ShapeOverlay, ImageOverlay } from './types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ export interface CanvasEditorSidebarProps {
   selectedLayer: LayerSelection;
   setSelectedLayer: React.Dispatch<React.SetStateAction<LayerSelection>>;
   handleAlign: (fIdx: number, alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+  handleOverlayAlign: (oIdx: number, alignment: 'center' | 'middle') => void;
   handleUpdateTransform: (fIdx: number, updates: Partial<{ scale: number; x: number; y: number; rotation: number }>) => void;
   handleSaveChanges: () => void;
   getFileUrl: (file: File | string | null) => string;
@@ -114,6 +116,7 @@ export function CanvasEditorSidebar({
   selectedLayer,
   setSelectedLayer,
   handleAlign,
+  handleOverlayAlign,
   handleUpdateTransform,
   handleSaveChanges,
   getFileUrl,
@@ -203,6 +206,15 @@ export function CanvasEditorSidebar({
                 value={frame.rotation || 0}
                 onChange={v => handleUpdateTransform(fIdx, { rotation: v })}
               />
+
+              {/* Position / Alignment */}
+              <div className="space-y-3 pt-4 border-t border-slate-50">
+                <label className="text-[11px] font-medium text-slate-500 uppercase">Photo Alignment</label>
+                <AlignmentToolbar 
+                  onHAlign={v => handleAlign(fIdx, v as any)}
+                  onVAlign={v => handleAlign(fIdx, v as any)}
+                />
+              </div>
 
               {/* Zoom */}
               <ScaleControl label="Zoom" width={frame.scale * 100} height={100}
@@ -346,9 +358,21 @@ export function CanvasEditorSidebar({
                           placeholder="Type your message…" />
                       </div>
 
-                      <div className="pt-6 border-t border-slate-100">
+                      <div className="pt-6 border-t border-slate-100 space-y-4">
                         <RotationControl value={overlay.rotation || 0}
                           onChange={v => updateOverlay({ rotation: v })} />
+                        
+                        <div className="space-y-3">
+                          <label className="text-[11px] font-medium text-slate-500 uppercase">Center on Canvas</label>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => handleOverlayAlign(oIdx, 'center')} className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl text-[10px] font-bold text-slate-600 uppercase transition-all">
+                              <AlignCenterHorizontal className="w-3.5 h-3.5" /> Center H
+                            </button>
+                            <button onClick={() => handleOverlayAlign(oIdx, 'middle')} className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl text-[10px] font-bold text-slate-600 uppercase transition-all">
+                              <AlignCenterVertical className="w-3.5 h-3.5" /> Center V
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -437,6 +461,18 @@ export function CanvasEditorSidebar({
                         onChange={v => updateShape({ rotation: v })} />
                       <ScaleControl width={shape.width} height={shape.height}
                         onScale={(w, h) => updateShape({ width: w, height: h })} />
+                      
+                      <div className="space-y-3">
+                        <label className="text-[11px] font-medium text-slate-500 uppercase">Center on Canvas</label>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => handleOverlayAlign(oIdx, 'center')} className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl text-[10px] font-bold text-slate-600 uppercase transition-all">
+                            <AlignCenterHorizontal className="w-3.5 h-3.5" /> Center H
+                          </button>
+                          <button onClick={() => handleOverlayAlign(oIdx, 'middle')} className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl text-[10px] font-bold text-slate-600 uppercase transition-all">
+                            <AlignCenterVertical className="w-3.5 h-3.5" /> Center V
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );

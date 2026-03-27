@@ -1,67 +1,95 @@
 'use client';
 
 import React from 'react';
-import { normalizeLayout, getSurface } from '@/lib/layout-utils';
 
 interface LayoutSVGProps {
   layout: any;
   className?: string;
-  showFrames?: boolean;
-  /** For multi-surface layouts, render only this surface. Defaults to first surface. */
   surfaceKey?: string;
+  maskUrl?: string;
 }
 
-export const LayoutSVG: React.FC<LayoutSVGProps> = ({
-  layout,
-  className = "max-w-full max-h-full drop-shadow-md bg-white",
-  showFrames = true,
-  surfaceKey,
-}) => {
+export const LayoutSVG = ({ layout, className = "w-full h-full", surfaceKey, maskUrl: maskUrlProp }: LayoutSVGProps) => {
   if (!layout) return null;
 
-  const normalized = normalizeLayout(layout);
-  const surface = getSurface(normalized, surfaceKey);
-  if (!surface) return null;
+  // Handle multi-surface vs single surface layouts
+  const activeSurface = surfaceKey && layout.surfaces 
+    ? layout.surfaces.find((s: any) => s.key === surfaceKey)
+    : layout;
 
-  const w = Math.max(surface.canvas?.width || 1200, 1);
-  const h = Math.max(surface.canvas?.height || 1800, 1);
-  const frames = surface.frames || [];
+  const canvas = activeSurface.canvas || layout.canvas || { width: 1200, height: 1800, widthMm: 101.6, heightMm: 152.4 };
+  const frames = activeSurface.frames || layout.frames || [];
+  const borderRadiusMm = layout.borderRadiusMm || 0; 
+  const maskUrl = maskUrlProp || activeSurface.maskUrl || layout.maskUrl;
+
+  const viewBox = `0 0 ${canvas.width} ${canvas.height}`;
+  const dpi = canvas.dpi || 300;
+  const mmToPx = (mm: number) => (mm / 25.4) * dpi;
+  const borderRadiusPx = mmToPx(borderRadiusMm);
 
   return (
-    <svg
-      viewBox={`0 0 ${w} ${h}`}
-      className={className}
-      preserveAspectRatio="xMidYMid meet"
-    >
-      <rect width={w} height={h} fill="white" />
-      {showFrames && frames.map((f: any, i: number) => {
-        const isPercent = (f.width <= 1 && f.height <= 1);
-        const rectX = isPercent ? f.x * w : f.x;
-        const rectY = isPercent ? f.y * h : f.y;
-        const rectW = isPercent ? f.width * w : f.width;
-        const rectH = isPercent ? f.height * h : f.height;
+    <svg viewBox={viewBox} className={className} xmlns="http://www.w3.org/2000/svg">
+      {/* Background with optional rounded corners */}
+      <rect 
+        x="0" y="0" 
+        width={canvas.width} height={canvas.height} 
+        fill="white" 
+        rx={borderRadiusPx} ry={borderRadiusPx}
+      />
+      
+      {/* Render Frames (Print Areas) */}
+      {frames.map((frame: any, i: number) => {
+        const x = frame.x * canvas.width;
+        const y = frame.y * canvas.height;
+        const w = frame.width * canvas.width;
+        const h = frame.height * canvas.height;
+        const bleedMm = Number(frame.bleedMm || 0);
+        const bleedPx = mmToPx(bleedMm);
+        const frameRadiusMm = frame.borderRadiusMm || borderRadiusMm;
+        const frameRadiusPx = mmToPx(frameRadiusMm);
 
         return (
-          <rect
-            key={i}
-            x={rectX}
-            y={rectY}
-            width={rectW}
-            height={rectH}
-            fill="#e2e8f0"
-            stroke="#94a3b8"
-            strokeWidth={Math.max(w, h) * 0.005}
-          />
+          <g key={i}>
+            {/* Bleed Area (Dashed Line) */}
+            {bleedMm > 0 && (
+              <rect
+                x={x}
+                y={y}
+                width={w}
+                height={h}
+                fill="none"
+                stroke="#6366f1"
+                strokeWidth="1"
+                strokeDasharray="4 2"
+                opacity="0.3"
+                rx={frameRadiusPx} ry={frameRadiusPx}
+              />
+            )}
+            {/* Print Area */}
+            <rect
+              x={x + bleedPx}
+              y={y + bleedPx}
+              width={w - bleedPx * 2}
+              height={h - bleedPx * 2}
+              fill="#f1f5f9"
+              stroke="#cbd5e1"
+              strokeWidth="1"
+              rx={frameRadiusPx} ry={frameRadiusPx}
+            />
+          </g>
         );
       })}
-      {surface.maskUrl && (
+
+      {/* Mask Overlay */}
+      {maskUrl && (
         <image
-          href={surface.maskUrl}
+          href={maskUrl}
           x="0"
           y="0"
-          width={w}
-          height={h}
+          width={canvas.width}
+          height={canvas.height}
           preserveAspectRatio="none"
+          style={{ pointerEvents: 'none' }}
         />
       )}
     </svg>

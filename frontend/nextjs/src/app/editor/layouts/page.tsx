@@ -17,6 +17,11 @@ import {
   Edit2,
   Copy,
   Type,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  AlignCenter,
+  AlignJustify,
 } from 'lucide-react';
 import { LayoutSVG } from '@/components/LayoutSVG';
 import { SearchInput } from '@/components/ui/SearchInput';
@@ -34,6 +39,7 @@ interface LayoutFrame {
   widthMm?: number | string; // Print Area Width
   heightMm?: number | string; // Print Area Height
   bleedMm?: number | string; // Margin for Bleed
+  borderRadiusMm?: number | string; // Corner Radius
 }
 
 interface LayoutConfig {
@@ -111,14 +117,67 @@ export default function LayoutCreatorPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const [dpi, setDpi] = useState(300);
-  const [widthMm, setWidthMm] = useState(101.6); // 4 inches
-  const [heightMm, setHeightMm] = useState(152.4); // 6 inches
-
-  // Removed global printable area state in favor of per-area (frame) definitions
+  const [widthMm, setWidthMm] = useState(101.6);
+  const [heightMm, setHeightMm] = useState(152.4);
+  const [borderRadiusMm, setBorderRadiusMm] = useState(0);
 
   // Custom frames
   const [frames, setFrames] = useState<LayoutFrame[]>([]);
+
+  // Mask State
+  const [maskFile, setMaskFile] = useState<File | null>(null);
+  const [maskUrl, setMaskUrl] = useState<string | null>(null);
+  const [maskOnExport, setMaskOnExport] = useState(false);
+  const maskInputRef = useRef<HTMLInputElement>(null);
+  const [originalLayoutName, setOriginalLayoutName] = useState<string | null>(null);
+
+  // Multi-surface state
+  const [layoutType, setLayoutType] = useState<'single' | 'product'>('single');
+  const [surfaces, setSurfaces] = useState<SurfaceEditorState[]>([]);
+  const [activeSurfaceIdx, setActiveSurfaceIdx] = useState(0);
+
+  // Use a debounced layout for the preview to avoid crashes during typing
+  const [debouncedLayout, setDebouncedLayout] = useState<any>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const canvasW = mmToPx(widthMm, dpi);
+      const canvasH = mmToPx(heightMm, dpi);
+      const internalId = layoutName.toLowerCase().replace(/\s+/g, '_');
+      
+      const layoutData = {
+        name: internalId,
+        type: layoutType,
+        borderRadiusMm,
+        canvas: {
+          width: canvasW,
+          height: canvasH,
+          widthMm: round2(widthMm),
+          heightMm: round2(heightMm),
+          dpi,
+        },
+        frames: layoutType === 'product' 
+          ? surfaces.map(s => _mapFrames(s.frames, s.widthMm, s.heightMm, s.dpi))
+          : _mapFrames(frames, widthMm, heightMm, dpi),
+        surfaces: layoutType === 'product' ? surfaces.map(s => ({
+          ...s,
+          canvas: {
+            width: mmToPx(s.widthMm, s.dpi),
+            height: mmToPx(s.heightMm, s.dpi),
+            widthMm: round2(s.widthMm),
+            heightMm: round2(s.heightMm),
+            dpi: s.dpi,
+          },
+          frames: _mapFrames(s.frames, s.widthMm, s.heightMm, s.dpi)
+        })) : undefined
+      };
+      setDebouncedLayout(layoutData);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [widthMm, heightMm, dpi, frames, surfaces, layoutType, borderRadiusMm, layoutName]);
+
   const [snapGrid, setSnapGrid] = useState(true);
+  const [zoom, setZoom] = useState(1);
 
   // Grid generator helper state
   const [rows, setRows] = useState(2);
@@ -139,18 +198,6 @@ export default function LayoutCreatorPage() {
     }
     return () => { document.body.style.overflow = 'auto'; };
   }, [isModalOpen]);
-
-  // Mask State
-  const [maskFile, setMaskFile] = useState<File | null>(null);
-  const [maskUrl, setMaskUrl] = useState<string | null>(null);
-  const [maskOnExport, setMaskOnExport] = useState(false);
-  const maskInputRef = useRef<HTMLInputElement>(null);
-  const [originalLayoutName, setOriginalLayoutName] = useState<string | null>(null);
-
-  // Multi-surface state
-  const [layoutType, setLayoutType] = useState<'single' | 'product'>('single');
-  const [surfaces, setSurfaces] = useState<SurfaceEditorState[]>([]);
-  const [activeSurfaceIdx, setActiveSurfaceIdx] = useState(0);
 
   const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
   const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
@@ -370,13 +417,14 @@ export default function LayoutCreatorPage() {
       const yMm = round2(Number(f.yMm || 0));
       const wMm = round2(Number(f.widthMm || 0));
       const hMm = round2(Number(f.heightMm || 0));
+      const radiusMm = round2(Number(f.borderRadiusMm || 0));
       const pxX = mmToPx(xMm - bleed, dpiVal);
       const pxY = mmToPx(yMm - bleed, dpiVal);
       const pxW = mmToPx(wMm + (bleed * 2), dpiVal);
       const pxH = mmToPx(hMm + (bleed * 2), dpiVal);
       return {
         ...f,
-        xMm, yMm, widthMm: wMm, heightMm: hMm, bleedMm: bleed,
+        xMm, yMm, widthMm: wMm, heightMm: hMm, bleedMm: bleed, borderRadiusMm: radiusMm,
         x: pxX / canvasW,
         y: pxY / canvasH,
         width: pxW / canvasW,
@@ -726,22 +774,22 @@ export default function LayoutCreatorPage() {
       let msg = "";
 
       if (round2(xVal - bleed) < 0) {
-        msg = "Area #"+(prev.indexOf(f)+1)+": Out of bounds (Left)";
+        msg = `Area #${prev.indexOf(f) + 1}: Out of bounds (Left). Move it further right or reduce Bleed.`;
         hasError = true;
       } else if (round2(wVal + (bleed * 2)) > cW) {
-        msg = "Area #"+(prev.indexOf(f)+1)+": Exceeds canvas width";
+        msg = `Area #${prev.indexOf(f) + 1}: Total width (including bleed) exceeds canvas width. Reduce Width or Bleed.`;
         hasError = true;
       } else if (round2(xVal + wVal + bleed) > cW) {
-        msg = "Area #"+(prev.indexOf(f)+1)+": Out of bounds (Right)";
+        msg = `Area #${prev.indexOf(f) + 1}: Out of bounds (Right). Move it left or reduce Width/Bleed.`;
         hasError = true;
       } else if (round2(yVal - bleed) < 0) {
-        msg = "Area #"+(prev.indexOf(f)+1)+": Out of bounds (Top)";
+        msg = `Area #${prev.indexOf(f) + 1}: Out of bounds (Top). Move it down or reduce Bleed.`;
         hasError = true;
       } else if (round2(hVal + (bleed * 2)) > cH) {
-        msg = "Area #"+(prev.indexOf(f)+1)+": Exceeds canvas height";
+        msg = `Area #${prev.indexOf(f) + 1}: Total height (including bleed) exceeds canvas height. Reduce Height or Bleed.`;
         hasError = true;
       } else if (round2(yVal + hVal + bleed) > cH) {
-        msg = "Area #"+(prev.indexOf(f)+1)+": Out of bounds (Bottom)";
+        msg = `Area #${prev.indexOf(f) + 1}: Out of bounds (Bottom). Move it up or reduce Height/Bleed.`;
         hasError = true;
       }
 
@@ -751,6 +799,23 @@ export default function LayoutCreatorPage() {
       }
 
       return newFrame;
+    }));
+  };
+
+  const centerFrame = (id: string, axis: 'h' | 'v') => {
+    const cW = activeWidthMm;
+    const cH = activeHeightMm;
+    setActiveFrames(prev => prev.map(f => {
+      if (f.id !== id) return f;
+      const w = Number(f.widthMm || 0);
+      const h = Number(f.heightMm || 0);
+      const bleed = Number(f.bleedMm || 0);
+      
+      if (axis === 'h') {
+        return { ...f, xMm: round2((cW - w) / 2) };
+      } else {
+        return { ...f, yMm: round2((cH - h) / 2) };
+      }
     }));
   };
 
@@ -927,31 +992,32 @@ export default function LayoutCreatorPage() {
 
                   {/* Basic Info & Canvas */}
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Layout Name</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Classic Print 4x6"
-                        value={layoutName}
-                        onChange={(e) => setLayoutName(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-slate-900"
-                      />
-                      {layoutName && <p className="text-xs text-slate-400 mt-1.5 font-mono">ID: {internalId}</p>}
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Primary Tag</label>
-                      <select
-                        value={tags}
-                        onChange={(e) => setTags(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-slate-900 bg-white"
-                      >
-                        <option value="">Select a Tag...</option>
-                        {AVAILABLE_TAGS.map(t => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Layout Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Classic Print 4x6"
+                          value={layoutName}
+                          onChange={(e) => setLayoutName(e.target.value)}
+                          className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-slate-900"
+                        />
+                        {layoutName && <p className="text-xs text-slate-400 mt-1.5 font-mono">ID: {internalId}</p>}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Primary Tag</label>
+                        <select
+                          value={tags}
+                          onChange={(e) => setTags(e.target.value)}
+                          className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-slate-900 bg-white"
+                        >
+                          <option value="">Select a Tag...</option>
+                          {AVAILABLE_TAGS.map(t => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
 
                     {/* Layout Type Toggle */}
@@ -1070,59 +1136,78 @@ export default function LayoutCreatorPage() {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Canvas Dimensions</h4>
+                      <div className="text-[10px] text-indigo-600 bg-indigo-50/50 px-2 py-1 rounded-md font-black uppercase tracking-tight inline-block border border-indigo-100/50">
+                        Final Pixels: {Math.round(mmToPx(activeWidthMm, activeDpi))} x {Math.round(mmToPx(activeHeightMm, activeDpi))} px
+                      </div>
+                      <label className="flex items-center text-xs font-medium text-slate-600 gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={snapGrid} onChange={(e) => setSnapGrid(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                        Snap to Grid
+                      </label>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Width (mm)</label>
-                        <input
-                          type="number" step="0.01" min="0" required
-                          value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].widthMm : widthMm}
-                          onChange={(e) => {
-                            const v = round2(Number(e.target.value));
-                            if (layoutType === 'product') {
-                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, widthMm: v } : s));
-                            } else {
-                              setWidthMm(v);
-                            }
-                          }}
-                          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-500"
-                        />
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Width (mm)</label>
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                          <input 
+                            type="number" step="0.01" min="0" required
+                            value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].widthMm : widthMm}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (layoutType === 'product') {
+                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, widthMm: v } : s));
+                              } else {
+                                setWidthMm(v);
+                              }
+                            }}
+                            className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
+                          />
+                          <span className="text-[9px] font-black text-slate-300 uppercase">mm</span>
+                        </div>
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Height (mm)</label>
-                        <input
-                          type="number" step="0.01" min="0" required
-                          value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].heightMm : heightMm}
-                          onChange={(e) => {
-                            const v = round2(Number(e.target.value));
-                            if (layoutType === 'product') {
-                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, heightMm: v } : s));
-                            } else {
-                              setHeightMm(v);
-                            }
-                          }}
-                          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-500"
-                        />
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Height (mm)</label>
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                          <input 
+                            type="number" step="0.01" min="0" required
+                            value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].heightMm : heightMm}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (layoutType === 'product') {
+                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, heightMm: v } : s));
+                              } else {
+                                setHeightMm(v);
+                              }
+                            }}
+                            className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
+                          />
+                          <span className="text-[9px] font-black text-slate-300 uppercase">mm</span>
+                        </div>
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Resol. (DPI)</label>
-                        <input
-                          type="number" min="300" required
-                          value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].dpi : dpi}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            if (layoutType === 'product') {
-                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, dpi: v } : s));
-                            } else {
-                              setDpi(v);
-                            }
-                          }}
-                          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-indigo-500"
-                        />
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">DPI</label>
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                          <input 
+                            type="number" min="300" required
+                            value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].dpi : dpi}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (layoutType === 'product') {
+                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, dpi: v } : s));
+                              } else {
+                                setDpi(v);
+                              }
+                            }}
+                            className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
+                          />
+                          <span className="text-[9px] font-black text-slate-300 uppercase">dpi</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="text-xs text-indigo-600 bg-indigo-50 px-3 py-2 rounded-lg font-medium inline-block">
-                      Final Canvas Size: {Math.round(mmToPx(activeWidthMm, activeDpi))} x {Math.round(mmToPx(activeHeightMm, activeDpi))} px
-                    </div>
+                  </div>
                   </div>
 
                   {/* Masking Support */}
@@ -1202,10 +1287,6 @@ export default function LayoutCreatorPage() {
                     <div className="flex items-center justify-between">
                       <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider focus:outline-none">Print Areas Management (mm)</label>
                       <div className="flex items-center gap-4">
-                        <label className="flex items-center text-xs font-medium text-slate-600 gap-1.5 cursor-pointer">
-                          <input type="checkbox" checked={snapGrid} onChange={(e) => setSnapGrid(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                          Snap Grid
-                        </label>
                         <button type="button" onClick={() => setShowGridGen(!showGridGen)} className="text-xs text-slate-500 hover:text-indigo-600 font-semibold transition-colors">Grid Gen</button>
                         <button type="button" onClick={() => setActiveFrames(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), xMm: 0, yMm: 0, widthMm: 50, heightMm: 50, bleedMm: 0, x: 0, y: 0, width: 0, height: 0 }])} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Area</button>
                       </div>
@@ -1227,14 +1308,14 @@ export default function LayoutCreatorPage() {
                       </div>
                     )}
 
-                    <div className="flex items-center gap-2 px-2 pb-1 border-b border-slate-100">
-                      <span className="w-6"></span>
-                      <label className="w-full text-[10px] font-bold text-slate-400 uppercase">X</label>
-                      <label className="w-full text-[10px] font-bold text-slate-400 uppercase">Y</label>
-                      <label className="w-full text-[10px] font-bold text-slate-400 uppercase">W</label>
-                      <label className="w-full text-[10px] font-bold text-slate-400 uppercase">H</label>
-                      <label className="w-16 text-[10px] font-bold text-rose-400 uppercase">Bleed</label>
-                      <span className="p-1.5 w-6 md:opacity-0"></span>
+                    <div className="flex items-center gap-2 px-2 pb-1 border-b border-slate-100 pr-24">
+                      <span className="w-6 shrink-0"></span>
+                      <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">X</label></div>
+                      <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">Y</label></div>
+                      <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">W</label></div>
+                      <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">H</label></div>
+                      <div className="w-16 shrink-0"><label className="text-[10px] font-bold text-slate-500 uppercase text-center block">Bleed</label></div>
+                      <div className="w-16 shrink-0"><label className="text-[10px] font-bold text-teal-500 uppercase text-center block">Corner</label></div>
                     </div>
 
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
@@ -1242,13 +1323,18 @@ export default function LayoutCreatorPage() {
                         <div className="text-center py-6 text-sm text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">No print areas added yet. Use Grid Gen or Add Area.</div>
                       ) : activeFrames.map((f, i) => (
                         <div key={f.id} className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100 group">
-                          <span className="w-6 text-center text-xs font-bold text-slate-400">#{i + 1}</span>
-                          <input type="number" min="0" step="0.01" value={f.xMm} onChange={e => updateFrame(f.id!, 'xMm', e.target.value)} className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="X (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.yMm} onChange={e => updateFrame(f.id!, 'yMm', e.target.value)} className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="Y (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.widthMm} onChange={e => updateFrame(f.id!, 'widthMm', e.target.value)} className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="W (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.heightMm} onChange={e => updateFrame(f.id!, 'heightMm', e.target.value)} className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="H (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.bleedMm} onChange={e => updateFrame(f.id!, 'bleedMm', e.target.value)} className="w-16 px-2 py-1.5 text-xs rounded border border-rose-100 bg-rose-50 text-rose-600 font-bold" title="Bleed (mm)" />
-                          <button type="button" onClick={() => setActiveFrames(prev => prev.filter(fr => fr.id !== f.id))} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded md:opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <span className="w-6 shrink-0 text-center text-xs font-bold text-slate-400">#{i + 1}</span>
+                          <input type="number" min="0" step="0.01" value={f.xMm} onChange={e => updateFrame(f.id!, 'xMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="X (mm)" />
+                          <input type="number" min="0" step="0.01" value={f.yMm} onChange={e => updateFrame(f.id!, 'yMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="Y (mm)" />
+                          <input type="number" min="0" step="0.01" value={f.widthMm} onChange={e => updateFrame(f.id!, 'widthMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="W (mm)" />
+                          <input type="number" min="0" step="0.01" value={f.heightMm} onChange={e => updateFrame(f.id!, 'heightMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="H (mm)" />
+                          <input type="number" min="0" step="0.01" value={f.bleedMm ?? 0} onChange={e => updateFrame(f.id!, 'bleedMm', e.target.value)} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title="Bleed (mm)" />
+                          <input type="number" min="0" step="0.01" value={f.borderRadiusMm ?? 0} onChange={e => updateFrame(f.id!, 'borderRadiusMm', e.target.value)} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-teal-100 bg-teal-50 text-teal-600 font-bold" title="Corner Radius (mm)" />
+                          <div className="flex items-center gap-1 shrink-0 md:opacity-0 group-hover:opacity-100 transition-all">
+                            <button type="button" onClick={() => centerFrame(f.id!, 'h')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Horizontally"><AlignCenter className="w-3.5 h-3.5" /></button>
+                            <button type="button" onClick={() => centerFrame(f.id!, 'v')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Vertically"><AlignJustify className="w-3.5 h-3.5" /></button>
+                            <button type="button" onClick={() => setActiveFrames(prev => prev.filter(fr => fr.id !== f.id))} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded" title="Delete Area"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1259,8 +1345,14 @@ export default function LayoutCreatorPage() {
                 {/* Right Column: Live Preview (Fixed Viewport) */}
                 <div className="lg:col-span-5 h-full bg-slate-50 border-l border-slate-200">
                   <div className="h-full flex flex-col overflow-hidden">
-                    <div className="p-3 border-b border-slate-100 bg-white shrink-0">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Live Preview (To Scale)</label>
+                    <div className="p-3 border-b border-slate-100 bg-white shrink-0 flex items-center justify-between">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Preview (To Scale)</label>
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => setZoom(z => Math.max(0.1, z - 0.1))} className="p-1 text-slate-400 hover:bg-slate-100 rounded"><ZoomOut className="w-3.5 h-3.5" /></button>
+                        <span className="text-[10px] font-bold text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
+                        <button type="button" onClick={() => setZoom(z => Math.min(3, z + 0.1))} className="p-1 text-slate-400 hover:bg-slate-100 rounded"><ZoomIn className="w-3.5 h-3.5" /></button>
+                        <button type="button" onClick={() => setZoom(1)} className="p-1 text-slate-400 hover:bg-slate-100 rounded"><Maximize2 className="w-3.5 h-3.5" /></button>
+                      </div>
                     </div>
                     <div className="flex-1 relative flex items-center justify-center overflow-hidden">
                       <div className="absolute inset-0 flex items-center justify-center">
@@ -1275,6 +1367,7 @@ export default function LayoutCreatorPage() {
                           onFramesChange={setActiveFrames}
                           onFrameSelect={setSelectedFrameId}
                           selectedFrameId={selectedFrameId}
+                          zoom={zoom}
                         />
                       </div>
                     </div>

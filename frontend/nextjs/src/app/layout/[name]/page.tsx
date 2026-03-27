@@ -13,7 +13,7 @@ import { useHeader } from '@/context/HeaderContext';
 import {
   Upload, Loader2, CheckCircle2, X,
   Archive, FileText, Layout,
-  SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight,
+  SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/lib/zip-utils';
@@ -407,10 +407,28 @@ export default function LayoutEditorPage() {
  
    const handleQuickSetBg = (idx: number, color: string, surfaceKey: string | null = null) => {
      updateCanvasState(idx, surfaceKey, (c) => ({
-       ...c,
-       bgColor: color
-     }));
-   };
+      ...c,
+      bgColor: color
+    }));
+  };
+
+  const handleQuickDelete = (idx: number, surfaceKey: string | null = null) => {
+    if (window.confirm('Are you sure you want to remove this image?')) {
+      if (surfaceKey) {
+        const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
+        if (sIdx === -1) return;
+        setSurfaceStates(prev => prev.map((s, i) =>
+          i === sIdx ? { ...s, files: [], canvases: [] } : s
+        ));
+        if (surfaceKey === activeSurfaceKey) {
+          setFiles([]);
+          setCanvases([]);
+        }
+      } else {
+        setFiles(prev => prev.filter((_, i) => i !== idx));
+      }
+    }
+  };
 
   const handleQuickDownload = (idx: number, surfaceKey: string | null = null) => {
     const targetCanvases = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.canvases : canvases;
@@ -534,11 +552,6 @@ export default function LayoutEditorPage() {
       for (const item of sheet.items) {
         if (aborted) return;
         const [px, py, iw, ih] = [item.x * scale, item.y * scale, item.w * scale, item.h * scale];
-        fc.add(new FabricRect({
-          left: px, top: py, width: iw, height: ih,
-          fill: '#eef2ff', stroke: '#a5b4fc', strokeWidth: 1,
-          selectable: false, evented: false,
-        }));
         const c = allCanvases[item.canvasIdx];
         if (c?.dataUrl) {
           try {
@@ -839,6 +852,9 @@ export default function LayoutEditorPage() {
                                <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
                                  <Download className="w-3.5 h-3.5" />
                                </button>
+                               <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Delete">
+                                 <Trash2 className="w-3.5 h-3.5" />
+                               </button>
                              </div>
                           </div>
                           <div className="px-3 py-2 flex items-center justify-between bg-white border-t border-slate-50">
@@ -878,10 +894,22 @@ export default function LayoutEditorPage() {
                           <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(idx); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
                             <Download className="w-3.5 h-3.5" />
                           </button>
+                          <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(idx); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Delete">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
-                      <div className="p-3 flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-tight">Canvas {idx + 1}</span>
+                      <div className="p-3">
+                        <h3 className="font-black text-slate-900 uppercase tracking-tight truncate group-hover:text-indigo-600 transition-colors">
+                          Canvas {idx + 1}
+                        </h3>
+                        {layout.dimensions && (
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
+                            <span>{layout.dimensions}</span>
+                            <span>•</span>
+                            <span>{layout.frames?.length || 0} Frames</span>
+                          </p>
+                        )}
                       </div>
                     </div>
                   ))}
