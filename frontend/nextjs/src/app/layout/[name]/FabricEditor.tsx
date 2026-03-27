@@ -97,6 +97,7 @@ function applyOverlayToObject(
     const sy = (overlay.y / 100) * canvasH;
     const sw = (overlay.width / 100) * canvasW;
     const sh = (overlay.height / 100) * canvasH;
+    console.log('Shape Overlay Calculation (In-place Update):', { overlay, sx, sy, sw, sh });
     const def = getShapeDef(overlay.shapeType);
     if (def?.fabricType === 'circle') {
       const radius = Math.min(sw, sh) / 2;
