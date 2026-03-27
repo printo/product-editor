@@ -114,9 +114,12 @@ function applyOverlayToObject(
       angle: overlay.rotation || 0,
     });
   } else if (overlay.type === 'image') {
+    const left = (overlay.x / 100) * canvasW;
+    const top = (overlay.y / 100) * canvasH;
+    console.log('Image Overlay Calculation (In-place Update):', { overlay, left, top });
     obj.set({
-      left: (overlay.x / 100) * canvasW,
-      top: (overlay.y / 100) * canvasH,
+      left,
+      top,
       angle: overlay.rotation || 0,
       opacity: overlay.opacity ?? 1,
     });
@@ -200,6 +203,19 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       }
 
       const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
+
+      console.log('Paper Path Calculation:', {
+        frameSpec,
+        isTransforming,
+        isPercent,
+        fx,
+        fy,
+        fw,
+        fh,
+        fr,
+        bleed,
+      });
+
       if (fr > 0) {
         // Punched-out rounded rect (A command for arcs)
         path += ` M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} L ${fx} ${fy + fh - fr} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} L ${fx + fw - fr} ${fy + fh} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} L ${fx + fw} ${fy + fr} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
@@ -438,6 +454,18 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const imgX = clip.fx + (clip.fw - imgW * scale) / 2 + frameState.offset.x;
         const imgY = clip.fy + (clip.fh - imgH * scale) / 2 + frameState.offset.y;
 
+        console.log('Frame Image Calculation (In-place Update):', {
+          frameState,
+          clip,
+          imgW,
+          imgH,
+          scale,
+          imgX,
+          imgY,
+          left: imgX + (imgW * scale) / 2,
+          top: imgY + (imgH * scale) / 2,
+        });
+
         img.set({
           left: imgX + (imgW * scale) / 2,
           top: imgY + (imgH * scale) / 2,
@@ -512,6 +540,22 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const bleedPx = bleed * pxPerMm;
       const frMm = Number(frameSpec.borderRadiusMm || 0);
       const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
+
+      console.log('Bleed Zone Calculation:', {
+        frameSpec,
+        canvasW,
+        canvasH,
+        isPercent,
+        fx,
+        fy,
+        fw,
+        fh,
+        bleed,
+        pxPerMm,
+        bleedPx,
+        fr,
+      });
+
       const br = new Rect({
         left: fx - bleedPx, top: fy - bleedPx, width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
         fill: 'transparent', stroke: '#f43f5e', strokeWidth: 1.5, strokeDashArray: [8, 5],
@@ -592,8 +636,11 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const loadOverlayPromises = editingCanvas.overlays.map(async (overlay, oIdx) => {
       let fabricObj: FabricObject | null = null;
       if (overlay.type === 'text') {
+        const left = (overlay.x / 100) * canvasW;
+        const top = (overlay.y / 100) * canvasH;
+        console.log('Text Overlay Calculation (Full Rebuild):', { overlay, left, top });
         fabricObj = new Textbox(overlay.text, {
-          left: (overlay.x / 100) * canvasW, top: (overlay.y / 100) * canvasH,
+          left, top,
           originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
           originY: 'center', fontSize: overlay.fontSize, fill: overlay.color || '#000000',
           fontFamily: overlay.fontFamily || 'sans-serif', textAlign: (overlay.textAlign || 'center') as any,
@@ -604,13 +651,19 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         (fabricObj as any)[DATA_KEY] = 'text';
       } else if (overlay.type === 'shape') {
         fabricObj = makeShapeObject(overlay as any, canvasW, canvasH);
-        if (fabricObj) (fabricObj as any)[DATA_KEY] = 'shape';
+        if (fabricObj) {
+          console.log('Shape Overlay Calculation (Full Rebuild):', { overlay, fabricObj });
+          (fabricObj as any)[DATA_KEY] = 'shape';
+        }
       } else if (overlay.type === 'image') {
         try {
           const img = await FabricImage.fromURL(overlay.src, { crossOrigin: 'anonymous' });
           if (buildGenRef.current !== gen) return;
+          const left = (overlay.x / 100) * canvasW;
+          const top = (overlay.y / 100) * canvasH;
+          console.log('Image Overlay Calculation (Full Rebuild):', { overlay, left, top });
           img.set({
-            left: (overlay.x / 100) * canvasW, top: (overlay.y / 100) * canvasH,
+            left, top,
             originX: 'left', originY: 'top', scaleX: ((overlay.width / 100) * canvasW) / (img.width || 1), scaleY: ((overlay.height / 100) * canvasH) / (img.height || 1),
             angle: overlay.rotation || 0, opacity: overlay.opacity ?? 1,
             cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#10b981',
