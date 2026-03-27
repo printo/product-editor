@@ -11,7 +11,6 @@ import { getShapeDef } from '@/lib/shape-catalog';
 import {
   createShapeFromOverlay,
   centerCanvasViewport,
-  updateRelativeClipPath,
   createCenterGuides,
   createGridLines,
 } from '@/lib/fabric-utils';
@@ -164,20 +163,58 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   // TRUE during toDataURL export — suppresses selection:cleared so the active object is not lost
   const suppressSelectionEventsRef = useRef(false);
 
+  // Canvas logical dimensions (passed from surface or fallback)
+  const canvasW = canvasWidth || layout?.canvas?.width || (layout?.surfaces?.[0] as any)?.width || 1200;
+  const canvasH = canvasHeight || layout?.canvas?.height || (layout?.surfaces?.[0] as any)?.height || 1800;
+
   // Track structural state for smart rebuild vs in-place update
   const prevOverlayCountRef = useRef(-1);
   const prevFrameCountRef = useRef(-1);
   const prevOverlayTypesRef = useRef<string>('');
+  const prevIsTransformingRef = useRef(false);
+
+  // ✅ Helper to generate paper overlay path string (punched holes)
+  const getPaperPath = useCallback((isTransforming: boolean) => {
+    let path = `M 0 0 L ${canvasW} 0 L ${canvasW} ${canvasH} L 0 ${canvasH} Z`;
+    const frames = layout?.frames?.length > 0
+      ? layout.frames
+      : [{ x: 0, y: 0, width: canvasW, height: canvasH }];
+
+    frames.forEach((frameSpec: any) => {
+      const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+      let fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
+      let fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
+      let fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+      let fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+
+      const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
+      let frMm = Number(frameSpec.borderRadiusMm || 0);
+      const bleed = Number(frameSpec.bleedMm || 0);
+
+      // Smart clipping: expand hole to include bleed zone during transformation
+      if (isTransforming && bleed > 0) {
+        const bleedPx = bleed * pxPerMm;
+        fx -= bleedPx; fy -= bleedPx; fw += bleedPx * 2; fh += bleedPx * 2;
+        if (frMm > 0) frMm += bleed;
+      }
+
+      const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
+      if (fr > 0) {
+        // Punched-out rounded rect (A command for arcs)
+        path += ` M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} L ${fx} ${fy + fh - fr} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} L ${fx + fw - fr} ${fy + fh} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} L ${fx + fw} ${fy + fr} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
+      } else {
+        // Punched-out rect
+        path += ` M ${fx} ${fy} L ${fx} ${fy + fh} L ${fx + fw} ${fy + fh} L ${fx + fw} ${fy} Z`;
+      }
+    });
+    return path;
+  }, [canvasW, canvasH, layout]);
   
   // ✅ Stabilize callbacks with refs to prevent listener churn in useEffect
   const onCanvasChangeRef = useRef(onCanvasChange);
   const onLayerSelectRef = useRef(onLayerSelect);
   useEffect(() => { onCanvasChangeRef.current = onCanvasChange; }, [onCanvasChange]);
   useEffect(() => { onLayerSelectRef.current = onLayerSelect; }, [onLayerSelect]);
-
-  // Canvas logical dimensions (passed from surface or fallback)
-  const canvasW = canvasWidth || layout?.canvas?.width || (layout?.surfaces?.[0] as any)?.width || 1200;
-  const canvasH = canvasHeight || layout?.canvas?.height || (layout?.surfaces?.[0] as any)?.height || 1800;
 
   // ── Initialize Fabric canvas ──────────────────────────────────────────────
 
@@ -325,13 +362,39 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       currentFrameCount !== prevFrameCountRef.current ||
       currentTypeSig !== prevOverlayTypesRef.current;
 
+    const transformChanged = isTransforming !== prevIsTransformingRef.current;
+
     prevOverlayCountRef.current = currentOverlayCount;
     prevFrameCountRef.current = currentFrameCount;
     prevOverlayTypesRef.current = currentTypeSig;
+    prevIsTransformingRef.current = isTransforming;
 
     if (!needsFullRebuild) {
       // ── #3 In-place property update ─────────────
       const objs = fc.getObjects();
+
+      // ✅ Update paper overlay in-place if transform status changed
+      const paperObj = objs.find((o: any) => o[PAPER_KEY]) as Path;
+      if (paperObj) {
+        if (transformChanged || !paperObj.path) {
+          paperObj.set({ path: getPaperPath(isTransforming) });
+        }
+        paperObj.set({
+          fill: editingCanvas.paperColor || '#ffffff',
+          shadow: new Shadow({ color: 'rgba(0,0,0,0.1)', blur: 15, offsetX: 0, offsetY: 0 }),
+        });
+      }
+
+      // ✅ Update bleed zone visibility during transform
+      objs.forEach((o: any) => {
+        if (o[BLEED_KEY]) {
+          o.set({ visible: isTransforming, opacity: 0.8 });
+        }
+        if (o[SAFE_KEY]) {
+          o.set({ visible: true, opacity: isTransforming ? 0.4 : 0.8 });
+        }
+      });
+
       const overlayObjs = objs
         .filter((o: any) => typeof o.__overlayIdx === 'number')
         .sort((a: any, b: any) => a.__overlayIdx - b.__overlayIdx);
@@ -343,16 +406,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           obj.setCoords();
         }
       });
+
       const bgObj = objs.find((o: any) => o[BG_KEY]);
       if (bgObj) bgObj.set({ fill: editingCanvas.bgColor || '#ffffff' });
-      
-      const paperObj = objs.find((o: any) => o[PAPER_KEY]);
-      if (paperObj) {
-        paperObj.set({
-          fill: editingCanvas.paperColor || '#ffffff',
-          shadow: new Shadow({ color: 'rgba(0,0,0,0.1)', blur: 15, offsetX: 0, offsetY: 0 }),
-        });
-      }
 
       const frameObjs = objs
         .filter((o: any) => (o as any)[DATA_KEY] === 'frame')
@@ -420,18 +476,21 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const frameZStart = zIndex; 
     
     // ── Safe Areas ──────────────────────────
-    frames.forEach((frameSpec, frameIdx) => {
+    frames.forEach((frameSpec: any, frameIdx: number) => {
       const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
       const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
       const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
       const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
       const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-      const fr = Math.min(fw / 2, fh / 2, isPercent ? (frameSpec.borderRadiusMm || 0) * (canvasW / (layout?.canvas?.widthMm || 1)) : (frameSpec.borderRadiusMm || 0));
+      const frMm = Number(frameSpec.borderRadiusMm || 0);
+      const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
+      const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
 
       const sr = new Rect({
         left: fx, top: fy, width: fw, height: fh,
-        fill: 'transparent', stroke: '#06b6d4', strokeWidth: 1, strokeDashArray: [4, 3],
-        selectable: false, evented: false, opacity: 0.8, rx: fr, ry: fr,
+        fill: 'transparent', stroke: '#06b6d4', strokeWidth: 1.5, strokeDashArray: [6, 4],
+        selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.8, rx: fr, ry: fr,
+        strokeUniform: true,
       });
       (sr as any)[SAFE_KEY] = true;
       (sr as any).__frameIdx = frameIdx;
@@ -439,7 +498,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     });
 
     // ── Bleed Zones ──────────────────────────
-    frames.forEach((frameSpec, frameIdx) => {
+    frames.forEach((frameSpec: any, frameIdx: number) => {
       const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
       const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
       const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
@@ -447,12 +506,15 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
       const bleed = Number(frameSpec.bleedMm || 0);
       if (bleed <= 0) return;
-      const bleedPx = (bleed / (layout?.canvas?.widthMm || 1)) * canvasW;
-      const fr = Math.min(fw / 2, fh / 2, isPercent ? (frameSpec.borderRadiusMm || 0) * (canvasW / (layout?.canvas?.widthMm || 1)) : (frameSpec.borderRadiusMm || 0));
+      const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
+      const bleedPx = bleed * pxPerMm;
+      const frMm = Number(frameSpec.borderRadiusMm || 0);
+      const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
+
       const br = new Rect({
         left: fx - bleedPx, top: fy - bleedPx, width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
-        fill: 'transparent', stroke: '#f43f5e', strokeWidth: 1, strokeDashArray: [6, 4],
-        selectable: false, evented: false, opacity: 0.6,
+        fill: 'transparent', stroke: '#f43f5e', strokeWidth: 1.5, strokeDashArray: [8, 5],
+        selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
         rx: fr > 0 ? fr + bleedPx : 0, ry: fr > 0 ? fr + bleedPx : 0,
       });
       (br as any)[BLEED_KEY] = true;
@@ -514,29 +576,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const guidesCount = centerGuides.length + gridLines.length;
 
     // ── Paper Overlay ──
-    let paperPathStr = `M 0 0 L ${canvasW} 0 L ${canvasW} ${canvasH} L 0 ${canvasH} Z`;
-    frames.forEach((frameSpec) => {
-      const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-      let fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
-      let fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
-      let fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-      let fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-      let frMm = (frameSpec.borderRadiusMm || 0);
-      const bleed = Number(frameSpec.bleedMm || 0);
-      if (isTransforming && bleed > 0) {
-        const bleedPx = (bleed / (layout?.canvas?.widthMm || 1)) * canvasW;
-        fx -= bleedPx; fy -= bleedPx; fw += bleedPx * 2; fh += bleedPx * 2;
-        if (frMm > 0) frMm += bleed;
-      }
-      const fr = Math.min(fw / 2, fh / 2, isPercent ? frMm * (canvasW / (layout?.canvas?.widthMm || 1)) : frMm);
-      if (fr > 0) {
-        paperPathStr += ` M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} L ${fx} ${fy + fh - fr} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} L ${fx + fw - fr} ${fy + fh} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} L ${fx + fw} ${fy + fr} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
-      } else {
-        paperPathStr += ` M ${fx} ${fy} L ${fx} ${fy+fh} L ${fx+fw} ${fy+fh} L ${fx+fw} ${fy} Z`;
-      }
-    });
-
-    const paperOverlay = new Path(paperPathStr, {
+    const paperOverlay = new Path(getPaperPath(isTransforming), {
       left: 0, top: 0, originX: 'left', originY: 'top', fill: editingCanvas.paperColor || '#ffffff',
       selectable: false, evented: false, fillRule: 'evenodd',
       shadow: new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 })

@@ -47,11 +47,12 @@ export async function renderCanvas(
     if (!frameState) continue;
 
     const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-    const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
+      const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
       const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
       const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
       const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-      const fr = isPercent ? (frameSpec.borderRadiusMm || 0) * (canvasW / usedLayout.canvas?.widthMm) : (frameSpec.borderRadiusMm || 0);
+      const pxPerMm = canvasW / (usedLayout.canvas?.widthMm || 1);
+      const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm);
 
       const file = frameState.originalFile;
       if (!file) continue;
@@ -116,18 +117,12 @@ export async function renderCanvas(
     const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
     const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
     const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-    const fr = Math.min(fw / 2, fh / 2, isPercent ? (frameSpec.borderRadiusMm || 0) * (canvasW / usedLayout.canvas?.widthMm) : (frameSpec.borderRadiusMm || 0));
+    const pxPerMm = canvasW / (usedLayout.canvas?.widthMm || 1);
+    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm);
 
     if (fr > 0) {
-      // Counter-clockwise rounded rectangular hole
-      paperPathStr += ` M ${fx + fr} ${fy} 
-        A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} 
-        L ${fx} ${fy + fh - fr} 
-        A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} 
-        L ${fx + fw - fr} ${fy + fh} 
-        A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} 
-        L ${fx + fw} ${fy + fr} 
-        A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
+      // Counter-clockwise rounded rectangular hole (A command for arcs)
+      paperPathStr += ` M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} L ${fx} ${fy + fh - fr} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} L ${fx + fw - fr} ${fy + fh} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} L ${fx + fw} ${fy + fr} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
     } else {
       // Counter-clockwise rectangular hole
       paperPathStr += ` M ${fx} ${fy} L ${fx} ${fy + fh} L ${fx + fw} ${fy + fh} L ${fx + fw} ${fy} Z`;
@@ -143,7 +138,7 @@ export async function renderCanvas(
     selectable: false,
     evented: false,
     fillRule: 'evenodd',
-    shadow: new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 }),
+    shadow: isExport ? undefined : new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 }),
   });
   fabricCanvas.add(paperOverlay);
 
