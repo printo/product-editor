@@ -13,7 +13,7 @@ import { useHeader } from '@/context/HeaderContext';
 import {
   Upload, Loader2, CheckCircle2, X,
   Archive, FileText, Layout,
-  SendHorizonal, RotateCw, Maximize, Palette, Download,
+  SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/lib/zip-utils';
@@ -57,6 +57,7 @@ export default function LayoutEditorPage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [uploadWarning, setUploadWarning] = useState<string | null>(null);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadTab, setDownloadTab] = useState<'output' | 'original'>('output');
   const [showImpositionModal, setShowImpositionModal] = useState(false);
   const [isImposing, setIsImposing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -291,36 +292,39 @@ export default function LayoutEditorPage() {
   }, [layout, files, generateCanvases]);
 
   useEffect(() => {
-    if (canvases.length === 0) return;
+    if (surfaceStates.length === 0) return;
     let cancelled = false;
     (async () => {
-      // 1. Update all frames in all canvases to the new global fit mode
-      const baseUpdated = canvases.map(c => ({
-        ...c,
-        frames: c.frames.map(f => ({ ...f, fitMode: globalFitMode }))
+      setIsProcessing(true);
+      
+      // Update ALL surfaces and ALL their canvases with the new fit mode
+      const updatedSurfaces = await Promise.all(surfaceStates.map(async (s) => {
+        const updatedCanvases = await Promise.all(s.canvases.map(async (c) => {
+          const patchedCanvas = {
+            ...c,
+            frames: c.frames.map(f => ({ ...f, fitMode: globalFitMode }))
+          };
+          // Re-render each canvas to update the preview dataUrl
+          const dataUrl = await renderCanvas(patchedCanvas, null, false, true, s.def);
+          return { ...patchedCanvas, dataUrl };
+        }));
+        return { ...s, globalFitMode, canvases: updatedCanvases };
       }));
 
-      // 2. Also update all surfaces in surfaceStates
-      setSurfaceStates(prev => prev.map(s => ({
-        ...s,
-        globalFitMode,
-        canvases: s.canvases.map(c => ({
-          ...c,
-          frames: c.frames.map(f => ({ ...f, fitMode: globalFitMode }))
-        }))
-      })));
+      if (cancelled) return;
 
-      // 3. Re-render all canvases to show the change
-      const rendered: CanvasItem[] = [];
-      for (const c of baseUpdated) {
-        const dataUrl = await renderCanvas(c);
-        if (cancelled) return;
-        rendered.push({ ...c, dataUrl });
+      setSurfaceStates(updatedSurfaces);
+      
+      // Synchronize the active canvases state
+      const active = updatedSurfaces.find(s => s.key === activeSurfaceKey);
+      if (active) {
+        setCanvases(active.canvases);
       }
-      setCanvases(rendered);
+      
+      setIsProcessing(false);
     })();
     return () => { cancelled = true; };
-  }, [globalFitMode, renderCanvas]);
+  }, [globalFitMode, renderCanvas]); // removed surfaceStates from deps to avoid loop, using internal surfaceStates
 
   const openEditor = (idx: number, surfaceKey?: string) => {
     let targetCanvases = canvases;
@@ -478,14 +482,18 @@ export default function LayoutEditorPage() {
   };
 
   const impositionResult = useMemo(() => {
-    if (canvases.length === 0 || !layout) return { sheets: [] as SheetLayout[], skippedCount: 0 };
+    const allCanvases = surfaceStates.length > 1 
+      ? surfaceStates.flatMap(s => s.canvases)
+      : canvases;
+    
+    if (allCanvases.length === 0 || !layout) return { sheets: [] as SheetLayout[], skippedCount: 0 };
     const dpi = 300;
-    const itemSizes = canvases.map(() => ({
+    const itemSizes = allCanvases.map(() => ({
       wIn: (layout.canvas?.width || 1200) / dpi,
       hIn: (layout.canvas?.height || 1800) / dpi,
     }));
     return computeImpositionLayout(impositionSettings, itemSizes);
-  }, [impositionSettings, canvases, layout]);
+  }, [impositionSettings, canvases, surfaceStates, layout]);
 
   useEffect(() => {
     const canvasEl = impositionPreviewRef.current;
@@ -519,6 +527,10 @@ export default function LayoutEditorPage() {
     }));
     let aborted = false;
     const drawItems = async () => {
+      const allCanvases = surfaceStates.length > 1 
+        ? surfaceStates.flatMap(s => s.canvases)
+        : canvases;
+
       for (const item of sheet.items) {
         if (aborted) return;
         const [px, py, iw, ih] = [item.x * scale, item.y * scale, item.w * scale, item.h * scale];
@@ -527,7 +539,7 @@ export default function LayoutEditorPage() {
           fill: '#eef2ff', stroke: '#a5b4fc', strokeWidth: 1,
           selectable: false, evented: false,
         }));
-        const c = canvases[item.canvasIdx];
+        const c = allCanvases[item.canvasIdx];
         if (c?.dataUrl) {
           try {
             const img = await FabricImage.fromURL(c.dataUrl, { crossOrigin: 'anonymous' });
@@ -572,21 +584,53 @@ export default function LayoutEditorPage() {
   const executeBatchDownload = async () => {
     setIsDownloading(true);
     try {
+      const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
+      
+      // Structure: 
+      // zip/cx_file/ -> Original uploaded files
+      // zip/output/print_ready/ -> Rendered canvases (PNGs)
+      
+      const filesToZip: { name: string; url?: string; blob?: Blob }[] = [];
+      
+      // 1. Output Files (Rendered Canvases)
       if (surfaceStates.length > 1) {
-        const surfaceDataUrls: Record<string, string[]> = {};
         for (const s of surfaceStates) {
-          surfaceDataUrls[s.key] = s.canvases.filter(c => c.dataUrl).map(c => c.dataUrl!);
+          s.canvases.forEach((c, ci) => {
+            if (c.dataUrl) {
+              filesToZip.push({ 
+                name: `print_ready/${s.key}-${ci + 1}.png`, 
+                url: c.dataUrl 
+              });
+            }
+          });
         }
-        downloadBlob(await createMultiSurfaceZip(surfaceDataUrls, layout.id), `${layout.id}-surfaces.zip`);
-      } else if (canvases.length === 1) {
-        const a = document.createElement('a');
-        a.href = canvases[0].dataUrl!;
-        a.download = `${layout.id}-canvas.png`;
-        a.click();
       } else {
-        const images = canvases.map((c, i) => ({ name: `${layout.id}-canvas-${i + 1}.png`, url: c.dataUrl! }));
-        downloadBlob(await createZipFromDataUrls(images), `${layout.id}-canvases.zip`);
+        canvases.forEach((c, i) => {
+          if (c.dataUrl) {
+            filesToZip.push({ 
+              name: `print_ready/canvas-${i + 1}.png`, 
+              url: c.dataUrl 
+            });
+          }
+        });
       }
+
+      // 2. Original Files (CX Files)
+      const allOriginalFiles = surfaceStates.length > 1 
+        ? surfaceStates.flatMap(s => s.files)
+        : files;
+      
+      allOriginalFiles.forEach((file, i) => {
+        const url = getFileUrl(file);
+        if (url) {
+          filesToZip.push({ 
+            name: `cx_file/${file.name}`, 
+            url: url
+          });
+        }
+      });
+
+      downloadBlob(await createZipFromDataUrls(filesToZip as { name: string; url: string }[]), `${zipName}.zip`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed.');
     } finally {
@@ -601,13 +645,21 @@ export default function LayoutEditorPage() {
       const dpi = 300;
       const canvasW = layout.canvas?.width || 1200;
       const canvasH = layout.canvas?.height || 1800;
+      
+      const allCanvases = surfaceStates.length > 1 
+        ? surfaceStates.flatMap(s => s.canvases)
+        : canvases;
+
       const { sheets: impositionSheets } = computeImpositionLayout(
         impositionSettings,
-        canvases.map(() => ({ wIn: canvasW / dpi, hIn: canvasH / dpi })),
+        allCanvases.map(() => ({ wIn: canvasW / dpi, hIn: canvasH / dpi })),
       );
       const { w: sheetWIn, h: sheetHIn } = resolveSheetSize(impositionSettings);
       const sheetW = Math.round(sheetWIn * dpi), sheetH = Math.round(sheetHIn * dpi);
-      const canvasDataUrls = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
+      
+      // Use TRUE for includeMask so we get the frames in the print sheets
+      const canvasDataUrls = await Promise.all(allCanvases.map(c => renderCanvas(c, null, true, true)));
+      
       const cropMarkLen = Math.round((5 / MM_TO_IN) * dpi);
       const cropMarkOff = Math.round((2 / MM_TO_IN) * dpi);
       const sheetBlobs: { name: string; blob: Blob }[] = [];
@@ -840,21 +892,70 @@ export default function LayoutEditorPage() {
 
           {showDownloadModal && isAdmin && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowDownloadModal(false)} />
-              <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl p-8">
-                <div className="text-center mb-8">
-                  <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4"><Archive className="w-8 h-8" /></div>
-                  <h3 className="text-2xl font-bold text-slate-900">Download Results</h3>
-                </div>
-                <div className="grid gap-4">
-                  <button onClick={executeBatchDownload} className="flex items-center gap-4 p-5 rounded-2xl border-2 border-slate-100 hover:border-indigo-500 transition-all text-left">
-                    <div className="w-12 h-12 bg-white rounded-xl border flex items-center justify-center"><Archive className="w-6 h-6" /></div>
-                    <div><p className="font-bold text-slate-900">Download PNGs</p></div>
-                  </button>
-                  <button onClick={() => { setShowDownloadModal(false); setShowImpositionModal(true); }} className="flex items-center gap-4 p-5 rounded-2xl border-2 border-slate-100 hover:border-emerald-500 transition-all text-left">
-                    <div className="w-12 h-12 bg-white rounded-xl border flex items-center justify-center"><FileText className="w-6 h-6" /></div>
-                    <div><p className="font-bold text-slate-900">Print Sheets</p></div>
-                  </button>
+              <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={() => setShowDownloadModal(false)} />
+              <div className="relative w-full max-w-sm bg-white rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+                <div className="p-6 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Download Results</h3>
+                    <button onClick={() => setShowDownloadModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                      <X className="w-4 h-4 text-slate-400" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
+                      <button 
+                        onClick={() => setDownloadTab('output')}
+                        className={clsx(
+                          "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
+                          downloadTab === 'output' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                        )}
+                      >
+                        Output Files
+                      </button>
+                      <button 
+                        onClick={() => setDownloadTab('original')}
+                        className={clsx(
+                          "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
+                          downloadTab === 'original' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                        )}
+                      >
+                        CX Files
+                      </button>
+                    </div>
+
+                    {downloadTab === 'original' && (
+                      <div className="py-2 px-1">
+                        <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto custom-scrollbar pr-2">
+                          {(surfaceStates.length > 1 ? surfaceStates.flatMap(s => s.files) : files).map((f, i) => (
+                            <div key={i} className="flex items-center gap-3 p-2 bg-slate-50 rounded-xl border border-slate-100">
+                              <div className="w-8 h-8 rounded-lg bg-white border flex items-center justify-center overflow-hidden shrink-0">
+                                <img src={getFileUrl(f)} className="w-full h-full object-cover" />
+                              </div>
+                              <span className="text-[9px] font-black text-slate-500 truncate flex-1 uppercase tracking-tight">{f.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-2 flex flex-col gap-3">
+                      <button onClick={executeBatchDownload} className="w-full group flex items-center gap-4 p-4 rounded-2xl border border-slate-100 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all text-left bg-slate-50/50">
+                        <div className="w-10 h-10 bg-white rounded-xl border flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform"><Archive className="w-5 h-5 text-indigo-600" /></div>
+                        <div>
+                          <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Download ZIP</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">CX + Output Folders</p>
+                        </div>
+                      </button>
+                      <button onClick={() => { setShowDownloadModal(false); setShowImpositionModal(true); }} className="w-full group flex items-center gap-4 p-4 rounded-2xl border border-slate-100 hover:border-emerald-500 hover:bg-emerald-50/30 transition-all text-left bg-slate-50/50">
+                        <div className="w-10 h-10 bg-white rounded-xl border flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform"><FileText className="w-5 h-5 text-emerald-600" /></div>
+                        <div>
+                          <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Print Imposition</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Auto-repeat & Sheets</p>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -862,24 +963,113 @@ export default function LayoutEditorPage() {
 
           {showImpositionModal && isAdmin && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowImpositionModal(false)} />
-              <div className="relative w-full max-w-xl bg-white rounded-3xl shadow-2xl p-8 max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-slate-900">Print Imposition</h3>
-                  <button onClick={() => setShowImpositionModal(false)} className="p-2 text-slate-400"><X className="w-5 h-5" /></button>
-                </div>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['a4', 'a3', '12x18', '13x19', 'custom'] as const).map(p => (
-                      <button key={p} onClick={() => setImpositionSettings(s => ({ ...s, preset: p }))} className={clsx('py-2 text-xs font-bold rounded-xl border transition-all uppercase', impositionSettings.preset === p ? 'bg-indigo-600 text-white' : 'border-slate-200')}>
-                        {p}
-                      </button>
-                    ))}
+              <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={() => setShowImpositionModal(false)} />
+              <div className="relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
+                {/* Left: Preview */}
+                <div className="flex-[1.2] bg-slate-50 p-8 flex flex-col items-center justify-center relative border-r border-slate-100">
+                  <div className="absolute top-6 left-8">
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Sheet Preview</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                      Sheet {previewSheetIdx + 1} of {impositionResult.sheets.length}
+                    </p>
                   </div>
-                  <div className="mt-6 flex gap-4">
-                    <button onClick={() => setShowImpositionModal(false)} className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-2xl">Cancel</button>
-                    <button onClick={executeImposition} disabled={isImposing} className="flex-[2] py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 flex items-center justify-center gap-2">
-                      {isImposing ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />} Generate
+                  
+                  <div className="relative shadow-2xl shadow-indigo-900/10 bg-white p-1 rounded-sm">
+                    <canvas ref={impositionPreviewRef} className="max-w-full h-auto rounded-sm border border-slate-200" />
+                  </div>
+
+                  <div className="mt-8 flex items-center gap-4 bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 shadow-sm">
+                    <button 
+                      disabled={previewSheetIdx === 0}
+                      onClick={() => setPreviewSheetIdx(p => p - 1)}
+                      className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-xl hover:bg-slate-50"
+                    >
+                      <ChevronRight className="w-4 h-4 rotate-180" />
+                    </button>
+                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-tighter min-w-[60px] text-center">
+                      Page {previewSheetIdx + 1}
+                    </span>
+                    <button 
+                      disabled={previewSheetIdx === impositionResult.sheets.length - 1}
+                      onClick={() => setPreviewSheetIdx(p => p + 1)}
+                      className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-xl hover:bg-slate-50"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right: Controls */}
+                <div className="flex-1 p-8 flex flex-col gap-8 bg-white overflow-y-auto custom-scrollbar">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-sm shadow-emerald-100">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Print Settings</h3>
+                    </div>
+                    <button onClick={() => setShowImpositionModal(false)} className="p-2 hover:bg-slate-50 rounded-full transition-colors">
+                      <X className="w-4 h-4 text-slate-400" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-8">
+                    {/* Presets */}
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sheet Size</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['a4', 'a3', '12x18', '13x19', 'custom'] as const).map(p => (
+                          <button key={p} onClick={() => setImpositionSettings(s => ({ ...s, preset: p }))} className={clsx('py-2.5 text-[10px] font-black rounded-xl border transition-all uppercase tracking-tighter', impositionSettings.preset === p ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100' : 'border-slate-100 text-slate-400 hover:border-slate-300')}>
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Precise Gutter & Margin */}
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Gutter (Gap)</label>
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                          <input 
+                            type="number" 
+                            value={impositionSettings.gutterMm}
+                            onChange={e => setImpositionSettings(s => ({ ...s, gutterMm: Number(e.target.value) }))}
+                            className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
+                          />
+                          <span className="text-[9px] font-black text-slate-300 uppercase">mm</span>
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Margin</label>
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                          <input 
+                            type="number" 
+                            value={impositionSettings.marginMm}
+                            onChange={e => setImpositionSettings(s => ({ ...s, marginMm: Number(e.target.value) }))}
+                            className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
+                          />
+                          <span className="text-[9px] font-black text-slate-300 uppercase">mm</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Auto Repeat Logic */}
+                    <div className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100/50 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-black text-indigo-900 uppercase tracking-tight">Smart Auto-Repeat</p>
+                        <div className="w-5 h-5 bg-indigo-500 text-white rounded-full flex items-center justify-center text-[10px] font-black">✓</div>
+                      </div>
+                      <p className="text-[10px] font-bold text-indigo-700/60 leading-relaxed">
+                        The imposition engine will automatically repeat your canvases to fill the empty space on the {impositionSettings.preset.toUpperCase()} sheet efficiently.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-auto pt-6 border-t border-slate-100 flex gap-4">
+                    <button onClick={executeImposition} disabled={isImposing} className="w-full py-4 bg-slate-900 text-white rounded-[24px] text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 shadow-xl shadow-slate-200">
+                      {isImposing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} 
+                      Download Print Sheets
                     </button>
                   </div>
                 </div>
