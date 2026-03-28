@@ -286,17 +286,6 @@ class GenerateLayoutView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    def _get_layout_data(self, layout_name: str, storage) -> dict:
-        """Get layout JSON data for AI processing."""
-        try:
-            path = os.path.join(storage.layouts_dir(), f"{layout_name}.json")
-            if os.path.exists(path):
-                with open(path, "r") as f:
-                    return json.load(f)
-        except:
-            pass
-        return {}
-    
     @staticmethod
     def _is_valid_layout_name(name: str) -> bool:
         """
