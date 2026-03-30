@@ -2,7 +2,11 @@
 
 import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
-  Canvas, Rect, FabricImage, Textbox, Point, Shadow, Path,
+  Canvas, FabricImage, Textbox, Point, Path,
+  Rect,
+  Ellipse,
+  Circle,
+  Shadow,
   type FabricObject,
 } from 'fabric';
 import type { CanvasItem } from './types';
@@ -205,20 +209,33 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         if (frMm > 0) frMm += bleed;
       }
 
-      const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
+      // Round all coordinates to avoid floating point precision issues in SVG path strings
+      fx = Math.round(fx * 10) / 10;
+      fy = Math.round(fy * 10) / 10;
+      fw = Math.round(fw * 10) / 10;
+      fh = Math.round(fh * 10) / 10;
+
+      const fr = Math.round(Math.min(fw / 2, fh / 2, frMm * pxPerMm) * 10) / 10;
 
       console.log(
         `[getPaperPath] Frame[${_fIdx}]:`,
         `isPercent=${isPercent} | isTransforming=${isTransforming}`,
         `| raw=(x:${frameSpec.x}, y:${frameSpec.y}, w:${frameSpec.width}, h:${frameSpec.height})`,
-        `| hole px=(x:${fx.toFixed(1)}, y:${fy.toFixed(1)}, w:${fw.toFixed(1)}, h:${fh.toFixed(1)})`,
+        `| hole px=(x:${fx}, y:${fy}, w:${fw}, h:${fh})`,
         `| coverage=${(fw / canvasW * 100).toFixed(1)}%×${(fh / canvasH * 100).toFixed(1)}%`,
-        `| pxPerMm=${pxPerMm.toFixed(3)} bleed=${bleed}mm fr=${fr.toFixed(1)}px`,
+        `| pxPerMm=${pxPerMm.toFixed(3)} bleed=${bleed}mm fr=${fr}px`,
       );
 
       if (fr > 0) {
         // Punched-out rounded rect (A command for arcs)
-        path += ` M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} L ${fx} ${fy + fh - fr} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} L ${fx + fw - fr} ${fy + fh} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} L ${fx + fw} ${fy + fr} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
+        // Optimization: skip zero-length lines when fr is exactly half the width/height (circle)
+        // Winding order: CCW (Top-Left -> Bottom-Left -> Bottom-Right -> Top-Right)
+        const leftBar = fh - 2 * fr > 0.1 ? ` L ${fx} ${fy + fh - fr}` : '';
+        const bottomBar = fw - 2 * fr > 0.1 ? ` L ${fx + fw - fr} ${fy + fh}` : '';
+        const rightBar = fh - 2 * fr > 0.1 ? ` L ${fx + fw} ${fy + fr}` : '';
+        const topBar = fw - 2 * fr > 0.1 ? ` L ${fx + fr} ${fy}` : '';
+
+        path += ` M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr}${leftBar} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh}${bottomBar} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr}${rightBar} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
       } else {
         // Punched-out rect
         path += ` M ${fx} ${fy} L ${fx} ${fy + fh} L ${fx + fw} ${fy + fh} L ${fx + fw} ${fy} Z`;
@@ -581,12 +598,20 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         `| pxPerMm=${pxPerMm.toFixed(3)} borderRadius=${fr.toFixed(1)}px`,
       );
 
-      const sr = new Rect({
-        left: fx, top: fy, width: fw, height: fh,
-        fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [4, 3],
-        selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7, rx: fr, ry: fr,
-        strokeUniform: true,
-      });
+      // ✅ Safe Zone Guide
+      const sr = (fr > fw / 2 - 1 && fr > fh / 2 - 1)
+        ? new Ellipse({
+            left: fx, top: fy, rx: fw / 2, ry: fh / 2,
+            fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [4, 3],
+            selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7,
+            strokeUniform: true,
+          })
+        : new Rect({
+            left: fx, top: fy, width: fw, height: fh,
+            fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [4, 3],
+            selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7, rx: fr, ry: fr,
+            strokeUniform: true,
+          });
       (sr as any)[SAFE_KEY] = true;
       (sr as any).__frameIdx = frameIdx;
       fc.add(sr);
@@ -621,12 +646,21 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         fr,
       });
 
-      const br = new Rect({
-        left: fx - bleedPx, top: fy - bleedPx, width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
-        fill: 'transparent', stroke: '#450a0a', strokeWidth: 2, strokeDashArray: [6, 4],
-        selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
-        rx: fr > 0 ? fr + bleedPx : 0, ry: fr > 0 ? fr + bleedPx : 0,
-      });
+      // ✅ Bleed Zone Guide
+      const br = (fr > fw / 2 - 1 && fr > fh / 2 - 1)
+        ? new Ellipse({
+            left: fx - bleedPx, top: fy - bleedPx, rx: fw / 2 + bleedPx, ry: fh / 2 + bleedPx,
+            fill: 'transparent', stroke: '#450a0a', strokeWidth: 2, strokeDashArray: [6, 4],
+            selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
+            strokeUniform: true,
+          })
+        : new Rect({
+            left: fx - bleedPx, top: fy - bleedPx, width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
+            fill: 'transparent', stroke: '#450a0a', strokeWidth: 2, strokeDashArray: [6, 4],
+            selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
+            rx: fr > 0 ? fr + bleedPx : 0, ry: fr > 0 ? fr + bleedPx : 0,
+            strokeUniform: true,
+          });
       (br as any)[BLEED_KEY] = true;
       (br as any).__frameIdx = frameIdx;
       fc.add(br);
