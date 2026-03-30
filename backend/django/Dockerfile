@@ -27,4 +27,4 @@ ENV DJANGO_SETTINGS_MODULE=product_editor.settings
 ENV PORT=8000
 
 ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
-CMD ["gunicorn", "product_editor.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "4", "--timeout", "120"]
+CMD ["gunicorn", "product_editor.wsgi:application", "--config", "/app/gunicorn.conf.py"]

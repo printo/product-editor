@@ -35,45 +35,55 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
 
 
 class RateLimitMiddleware(MiddlewareMixin):
-    """Basic in-process rate limiting middleware.
-    NOTE: With multiple Gunicorn workers, each worker has its own counter.
-    For strict enforcement, replace with Redis-backed rate limiting.
+    """Rate limiting using Django cache backend.
+
+    Works correctly across multiple Gunicorn workers because all workers
+    share the same cache. Swap the cache backend in settings.py to Redis
+    (django-redis) for production-grade enforcement; LocMemCache is
+    per-process so limits are still per-worker with that backend.
+
+    Limits: RATE_LIMIT requests per WINDOW_SECONDS per IP.
     """
 
+    RATE_LIMIT = 100        # requests allowed per window
+    WINDOW_SECONDS = 60     # rolling window length in seconds
+
     def __init__(self, get_response):
-        import threading
         self.get_response = get_response
-        self.request_counts: dict[str, int] = {}
-        self.last_reset = time.time()
-        self._lock = threading.Lock()
 
     def __call__(self, request):
-        current_time = time.time()
-
         if request.path.startswith('/api/'):
             client_ip = self._get_client_ip(request)
+            cache_key = f'ratelimit:{client_ip}'
 
-            with self._lock:
-                # Reset counts every minute
-                if current_time - self.last_reset > 60:
-                    self.request_counts = {}
-                    self.last_reset = current_time
+            try:
+                from django.core.cache import cache
+                # cache.add is atomic: sets key=1 with TTL only if absent.
+                # If key already exists, add() returns False and we increment.
+                if not cache.add(cache_key, 1, self.WINDOW_SECONDS):
+                    count = cache.incr(cache_key)
+                else:
+                    count = 1
 
-                count = self.request_counts.get(client_ip, 0)
-                if count > 100:  # 100 requests per minute
+                if count > self.RATE_LIMIT:
+                    logger.warning(
+                        f"Rate limit exceeded for IP {client_ip} "
+                        f"(count={count}, limit={self.RATE_LIMIT})"
+                    )
                     return JsonResponse({
                         'error': 'Rate limit exceeded',
-                        'detail': 'Too many requests. Please try again later.'
+                        'detail': 'Too many requests. Please try again later.',
+                        'retry_after': self.WINDOW_SECONDS,
                     }, status=429)
-                self.request_counts[client_ip] = count + 1
+            except Exception as exc:
+                # If the cache backend is unavailable, fail open to avoid
+                # blocking legitimate traffic.
+                logger.error(f"Rate limit cache error: {exc}")
 
         return self.get_response(request)
-    
+
     def _get_client_ip(self, request):
-        """Get client IP address"""
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
+            return x_forwarded_for.split(',')[0].strip()
+        return request.META.get('REMOTE_ADDR', '0.0.0.0')
