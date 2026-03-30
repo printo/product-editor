@@ -215,10 +215,18 @@ export default function LayoutEditorPage() {
 
   useEffect(() => {
     if (!activeSurface || surfaceStates.length === 0) return;
-    setSurfaceStates(prev => prev.map(s =>
-      s.key === activeSurfaceKey ? { ...s, files, canvases, globalFitMode } : s
-    ));
-  }, [files, canvases, globalFitMode]);
+    
+    // Check if we actually need to update surfaceStates to prevent unnecessary re-renders
+     const currentSurface = surfaceStates.find(s => s.key === activeSurfaceKey);
+     if (currentSurface && (
+       currentSurface.files !== files || 
+       currentSurface.canvases !== canvases
+     )) {
+       setSurfaceStates(prev => prev.map(s =>
+         s.key === activeSurfaceKey ? { ...s, files, canvases } : s
+       ));
+     }
+   }, [files, canvases, activeSurfaceKey, surfaceStates]);
 
   useEffect(() => {
     if (!activeSurface?.def || !normalizedLayoutState) return;
@@ -233,6 +241,9 @@ export default function LayoutEditorPage() {
     } : prev);
   }, [activeSurfaceKey, activeSurface?.def, normalizedLayoutState]);
 
+  const layoutRef = useRef(layout);
+  useEffect(() => { layoutRef.current = layout; }, [layout]);
+
   const renderCanvas = useCallback(async (
     canvasItem: CanvasItem,
     excludeFrameIdx: number | null = null,
@@ -240,10 +251,10 @@ export default function LayoutEditorPage() {
     includeMask = true,
     layoutOverride?: any,
   ) => {
-    return renderCanvasCore(canvasItem, layoutOverride || layout, getFileUrl, {
+    return renderCanvasCore(canvasItem, layoutOverride || layoutRef.current, getFileUrl, {
       excludeFrameIdx, isExport, includeMask,
     });
-  }, [layout, getFileUrl]);
+  }, [getFileUrl]);
 
   const generateCanvasesForLayout = useCallback(async (
     layoutDef: any, surfaceFiles: File[], fitMode: FitMode,
@@ -852,7 +863,7 @@ export default function LayoutEditorPage() {
                           <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight truncate">{surface.label}</h3>
                           <button onClick={() => openEditor(0, surface.key)} className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wide">Edit</button>
                         </div>
-                        <div className="bg-white rounded-2xl border-2 border-slate-100 shadow-sm hover:border-indigo-400 transition-all overflow-hidden cursor-pointer group/card relative" onClick={() => openEditor(0, surface.key)}>
+                        <div className="bg-white rounded-2xl border-2 border-slate-100 hover:border-indigo-400 transition-all overflow-hidden cursor-pointer group/card relative" onClick={() => openEditor(0, surface.key)}>
                           <div className="relative overflow-hidden bg-slate-50" style={{ aspectRatio: `${cw} / ${ch}` }}>
                             {surfaceCanvas?.dataUrl ? <img src={surfaceCanvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={surface.label} /> : <div className="absolute inset-0 flex items-center justify-center text-slate-300"><Layout className="w-10 h-10 opacity-20" /></div>}
                             
@@ -894,7 +905,7 @@ export default function LayoutEditorPage() {
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 justify-center">
                   {canvases.map((canvas, idx) => (
-                    <div key={idx} className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl transition-all cursor-pointer group/card relative" onClick={() => openEditor(idx)}>
+                    <div key={idx} className="bg-white rounded-2xl border border-slate-200 transition-all cursor-pointer group/card relative" onClick={() => openEditor(idx)}>
                       <div className="relative rounded-t-2xl overflow-hidden bg-slate-50" style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}>
                         {canvas.dataUrl && <img src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
                         
@@ -1028,7 +1039,7 @@ export default function LayoutEditorPage() {
                     </p>
                   </div>
                   
-                  <div className="relative shadow-2xl shadow-indigo-900/10 bg-white p-1 rounded-sm">
+                  <div className="relative bg-white p-1 rounded-sm">
                     <canvas ref={impositionPreviewRef} className="max-w-full h-auto rounded-sm border border-slate-200" />
                   </div>
 

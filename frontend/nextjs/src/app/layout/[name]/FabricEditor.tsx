@@ -13,6 +13,7 @@ import {
   centerCanvasViewport,
   createCenterGuides,
   createGridLines,
+  updateRelativeClipPath,
 } from '@/lib/fabric-utils';
 
 // ─── Handle type exposed to parent ──────────────────────────────────────────
@@ -176,6 +177,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const prevOverlayCountRef = useRef(-1);
   const prevFrameCountRef = useRef(-1);
   const prevOverlayTypesRef = useRef<string>('');
+  const prevLayoutNameRef = useRef<string>('');
   const prevIsTransformingRef = useRef(false);
 
   // ✅ Helper to generate paper overlay path string (punched holes)
@@ -376,17 +378,20 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const currentOverlayCount = editingCanvas.overlays.length;
     const currentFrameCount = editingCanvas.frames.length;
     const currentTypeSig = editingCanvas.overlays.map(o => o.type).join(',');
+    const currentLayoutName = layout?.name || '';
 
     const needsFullRebuild =
       currentOverlayCount !== prevOverlayCountRef.current ||
       currentFrameCount !== prevFrameCountRef.current ||
-      currentTypeSig !== prevOverlayTypesRef.current;
+      currentTypeSig !== prevOverlayTypesRef.current ||
+      currentLayoutName !== prevLayoutNameRef.current;
 
     const transformChanged = isTransforming !== prevIsTransformingRef.current;
 
     prevOverlayCountRef.current = currentOverlayCount;
     prevFrameCountRef.current = currentFrameCount;
     prevOverlayTypesRef.current = currentTypeSig;
+    prevLayoutNameRef.current = currentLayoutName;
     prevIsTransformingRef.current = isTransforming;
 
     // ── Canvas Build Debug Summary ──────────────────────────────────────────
@@ -439,7 +444,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         }
         paperObj.set({
           fill: editingCanvas.paperColor || '#ffffff',
-          shadow: new Shadow({ color: 'rgba(0,0,0,0.1)', blur: 15, offsetX: 0, offsetY: 0 }),
+          shadow: isTransforming 
+            ? new Shadow({ color: 'rgba(0,0,0,0.15)', blur: 25, offsetX: 0, offsetY: 0 }) 
+            : undefined,
         });
       }
 
@@ -514,6 +521,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           scaleX: scale, scaleY: scale,
           angle: frameState.rotation,
         });
+        updateRelativeClipPath(img, clip.fx, clip.fy, clip.fw, clip.fh);
         img.setCoords();
       });
 
@@ -575,8 +583,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
       const sr = new Rect({
         left: fx, top: fy, width: fw, height: fh,
-        fill: 'transparent', stroke: '#06b6d4', strokeWidth: 0.75, strokeDashArray: [4, 3],
-        selectable: false, evented: false, opacity: isTransforming ? 0.25 : 0.45, rx: fr, ry: fr,
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [4, 3],
+        selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7, rx: fr, ry: fr,
         strokeUniform: true,
       });
       (sr as any)[SAFE_KEY] = true;
@@ -615,8 +623,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
       const br = new Rect({
         left: fx - bleedPx, top: fy - bleedPx, width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
-        fill: 'transparent', stroke: '#f43f5e', strokeWidth: 0.75, strokeDashArray: [6, 4],
-        selectable: false, evented: false, visible: isTransforming, opacity: 0.5,
+        fill: 'transparent', stroke: '#450a0a', strokeWidth: 2, strokeDashArray: [6, 4],
+        selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
         rx: fr > 0 ? fr + bleedPx : 0, ry: fr > 0 ? fr + bleedPx : 0,
       });
       (br as any)[BLEED_KEY] = true;
@@ -649,6 +657,17 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         (img as any).__clipRect = { fx, fy, fw, fh };
         const imgX = fx + (fw - imgW * scale) / 2 + frameState.offset.x;
         const imgY = fy + (fh - imgH * scale) / 2 + frameState.offset.y;
+
+        // ✅ Add clipPath to images in editor for robust circular/rounded layout support
+        const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
+        const frMm = Number(frameSpec.borderRadiusMm || 0);
+        const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
+        const clipRect = new Rect({
+          left: 0, top: 0, width: fw, height: fh,
+          originX: 'center', originY: 'center',
+          rx: fr, ry: fr,
+        });
+
         img.set({
           left: imgX + (imgW * scale) / 2, top: imgY + (imgH * scale) / 2,
           originX: 'center', originY: 'center',
@@ -656,7 +675,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           selectable: true, hasControls: true,
           cornerColor: '#6366f1', cornerSize: 12, cornerStyle: 'circle',
           transparentCorners: false, borderColor: '#6366f1',
+          clipPath: clipRect,
         });
+        updateRelativeClipPath(img, fx, fy, fw, fh);
         (img as any)[DATA_KEY] = 'frame';
         (img as any).__frameIdx = frameIdx;
         fc.add(img);
@@ -686,7 +707,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const paperOverlay = new Path(_paperPathStr, {
       left: 0, top: 0, originX: 'left', originY: 'top', fill: editingCanvas.paperColor || '#ffffff',
       selectable: false, evented: false, fillRule: 'evenodd',
-      shadow: new Shadow({ color: 'rgba(0,0,0,0.12)', blur: 20, offsetX: 0, offsetY: 0 })
+      shadow: isTransforming 
+        ? new Shadow({ color: 'rgba(0,0,0,0.15)', blur: 25, offsetX: 0, offsetY: 0 }) 
+        : undefined
     });
     (paperOverlay as any)[PAPER_KEY] = true;
     fc.add(paperOverlay);
