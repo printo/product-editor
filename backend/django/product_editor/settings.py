@@ -201,11 +201,20 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
 
-# Cache Configuration
+# Cache Configuration — django-redis (shared across all Gunicorn workers)
+# REDIS_URL defaults to the Docker service name; override via env in any environment.
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "product-editor-cache",
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.getenv("REDIS_URL", "redis://redis:6379/0"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            # Fail open: if Redis is unreachable, log the error rather than raising.
+            # Rate limiting and other cache consumers already handle unavailability gracefully.
+            "IGNORE_EXCEPTIONS": True,
+        },
+        "TIMEOUT": 300,
+        "KEY_PREFIX": "pe",  # product-editor — avoids key collisions if Redis is shared
     }
 }
 

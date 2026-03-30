@@ -21,6 +21,18 @@ services:
     networks:
       - web
 
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - web
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   db:
     image: postgres:16-alpine
     ports:
@@ -62,10 +74,13 @@ services:
       - EXTERNAL_API_KEY=${EXTERNAL_API_KEY}
       - TESTING_API_KEY=${TESTING_API_KEY}
       - PIA_API_BASE_URL=${PIA_API_BASE_URL:-https://pia.printo.in/api/v1}
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./storage:/app/storage
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     labels:
       - traefik.enable=true

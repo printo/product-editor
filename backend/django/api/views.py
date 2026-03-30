@@ -120,7 +120,9 @@ class ListLayoutsView(APIView):
                     layouts_data.append({"name": name})
                     
             logger.info(f"DEBUG_LAYOUT_RES: Returning {len(layouts_data)} layouts")
-            return Response({"layouts": layouts_data})
+            response = Response({"layouts": layouts_data})
+            response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'
+            return response
         except Exception as e:
             logger.error(f"Error listing layouts: {str(e)}")
             return Response(
@@ -139,11 +141,22 @@ class GenerateLayoutView(APIView):
         description=(
             "Upload images and a layout definition to produce a rendered canvas.\n\n"
             "**Request format:** `multipart/form-data`\n\n"
-            "| Field | Type | Description |\n"
-            "|-------|------|-------------|\n"
-            "| `layout` | string/JSON | Layout name (e.g. `retro_polaroid_4.2x3.5`) or full layout JSON |\n"
-            "| `images` | file[] | One or more image files to place in the layout |\n\n"
-            "Returns a list of canvas objects, one per layout slot."
+            "| Field | Type | Default | Description |\n"
+            "|-------|------|---------|-------------|\n"
+            "| `layout` | string | — | Layout name (e.g. `retro_polaroid_4.2x3.5`) |\n"
+            "| `images` | file[] | — | One or more image files |\n"
+            "| `fit_mode` | string | `cover` | `contain` or `cover` |\n"
+            "| `export_format` | string | `png` | `png` or `tiff_cmyk` |\n"
+            "| `soft_proof` | boolean | `false` | Run full ICC CMYK soft-proof pipeline |\n\n"
+            "**Soft-proof mode** (`soft_proof=true`):\n\n"
+            "Runs the RGB → CMYK → RGB roundtrip using the ISOcoated_v2 ICC profile "
+            "(industry standard for Indian and European offset print on coated stock).\n\n"
+            "Returns three files per canvas and a per-canvas colour-shift report:\n"
+            "- `png` — original RGB design\n"
+            "- `tiff_cmyk` — press-ready CMYK TIFF (send this to the printer)\n"
+            "- `cmyk_preview` — on-screen simulation of printed colours\n"
+            "- `color_shift.significant=true` — shown to user when avg pixel shift > 8/255 (~3%)\n\n"
+            "When `soft_proof=false`, returns a simple `canvases` list."
         ),
         request=inline_serializer(
             name="GenerateLayoutRequest",
@@ -154,14 +167,18 @@ class GenerateLayoutView(APIView):
                     help_text="Image files",
                 ),
                 "fit_mode": drf_serializers.ChoiceField(choices=["contain", "cover"], required=False, default="cover"),
+                "export_format": drf_serializers.ChoiceField(choices=["png", "tiff_cmyk"], required=False, default="png"),
+                "soft_proof": drf_serializers.BooleanField(required=False, default=False),
             },
         ),
         responses={
             200: inline_serializer(
                 name="GenerateLayoutResponse",
                 fields={
-                    "canvases": drf_serializers.ListField(child=drf_serializers.DictField()),
+                    "canvases": drf_serializers.ListField(child=drf_serializers.CharField(), required=False),
+                    "soft_proof_canvases": drf_serializers.ListField(child=drf_serializers.DictField(), required=False),
                     "layout_name": drf_serializers.CharField(),
+                    "export_format": drf_serializers.CharField(),
                     "generation_time_ms": drf_serializers.IntegerField(),
                 },
             ),
@@ -169,121 +186,178 @@ class GenerateLayoutView(APIView):
             408: OpenApiResponse(description="Timeout — generation exceeded 5 minutes"),
         },
     )
-    @with_timeout(seconds=300)  # 5 minute timeout
+    @with_timeout(seconds=300)
     def post(self, request):
         try:
             layout_data = request.data.get("layout")
             if isinstance(layout_data, str) and (layout_data.startswith('{') or layout_data.startswith('[')):
                 try:
                     layout_data = json.loads(layout_data)
-                except:
+                except Exception:
                     pass
-            
+
             layout_name = layout_data.get('name') if isinstance(layout_data, dict) else layout_data
             files = request.FILES.getlist("images")
 
             fit_mode = request.data.get("fit_mode", "cover")
             if fit_mode not in ("contain", "cover"):
                 fit_mode = "cover"
-            
-            # Validate inputs
+
+            export_format = request.data.get("export_format", "png")
+            if export_format not in ("png", "tiff_cmyk"):
+                export_format = "png"
+
+            # soft_proof accepts "true"/"1"/True
+            raw_sp = request.data.get("soft_proof", False)
+            soft_proof = raw_sp in (True, "true", "1", 1)
+
             if not layout_name or not files:
                 return Response(
                     {"detail": "layout and images are required"},
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            
-            # Validate layout name - security check
+
             if not self._is_valid_layout_name(layout_name):
                 return Response(
                     {"detail": f"Invalid layout name: {layout_name}"},
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            
-            # Validate image files
+
             try:
                 validate_image_files(files)
             except ValidationError as e:
-                return Response(
-                    {"detail": str(e)},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Get user/API key
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
             api_key = None
             if isinstance(request.user, APIKeyUser):
                 api_key = request.user.api_key
-            
-            # Save uploaded files
+
             upload_paths = []
             storage = get_storage()
-            
             start_time = time.time()
-            
+
             try:
-                for i, f in enumerate(files):
+                for f in files:
                     fname = get_random_string(8) + "_" + f.name
                     path = storage.save_upload(fname, f.file)
                     upload_paths.append(path)
-                    
-                    # Track uploaded file
                     if api_key:
                         UploadedFile.objects.create(
                             api_key=api_key,
                             file_path=path,
                             original_filename=f.name,
                             file_size_bytes=f.size,
-                            file_type='image'
+                            file_type='image',
                         )
-                
-                # Generate layouts
+
                 engine = LayoutEngine(storage.layouts_dir(), settings.EXPORTS_DIR)
-                outputs = engine.generate(layout_name, upload_paths, fit_mode=fit_mode)
-                
-                # Track exports
-                generation_time_ms = int((time.time() - start_time) * 1000)
-                if api_key and outputs:
-                    for output_path in outputs:
-                        file_size = os.path.getsize(output_path)
-                        ExportedResult.objects.create(
-                            api_key=api_key,
-                            layout_name=layout_name,
-                            export_file_path=output_path,
-                            input_files=upload_paths,
-                            generation_time_ms=generation_time_ms,
-                            file_size_bytes=file_size
-                        )
-                
-                # Return relative paths
-                rel = [os.path.relpath(p, settings.EXPORTS_DIR) for p in outputs]
-                
-                response_data = {
-                    "canvases": rel,
-                    "layout_name": layout_name,
-                    "generation_time_ms": generation_time_ms
-                }
-                
-                logger.info(f"Layout generated successfully: {layout_name} by {api_key.name if api_key else 'unknown'}")
-                return Response(response_data)
-            
+                generation_time_ms = 0
+
+                if soft_proof:
+                    # ── Full ICC CMYK soft-proof pipeline ───────────────────
+                    proof_results = engine.generate_soft_proof(
+                        layout_name, upload_paths, fit_mode=fit_mode,
+                    )
+                    generation_time_ms = int((time.time() - start_time) * 1000)
+
+                    # Track all output files in ExportedResult
+                    if api_key:
+                        for r in proof_results:
+                            for key in ("png", "tiff_cmyk", "cmyk_preview"):
+                                out_path = r.get(key)
+                                if out_path and os.path.exists(out_path):
+                                    ExportedResult.objects.create(
+                                        api_key=api_key,
+                                        layout_name=layout_name,
+                                        export_file_path=out_path,
+                                        input_files=upload_paths,
+                                        generation_time_ms=generation_time_ms,
+                                        file_size_bytes=os.path.getsize(out_path),
+                                    )
+
+                    # Build response — convert absolute paths to relative
+                    serialized = []
+                    for r in proof_results:
+                        shift = r["color_shift"]
+                        serialized.append({
+                            "png":          os.path.relpath(r["png"],          settings.EXPORTS_DIR),
+                            "tiff_cmyk":    os.path.relpath(r["tiff_cmyk"],    settings.EXPORTS_DIR),
+                            "cmyk_preview": os.path.relpath(r["cmyk_preview"], settings.EXPORTS_DIR),
+                            "color_shift": {
+                                "avg_diff":         shift["avg_diff"],
+                                "max_pixel_diff":   shift["max_pixel_diff"],
+                                "significant":      shift["significant"],
+                                "using_icc_profile": shift["using_icc_profile"],
+                                "profile":          shift["profile"],
+                                "message":          shift["message"],
+                            },
+                        })
+
+                    logger.info(
+                        "Soft-proof generated: %s by %s (%d canvases, %d ms)",
+                        layout_name,
+                        api_key.name if api_key else "unknown",
+                        len(serialized),
+                        generation_time_ms,
+                    )
+                    return Response({
+                        "soft_proof_canvases": serialized,
+                        "layout_name": layout_name,
+                        "export_format": "soft_proof",
+                        "generation_time_ms": generation_time_ms,
+                    })
+
+                else:
+                    # ── Standard RGB PNG / CMYK TIFF export ─────────────────
+                    outputs = engine.generate(
+                        layout_name, upload_paths, fit_mode=fit_mode, export_format=export_format,
+                    )
+                    generation_time_ms = int((time.time() - start_time) * 1000)
+
+                    if api_key and outputs:
+                        for out_path in outputs:
+                            ExportedResult.objects.create(
+                                api_key=api_key,
+                                layout_name=layout_name,
+                                export_file_path=out_path,
+                                input_files=upload_paths,
+                                generation_time_ms=generation_time_ms,
+                                file_size_bytes=os.path.getsize(out_path),
+                            )
+
+                    rel = [os.path.relpath(p, settings.EXPORTS_DIR) for p in outputs]
+                    logger.info(
+                        "Layout generated: %s by %s (%d files, %d ms)",
+                        layout_name,
+                        api_key.name if api_key else "unknown",
+                        len(rel),
+                        generation_time_ms,
+                    )
+                    return Response({
+                        "canvases": rel,
+                        "layout_name": layout_name,
+                        "export_format": export_format,
+                        "generation_time_ms": generation_time_ms,
+                    })
+
             except TimeoutError:
-                logger.error(f"Timeout generating layout: {layout_name}")
+                logger.error("Timeout generating layout: %s", layout_name)
                 return Response(
                     {"detail": "Layout generation timed out. Try with fewer/smaller images."},
-                    status=status.HTTP_408_REQUEST_TIMEOUT
+                    status=status.HTTP_408_REQUEST_TIMEOUT,
                 )
-            except Exception as e:
-                logger.error(f"Error generating layout: {str(e)}")
+            except Exception as exc:
+                logger.error("Error generating layout '%s': %s", layout_name, exc)
                 return Response(
-                    {"detail": f"Failed to generate layout: {str(e)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    {"detail": f"Failed to generate layout: {exc}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-        
-        except Exception as e:
-            logger.error(f"Unexpected error in GenerateLayoutView: {str(e)}")
+
+        except Exception as exc:
+            logger.error("Unexpected error in GenerateLayoutView: %s", exc)
             return Response(
                 {"detail": "An unexpected error occurred"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
     
     @staticmethod
@@ -369,7 +443,9 @@ class GetLayoutView(APIView):
                     if s.get('key', '').lower() in requested_keys
                 ]
 
-            return Response(data)
+            response = Response(data)
+            response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'
+            return response
 
         except json.JSONDecodeError:
             logger.error(f"Invalid JSON in layout file: {name}")
@@ -1117,7 +1193,9 @@ class FontsView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        return Response({'fonts': _read_fonts()})
+        response = Response({'fonts': _read_fonts()})
+        response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
+        return response
 
     def put(self, request):
         # Only ops team can modify fonts

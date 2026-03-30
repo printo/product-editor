@@ -69,4 +69,21 @@ for key in APIKey.objects.filter(is_active=True):
 
 PY
 
-exec "$@"
+# ── Launch Gunicorn ─────────────────────────────────────────────────────────
+# Use all available CPU cores: workers = nproc * 2 + 1 (gthread: sync + OS thread pool)
+WORKERS=$(( $(nproc) * 2 + 1 ))
+echo "Starting gunicorn: ${WORKERS} workers × ${GUNICORN_THREADS:-4} threads on port ${PORT:-8000}"
+exec gunicorn product_editor.wsgi:application \
+    --bind "0.0.0.0:${PORT:-8000}" \
+    --worker-class gthread \
+    --workers "${WORKERS}" \
+    --threads "${GUNICORN_THREADS:-4}" \
+    --timeout "${GUNICORN_TIMEOUT:-300}" \
+    --graceful-timeout 60 \
+    --keep-alive 5 \
+    --max-requests "${GUNICORN_MAX_REQUESTS:-500}" \
+    --max-requests-jitter 50 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level "${GUNICORN_LOG_LEVEL:-info}" \
+    --name product_editor

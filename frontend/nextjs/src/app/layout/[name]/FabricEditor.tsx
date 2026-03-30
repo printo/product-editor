@@ -422,6 +422,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     if (!needsFullRebuild) {
       // ── #3 In-place property update ─────────────
+      console.log(
+        `[FabricEditor] ↻ In-place update | canvas=${canvasW}×${canvasH}px | transformChanged=${transformChanged} | isTransforming=${isTransforming} | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length}`,
+      );
       const objs = fc.getObjects();
 
       // ✅ Update paper overlay in-place if transform status changed
@@ -429,7 +432,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (paperObj) {
         if (transformChanged || !paperObj.path) {
           // Use Path constructor to parse string into array of commands to avoid TypeError in toDataURL/toJSON
-          const tempPath = new Path(getPaperPath(isTransforming));
+          const updatedPath = getPaperPath(isTransforming);
+          console.log(`  [Paper In-place] transformChanged=${transformChanged} | path (first 80 chars): "${updatedPath.substring(0, 80)}..."`);
+          const tempPath = new Path(updatedPath);
           paperObj.set({ path: tempPath.path });
         }
         paperObj.set({
@@ -441,10 +446,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       // ✅ Update bleed zone visibility during transform
       objs.forEach((o: any) => {
         if (o[BLEED_KEY]) {
-          o.set({ visible: isTransforming, opacity: 0.8 });
+          console.log(`  [Bleed update] Frame[${o.__frameIdx ?? '?'}] visible=${isTransforming} opacity=0.5`);
+          o.set({ visible: isTransforming, opacity: 0.5 });
         }
         if (o[SAFE_KEY]) {
-          o.set({ visible: true, opacity: isTransforming ? 0.4 : 0.8 });
+          const _safeOpacity = isTransforming ? 0.25 : 0.45;
+          console.log(`  [SafeZone update] Frame[${o.__frameIdx ?? '?'}] opacity=${_safeOpacity}`);
+          o.set({ visible: true, opacity: _safeOpacity });
         }
       });
 
@@ -567,8 +575,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
       const sr = new Rect({
         left: fx, top: fy, width: fw, height: fh,
-        fill: 'transparent', stroke: '#06b6d4', strokeWidth: 1.5, strokeDashArray: [6, 4],
-        selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.8, rx: fr, ry: fr,
+        fill: 'transparent', stroke: '#06b6d4', strokeWidth: 0.75, strokeDashArray: [4, 3],
+        selectable: false, evented: false, opacity: isTransforming ? 0.25 : 0.45, rx: fr, ry: fr,
         strokeUniform: true,
       });
       (sr as any)[SAFE_KEY] = true;
@@ -607,8 +615,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
       const br = new Rect({
         left: fx - bleedPx, top: fy - bleedPx, width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
-        fill: 'transparent', stroke: '#f43f5e', strokeWidth: 1.5, strokeDashArray: [8, 5],
-        selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
+        fill: 'transparent', stroke: '#f43f5e', strokeWidth: 0.75, strokeDashArray: [6, 4],
+        selectable: false, evented: false, visible: isTransforming, opacity: 0.5,
         rx: fr > 0 ? fr + bleedPx : 0, ry: fr > 0 ? fr + bleedPx : 0,
       });
       (br as any)[BLEED_KEY] = true;
