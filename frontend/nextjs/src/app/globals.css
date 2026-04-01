@@ -3,23 +3,37 @@
 @tailwind utilities;
 
 :root {
-  --primary: #4f46e5;
-  --primary-glow: #6366f1;
-  --secondary: #8b5cf6;
-  --secondary-glow: #a78bfa;
-  --accent: #f43f5e;
-  --bg-subtle: #f8fafc;
+  --primary: #6366f1;
+  --primary-dark: #4f46e5;
+  --secondary: #ec4899;
+  --secondary-dark: #db2777;
+  --accent: #f59e0b;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
-html, body, #__next {
-  height: 100%;
+@layer base {
+  body {
+    @apply bg-[var(--background)] text-[var(--foreground)];
+  }
 }
 
-body {
-  background: radial-gradient(circle at top right, rgba(79, 70, 229, 0.03), transparent 40%),
-              radial-gradient(circle at bottom left, rgba(139, 92, 246, 0.03), transparent 40%),
-              var(--bg-subtle);
-  background-attachment: fixed;
+@layer components {
+  .btn-primary {
+    @apply bg-[var(--primary)] hover:bg-[var(--primary-dark)] text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+  }
+  
+  .btn-secondary {
+    @apply bg-[var(--secondary)] hover:bg-[var(--secondary-dark)] text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+  }
+
+  .toggle-active {
+    @apply bg-gradient-to-r from-[var(--primary)] to-[var(--secondary)] text-white shadow-md;
+  }
+
+  .toggle-inactive {
+    @apply text-slate-400 hover:text-slate-600;
+  }
 }
 
 @layer utilities {

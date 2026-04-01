@@ -864,7 +864,7 @@ export default function LayoutEditorPage() {
                           <button onClick={() => openEditor(0, surface.key)} className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wide">Edit</button>
                         </div>
                         <div className="bg-white rounded-2xl border-2 border-slate-100 hover:border-indigo-400 transition-all overflow-hidden cursor-pointer group/card relative" onClick={() => openEditor(0, surface.key)}>
-                          <div className="relative overflow-hidden bg-slate-50" style={{ aspectRatio: `${cw} / ${ch}` }}>
+                          <div className="relative overflow-hidden bg-slate-100" style={{ aspectRatio: `${cw} / ${ch}` }}>
                             {surfaceCanvas?.dataUrl ? <img src={surfaceCanvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={surface.label} /> : <div className="absolute inset-0 flex items-center justify-center text-slate-300"><Layout className="w-10 h-10 opacity-20" /></div>}
                             
                             <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
@@ -906,7 +906,7 @@ export default function LayoutEditorPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 justify-center">
                   {canvases.map((canvas, idx) => (
                     <div key={idx} className="bg-white rounded-2xl border border-slate-200 transition-all cursor-pointer group/card relative" onClick={() => openEditor(idx)}>
-                      <div className="relative rounded-t-2xl overflow-hidden bg-slate-50" style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}>
+                      <div className="relative rounded-t-2xl overflow-hidden bg-slate-100" style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}>
                         {canvas.dataUrl && <img src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
                         
                         <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
@@ -1031,7 +1031,7 @@ export default function LayoutEditorPage() {
               <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={() => setShowImpositionModal(false)} />
               <div className="relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
                 {/* Left: Preview */}
-                <div className="flex-[1.2] bg-slate-50 p-8 flex flex-col items-center justify-center relative border-r border-slate-100">
+                <div className="flex-[1.2] bg-slate-100 p-8 flex flex-col items-center justify-center relative border-r border-slate-100">
                   <div className="absolute top-6 left-8">
                     <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Sheet Preview</h3>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">

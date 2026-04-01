@@ -24,7 +24,7 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
 
   if (isMulti && raw?.surfaces) {
     return (
-      <div className="w-full aspect-square relative flex items-center justify-center p-4 bg-slate-50 border-b border-slate-100 group-hover:bg-slate-100/50 transition-colors overflow-hidden">
+      <div className="w-full aspect-square relative flex items-center justify-center p-4 bg-slate-100 border-b border-slate-200 group-hover:bg-slate-200/50 transition-colors overflow-hidden">
         {/* Render up to 2 surfaces in a stacked/offset view */}
         <div className="relative w-full h-full flex items-center justify-center">
           {raw.surfaces.slice(0, 2).map((s: any, idx: number) => (
@@ -57,7 +57,7 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
   }
 
   return (
-    <div className="w-full aspect-square flex items-center justify-center p-4 bg-slate-50 border-b border-slate-100 group-hover:bg-white transition-colors">
+    <div className="w-full aspect-square flex items-center justify-center p-4 bg-slate-100 border-b border-slate-200 group-hover:bg-slate-200/50 transition-colors">
       <LayoutSVG layout={layout} maskUrl={layout.maskUrl} />
     </div>
   );

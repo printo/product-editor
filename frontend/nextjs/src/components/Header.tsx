@@ -69,23 +69,23 @@ export const Header = () => {
 
         {/* Admin Navigation Toggle */}
         {isOpsTeam && (
-          <nav className="flex items-center gap-0.5 bg-slate-100/50 p-1 rounded-lg border border-slate-200/60 shrink-0">
+          <nav className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/40 shrink-0 shadow-inner relative overflow-hidden">
             <Link
               href="/dashboard"
-              className={`px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-tight transition-all duration-200 ${
+              className={`relative z-10 px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 min-w-[100px] text-center ${
                 !isLayoutEditor 
-                  ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgba(0,0,0,0.05)] border border-slate-200/50' 
-                  : 'text-slate-400 hover:text-slate-600'
+                  ? 'toggle-active' 
+                  : 'toggle-inactive'
               }`}
             >
               Dashboard
             </Link>
             <Link
               href="/editor/layouts"
-              className={`px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-tight transition-all duration-200 ${
+              className={`relative z-10 px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 min-w-[100px] text-center ${
                 isLayoutEditor 
-                  ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgba(0,0,0,0.05)] border border-slate-200/50' 
-                  : 'text-slate-400 hover:text-slate-600'
+                  ? 'toggle-active' 
+                  : 'toggle-inactive'
               }`}
             >
               Templates

@@ -71,9 +71,9 @@ export const LayoutSVG = ({ layout, className = "w-full h-full", surfaceKey, mas
               y={y + bleedPx}
               width={w - bleedPx * 2}
               height={h - bleedPx * 2}
-              fill="#f1f5f9"
-              stroke="#cbd5e1"
-              strokeWidth="1"
+              fill="#e2e8f0"
+              stroke="#94a3b8"
+              strokeWidth="2"
               rx={frameRadiusPx} ry={frameRadiusPx}
             />
           </g>
