@@ -162,10 +162,24 @@ if docker compose version &> /dev/null; then
 else
     log_info "Installing Docker Compose v2 (integrated)..."
     
-    # Install via apt-get (installs docker-compose-plugin which provides 'docker compose')
-    log_info "Installing docker-compose-plugin via apt-get..."
+    # Add Docker repository (required for docker-compose-plugin)
+    log_info "Adding Docker repository..."
+    sudo apt-get update > /dev/null 2>&1 || true
+    sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release > /dev/null 2>&1 || true
+    
+    # Add Docker GPG key
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg > /dev/null 2>&1 || true
+    
+    # Add Docker repository
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+      $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Update package list
     sudo apt-get update > /dev/null 2>&1 || true
     
+    # Install docker-compose-plugin
+    log_info "Installing docker-compose-plugin via apt-get..."
     if sudo apt-get install -y docker-compose-plugin > /dev/null 2>&1; then
         log_success "Docker Compose installed successfully"
     else
