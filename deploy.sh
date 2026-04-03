@@ -253,15 +253,39 @@ print_status "Deployment finished successfully"
 print_info "Completed at: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
+# Detect server hostname/IP
+if [ -f .env ]; then
+  source .env 2>/dev/null || true
+fi
+
+# Determine the base URL
+if [ -n "$PUBLIC_HOST" ] && [ "$PUBLIC_HOST" != "product-editor.printo.in" ]; then
+  BASE_URL="https://${PUBLIC_HOST}"
+  BACKEND_URL="https://${PUBLIC_HOST}"
+elif [ -n "$PUBLIC_HOST" ]; then
+  BASE_URL="https://${PUBLIC_HOST}"
+  BACKEND_URL="https://${PUBLIC_HOST}"
+else
+  # Fallback to server IP or localhost
+  SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+  if [ -n "$SERVER_IP" ] && [ "$SERVER_IP" != "127.0.0.1" ]; then
+    BASE_URL="http://${SERVER_IP}:5004"
+    BACKEND_URL="http://${SERVER_IP}:8000"
+  else
+    BASE_URL="http://localhost:5004"
+    BACKEND_URL="http://localhost:8000"
+  fi
+fi
+
 # Show access URLs
 if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
-  print_info "Frontend: ${GREEN}http://localhost:5004${NC}"
+  print_info "Frontend: ${GREEN}${BASE_URL}${NC}"
 fi
 
 if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
-  print_info "Backend API: ${GREEN}http://localhost:8000/api${NC}"
-  print_info "Health Check: ${GREEN}http://localhost:8000/api/health${NC}"
-  print_info "Admin Panel: ${GREEN}http://localhost:8000/admin/django-admin/${NC}"
+  print_info "Backend API: ${GREEN}${BACKEND_URL}/api${NC}"
+  print_info "Health Check: ${GREEN}${BACKEND_URL}/api/health${NC}"
+  print_info "Admin Panel: ${GREEN}${BACKEND_URL}/admin/django-admin/${NC}"
 fi
 
 echo ""
