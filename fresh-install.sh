@@ -26,14 +26,6 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Detect which docker compose command to use
-# Try 'docker compose' first (integrated), fallback to 'docker-compose' (standalone)
-if docker compose version &> /dev/null 2>&1; then
-    DOCKER_COMPOSE="docker compose"
-else
-    DOCKER_COMPOSE="docker-compose"
-fi
-
 # Logging functions
 log_header() {
     echo ""
@@ -121,7 +113,7 @@ log_header "STEP 2: CLEANUP OLD DOCKER CONTAINERS"
 
 if command -v docker &> /dev/null; then
     log_info "Stopping Docker containers..."
-    cd ~/product-editor 2>/dev/null && $DOCKER_COMPOSE down 2>/dev/null || true
+    cd ~/product-editor 2>/dev/null && docker compose down 2>/dev/null || true
     cd ~ || true
     log_success "Containers stopped"
     
@@ -168,41 +160,27 @@ fi
 if docker compose version &> /dev/null; then
     log_success "Docker Compose (integrated) already installed"
 else
-    log_info "Installing Docker Compose v2..."
+    log_info "Installing Docker Compose v2 (integrated)..."
     
-    # Try method 1: apt-get (preferred for Ubuntu)
-    log_info "Attempting installation via apt-get..."
-    if sudo apt-get update > /dev/null 2>&1 && \
-       sudo apt-get install -y docker-compose-plugin > /dev/null 2>&1; then
-        log_success "Docker Compose installed via apt-get"
+    # Install via apt-get (installs docker-compose-plugin which provides 'docker compose')
+    log_info "Installing docker-compose-plugin via apt-get..."
+    sudo apt-get update > /dev/null 2>&1 || true
+    
+    if sudo apt-get install -y docker-compose-plugin > /dev/null 2>&1; then
+        log_success "Docker Compose installed successfully"
     else
-        # Fall back to method 2: direct binary download
-        log_warning "apt-get failed, downloading binary directly..."
-        
-        COMPOSE_URL="https://github.com/docker/compose/releases/download/v2.37.1/docker-compose-$(uname -s)-$(uname -m)"
-        
-        if sudo curl -L "$COMPOSE_URL" -o /usr/local/bin/docker-compose > /dev/null 2>&1; then
-            sudo chmod +x /usr/local/bin/docker-compose
-            log_success "Docker Compose installed from binary"
-        else
-            log_error "Failed to install Docker Compose"
-            exit 1
-        fi
+        log_error "Failed to install Docker Compose"
+        log_error "Please install manually: sudo apt-get install -y docker-compose-plugin"
+        exit 1
     fi
 fi
 
-# Verify both docker-compose and docker compose work
-log_info "Verifying Docker Compose installation..."
-if docker-compose --version > /dev/null 2>&1; then
-    log_success "docker-compose command available: $(docker-compose --version)"
-else
-    log_warning "docker-compose command not available"
-fi
-
+# Verify docker compose command works
 if docker compose version > /dev/null 2>&1; then
-    log_success "docker compose command available (integrated)"
+    log_success "Docker Compose verified: $(docker compose version | head -1)"
 else
-    log_warning "docker compose command not available"
+    log_error "docker compose command not working after installation"
+    exit 1
 fi
 
 # Add user to docker group
@@ -212,8 +190,7 @@ sudo usermod -aG docker $USER 2>/dev/null || true
 # Verify Docker
 log_info "Verifying Docker installation..."
 docker --version
-log_info "Using compose command: $DOCKER_COMPOSE"
-$DOCKER_COMPOSE version
+docker compose version
 
 ##############################################################################
 # STEP 5: CLONE REPOSITORY
@@ -276,7 +253,7 @@ fi
 log_header "STEP 7: VERIFICATION"
 
 log_info "Checking docker-compose.yml..."
-$DOCKER_COMPOSE config > /dev/null 2>&1 && log_success "docker-compose.yml is valid" || {
+docker compose config > /dev/null 2>&1 && log_success "docker-compose.yml is valid" || {
     log_error "docker-compose.yml has errors"
     exit 1
 }
@@ -344,9 +321,9 @@ if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
             ;;
         3)
             log_info "Starting manual deployment..."
-            $DOCKER_COMPOSE build
-            $DOCKER_COMPOSE up -d
-            $DOCKER_COMPOSE ps
+            docker compose build
+            docker compose up -d
+            docker compose ps
             ;;
         *)
             log_warning "Invalid option"
@@ -374,13 +351,11 @@ echo "  - Backend:   http://your-server-ip:8000"
 echo "  - Admin:     http://your-server-ip:8000/admin/django-admin/"
 echo "  - API:       http://your-server-ip:8000/api"
 echo ""
-echo "Using Docker Compose command: $DOCKER_COMPOSE"
-echo ""
 echo "Useful commands:"
-echo "  ${CYAN}\$DOCKER_COMPOSE ps${NC}              - View running services"
-echo "  ${CYAN}\$DOCKER_COMPOSE logs -f${NC}         - View live logs"
-echo "  ${CYAN}\$DOCKER_COMPOSE restart${NC}         - Restart all services"
-echo "  ${CYAN}\$DOCKER_COMPOSE down${NC}            - Stop all services"
+echo "  ${CYAN}docker compose ps${NC}              - View running services"
+echo "  ${CYAN}docker compose logs -f${NC}         - View live logs"
+echo "  ${CYAN}docker compose restart${NC}         - Restart all services"
+echo "  ${CYAN}docker compose down${NC}            - Stop all services"
 echo ""
 log_success "Setup complete. You're ready to go!"
 echo ""
