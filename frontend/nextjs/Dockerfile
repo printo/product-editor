@@ -17,7 +17,11 @@ ENV NODE_ENV=production
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY frontend/nextjs /app
+COPY frontend/nextjs/package.json frontend/nextjs/tsconfig.json frontend/nextjs/next.config.mjs ./
+COPY frontend/nextjs/postcss.config.cjs frontend/nextjs/tailwind.config.ts ./
+COPY frontend/nextjs/.eslintrc.json ./
+COPY frontend/nextjs/public ./public
+COPY frontend/nextjs/src ./src
 
 ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_DIRECT_API_KEY
