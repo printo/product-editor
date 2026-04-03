@@ -243,6 +243,151 @@ fi
 print_header "Service Status"
 docker-compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
 
+# Health checks
+print_header "Health Checks"
+
+# Backend health check
+if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
+  print_action "Checking backend health..."
+  
+  # Get backend container name
+  BACKEND_CONTAINER=$(docker ps --filter "name=backend" --format "{{.Names}}" | head -n 1)
+  
+  if [ -z "$BACKEND_CONTAINER" ]; then
+    print_error "Backend container not found"
+  else
+    # Wait for backend to be ready
+    print_action "Waiting for backend to start (max 30s)..."
+    for i in {1..30}; do
+      if curl -s http://localhost:8000/api/health > /dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    
+    # Test health endpoint
+    HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost:8000/api/health 2>/dev/null || echo "failed\n000")
+    HTTP_CODE=$(echo "$HEALTH_RESPONSE" | tail -n 1)
+    
+    if [ "$HTTP_CODE" = "200" ]; then
+      print_status "Backend health endpoint OK (HTTP $HTTP_CODE)"
+    else
+      print_error "Backend health endpoint failed (HTTP $HTTP_CODE)"
+      print_warning "Check logs: docker logs $BACKEND_CONTAINER"
+    fi
+    
+    # Test database connectivity
+    print_action "Checking database connectivity..."
+    DB_CHECK=$(docker exec $BACKEND_CONTAINER python manage.py check --database default 2>&1)
+    if echo "$DB_CHECK" | grep -q "no issues"; then
+      print_status "Database connection OK"
+    else
+      print_error "Database connection issues"
+      echo "$DB_CHECK"
+    fi
+    
+    # Check storage directory
+    print_action "Checking storage directory..."
+    if docker exec $BACKEND_CONTAINER test -d /app/storage; then
+      print_status "Storage directory accessible"
+      LAYOUT_COUNT=$(docker exec $BACKEND_CONTAINER find /app/storage/layouts -name "*.json" 2>/dev/null | wc -l || echo "0")
+      print_info "Found $LAYOUT_COUNT layout(s)"
+    else
+      print_error "Storage directory not accessible"
+    fi
+    
+    # Check API keys
+    print_action "Checking API keys in database..."
+    API_KEY_COUNT=$(docker exec $BACKEND_CONTAINER python manage.py shell -c "from api.models import APIKey; print(APIKey.objects.filter(is_active=True).count())" 2>/dev/null || echo "0")
+    if [ "$API_KEY_COUNT" -gt 0 ]; then
+      print_status "Found $API_KEY_COUNT active API key(s)"
+    else
+      print_warning "No active API keys found"
+      print_info "Create one with: docker exec $BACKEND_CONTAINER python manage.py create_api_key"
+    fi
+    
+    # Test layouts endpoint with API key
+    if [ -f .env ]; then
+      source .env 2>/dev/null || true
+      if [ -n "$DIRECT_API_KEY" ]; then
+        print_action "Testing layouts endpoint with API key..."
+        LAYOUTS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $DIRECT_API_KEY" http://localhost:8000/api/layouts 2>/dev/null || echo "failed\n000")
+        HTTP_CODE=$(echo "$LAYOUTS_RESPONSE" | tail -n 1)
+        
+        if [ "$HTTP_CODE" = "200" ]; then
+          print_status "Layouts endpoint OK (HTTP $HTTP_CODE)"
+          LAYOUT_COUNT=$(echo "$LAYOUTS_RESPONSE" | head -n -1 | grep -o '"name"' | wc -l || echo "0")
+          print_info "API returned $LAYOUT_COUNT layout(s)"
+        else
+          print_error "Layouts endpoint failed (HTTP $HTTP_CODE)"
+          RESPONSE_BODY=$(echo "$LAYOUTS_RESPONSE" | head -n -1)
+          echo "  Response: $RESPONSE_BODY"
+        fi
+      fi
+    fi
+    
+    # Check Redis connectivity
+    print_action "Checking Redis connectivity..."
+    if docker exec product-editor-redis-1 redis-cli ping 2>&1 | grep -q "PONG"; then
+      print_status "Redis is responding"
+    else
+      print_error "Redis is not responding"
+    fi
+  fi
+fi
+
+# Frontend health check
+if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
+  print_action "Checking frontend health..."
+  
+  # Get frontend container name
+  FRONTEND_CONTAINER=$(docker ps --filter "name=frontend" --format "{{.Names}}" | head -n 1)
+  
+  if [ -z "$FRONTEND_CONTAINER" ]; then
+    print_error "Frontend container not found"
+  else
+    # Wait for frontend to be ready
+    print_action "Waiting for frontend to start (max 30s)..."
+    for i in {1..30}; do
+      if curl -s http://localhost:5004 > /dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    
+    # Test frontend endpoint
+    FRONTEND_RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost:5004 2>/dev/null || echo "failed\n000")
+    HTTP_CODE=$(echo "$FRONTEND_RESPONSE" | tail -n 1)
+    
+    if [ "$HTTP_CODE" = "200" ]; then
+      print_status "Frontend responding OK (HTTP $HTTP_CODE)"
+    else
+      print_error "Frontend not responding (HTTP $HTTP_CODE)"
+      print_warning "Check logs: docker logs $FRONTEND_CONTAINER"
+    fi
+    
+    # Check if frontend can reach backend
+    if [[ "$MODE" == "both" ]]; then
+      print_action "Checking frontend-to-backend connectivity..."
+      BACKEND_CHECK=$(docker exec $FRONTEND_CONTAINER wget -q -O- http://backend:8000/api/health 2>/dev/null || echo "failed")
+      if echo "$BACKEND_CHECK" | grep -q "ok\|healthy\|status"; then
+        print_status "Frontend can reach backend"
+      else
+        print_error "Frontend cannot reach backend"
+      fi
+    fi
+    
+    # Check environment variables
+    print_action "Checking frontend environment..."
+    API_BASE=$(docker exec $FRONTEND_CONTAINER printenv NEXT_PUBLIC_API_BASE_URL 2>/dev/null || echo "not set")
+    if [ "$API_BASE" != "not set" ]; then
+      print_status "API base URL configured: $API_BASE"
+    else
+      print_warning "NEXT_PUBLIC_API_BASE_URL not set"
+    fi
+  fi
+fi
+
 # Show API keys
 if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
   echo ""
