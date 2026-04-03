@@ -5,7 +5,7 @@ echo ""
 
 # Start services
 echo "📦 Starting services..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for services to start
 echo "⏳ Waiting for services to start..."
@@ -14,7 +14,7 @@ sleep 15
 # Show service status
 echo ""
 echo "📋 Service Status:"
-docker-compose ps
+docker compose ps
 
 echo ""
 echo "🌐 Development Access URLs:"
