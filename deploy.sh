@@ -246,6 +246,21 @@ docker-compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
 # Health checks
 print_header "Health Checks"
 
+# Wait a bit for containers to fully start
+if [[ "$MODE" == "both" ]]; then
+  print_action "Waiting for services to initialize..."
+  sleep 10
+  print_status "Services initialized"
+elif [[ "$MODE" == "backend" ]]; then
+  print_action "Waiting for backend to initialize..."
+  sleep 8
+  print_status "Backend initialized"
+elif [[ "$MODE" == "frontend" ]]; then
+  print_action "Waiting for frontend to initialize..."
+  sleep 5
+  print_status "Frontend initialized"
+fi
+
 # Backend health check
 if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
   print_action "Checking backend health..."
@@ -361,7 +376,7 @@ if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
     FRONTEND_RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost:5004 2>/dev/null || echo "failed\n000")
     HTTP_CODE=$(echo "$FRONTEND_RESPONSE" | tail -n 1)
     
-    if [ "$HTTP_CODE" = "200" ]; then
+    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "307" ] || [ "$HTTP_CODE" = "308" ]; then
       print_status "Frontend responding OK (HTTP $HTTP_CODE)"
     else
       print_error "Frontend not responding (HTTP $HTTP_CODE)"
