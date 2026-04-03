@@ -37,9 +37,8 @@ services:
 
   db:
     image: postgres:16-alpine
-    # Don't expose to host - only accessible within Docker network
-    # ports:
-    #   - "${POSTGRES_HOST_PORT:-5432}:5432"
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-product_editor}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
