@@ -111,6 +111,7 @@ services:
     env_file:
       - .env
     environment:
+      - PORT=3000
       - NEXT_PUBLIC_API_BASE_URL=/api
       - INTERNAL_API_URL=http://backend:8000/api
       - NODE_ENV=${NODE_ENV:-production}
