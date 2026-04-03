@@ -78,6 +78,7 @@ services:
       - traefik.http.routers.product-editor-backend.rule=PathPrefix(`/api`)
       - traefik.http.routers.product-editor-backend.entrypoints=web
       - traefik.http.routers.product-editor-backend.priority=2
+      - traefik.http.routers.product-editor-backend.service=product-editor-backend
       - traefik.http.services.product-editor-backend.loadbalancer.server.port=8000
       - traefik.docker.network=product-editor_web
       - traefik.http.middlewares.admin-basicauth.basicauth.usersfile=/etc/traefik/.htpasswd
@@ -85,14 +86,16 @@ services:
       - traefik.http.routers.product-editor-admin.rule=PathPrefix(`/admin/django-admin`)
       - traefik.http.routers.product-editor-admin.entrypoints=web
       - traefik.http.routers.product-editor-admin.middlewares=admin-redirect
-      - traefik.http.services.product-editor-admin.loadbalancer.server.port=8000
+      - traefik.http.routers.product-editor-admin.service=product-editor-backend
       - traefik.http.routers.product-editor-backend-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api`)
       - traefik.http.routers.product-editor-backend-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-backend-tls.tls.certresolver=le
+      - traefik.http.routers.product-editor-backend-tls.service=product-editor-backend
       - traefik.http.routers.product-editor-admin-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/admin/django-admin`)
       - traefik.http.routers.product-editor-admin-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-admin-tls.tls.certresolver=le
       - traefik.http.routers.product-editor-admin-tls.middlewares=admin-basicauth
+      - traefik.http.routers.product-editor-admin-tls.service=product-editor-backend
     networks:
       - web
 
