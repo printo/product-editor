@@ -128,9 +128,15 @@ services:
       - traefik.http.routers.product-editor-nextauth.rule=PathPrefix(`/api/auth`)
       - traefik.http.routers.product-editor-nextauth.entrypoints=web
       - traefik.http.routers.product-editor-nextauth.priority=3
+      - traefik.http.routers.product-editor-nextauth.service=product-editor-frontend
       - traefik.http.routers.product-editor-frontend-tls.rule=Host(`${PUBLIC_HOST}`)
       - traefik.http.routers.product-editor-frontend-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-frontend-tls.tls.certresolver=le
+      - traefik.http.routers.product-editor-nextauth-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/auth`)
+      - traefik.http.routers.product-editor-nextauth-tls.entrypoints=websecure
+      - traefik.http.routers.product-editor-nextauth-tls.priority=3
+      - traefik.http.routers.product-editor-nextauth-tls.service=product-editor-frontend
+      - traefik.http.routers.product-editor-nextauth-tls.tls.certresolver=le
     networks:
       - web
 
