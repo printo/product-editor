@@ -89,6 +89,7 @@ services:
       - traefik.http.routers.product-editor-admin.service=product-editor-backend
       - traefik.http.routers.product-editor-backend-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api`)
       - traefik.http.routers.product-editor-backend-tls.entrypoints=websecure
+      - traefik.http.routers.product-editor-backend-tls.priority=2
       - traefik.http.routers.product-editor-backend-tls.service=product-editor-backend
       - traefik.http.routers.product-editor-admin-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/admin/django-admin`)
       - traefik.http.routers.product-editor-admin-tls.entrypoints=websecure
@@ -131,6 +132,7 @@ services:
       - traefik.http.routers.product-editor-nextauth.service=product-editor-frontend
       - traefik.http.routers.product-editor-frontend-tls.rule=Host(`${PUBLIC_HOST}`)
       - traefik.http.routers.product-editor-frontend-tls.entrypoints=websecure
+      - traefik.http.routers.product-editor-frontend-tls.priority=1
       - traefik.http.routers.product-editor-nextauth-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/auth`)
       - traefik.http.routers.product-editor-nextauth-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-nextauth-tls.priority=3
