@@ -212,12 +212,28 @@ docker compose version
 
 log_header "STEP 5: CLONE FRESH REPOSITORY"
 
+GIT_REPO_URL="${GIT_REPO_URL:-git@github.com:printo/product-editor.git}"
+GIT_REPO_HTTPS="https://github.com/printo/product-editor.git"
+
 log_info "Cloning Product Editor repository..."
 cd ~
-git clone git@github.com:printo/product-editor.git
+if [ -d "product-editor" ]; then
+    log_warning "Directory ~/product-editor already exists. Skipping clone."
+    cd product-editor
+else
+    if git clone "$GIT_REPO_URL"; then
+        log_success "Repository cloned using SSH"
+    else
+        log_warning "SSH clone failed; trying HTTPS clone"
+        git clone "$GIT_REPO_HTTPS"
+        log_success "Repository cloned using HTTPS"
+    fi
+    cd product-editor
+fi
 
-cd product-editor
-log_success "Repository cloned"
+log_info "Current branch: $(git branch --show-current)"
+log_info "Latest commit:"
+git log -1 --oneline
 
 log_info "Current branch: $(git branch --show-current)"
 log_info "Latest commit:"
