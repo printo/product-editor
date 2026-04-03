@@ -6,7 +6,7 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 COPY frontend/nextjs/package.json frontend/nextjs/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
 # ── Stage 2: Build the Next.js app ───────────────────────────────────────────
 FROM node:20-alpine AS builder
@@ -23,8 +23,12 @@ ARG NEXT_PUBLIC_DIRECT_API_KEY
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_DIRECT_API_KEY=$NEXT_PUBLIC_DIRECT_API_KEY
 
+# Verify dependencies exist
+RUN if [ ! -f "package.json" ]; then echo "ERROR: package.json not found"; exit 1; fi && \
+    if [ ! -d "node_modules" ]; then echo "ERROR: node_modules not found"; exit 1; fi
+
 # package.json build script already sets NODE_ENV=production
-RUN pnpm build
+RUN NODE_ENV=production pnpm build
 
 # ── Stage 3: Minimal production runner ───────────────────────────────────────
 FROM node:20-alpine AS runner
