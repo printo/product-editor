@@ -156,15 +156,45 @@ else
     log_success "Docker installed"
 fi
 
-# Check Docker Compose
+# Check Docker Compose (modern integrated version)
 if docker compose version &> /dev/null; then
-    log_success "Docker Compose already installed"
+    log_success "Docker Compose (integrated) already installed"
 else
-    log_info "Installing Docker Compose..."
-    sudo curl -L "https://github.com/docker/compose/releases/download/v2.37.1/docker-compose-$(uname -s)-$(uname -m)" \
-        -o /usr/local/bin/docker-compose 2>/dev/null
-    sudo chmod +x /usr/local/bin/docker-compose
-    log_success "Docker Compose installed"
+    log_info "Installing Docker Compose v2..."
+    
+    # Try method 1: apt-get (preferred for Ubuntu)
+    log_info "Attempting installation via apt-get..."
+    if sudo apt-get update > /dev/null 2>&1 && \
+       sudo apt-get install -y docker-compose-plugin > /dev/null 2>&1; then
+        log_success "Docker Compose installed via apt-get"
+    else
+        # Fall back to method 2: direct binary download
+        log_warning "apt-get failed, downloading binary directly..."
+        
+        COMPOSE_URL="https://github.com/docker/compose/releases/download/v2.37.1/docker-compose-$(uname -s)-$(uname -m)"
+        
+        if sudo curl -L "$COMPOSE_URL" -o /usr/local/bin/docker-compose > /dev/null 2>&1; then
+            sudo chmod +x /usr/local/bin/docker-compose
+            log_success "Docker Compose installed from binary"
+        else
+            log_error "Failed to install Docker Compose"
+            exit 1
+        fi
+    fi
+fi
+
+# Verify both docker-compose and docker compose work
+log_info "Verifying Docker Compose installation..."
+if docker-compose --version > /dev/null 2>&1; then
+    log_success "docker-compose command available: $(docker-compose --version)"
+else
+    log_warning "docker-compose command not available"
+fi
+
+if docker compose version > /dev/null 2>&1; then
+    log_success "docker compose command available (integrated)"
+else
+    log_warning "docker compose command not available"
 fi
 
 # Add user to docker group
