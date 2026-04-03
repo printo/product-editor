@@ -57,7 +57,7 @@ services:
       context: .
       dockerfile: backend/django/Dockerfile
     ports:
-      - "8001:8000"
+      - "8000:8000"
     environment:
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev}
       - DEBUG=${DEBUG:-0}  # Set to 0 for production, 1 for development
