@@ -23,7 +23,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1
+    volumes:
+      - redis_data:/data
     networks:
       - web
     restart: unless-stopped
@@ -148,3 +150,4 @@ networks:
 
 volumes:
   postgres_data:
+  redis_data:

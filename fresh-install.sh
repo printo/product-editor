@@ -240,7 +240,7 @@ log_info "Latest commit:"
 git log -1 --oneline
 
 log_info "Checking files..."
-for file in docker-compose.yml deploy-server.sh deploy.sh start-dev.sh; do
+for file in docker-compose.yml deploy.sh; do
     if [ -f $file ]; then
         log_success "$file found"
         chmod +x $file 2>/dev/null || true
@@ -317,13 +317,10 @@ echo "Your system is ready for deployment!"
 echo ""
 echo -e "${BLUE}Choose deployment option:${NC}"
 echo ""
-echo "  Option 1 (RECOMMENDED - Full Production Deploy):"
-echo "    ${CYAN}./deploy-server.sh${NC}"
-echo ""
-echo "  Option 2 (Quick Deploy - Both Services):"
+echo "  Option 1 (RECOMMENDED - Deploy with Script):"
 echo "    ${CYAN}./deploy.sh${NC}"
 echo ""
-echo "  Option 3 (Manual Docker Commands):"
+echo "  Option 2 (Manual Docker Commands):"
 echo "    ${CYAN}docker compose build${NC}"
 echo "    ${CYAN}docker compose up -d${NC}"
 echo ""
@@ -335,21 +332,16 @@ echo ""
 
 read -p "Run deployment now? (yes/no): " -r
 if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
-    read -p "Which option? (1/2/3) [default=1]: " option
+    read -p "Which option? (1/2) [default=1]: " option
     option=${option:-1}
     
     case $option in
         1)
-            log_info "Starting full production deployment..."
-            chmod +x deploy-server.sh
-            ./deploy-server.sh
-            ;;
-        2)
-            log_info "Starting quick deployment..."
+            log_info "Starting deployment with deploy.sh..."
             chmod +x deploy.sh
             ./deploy.sh
             ;;
-        3)
+        2)
             log_info "Starting manual deployment..."
             docker compose build
             docker compose up -d
@@ -364,7 +356,7 @@ else
     echo ""
     echo "To deploy later, run:"
     echo "  cd ~/product-editor"
-    echo "  ./deploy-server.sh"
+    echo "  ./deploy.sh"
 fi
 
 ##############################################################################
