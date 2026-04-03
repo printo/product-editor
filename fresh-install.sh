@@ -200,7 +200,7 @@ log_header "STEP 5: CLONE FRESH REPOSITORY"
 
 log_info "Cloning Product Editor repository..."
 cd ~
-git clone https://github.com/printo/product-editor.git
+git clone git@github.com:printo/product-editor.git
 
 cd product-editor
 log_success "Repository cloned"
