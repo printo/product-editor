@@ -3,14 +3,11 @@
 /**
  * /dashboard  —  Layout picker
  *
- * Internal users only (PIA session required).
  * Clicking a layout card navigates to /layout/[name] where the full
  * canvas editor lives.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { clsx } from 'clsx';
@@ -28,12 +25,12 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
         {/* Render up to 2 surfaces in a stacked/offset view */}
         <div className="relative w-full h-full flex items-center justify-center">
           {raw.surfaces.slice(0, 2).map((s: any, idx: number) => (
-            <div 
-              key={s.key} 
+            <div
+              key={s.key}
               className={clsx(
                 "absolute transition-all duration-500 shadow-sm border border-slate-200/50 bg-white rounded-sm overflow-hidden",
-                idx === 0 
-                  ? "w-[75%] h-[75%] z-10 -translate-x-3 -translate-y-3 group-hover:-translate-x-5 group-hover:-translate-y-5" 
+                idx === 0
+                  ? "w-[75%] h-[75%] z-10 -translate-x-3 -translate-y-3 group-hover:-translate-x-5 group-hover:-translate-y-5"
                   : "w-[75%] h-[75%] z-20 translate-x-3 translate-y-3 group-hover:translate-x-5 group-hover:translate-y-5"
               )}
             >
@@ -44,7 +41,7 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
             </div>
           ))}
         </div>
-        
+
         {/* Surface count indicator */}
         <div className="absolute top-3 right-3 z-30 flex items-center gap-1.5 px-2 py-1 bg-white/90 backdrop-blur-md border border-indigo-100 rounded-full shadow-sm">
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
@@ -64,22 +61,12 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
 };
 
 export default function Dashboard() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-
   const [layouts, setLayouts] = useState<any[]>([]);
   const [isFetchingLayouts, setIsFetchingLayouts] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
-
-  // Redirect logic
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/login');
-    }
-  }, [status, router]);
 
   const normalizeLayoutItem = useCallback((item: any) => {
     if (typeof item === 'string') return { id: item, name: item, frames: [], tags: [], canvas: {}, surfaceCount: 0 };
@@ -105,12 +92,18 @@ export default function Dashboard() {
   }, []);
 
   const fetchLayouts = useCallback(async () => {
-    if (!session?.accessToken) return;
+    const apiKey = process.env.NEXT_PUBLIC_DIRECT_API_KEY;
+    if (!apiKey) {
+      setError('API key not configured');
+      return;
+    }
+
     setIsFetchingLayouts(true);
     try {
-      const res = await fetch('/api/layouts', {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '/api';
+      const res = await fetch(`${apiBaseUrl}/layouts`, {
         headers: {
-          Authorization: `Bearer ${session.accessToken}`,
+          Authorization: `Bearer ${apiKey}`,
           Accept: 'application/json',
         },
       });
@@ -126,7 +119,7 @@ export default function Dashboard() {
     } finally {
       setIsFetchingLayouts(false);
     }
-  }, [session?.accessToken, normalizeLayoutItem]);
+  }, [normalizeLayoutItem]);
 
   // UseEffects (Must be before any conditional return)
   useEffect(() => {
@@ -137,19 +130,8 @@ export default function Dashboard() {
   }, [searchQuery, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
 
   useEffect(() => {
-    if (session?.accessToken) {
-      fetchLayouts();
-    }
-  }, [session?.accessToken, fetchLayouts]);
-
-  // Loading state (AFTER all hooks)
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-      </div>
-    );
-  }
+    fetchLayouts();
+  }, [fetchLayouts]);
 
   const filtered = layouts.filter(l => {
     const q = searchQuery.toLowerCase();

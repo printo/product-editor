@@ -39,10 +39,8 @@ services:
     image: postgres:16-alpine
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB:-product_editor}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    env_file:
+      - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -60,22 +58,12 @@ services:
       dockerfile: backend/django/Dockerfile
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev}
-      - DEBUG=${DEBUG:-0}  # Set to 0 for production, 1 for development
       - STORAGE_ROOT=/app/storage
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5004}
-      - SECURE_SSL_REDIRECT=${SECURE_SSL_REDIRECT:-True}
-      - POSTGRES_DB=${POSTGRES_DB:-product_editor}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
-      - DIRECT_API_KEY=${DIRECT_API_KEY:-}
-      - EXTERNAL_API_KEY=${EXTERNAL_API_KEY:-}
-      - TESTING_API_KEY=${TESTING_API_KEY:-}
-      - PIA_API_BASE_URL=${PIA_API_BASE_URL:-https://pia.printo.in/api/v1}
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./storage:/app/storage
@@ -117,15 +105,12 @@ services:
         - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY:-}
     ports:
       - "${FRONTEND_HOST_PORT:-5004}:3000"  # can override with FRONTEND_HOST_PORT in .env if occupied
+    env_file:
+      - .env
     environment:
       - NEXT_PUBLIC_API_BASE_URL=/api
       - INTERNAL_API_URL=http://backend:8000/api
-      - NODE_ENV=production
-      - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY:-}
-      - AUTH_SECRET=${AUTH_SECRET}
-      - AUTH_TRUST_HOST=true
-      - AUTH_URL=${NEXTAUTH_URL:-http://localhost:5004}
-      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:5004}
+      - NODE_ENV=${NODE_ENV:-production}
     depends_on:
       - backend
     labels:
