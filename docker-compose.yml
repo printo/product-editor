@@ -73,9 +73,9 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
-      - DIRECT_API_KEY=${DIRECT_API_KEY}
-      - EXTERNAL_API_KEY=${EXTERNAL_API_KEY}
-      - TESTING_API_KEY=${TESTING_API_KEY}
+      - DIRECT_API_KEY=${DIRECT_API_KEY:-}
+      - EXTERNAL_API_KEY=${EXTERNAL_API_KEY:-}
+      - TESTING_API_KEY=${TESTING_API_KEY:-}
       - PIA_API_BASE_URL=${PIA_API_BASE_URL:-https://pia.printo.in/api/v1}
       - REDIS_URL=redis://redis:6379/0
     volumes:
@@ -115,14 +115,14 @@ services:
       dockerfile: frontend/nextjs/Dockerfile
       args:
         - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
-        - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY}
+        - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY:-}
     ports:
       - "${FRONTEND_HOST_PORT:-5004}:3000"  # can override with FRONTEND_HOST_PORT in .env if occupied
     environment:
       - NEXT_PUBLIC_API_BASE_URL=/api
       - INTERNAL_API_URL=http://backend:8000/api
       - NODE_ENV=production
-      - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY}
+      - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY:-}
       - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_TRUST_HOST=true
       - AUTH_URL=${NEXTAUTH_URL:-http://localhost:5004}
