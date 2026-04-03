@@ -92,6 +92,7 @@ Thumbs.db
 *.bak
 *.backup
 *.tmp
+backup_*.sql
 
 # Security
 *.pem
