@@ -251,10 +251,11 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
   print_action "Checking backend health..."
   
   # Get backend container name
-  BACKEND_CONTAINER=$(docker ps --filter "name=backend" --format "{{.Names}}" | head -n 1)
+  BACKEND_CONTAINER=$(docker ps --filter "name=backend" --format "{{.Names}}" | grep backend | head -n 1)
   
   if [ -z "$BACKEND_CONTAINER" ]; then
     print_error "Backend container not found"
+    docker ps -a | grep backend || print_warning "No backend container exists at all"
   else
     # Wait for backend to be ready
     print_action "Waiting for backend to start (max 30s)..."
@@ -341,10 +342,11 @@ if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
   print_action "Checking frontend health..."
   
   # Get frontend container name
-  FRONTEND_CONTAINER=$(docker ps --filter "name=frontend" --format "{{.Names}}" | head -n 1)
+  FRONTEND_CONTAINER=$(docker ps --filter "name=frontend" --format "{{.Names}}" | grep frontend | head -n 1)
   
   if [ -z "$FRONTEND_CONTAINER" ]; then
     print_error "Frontend container not found"
+    docker ps -a | grep frontend || print_warning "No frontend container exists at all"
   else
     # Wait for frontend to be ready
     print_action "Waiting for frontend to start (max 30s)..."
