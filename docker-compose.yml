@@ -115,7 +115,8 @@ services:
       - NEXT_PUBLIC_API_BASE_URL=/api
       - INTERNAL_API_URL=http://backend:8000/api
       - NODE_ENV=${NODE_ENV:-production}
-      - AUTH_URL=https://${PUBLIC_HOST}
+      - AUTH_URL=https://product-editor.printo.in
+      - NEXTAUTH_URL=https://product-editor.printo.in
       - AUTH_TRUST_HOST=true
     depends_on:
       - backend
