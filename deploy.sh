@@ -110,9 +110,9 @@ if [[ "$MODE" == "both" ]]; then
   # Kill any processes using ports 80, 443, 8000, 5004
   print_action "Freeing up ports..."
   for port in 80 443 8000 5004; do
-    pid=$(lsof -ti:$port 2>/dev/null)
+    pid=$(sudo lsof -ti:$port 2>/dev/null || true)
     if [ ! -z "$pid" ]; then
-      kill -9 $pid 2>/dev/null && print_status "Freed port $port" || print_info "Port $port already free"
+      sudo kill -9 $pid 2>/dev/null && print_status "Freed port $port" || print_info "Port $port already free"
     fi
   done
 elif [[ "$MODE" == "backend" ]]; then
@@ -123,9 +123,9 @@ elif [[ "$MODE" == "backend" ]]; then
   docker rm -f product-editor-backend-1 2>/dev/null && print_status "Backend container removed" || print_info "No container to remove"
   
   # Free port 8000
-  pid=$(lsof -ti:8000 2>/dev/null)
+  pid=$(sudo lsof -ti:8000 2>/dev/null || true)
   if [ ! -z "$pid" ]; then
-    kill -9 $pid 2>/dev/null && print_status "Freed port 8000" || print_info "Port 8000 already free"
+    sudo kill -9 $pid 2>/dev/null && print_status "Freed port 8000" || print_info "Port 8000 already free"
   fi
 elif [[ "$MODE" == "frontend" ]]; then
   print_action "Stopping frontend container..."
@@ -135,9 +135,9 @@ elif [[ "$MODE" == "frontend" ]]; then
   docker rm -f product-editor-frontend-1 2>/dev/null && print_status "Frontend container removed" || print_info "No container to remove"
   
   # Free port 5004
-  pid=$(lsof -ti:5004 2>/dev/null)
+  pid=$(sudo lsof -ti:5004 2>/dev/null || true)
   if [ ! -z "$pid" ]; then
-    kill -9 $pid 2>/dev/null && print_status "Freed port 5004" || print_info "Port 5004 already free"
+    sudo kill -9 $pid 2>/dev/null && print_status "Freed port 5004" || print_info "Port 5004 already free"
   fi
 fi
 
