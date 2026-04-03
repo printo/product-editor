@@ -7,17 +7,16 @@ services:
       - --providers.docker.constraints=Label(`traefik.project`,`product-editor`)
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      - --certificatesresolvers.le.acme.email=admin@example.com
-      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
-      - --certificatesresolvers.le.acme.httpchallenge=true
-      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./proxy/traefik/acme.json:/letsencrypt/acme.json
-      - ./proxy/traefik/.htpasswd:/etc/traefik/.htpasswd:ro
     networks:
       - web
 
@@ -90,9 +89,11 @@ services:
       - traefik.http.routers.product-editor-backend-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api`)
       - traefik.http.routers.product-editor-backend-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-backend-tls.priority=2
+      - traefik.http.routers.product-editor-backend-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-backend-tls.service=product-editor-backend
       - traefik.http.routers.product-editor-admin-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/admin/django-admin`)
       - traefik.http.routers.product-editor-admin-tls.entrypoints=websecure
+      - traefik.http.routers.product-editor-admin-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-admin-tls.middlewares=admin-basicauth
       - traefik.http.routers.product-editor-admin-tls.service=product-editor-backend
     networks:
@@ -133,9 +134,11 @@ services:
       - traefik.http.routers.product-editor-frontend-tls.rule=Host(`${PUBLIC_HOST}`)
       - traefik.http.routers.product-editor-frontend-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-frontend-tls.priority=1
+      - traefik.http.routers.product-editor-frontend-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-nextauth-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/auth`)
       - traefik.http.routers.product-editor-nextauth-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-nextauth-tls.priority=3
+      - traefik.http.routers.product-editor-nextauth-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-nextauth-tls.service=product-editor-frontend
     networks:
       - web
