@@ -36,7 +36,7 @@ services:
   db:
     image: postgres:16-alpine
     ports:
-      - "5433:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"  # default host port 5432
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-product_editor}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
@@ -114,7 +114,7 @@ services:
         - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
         - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY}
     ports:
-      - "5004:3000"
+      - "${FRONTEND_HOST_PORT:-5004}:3000"  # can override with FRONTEND_HOST_PORT in .env if occupied
     environment:
       - NEXT_PUBLIC_API_BASE_URL=/api
       - INTERNAL_API_URL=http://backend:8000/api
