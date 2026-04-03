@@ -61,6 +61,12 @@ if [[ "$MODE" != "frontend" && "$MODE" != "backend" && "$MODE" != "both" ]]; the
   usage
 fi
 
+# ── Use ONLY docker-compose.yml (never merge the dev override) ──────────────
+# docker-compose.override.yml disables Traefik labels, remaps ports, and runs
+# in dev mode — all of which break production.  By exporting COMPOSE_FILE we
+# guarantee that every docker-compose call in this script ignores the override.
+export COMPOSE_FILE=docker-compose.yml
+
 # Start deployment
 print_header "Product Editor Deployment"
 print_info "Mode: ${MODE}"
