@@ -141,6 +141,38 @@ export async function renderCanvas(
   });
   fabricCanvas.add(paperOverlay);
 
+  // ── Frame shape outlines — preview only, never exported ───────────────────
+  // A thin stroke-only rect drawn on top of the paper mask so users can see
+  // the exact shape (circle, rounded rect, etc.) of the final product.
+  if (!isExport) {
+  const outlineStrokeW = Math.max(2, Math.round(canvasW * 0.0025));
+  for (const frameSpec of frames) {
+    const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+    const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
+    const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
+    const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+    const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+    const pxPerMm = canvasW / (usedLayout.canvas?.widthMm || 1);
+    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm);
+    const outlineRect = new Rect({
+      left: fx,
+      top: fy,
+      width: fw,
+      height: fh,
+      originX: 'left',
+      originY: 'top',
+      fill: 'transparent',
+      stroke: 'rgba(0,0,0,0.18)',
+      strokeWidth: outlineStrokeW,
+      rx: fr,
+      ry: fr,
+      selectable: false,
+      evented: false,
+    });
+    fabricCanvas.add(outlineRect);
+  }
+  } // end !isExport
+
   // ── Frame placeholder labels — preview only ─────────────────────────────────
   if (!isExport && frames.length > 1) {
     for (let frameIdx = 0; frameIdx < frames.length; frameIdx++) {

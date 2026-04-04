@@ -1,14 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, Hexagon, RotateCw, AlignCenterHorizontal, AlignCenterVertical } from 'lucide-react';
+import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
-import { ShapesPicker } from './ShapesPicker';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
-import type { CanvasItem, FitMode, Overlay, TextOverlay, ShapeOverlay, ImageOverlay } from './types';
+import type { CanvasItem, FitMode, Overlay, TextOverlay, ImageOverlay } from './types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -30,12 +29,11 @@ export interface CanvasEditorSidebarProps {
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 
-type TabKey = 'background' | 'text' | 'shape' | 'icon' | 'image';
+type TabKey = 'background' | 'text' | 'icon' | 'image';
 
 const ADD_TABS: { key: TabKey; label: string; icon: React.ElementType; activeClass: string; gradient: string }[] = [
   { key: 'background', label: 'BG',      icon: Sparkles, activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
   { key: 'text',       label: 'Text',    icon: Type,     activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
-  { key: 'shape',      label: 'Shapes',  icon: Hexagon,  activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
   { key: 'icon',       label: 'Icons',   icon: Sparkles, activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
   { key: 'image',      label: 'Uploads', icon: Image,    activeClass: 'text-violet-600', gradient: 'from-violet-500 to-fuchsia-500' },
 ];
@@ -131,7 +129,6 @@ export function CanvasEditorSidebar({
   // ── Auto-switch tab when overlay is selected on canvas ───────────────────
   useEffect(() => {
     if (selectedLayer.type === 'text')  setActiveAddTab('text');
-    if (selectedLayer.type === 'shape') setActiveAddTab('shape');
     if (selectedLayer.type === 'image') {
       const ov = editingCanvas?.overlays[selectedLayer.index];
       const src = (ov as any)?.source;
@@ -155,7 +152,7 @@ export function CanvasEditorSidebar({
       <div className="absolute top-1/2 -left-32 w-64 h-64 bg-fuchsia-50/30 blur-[80px] -z-10 rounded-full" />
       
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div className="px-6 py-5 border-b border-slate-100 bg-white/80 sticky top-0 z-20 flex items-center justify-between backdrop-blur-xl">
+      <div className="px-4 py-3 border-b border-slate-100 bg-white/80 sticky top-0 z-20 flex items-center justify-between backdrop-blur-xl">
         <div className="flex items-center gap-4">
           <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
             <Sparkles className="w-4.5 h-4.5 text-white" />
@@ -170,7 +167,7 @@ export function CanvasEditorSidebar({
       </div>
 
       {/* ── Scrollable body ────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-10 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6 custom-scrollbar">
 
         {/* ═══ Frame properties ════ */}
         {(selectedLayer.type === 'frame' || selectedLayer.type === 'canvas') && (() => {
@@ -224,7 +221,7 @@ export function CanvasEditorSidebar({
         })()}
 
         {/* ═══ Add-object tabs ════════════════════════════════════════════ */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Tab bar */}
           <div className="flex items-center p-1 bg-slate-50 rounded-xl border border-slate-100">
             {ADD_TABS.map(tab => {
@@ -251,7 +248,7 @@ export function CanvasEditorSidebar({
             {/* ── Background tab ────────────────────────────────────────── */}
             {activeAddTab === 'background' && (
               <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                <div className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all group">
+                <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all group">
                   <div className="space-y-0.5">
                     <p className="text-[11px] font-medium text-slate-800 uppercase">Workspace</p>
                     <p className="text-[10px] text-slate-400 uppercase tracking-tight">Base canvas color</p>
@@ -262,7 +259,7 @@ export function CanvasEditorSidebar({
                       debouncedRender({ ...editingCanvas, bgColor: color });
                     }} />
                 </div>
-                <div className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all group">
+                <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all group">
                   <div className="space-y-0.5">
                     <p className="text-[11px] font-medium text-slate-800 uppercase">Matte / Mask</p>
                     <p className="text-[10px] text-slate-400 uppercase tracking-tight">Border protection</p>
@@ -288,7 +285,7 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                       <div className="flex flex-col">
                         <p className="text-[11px] font-medium text-slate-900 uppercase">Text Styling</p>
@@ -300,7 +297,7 @@ export function CanvasEditorSidebar({
                       </button>
                     </div>
 
-                    <div className="space-y-6">
+                    <div className="space-y-4">
                       <div className="space-y-3">
                         <label className="text-[11px] font-medium text-slate-500 uppercase">Font Family</label>
                         <div className="relative group">
@@ -358,7 +355,7 @@ export function CanvasEditorSidebar({
                           placeholder="Type your message…" />
                       </div>
 
-                      <div className="pt-6 border-t border-slate-100 space-y-4">
+                      <div className="pt-4 border-t border-slate-100 space-y-4">
                         <RotationControl value={overlay.rotation || 0}
                           onChange={v => updateOverlay({ rotation: v })} />
                         
@@ -397,99 +394,6 @@ export function CanvasEditorSidebar({
               );
             })()}
 
-            {/* ── Shape tab ─────────────────────────────────────────────── */}
-            {activeAddTab === 'shape' && (() => {
-              if (selectedLayer.type === 'shape') {
-                const oIdx = selectedLayer.index;
-                const shape = editingCanvas.overlays[oIdx];
-                if (!shape || shape.type !== 'shape') return null;
-                const updateShape = (patch: Partial<ShapeOverlay>) => {
-                  pushUndo(editingCanvas);
-                  const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
-                  debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
-                };
-                return (
-                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                      <div className="flex flex-col">
-                        <p className="text-[11px] font-medium text-slate-900 uppercase">
-                          {shape.shapeType.charAt(0).toUpperCase() + shape.shapeType.slice(1).replace(/-/g, ' ')}
-                        </p>
-                        <span className="text-[10px] text-slate-400 uppercase">Vector properties</span>
-                      </div>
-                      <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all active:scale-90">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-white rounded-xl border border-slate-100 shadow-sm flex items-center justify-between group">
-                        <span className="text-[11px] font-medium text-slate-500 uppercase">Fill</span>
-                        <ColorPicker value={shape.fill} showHex={false} onChange={fill => updateShape({ fill })} />
-                      </div>
-                      <div className="p-4 bg-white rounded-xl border border-slate-100 shadow-sm flex items-center justify-between group">
-                        <span className="text-[11px] font-medium text-slate-500 uppercase">Stroke</span>
-                        <ColorPicker value={shape.stroke} showHex={false} onChange={stroke => updateShape({ stroke })} />
-                      </div>
-                    </div>
-
-                    <div className="space-y-6">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[11px] font-medium text-slate-500 uppercase">Stroke Width</label>
-                          <span className="text-[11px] font-mono font-medium text-indigo-600">{shape.strokeWidth}px</span>
-                        </div>
-                        <input type="range" min="0" max="20" step="1" value={shape.strokeWidth}
-                          onChange={e => updateShape({ strokeWidth: parseInt(e.target.value) })}
-                          className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600" />
-                      </div>
-
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[11px] font-medium text-slate-500 uppercase">Opacity</label>
-                          <span className="text-[11px] font-mono font-medium text-indigo-600">{Math.round(shape.opacity * 100)}%</span>
-                        </div>
-                        <input type="range" min="0" max="100" step="5" value={Math.round(shape.opacity * 100)}
-                          onChange={e => updateShape({ opacity: parseInt(e.target.value) / 100 })}
-                          className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600" />
-                      </div>
-                    </div>
-
-                    <div className="space-y-8 pt-8 border-t border-slate-100">
-                      <RotationControl value={shape.rotation || 0}
-                        onChange={v => updateShape({ rotation: v })} />
-                      <ScaleControl width={shape.width} height={shape.height}
-                        onScale={(w, h) => updateShape({ width: w, height: h })} />
-                      
-                      <div className="space-y-3">
-                        <label className="text-[11px] font-medium text-slate-500 uppercase">Center on Canvas</label>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => handleOverlayAlign(oIdx, 'center')} className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl text-[10px] font-bold text-slate-600 uppercase transition-all">
-                            <AlignCenterHorizontal className="w-3.5 h-3.5" /> Center H
-                          </button>
-                          <button onClick={() => handleOverlayAlign(oIdx, 'middle')} className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl text-[10px] font-bold text-slate-600 uppercase transition-all">
-                            <AlignCenterVertical className="w-3.5 h-3.5" /> Center V
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-              return (
-                <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <ShapesPicker onAddShape={shape => {
-                    pushUndo(editingCanvas, true);
-                    const newOverlay: Overlay = { type: 'shape', ...shape };
-                    const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
-                    debouncedRender(updated);
-                    setSelectedLayer({ type: 'shape', index: updated.overlays.length - 1 });
-                  }} />
-                </div>
-              );
-            })()}
-
             {/* ── Icon tab ──────────────────────────────────────────────── */}
             {activeAddTab === 'icon' && (() => {
               if (selectedLayer.type === 'image') {
@@ -502,7 +406,7 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                       <div className="flex items-center gap-4 min-w-0">
                         <div className="w-11 h-11 bg-slate-50 rounded-xl p-2 border border-slate-100 flex items-center justify-center shrink-0 shadow-sm">
@@ -529,7 +433,7 @@ export function CanvasEditorSidebar({
                         className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-emerald-500" />
                     </div>
 
-                    <div className="space-y-8 pt-8 border-t border-slate-100">
+                    <div className="space-y-5 pt-5 border-t border-slate-100">
                       <RotationControl value={imgOverlay.rotation || 0}
                         onChange={v => updateImage({ rotation: v })} />
                       <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
@@ -563,7 +467,7 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
                 return (
-                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                       <div className="flex flex-col min-w-0 max-w-[70%]">
                         <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
@@ -583,7 +487,7 @@ export function CanvasEditorSidebar({
                         onChange={e => updateImage({ opacity: parseInt(e.target.value) / 100 })}
                         className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-rose-500" />
                     </div>
-                    <div className="space-y-8 pt-8 border-t border-slate-100">
+                    <div className="space-y-5 pt-5 border-t border-slate-100">
                       <RotationControl value={imgOverlay.rotation || 0}
                         onChange={v => updateImage({ rotation: v })} />
                       <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
@@ -594,7 +498,7 @@ export function CanvasEditorSidebar({
               }
               return (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <label className="group relative w-full flex flex-col items-center justify-center gap-3 p-6 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-rose-500 hover:bg-white hover:border-rose-200 transition-all cursor-pointer overflow-hidden shadow-sm">
+                  <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-rose-500 hover:bg-white hover:border-rose-200 transition-all cursor-pointer overflow-hidden shadow-sm">
                     <div className="p-3 bg-rose-50 rounded-xl shadow-inner group-hover:scale-110 transition-all duration-500">
                       <ImagePlus className="w-6 h-6" />
                     </div>
@@ -701,7 +605,7 @@ export function CanvasEditorSidebar({
       </div>
 
       {/* ── Save Button ─────────────────────────────────────────────────── */}
-      <div className="px-6 py-5 bg-white border-t border-slate-100">
+      <div className="px-4 py-3 bg-white border-t border-slate-100">
         <button onClick={handleSaveChanges}
           className="w-full h-12 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-medium uppercase text-[11px] hover:shadow-lg hover:shadow-indigo-100 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
           <CheckCircle2 className="w-4 h-4 transition-transform group-hover:scale-110" />

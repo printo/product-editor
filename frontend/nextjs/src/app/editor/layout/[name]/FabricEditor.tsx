@@ -49,13 +49,14 @@ interface FabricEditorProps {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const DATA_KEY = '__fabricEditor';
-const PAPER_KEY = '__paper';
-const BG_KEY   = '__bgLayer';
-const GUIDE_KEY = '__guideLayer';
-const GRID_KEY  = '__gridLayer';
-const BLEED_KEY = '__bleedLayer';
-const SAFE_KEY  = '__safeLayer';
+const DATA_KEY    = '__fabricEditor';
+const PAPER_KEY   = '__paper';
+const OUTLINE_KEY = '__outlineLayer';
+const BG_KEY      = '__bgLayer';
+const GUIDE_KEY   = '__guideLayer';
+const GRID_KEY    = '__gridLayer';
+const BLEED_KEY   = '__bleedLayer';
+const SAFE_KEY    = '__safeLayer';
 
 // ─── Interactive shape controls styling ──────────────────────────────────────
 
@@ -750,6 +751,38 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     console.log(`  [Paper Overlay] added to canvas | path commands: ${(paperOverlay.path as any[])?.length ?? 'n/a'}`);
     const paperOverlayZ = 1 + frames.length + guidesCount + (frames.length * 2);
     fc.moveObjectTo(paperOverlay, paperOverlayZ);
+
+    // ── Frame shape outlines — visible boundary indicator ────────────────────
+    // Stroke-only rects drawn above the paper mask so the product shape is
+    // always visible regardless of bg/paper color. No fill, no shadow, no glow.
+    const outlineStrokeW = Math.max(1, Math.round(canvasW * 0.0025));
+    frames.forEach((frameSpec: any) => {
+      const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+      const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
+      const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
+      const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+      const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+      const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
+      const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm);
+      const outlineRect = new Rect({
+        left: fx,
+        top: fy,
+        width: fw,
+        height: fh,
+        originX: 'left',
+        originY: 'top',
+        fill: 'transparent',
+        stroke: 'rgba(0,0,0,0.18)',
+        strokeWidth: outlineStrokeW,
+        rx: fr,
+        ry: fr,
+        selectable: false,
+        evented: false,
+      });
+      (outlineRect as any)[OUTLINE_KEY] = true;
+      fc.add(outlineRect);
+      fc.moveObjectTo(outlineRect, paperOverlayZ + 1);
+    });
 
     // ── Overlays ──
     const overlayZStart = paperOverlayZ + 1;

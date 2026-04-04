@@ -24,6 +24,38 @@ import { Canvas as FabricCanvas, StaticCanvas, Rect as FabricRect, FabricImage, 
 import { MM_TO_IN, computeImpositionLayout, resolveSheetSize } from './imposition';
 import { CanvasEditorModal } from './CanvasEditorModal';
 
+// ─── Color space detection (JPEG ICC profile) ────────────────────────────────
+// Reads the ICC profile embedded in JPEG APP2 markers and returns the
+// data color space signature ('CMYK', 'RGB ', etc.) or null if undetectable.
+async function detectJpegColorSpace(file: File): Promise<string | null> {
+  try {
+    const buf = await file.slice(0, 65536).arrayBuffer();
+    const d = new Uint8Array(buf);
+    if (d[0] !== 0xFF || d[1] !== 0xD8) return null; // not a JPEG
+    let offset = 2;
+    while (offset + 4 <= d.length) {
+      if (d[offset] !== 0xFF) break;
+      const marker = d[offset + 1];
+      if (marker === 0xD9 || marker === 0xDA) break; // EOI / SOS
+      const segLen = (d[offset + 2] << 8) | d[offset + 3];
+      if (marker === 0xE2 && segLen > 16) {
+        // Check for "ICC_PROFILE\0" at offset+4
+        const sig = String.fromCharCode(...Array.from(d.slice(offset + 4, offset + 16)));
+        if (sig === 'ICC_PROFILE\0') {
+          // ICC header color space at bytes [16..19] of the profile data
+          // Profile data starts at offset + 4 (marker data) + 12 (sig) + 2 (seq/total) = offset + 18
+          const icc = offset + 18;
+          if (icc + 20 <= d.length) {
+            return String.fromCharCode(d[icc + 16], d[icc + 17], d[icc + 18], d[icc + 19]);
+          }
+        }
+      }
+      offset += 2 + segLen;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 export default function LayoutEditorPage() {
   const params = useParams();
   const layoutName = Array.isArray(params.name) ? params.name[0] : (params.name as string);
@@ -62,6 +94,7 @@ export default function LayoutEditorPage() {
   const [editingCanvas, setEditingCanvas] = useState<CanvasItem | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [uploadWarning, setUploadWarning] = useState<string | null>(null);
+  const [colorWarning, setColorWarning] = useState<string | null>(null);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloadTab, setDownloadTab] = useState<'output' | 'original'>('output');
   const [showImpositionModal, setShowImpositionModal] = useState(false);
@@ -477,6 +510,16 @@ export default function LayoutEditorPage() {
     fileUrlCache.current.forEach(url => URL.revokeObjectURL(url));
     fileUrlCache.current.clear();
     const allFiles = Array.from(e.target.files);
+
+    // ── CMYK color space detection ──────────────────────────────────────────
+    setColorWarning(null);
+    const colorSpaces = await Promise.all(allFiles.map(f => detectJpegColorSpace(f)));
+    const cmykFiles = allFiles.filter((_, i) => colorSpaces[i] === 'CMYK');
+    if (cmykFiles.length > 0) {
+      setColorWarning(
+        `${cmykFiles.length === 1 ? `"${cmykFiles[0].name}"` : `${cmykFiles.length} files`} use CMYK colour (ISOCoated). Colours may shift — convert to sRGB for accurate on-screen preview.`
+      );
+    }
     if (surfaceStates.length > 1 && normalizedLayoutState) {
       setIsProcessing(true);
       setError(null);
@@ -791,6 +834,20 @@ export default function LayoutEditorPage() {
           <span className="flex-1 text-[10px] font-bold text-amber-900/80 uppercase tracking-tight leading-none">{uploadWarning}</span>
           <button onClick={() => setUploadWarning(null)} className="p-2 hover:bg-amber-50 rounded-xl transition-all group-hover:rotate-90">
             <X className="w-3.5 h-3.5 text-amber-400" />
+          </button>
+        </div>
+      )}
+      {colorWarning && (
+        <div className={`fixed ${uploadWarning ? 'top-44' : 'top-24'} right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-orange-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-orange-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
+          <div className="w-7 h-7 mt-0.5 rounded-xl bg-orange-500/10 text-orange-600 flex items-center justify-center shrink-0">
+            <span className="text-[13px] font-black">⚠</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-black text-orange-900/90 uppercase tracking-tight leading-none mb-1">CMYK → RGB colour shift</p>
+            <p className="text-[10px] font-medium text-orange-800/70 leading-snug">{colorWarning}</p>
+          </div>
+          <button onClick={() => setColorWarning(null)} className="p-2 mt-0.5 hover:bg-orange-50 rounded-xl transition-all shrink-0">
+            <X className="w-3.5 h-3.5 text-orange-400" />
           </button>
         </div>
       )}
