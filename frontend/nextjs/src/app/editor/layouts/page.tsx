@@ -104,6 +104,9 @@ export default function LayoutCreatorPage() {
   const router = useRouter();
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
 
+  // Static key for read operations — local DB lookup only, no PIA round-trip
+  const directKey = process.env.NEXT_PUBLIC_DIRECT_API_KEY ?? '';
+
   const [layouts, setLayouts] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -345,9 +348,6 @@ export default function LayoutCreatorPage() {
       router.push('/dashboard');
     }
   }, [status, session, router]);
-
-  // Static key for read operations — local DB lookup only, no PIA round-trip
-  const directKey = process.env.NEXT_PUBLIC_DIRECT_API_KEY ?? '';
 
   const fetchLayouts = useCallback(async () => {
     try {
