@@ -67,6 +67,22 @@ fi
 # guarantee that every docker-compose call in this script ignores the override.
 export COMPOSE_FILE=docker-compose.yml
 
+# ── Pull latest code from GitHub before deploying ───────────────────────────
+print_header "Pulling Latest Code"
+print_action "Running git pull..."
+if git pull 2>&1 | tee /tmp/git_pull_output.txt | while read line; do
+  echo -e "${CYAN}→${NC} $line"
+done; then
+  if grep -q "Already up to date" /tmp/git_pull_output.txt; then
+    print_info "Already up to date — no new changes"
+  else
+    print_status "Code updated successfully"
+  fi
+else
+  print_error "git pull failed — check your SSH key / remote connection"
+  print_warning "Continuing with existing code..."
+fi
+
 # Start deployment
 print_header "Product Editor Deployment"
 print_info "Mode: ${MODE}"
