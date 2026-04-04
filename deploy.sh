@@ -174,72 +174,63 @@ if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
   docker rmi product-editor-frontend:latest 2>/dev/null && print_status "Old frontend image removed" || print_info "No old frontend image found"
 fi
 
-# Build services
+# Build services — stream full output so failures are visible
 print_header "Building New Images"
 if [[ "$MODE" == "backend" ]]; then
-  print_action "Building backend image..."
-  docker-compose build backend 2>&1 | grep -E "(Step|Successfully built|Successfully tagged)" | while read line; do
-    if [[ "$line" =~ "Successfully" ]]; then
-      echo -e "${GREEN}✓${NC} $line"
-    else
-      echo -e "${CYAN}→${NC} $line"
-    fi
-  done
-  print_status "Backend image built successfully"
+  print_action "Building backend image (output below)..."
+  if docker-compose build backend; then
+    print_status "Backend image built successfully"
+  else
+    print_error "Backend build FAILED — aborting deployment"
+    exit 1
+  fi
 elif [[ "$MODE" == "frontend" ]]; then
-  print_action "Building frontend image..."
-  docker-compose build frontend 2>&1 | grep -E "(Step|Successfully built|Successfully tagged)" | while read line; do
-    if [[ "$line" =~ "Successfully" ]]; then
-      echo -e "${GREEN}✓${NC} $line"
-    else
-      echo -e "${CYAN}→${NC} $line"
-    fi
-  done
-  print_status "Frontend image built successfully"
+  print_action "Building frontend image (output below)..."
+  if docker-compose build frontend; then
+    print_status "Frontend image built successfully"
+  else
+    print_error "Frontend build FAILED — aborting deployment"
+    exit 1
+  fi
 else
-  print_action "Building all images..."
-  docker-compose build 2>&1 | grep -E "(Step|Successfully built|Successfully tagged)" | while read line; do
-    if [[ "$line" =~ "Successfully" ]]; then
-      echo -e "${GREEN}✓${NC} $line"
-    else
-      echo -e "${CYAN}→${NC} $line"
-    fi
-  done
-  print_status "All images built successfully"
+  print_action "Building all images (output below)..."
+  if docker-compose build; then
+    print_status "All images built successfully"
+  else
+    print_error "Image build FAILED — aborting deployment"
+    exit 1
+  fi
 fi
 
 # Start services
 print_header "Starting Services"
 if [[ "$MODE" == "backend" ]]; then
   print_action "Creating and starting backend container..."
-  docker-compose up -d backend 2>&1 | while read line; do
-    if [[ "$line" =~ "Creating" || "$line" =~ "Starting" ]]; then
-      echo -e "${CYAN}→${NC} $line"
-    elif [[ "$line" =~ "Created" || "$line" =~ "Started" ]]; then
-      echo -e "${GREEN}✓${NC} $line"
-    fi
-  done
-  print_status "Backend started"
+  if docker-compose up -d backend; then
+    print_status "Backend started"
+  else
+    print_error "Failed to start backend"
+    docker-compose logs --tail=30 backend
+    exit 1
+  fi
 elif [[ "$MODE" == "frontend" ]]; then
   print_action "Creating and starting frontend container..."
-  docker-compose up -d frontend 2>&1 | while read line; do
-    if [[ "$line" =~ "Creating" || "$line" =~ "Starting" ]]; then
-      echo -e "${CYAN}→${NC} $line"
-    elif [[ "$line" =~ "Created" || "$line" =~ "Started" ]]; then
-      echo -e "${GREEN}✓${NC} $line"
-    fi
-  done
-  print_status "Frontend started"
+  if docker-compose up -d frontend; then
+    print_status "Frontend started"
+  else
+    print_error "Failed to start frontend"
+    docker-compose logs --tail=30 frontend
+    exit 1
+  fi
 else
   print_action "Creating and starting all containers..."
-  docker-compose up -d 2>&1 | while read line; do
-    if [[ "$line" =~ "Creating" || "$line" =~ "Starting" ]]; then
-      echo -e "${CYAN}→${NC} $line"
-    elif [[ "$line" =~ "Created" || "$line" =~ "Started" || "$line" =~ "Healthy" ]]; then
-      echo -e "${GREEN}✓${NC} $line"
-    fi
-  done
-  print_status "All services started"
+  if docker-compose up -d; then
+    print_status "All services started"
+  else
+    print_error "Failed to start services — showing logs"
+    docker-compose logs --tail=50
+    exit 1
+  fi
 fi
 
 # Run migrations
