@@ -165,7 +165,7 @@ export default function Dashboard() {
               {filtered.map((layout) => (
                 <Link
                   key={layout.id}
-                  href={`/layout/${layout.id}`}
+                  href={`/editor/layout/${layout.id}`}
                   className="group bg-white rounded-2xl border border-slate-100/60 overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 transition-all duration-300 hover:-translate-y-1"
                 >
                   <LayoutPreview layout={layout} />

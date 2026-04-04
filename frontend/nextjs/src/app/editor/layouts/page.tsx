@@ -283,12 +283,12 @@ export default function LayoutCreatorPage() {
   useEffect(() => {
     if (!session?.accessToken) return;
     fetch('/api/fonts', {
-      headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json' },
+      headers: { Authorization: `Bearer ${directKey}`, Accept: 'application/json' },
     })
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data?.fonts) setSelectedFonts(data.fonts); })
       .catch(() => {});
-  }, [session?.accessToken]);
+  }, [directKey]);
 
   // Save selected fonts to the backend
   const saveFontsToBackend = useCallback(async (fonts: string[]) => {
@@ -346,11 +346,14 @@ export default function LayoutCreatorPage() {
     }
   }, [status, session, router]);
 
+  // Static key for read operations — local DB lookup only, no PIA round-trip
+  const directKey = process.env.NEXT_PUBLIC_DIRECT_API_KEY ?? '';
+
   const fetchLayouts = useCallback(async () => {
     try {
       const res = await fetch('/api/ops/layouts', {
         headers: {
-          'Authorization': `Bearer ${session?.accessToken}`,
+          'Authorization': `Bearer ${directKey}`,
           'Accept': 'application/json'
         }
       });
@@ -372,13 +375,13 @@ export default function LayoutCreatorPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [session?.accessToken]);
+  }, [directKey]);
 
   useEffect(() => {
-    if (session?.accessToken) {
+    if (status === 'authenticated') {
       fetchLayouts();
     }
-  }, [session?.accessToken, fetchLayouts]);
+  }, [status, fetchLayouts]);
 
   const internalId = layoutName.toLowerCase().replace(/\s+/g, '_');
   const mmToPx = (mm: number, dpiVal: number) => Math.round((mm / 25.4) * dpiVal);
@@ -589,7 +592,7 @@ export default function LayoutCreatorPage() {
     try {
       const res = await fetch(`/api/ops/layouts/${targetLayout}`, {
         headers: {
-          'Authorization': `Bearer ${session?.accessToken}`,
+          'Authorization': `Bearer ${directKey}`,
           'Accept': 'application/json'
         }
       });

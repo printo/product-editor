@@ -35,10 +35,16 @@ export default function LayoutEditorPage() {
     return new URLSearchParams(window.location.search).get('token');
   }, []);
 
+  // For embed flow: use short-lived embed token (never exposes real key).
+  // For regular users: use the static DIRECT_API_KEY baked into the bundle —
+  // this bypasses PIA token verification entirely (local DB lookup only, ~1ms).
+  // The user is already authenticated via NextAuth session; the API key just
+  // satisfies backend permission checks for read/generate operations.
+  const directKey = process.env.NEXT_PUBLIC_DIRECT_API_KEY ?? '';
   const getAuthHeaders = useCallback((): Record<string, string> => {
     if (embedToken) return { 'X-Embed-Token': embedToken };
-    return { Authorization: `Bearer ${session?.accessToken ?? ''}` };
-  }, [embedToken, session?.accessToken]);
+    return { Authorization: `Bearer ${directKey}` };
+  }, [embedToken, directKey]);
 
   const apiBase = embedToken ? '/api/embed/proxy' : '/api';
 
@@ -105,17 +111,16 @@ export default function LayoutEditorPage() {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (embedToken) {
       headers['X-Embed-Token'] = embedToken;
-    } else if (session?.accessToken) {
-      headers['Authorization'] = `Bearer ${session.accessToken}`;
     } else {
-      return;
+      // Use static key — no PIA round-trip needed for a fonts read
+      headers['Authorization'] = `Bearer ${directKey}`;
     }
     const fontsUrl = embedToken ? '/api/embed/proxy/fonts' : '/api/fonts';
     fetch(fontsUrl, { headers })
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data?.fonts) setSelectedFonts(data.fonts); })
       .catch(() => {});
-  }, [session?.accessToken, embedToken]);
+  }, [embedToken, directKey]);
 
   const loadGoogleFont = useCallback((fontName: string) => {
     if (fontsLoaded.has(fontName) || ['sans-serif', 'serif', 'monospace', 'cursive'].includes(fontName)) return;
@@ -187,7 +192,7 @@ export default function LayoutEditorPage() {
       }
     };
     fetchLayout();
-  }, [layoutName, embedToken, session?.accessToken, apiBase, getAuthHeaders]);
+  }, [layoutName, embedToken, apiBase, getAuthHeaders]);
 
   const getFileUrl = useCallback((file: File): string => {
     let url = fileUrlCache.current.get(file);

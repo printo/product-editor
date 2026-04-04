@@ -81,10 +81,16 @@ class PIAAuthentication(authentication.BaseAuthentication):
             return (PIAUser(cached_user_data), token)
         
         try:
-            response = requests.post(verify_url, json={'token': token}, timeout=5)
+            # connect timeout=2s (fail fast if PIA unreachable), read timeout=5s
+            response = requests.post(
+                verify_url,
+                json={'token': token},
+                timeout=(2, 5),
+            )
             if response.status_code == 200:
                 user_data = response.json()
-                cache.set(cache_key, user_data, 300)  # Cache for 5 mins
+                # Cache for 30 mins so subsequent requests skip this network call entirely
+                cache.set(cache_key, user_data, 1800)
                 return (PIAUser(user_data), token)
             else:
                 logger.warning(f"PIA token verification failed: {response.status_code}")

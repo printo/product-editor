@@ -100,28 +100,35 @@ class ListLayoutsView(APIView):
     )
     def get(self, request):
         try:
-            logger.info(f"DEBUG_LAYOUT_REQ: User={request.user}, Auth={request.auth}, Headers={request.headers.get('Authorization')}")
-            storage = get_storage()
-            layout_names = storage.list_layouts()
-            
-            layouts_data = []
-            for name in layout_names:
-                path = os.path.join(storage.layouts_dir(), f"{name}.json")
-                if os.path.exists(path):
-                    try:
-                        with open(path, "r") as f:
-                            data = json.load(f)
-                            if "name" not in data:
-                                data["name"] = name
-                            layouts_data.append(data)
-                    except Exception:
+            from django.core.cache import cache as django_cache
+            CACHE_KEY = "layouts_list_all"
+            CACHE_TTL = 120  # 2 minutes — invalidated on upload/save
+
+            layouts_data = django_cache.get(CACHE_KEY)
+            if layouts_data is None:
+                storage = get_storage()
+                layout_names = storage.list_layouts()
+                layouts_data = []
+                for name in layout_names:
+                    path = os.path.join(storage.layouts_dir(), f"{name}.json")
+                    if os.path.exists(path):
+                        try:
+                            with open(path, "r") as f:
+                                data = json.load(f)
+                                if "name" not in data:
+                                    data["name"] = name
+                                layouts_data.append(data)
+                        except Exception:
+                            layouts_data.append({"name": name})
+                    else:
                         layouts_data.append({"name": name})
-                else:
-                    layouts_data.append({"name": name})
-                    
-            logger.info(f"DEBUG_LAYOUT_RES: Returning {len(layouts_data)} layouts")
+                django_cache.set(CACHE_KEY, layouts_data, CACHE_TTL)
+                logger.info(f"Layouts cache miss — loaded {len(layouts_data)} layouts from disk")
+            else:
+                logger.info(f"Layouts cache hit — serving {len(layouts_data)} layouts")
+
             response = Response({"layouts": layouts_data})
-            response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'
+            response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
             return response
         except Exception as e:
             logger.error(f"Error listing layouts: {str(e)}")
@@ -901,6 +908,10 @@ class LayoutManagementView(APIView):
                 except Exception as e:
                     logger.warning(f"Rename: mask move failed: {e}")
             
+            # Invalidate the layouts list cache so next GET reflects the change
+            from django.core.cache import cache as django_cache
+            django_cache.delete("layouts_list_all")
+
             return Response({"status": "success", "name": layout_name, "maskUrl": layout_data.get('maskUrl')})
         except json.JSONDecodeError:
             return Response({"detail": "Invalid JSON data"}, status=status.HTTP_400_BAD_REQUEST)
@@ -934,6 +945,9 @@ class LayoutManagementView(APIView):
                 logger.warning(f"Failed to delete mask for layout {name}: {e}")
 
             os.remove(path)
+            # Invalidate the layouts list cache
+            from django.core.cache import cache as django_cache
+            django_cache.delete("layouts_list_all")
             return Response({"status": "success", "detail": f"Layout {name} deleted"})
         except Exception as e:
             logger.error(f"Error deleting layout {name}: {str(e)}")
