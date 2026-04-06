@@ -3,6 +3,7 @@ from .views import (
     GenerateLayoutView, ListLayoutsView, HealthView, GetLayoutView, SecureExportDownloadView,
     LayoutManagementView, ExternalLayoutDetailView, MaskDownloadView,
     EmbedSessionView, EmbedSessionValidateView, FontsView,
+    RenderStatusView, CeleryMonitoringView,
 )
 
 urlpatterns = [
@@ -13,6 +14,10 @@ urlpatterns = [
     path("layouts/<str:name>", GetLayoutView.as_view(), name="layout-detail"),
     path("health", HealthView.as_view(), name="health"),
     path("exports/<path:file_path>", SecureExportDownloadView.as_view(), name="export-download"),
+    
+    # Async rendering endpoints
+    path("render-status/<uuid:job_id>/", RenderStatusView.as_view(), name="render-status"),
+    path("celery/monitor/", CeleryMonitoringView.as_view(), name="celery-monitor"),
     
     # Layout management (Ops Team only)
     path("ops/layouts", LayoutManagementView.as_view(), name="ops-layouts-list"),

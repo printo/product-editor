@@ -22,6 +22,8 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "corsheaders",
+    "django_celery_beat",
+    "django_celery_results",
     "api",
     "layout_engine",
 ]
@@ -69,6 +71,10 @@ DATABASES = {
         "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
         "HOST": os.getenv("POSTGRES_HOST", "localhost"),
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),  # Persistent connections (tunable)
+        "OPTIONS": {
+            "connect_timeout": 10,
+        },
     }
 }
 
@@ -249,4 +255,28 @@ LOGGING = {
             "level": "INFO",
         },
     },
+}
+
+# Celery Configuration
+CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+CELERY_RESULT_BACKEND = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+
+# OMS Integration
+OMS_PRODUCTION_ESTIMATOR_URL = os.getenv(
+    'OMS_PRODUCTION_ESTIMATOR_URL',
+    'http://oms-service:8080/api/production/estimate'
+)
+
+# Cache TTL Configuration (seconds)
+# Dynamic TTL based on job status for optimal caching performance
+RENDER_JOB_STATUS_CACHE_TTL = {
+    'queued': int(os.getenv('CACHE_TTL_QUEUED', '3')),        # Jobs transition quickly
+    'processing': int(os.getenv('CACHE_TTL_PROCESSING', '10')),  # Longer render times
+    'completed': int(os.getenv('CACHE_TTL_COMPLETED', '300')),   # Terminal state
+    'failed': int(os.getenv('CACHE_TTL_FAILED', '300')),         # Terminal state
+    'default': int(os.getenv('CACHE_TTL_DEFAULT', '5')),         # Fallback
 }

@@ -27,6 +27,10 @@ services:
       - redis_data:/data
     networks:
       - web
+    deploy:
+      resources:
+        reservations:
+          memory: 128M
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -40,10 +44,16 @@ services:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     env_file:
       - .env
+    environment:
+      - POSTGRES_MAX_CONNECTIONS=100
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - web
+    deploy:
+      resources:
+        reservations:
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -71,6 +81,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    user: "1000:1000"
     labels:
       - traefik.enable=true
       - traefik.project=product-editor
@@ -143,6 +154,99 @@ services:
       - traefik.http.routers.product-editor-nextauth-tls.service=product-editor-frontend
     networks:
       - web
+
+  # ── Priority worker — soft-proof / express / store-pickup orders ─────────────
+  # Listens ONLY to the 'priority' queue so standard-queue backlog never delays
+  # time-sensitive renders. concurrency=2 keeps memory inside 512 MB safely.
+  celery-worker-priority:
+    build:
+      context: .
+      dockerfile: backend/django/Dockerfile
+    command: celery-worker
+    env_file:
+      - .env
+    environment:
+      - STORAGE_ROOT=/app/storage
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_CONCURRENCY=2
+      - CELERY_QUEUE=priority
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - web
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 256M
+    restart: unless-stopped
+    user: "1000:1000"
+
+  # ── Standard worker — PNG/TIFF exports for regular delivery orders ────────
+  # concurrency=2 gives ~256 MB headroom per task slot; scale horizontally
+  # under festival load with: docker-compose up --scale celery-worker-standard=4
+  celery-worker-standard:
+    build:
+      context: .
+      dockerfile: backend/django/Dockerfile
+    command: celery-worker
+    env_file:
+      - .env
+    environment:
+      - STORAGE_ROOT=/app/storage
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_CONCURRENCY=2
+      - CELERY_QUEUE=standard
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - web
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 256M
+    restart: unless-stopped
+    user: "1000:1000"
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: backend/django/Dockerfile
+    command: celery-beat
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - web
+    restart: unless-stopped
+    user: "1000:1000"
 
 networks:
   web:

@@ -1,97 +1,97 @@
-# Product Editor - Photo Layout Generator
+# Product Editor — Printo.in Photo Layout Generator
 
-A production-ready full-stack application for generating photo layouts and collages. Upload multiple images, select a layout template, and export as PNG files.
+A production-ready full-stack application for generating photo layouts for personalised print products. Customers upload images, compose them on an interactive canvas, and post-checkout the system renders high-resolution print files and pushes them directly to the production estimator — zero manual preflight required.
+
+---
 
 ## Technology Stack
 
 **Backend**
-- Django 5.0.6 with Django REST Framework
+- Django 5.0.6 + Django REST Framework
 - PostgreSQL 16
-- Pillow for high-resolution image processing
-- Bearer token API authentication
-- Gunicorn for production
+- Pillow — high-resolution image rendering (300 DPI PNG / CMYK TIFF)
+- Celery 5 + Redis — async render queue with priority/standard worker isolation
+- Gunicorn (gthread) — web serving
+- Bearer token API authentication + short-lived embed session tokens
 
 **Frontend**
-- Next.js 14.2.4
-- Fabric.js 7.2.0 for interactive canvas editing
-- React 18.2.0
-- TypeScript 5.4.5
-- Tailwind CSS 3.4.3
+- Next.js 16 (App Router)
+- React 19, TypeScript 5.7
+- Fabric.js 7.2 — interactive canvas editing
+- Tailwind CSS 3.4
 
 **Infrastructure**
-- Docker & Docker Compose
-- Traefik reverse proxy with SSL/TLS
-- PostgreSQL database
+- Docker Compose
+- Traefik v3 — reverse proxy with automatic Let's Encrypt TLS
+- Redis 7 — Celery broker, result backend, and status-polling cache
+- PostgreSQL 16
 
-## Features
+---
 
-- **API Key Authentication**: Secure Bearer token-based authentication
-- **Layout Management**: List and retrieve layout specifications
-- **Image Upload**: Multi-file upload with validation (size, type, dimensions)
-- **Layout Generation**: Arrange images into predefined layouts
-- **Export**: Generate and download PNG files
-- **Audit Trail**: Complete request logging and tracking
-- **Admin Dashboard**: Django admin for managing API keys and monitoring
-- **Rate Limiting**: Configurable per API key
-- **Security**: Path traversal protection, CORS restriction, security headers
+## Services
 
-## Quick Start
+| Service | Purpose |
+|---|---|
+| `backend` | Django API + Gunicorn web server |
+| `frontend` | Next.js customer-facing editor |
+| `celery-worker-priority` | Render worker — `priority` queue only (express / store-pickup orders) |
+| `celery-worker-standard` | Render worker — `standard` queue only (regular delivery orders) |
+| `celery-beat` | Periodic task scheduler (daily GC at 02:00 UTC) |
+| `redis` | Broker, result backend, status cache |
+| `db` | PostgreSQL database |
+| `proxy` | Traefik reverse proxy + TLS |
 
-### Development Setup
+---
 
-1. **Clone and configure**
+## Quick Start (Local Dev)
+
 ```bash
 git clone <repository-url>
 cd product-editor
 cp .env.example .env
-```
-
-2. **Edit `.env` for development**
-```env
-DEBUG=1
-POSTGRES_PASSWORD=devpassword
-DJANGO_SECRET_KEY=dev-secret-key
-```
-
-3. **Start services**
-```bash
+# Edit .env — set DJANGO_SECRET_KEY, POSTGRES_PASSWORD, API keys
 docker-compose up -d
 ```
 
-4. **Access application**
-- Frontend: http://localhost:5004
-- Backend API: http://localhost:8000/api
-- Admin: http://localhost:8000/admin/django-admin/
-- Database: localhost:5432
+| Endpoint | URL |
+|---|---|
+| Frontend | http://localhost:5004 |
+| Backend API | http://localhost:8000/api |
+| Django Admin | http://localhost:8000/admin/django-admin/ |
+| API Docs (Swagger) | http://localhost:8000/api/docs/ |
 
-5. **Get API key**
-```bash
-docker-compose logs backend | grep "Development API key created"
-```
+> **Note:** `.env.local` in `frontend/nextjs/` overrides docker-compose env vars. Always set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) when running inside Docker.
 
-### Production Deployment
+---
 
-1. **Server setup**
+## Production Deployment
+
+### 1. Server prerequisites
+
 ```bash
 sudo apt update && sudo apt upgrade -y
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
+curl -fsSL https://get.docker.com | sudo sh
 sudo apt install docker-compose-plugin -y
 ```
 
-2. **Configure production environment**
+### 2. Configure environment
+
 ```bash
-cp .env.example .env
-nano .env
+cp .env.example .env && nano .env
 ```
 
-Set production values:
+Required production values:
+
 ```env
-DJANGO_SECRET_KEY=<generate-strong-random-key>
+DJANGO_SECRET_KEY=<50-char random string>
 DEBUG=0
-ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
-POSTGRES_PASSWORD=<strong-random-password>
-CORS_ALLOWED_ORIGINS=https://yourdomain.com
+PUBLIC_HOST=product-editor.printo.in
+LETSENCRYPT_EMAIL=devops@printo.in
+POSTGRES_PASSWORD=<strong password>
+DIRECT_API_KEY=<ops team key>
+EXTERNAL_API_KEY=<embed partner key>
+REDIS_URL=redis://redis:6379/0
+OMS_PRODUCTION_ESTIMATOR_URL=http://oms-service:8080/api/production/estimate
 ```
 
 Generate secret key:
@@ -99,399 +99,240 @@ Generate secret key:
 python3 -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
-3. **Configure Traefik**
-Edit `docker-compose.yml`:
-```yaml
-- --certificatesresolvers.le.acme.email=your-email@example.com
-```
+### 3. SSL preparation
 
-4. **Prepare SSL**
 ```bash
-touch proxy/traefik/acme.json
-chmod 600 proxy/traefik/acme.json
+touch proxy/traefik/acme.json && chmod 600 proxy/traefik/acme.json
 ```
 
-5. **Deploy**
+### 4. Deploy
+
 ```bash
 docker-compose up -d
+docker-compose logs -f backend   # watch for migration output
 ```
 
-6. **Create production API key**
+### 5. Scale workers for peak load
+
 ```bash
-docker-compose exec backend python manage.py create_api_key "Production App" \
-  --can-generate-layouts \
-  --can-list-layouts \
-  --can-access-exports \
-  --max-requests-per-day 10000
+# Add more standard workers during festival seasons
+docker-compose up -d --scale celery-worker-standard=4
 ```
 
-## API Documentation
+---
 
-### Authentication
-All endpoints (except `/api/health`) require Bearer token:
+## API Reference
 
-```bash
-curl -H "Authorization: Bearer YOUR_API_KEY" https://yourdomain.com/api/layouts
-```
+All endpoints (except `/api/health`) require `Authorization: Bearer YOUR_API_KEY`.
 
-### Endpoints
+### Core endpoints
 
-**Health Check**
-```bash
-GET /api/health
-```
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/health` | Health check (public) |
+| `GET` | `/api/layouts` | List available layouts |
+| `GET` | `/api/layouts/{name}` | Layout definition |
+| `POST` | `/api/layout/generate` | Generate layout (sync or async) |
+| `GET` | `/api/render-status/{job_id}/` | Async job status |
+| `GET` | `/api/exports/{filename}` | Download export file |
+| `POST` | `/api/embed/session` | Create short-lived embed token |
+| `GET` | `/api/celery/monitor/` | Queue/worker stats (ops team only) |
 
-**List Layouts**
-```bash
-GET /api/layouts
-Authorization: Bearer YOUR_API_KEY
-```
-
-**Get Layout Details**
-```bash
-GET /api/layouts/{name}
-Authorization: Bearer YOUR_API_KEY
-```
-
-**Generate Layout**
-```bash
-POST /api/layout/generate
-Authorization: Bearer YOUR_API_KEY
-Content-Type: multipart/form-data
-
-Form Data:
-- layout: "4x6-20"
-- images: [file1.jpg, file2.jpg, ...]
-```
-
-**Download Export**
-```bash
-GET /api/exports/{filename}
-Authorization: Bearer YOUR_API_KEY
-```
-
-### Example: Generate Layout
+### Sync generation (backward compatible)
 
 ```bash
-curl -X POST https://yourdomain.com/api/layout/generate \
+curl -X POST https://product-editor.printo.in/api/layout/generate \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "layout=4x6-20" \
-  -F "images=@photo1.jpg" \
-  -F "images=@photo2.jpg" \
-  -F "images=@photo3.jpg"
+  -F "layout=CIRCLE_48MM" \
+  -F "fit_mode=cover" \
+  -F "images=@photo.jpg"
 ```
 
-Response:
+Response: `{"canvases": ["output_abc123.png"]}`
+
+### Async generation (recommended for production)
+
+Include `order_id` in the request to trigger async mode:
+
+```bash
+curl -X POST https://product-editor.printo.in/api/layout/generate \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "layout=CIRCLE_48MM" \
+  -F "order_id=ORD-20260405-001" \
+  -F "callback_url=https://oms.printo.in/webhooks/render" \
+  -F "fit_mode=cover" \
+  -F "images=@photo.jpg"
+```
+
+Response `202 Accepted`:
 ```json
 {
-  "canvases": ["output_abc123.png"]
+  "job_id": "cb842c45-b0e7-41bb-8a70-9cf72473ec55",
+  "status_url": "/api/render-status/cb842c45-b0e7-41bb-8a70-9cf72473ec55/",
+  "queue": "standard",
+  "estimated_wait_seconds": 60
 }
 ```
 
-## API Key Management
-
-### Create API Key
+Poll status:
 ```bash
-docker-compose exec backend python manage.py create_api_key "App Name" \
-  --can-generate-layouts \
-  --can-list-layouts \
-  --can-access-exports \
-  --max-requests-per-day 1000
+curl https://product-editor.printo.in/api/render-status/cb842c45-.../
+  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-### List API Keys
+When complete, `callback_url` receives a POST with `status: "completed"` and `output_files`.
+
+### CMYK soft-proof (priority queue)
+
 ```bash
-docker-compose exec backend python manage.py shell -c \
-  "from api.models import APIKey; [print(f'{k.name}: {k.key}') for k in APIKey.objects.filter(is_active=True)]"
+-F "soft_proof=true"   # routes to priority queue; outputs PNG + TIFF CMYK + preview PNG
 ```
 
-### Manage via Admin
-Access `/admin/django-admin/` to:
-- View all API keys
-- Enable/disable keys
-- Set permissions per key
-- Monitor request logs
-- Track uploads and exports
+---
+
+## Async Queue Architecture
+
+```
+POST /api/layout/generate (with order_id)
+        │
+        ▼
+  ┌─────────────────┐        ┌──────────────────────────────────┐
+  │   Django API    │─enqueue─▶  Redis (priority queue)          │──▶ celery-worker-priority
+  │  (202 response) │        │  Redis (standard queue)           │──▶ celery-worker-standard
+  └─────────────────┘        └──────────────────────────────────┘
+                                              │
+                                      render complete
+                                              │
+                                  ┌───────────▼────────────┐
+                                  │  push_to_production_   │──▶ OMS API + callback_url
+                                  │  estimator_task        │    (separate Celery task)
+                                  └────────────────────────┘
+```
+
+Key behaviours:
+- **At-least-once delivery** — `task_acks_late=True` + `task_reject_on_worker_lost=True`
+- **Retry on failure** — up to 3× with exponential backoff (2s, 4s, 8s); tracked in `RenderJob.retry_count`
+- **MemoryError / soft time limit** — skips retries, fails immediately
+- **Order resubmit** — `update_or_create` on `order_id`; resubmissions never crash
+- **Dispatch safety** — Redis failure in `on_commit` marks job `failed` with error; never silently stuck in `queued`
+- **OMS push** — separate Celery task, retries 5× independently; sets `requires_manual_review=True` on final failure
+
+---
 
 ## Database Management
 
-### Backup
 ```bash
-docker-compose exec db pg_dump -U postgres product_editor > backup.sql
-```
+# Backup
+docker-compose exec db pg_dump -U postgres product_editor > backup_$(date +%Y%m%d).sql
 
-### Restore
-```bash
+# Restore
 cat backup.sql | docker-compose exec -T db psql -U postgres product_editor
-```
 
-### Access Database
-```bash
-docker-compose exec db psql -U postgres product_editor
-```
-
-### Automated Backups
-Create `/opt/product-editor/backup.sh`:
-```bash
-#!/bin/bash
-BACKUP_DIR="/opt/product-editor/backups"
-DATE=$(date +%Y%m%d_%H%M%S)
-mkdir -p $BACKUP_DIR
-docker-compose exec -T db pg_dump -U postgres product_editor > $BACKUP_DIR/backup_$DATE.sql
-find $BACKUP_DIR -name "backup_*.sql" -mtime +7 -delete
-```
-
-Schedule with cron:
-```bash
-crontab -e
-# Add: 0 2 * * * cd /opt/product-editor && ./backup.sh
-```
-
-## Monitoring
-
-### View Logs
-```bash
-docker-compose logs -f
-docker-compose logs -f backend
-docker-compose logs --tail=100 backend
-```
-
-### Check Status
-```bash
-docker-compose ps
-docker stats
-```
-
-### Database Monitoring
-```bash
-docker-compose exec db psql -U postgres product_editor
-
-# Check table sizes
-SELECT schemaname, tablename, 
-  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
-FROM pg_tables
-WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
-```
-
-## Maintenance
-
-### Update Application
-```bash
-git pull
-docker-compose build
-docker-compose up -d
-```
-
-### Restart Services
-```bash
-docker-compose restart
-docker-compose restart backend
-```
-
-### Clean Up
-```bash
-docker image prune -a
-docker volume prune  # Careful!
-```
-
-### Database Maintenance
-```bash
-docker-compose exec db psql -U postgres product_editor -c "VACUUM ANALYZE;"
-docker-compose exec db psql -U postgres product_editor -c "REINDEX DATABASE product_editor;"
-```
-
-## Troubleshooting
-
-### Service Won't Start
-```bash
-docker-compose logs backend
-sudo netstat -tulpn | grep :80
-sudo systemctl restart docker
-```
-
-### Database Connection Issues
-```bash
-docker-compose ps db
-docker-compose logs db
-docker-compose exec backend python manage.py dbshell
-```
-
-### SSL Certificate Issues
-```bash
-docker-compose logs proxy
-ls -la proxy/traefik/acme.json
-chmod 600 proxy/traefik/acme.json
-```
-
-### Out of Disk Space
-```bash
-df -h
-docker system prune -a --volumes
-find /opt/product-editor/backups -mtime +30 -delete
-```
-
-### API Key Not Working
-```bash
-docker-compose exec backend python manage.py shell -c \
-  "from api.models import APIKey; print(APIKey.objects.filter(is_active=True).values('name', 'key', 'is_active'))"
-```
-
-## Security
-
-### Production Checklist
-- [ ] Changed default admin credentials
-- [ ] Strong `DJANGO_SECRET_KEY` set
-- [ ] `DEBUG=0` in production
-- [ ] `ALLOWED_HOSTS` configured
-- [ ] Strong database password
-- [ ] CORS origins restricted
-- [ ] Firewall configured (ports 80, 443, 22)
-- [ ] SSL/TLS enabled
-- [ ] Regular backups scheduled
-- [ ] API keys have appropriate permissions
-- [ ] Rate limits configured
-
-### Firewall Setup
-```bash
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 22/tcp
-sudo ufw enable
-```
-
-### Security Features
-- Bearer token API authentication
-- Per-key permissions (generate, list, export)
-- Rate limiting (configurable per key)
-- Path traversal protection
-- File upload validation (size, type, dimensions)
-- Request audit trail
-- CORS restriction
-- Security headers (CSP, X-Frame-Options, HSTS)
-- Timeout protection for image processing
-
-## File Storage
-
-- **Uploads**: `/storage/uploads/` - Uploaded images
-- **Layouts**: `/storage/layouts/` - Layout JSON templates
-- **Exports**: `/storage/exports/` - Generated PNG files
-
-## Environment Variables
-
-### Backend (Django)
-- `DJANGO_SECRET_KEY` - Secret key (required in production)
-- `DEBUG` - Debug mode (0=production, 1=development)
-- `ALLOWED_HOSTS` - Comma-separated allowed hosts
-- `POSTGRES_DB` - Database name
-- `POSTGRES_USER` - Database user
-- `POSTGRES_PASSWORD` - Database password
-- `POSTGRES_HOST` - Database host (default: db)
-- `POSTGRES_PORT` - Database port (default: 5432)
-- `CORS_ALLOWED_ORIGINS` - Comma-separated CORS origins
-- `DEV_ADMIN_USERNAME` - Admin username (development)
-- `DEV_ADMIN_PASSWORD` - Admin password (development)
-
-### Frontend (Next.js)
-- `NEXT_PUBLIC_API_BASE_URL` - Backend API URL
-- `NODE_ENV` - Node environment (development/production)
-
-### Database (PostgreSQL)
-- `POSTGRES_DB` - Database name
-- `POSTGRES_USER` - Database user
-- `POSTGRES_PASSWORD` - Database password
-
-## Development
-
-### Run Tests
-
-**In Docker:**
-```bash
-docker-compose exec backend python manage.py test
-```
-
-**Locally (outside Docker):**
-Ensure you have a local PostgreSQL instance running or override the database host:
-```bash
-# Using localhost (default)
-source venv/bin/activate
-cd backend/django
-python manage.py test
-
-# Overriding host if needed
-POSTGRES_HOST=127.0.0.1 python manage.py test
-```
-
-### Create Migrations
-```bash
-docker-compose exec backend python manage.py makemigrations
+# Run migrations after code update
 docker-compose exec backend python manage.py migrate
 ```
 
-### Django Shell
+Current migrations:
+
+| Migration | Change |
+|---|---|
+| 0001 | Initial schema |
+| 0002 | `APIKey.is_ops_team` |
+| 0003 | `EmbedSession` |
+| 0004 | Renamed indexes |
+| 0005 | `CanvasData` + `RenderJob` models |
+| 0006 | `celery_task_id` nullable |
+| 0007 | `CanvasData.callback_url` |
+
+---
+
+## Monitoring
+
 ```bash
-docker-compose exec backend python manage.py shell
+# Service status
+docker-compose ps
+
+# Live logs
+docker-compose logs -f celery-worker-priority
+docker-compose logs -f celery-worker-standard
+
+# Queue depth + worker stats (ops key required)
+curl https://product-editor.printo.in/api/celery/monitor/ \
+  -H "Authorization: Bearer OPS_API_KEY"
+
+# Worker memory
+docker stats product-editor-celery-worker-standard-1
 ```
 
-### Frontend Development
-```bash
-cd frontend/nextjs
-npm install
-npm run dev
+---
+
+## Troubleshooting
+
+| Symptom | Check | Fix |
+|---|---|---|
+| Jobs stuck in `queued` | `docker-compose ps celery-worker-*` | Restart workers; verify Redis is reachable |
+| Worker exits immediately | `docker-compose logs celery-worker-*` | Check Redis connection; verify migrations ran |
+| `ClientFetchError` on frontend login | `frontend/nextjs/.env.local` | Set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) |
+| Frontend not loading | Port | Use `localhost:5004`, not `:3000` |
+| OMS push failing repeatedly | `CanvasData.requires_manual_review` in Admin | Check OMS endpoint; order flagged after 5 failures |
+| High worker memory | `docker stats` | Workers are already at concurrency=2; scale out with `--scale celery-worker-standard=N` |
+
+---
+
+## Security
+
+- Bearer token + per-key permission flags (`can_generate_layouts`, `can_access_exports`, `is_ops_team`)
+- Short-lived embed session tokens — real API key never exposed to the browser
+- Path traversal protection on all file-handling endpoints
+- CORS restriction + security headers (CSP, HSTS, X-Frame-Options)
+- File upload validation (type, size, dimensions)
+- Full request audit trail in `api_requests` table
+
+### Production checklist
+
+- [ ] `DEBUG=0`
+- [ ] `DJANGO_SECRET_KEY` — strong random value
+- [ ] `ALLOWED_HOSTS` set to production domain
+- [ ] `POSTGRES_PASSWORD` — strong random value
+- [ ] Firewall: open only 80, 443, 22
+- [ ] `proxy/traefik/acme.json` — `chmod 600`
+- [ ] API keys have minimum necessary permissions
+- [ ] Regular DB backups scheduled
+
+---
+
+## File Storage
+
+```
+storage/
+├── uploads/    # customer-uploaded source images (30-day expiry)
+├── layouts/    # JSON layout templates
+├── masks/      # SVG/PNG mask files
+└── exports/    # generated render outputs (14-day expiry; 7-day when disk > 80%)
 ```
 
-## Performance Optimization
+---
 
-### Increase Backend Workers
-Edit `backend/django/Dockerfile`:
-```dockerfile
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "5", "product_editor.wsgi:application"]
-```
+## Environment Variables
 
-### Database Connection Pooling
-Add to `settings.py`:
-```python
-DATABASES = {
-    "default": {
-        # ... existing config ...
-        "CONN_MAX_AGE": 600,
-        "OPTIONS": {"connect_timeout": 10}
-    }
-}
-```
+| Variable | Required | Description |
+|---|---|---|
+| `DJANGO_SECRET_KEY` | Yes | Django secret key |
+| `DEBUG` | Yes | `0` for production |
+| `PUBLIC_HOST` | Yes | Production domain |
+| `LETSENCRYPT_EMAIL` | Yes | Let's Encrypt ACME email |
+| `POSTGRES_PASSWORD` | Yes | Database password |
+| `REDIS_URL` | Yes | Redis connection string |
+| `DIRECT_API_KEY` | Yes | Internal ops team key |
+| `EXTERNAL_API_KEY` | No | External partner key |
+| `TESTING_API_KEY` | No | Testing key |
+| `OMS_PRODUCTION_ESTIMATOR_URL` | Yes | OMS webhook endpoint |
+| `CELERY_CONCURRENCY` | No | Worker slots per container (default: 2) |
+| `CELERY_QUEUE` | No | Queue name(s) for worker (default: `priority,standard`) |
+| `FRONTEND_HOST_PORT` | No | Host port for frontend (default: 5004) |
 
-## Architecture
-
-### Request Flow
-1. User enters API key in frontend
-2. Frontend fetches layouts with Bearer token
-3. User selects layout and uploads images
-4. Frontend validates files and sends to `/api/layout/generate`
-5. Backend validates files, processes images with PIL
-6. Backend generates PNG and stores in `/storage/exports`
-7. Frontend displays preview and download links
-8. All requests logged to database for audit trail
-
-### Authentication
-- Bearer token API key system only
-- API keys stored in PostgreSQL
-- Per-key permissions and rate limiting
-- Automatic last-used timestamp tracking
-
-### Database Schema
-- `api_keys` - API key management
-- `api_requests` - Request audit trail
-- `uploaded_files` - File tracking
-- `exported_results` - Export tracking
+---
 
 ## License
 
-Proprietary - All rights reserved
-
-## Support
-
-For issues:
-1. Check logs: `docker-compose logs`
-2. Verify environment: `docker-compose config`
-3. Check database: `docker-compose exec db psql -U postgres product_editor`
-4. Review this documentation
+Proprietary — All rights reserved. Printo.in internal use only.

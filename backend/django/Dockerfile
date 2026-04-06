@@ -28,7 +28,7 @@ RUN python manage.py collectstatic --noinput
 
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod 0755 /app/entrypoint.sh
 
-RUN adduser --disabled-password --gecos '' appuser && chown -R appuser:appuser /app /opt/venv
+RUN adduser --disabled-password --gecos '' --uid 1000 appuser && chown -R appuser:appuser /app /opt/venv
 USER appuser
 
 ENV DJANGO_SETTINGS_MODULE=product_editor.settings

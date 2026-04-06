@@ -183,3 +183,89 @@ class EmbedSession(models.Model):
     def __str__(self):
         return f"EmbedSession({self.api_key.name}, expires={self.expires_at:%Y-%m-%d %H:%M})"
 
+
+
+class CanvasData(models.Model):
+    """Persisted canvas design for async rendering."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    order_id = models.CharField(max_length=100, db_index=True, unique=True)
+    api_key = models.ForeignKey(APIKey, on_delete=models.CASCADE, related_name='canvas_data')
+    
+    # Canvas configuration
+    layout_name = models.CharField(max_length=255)
+    image_paths = models.JSONField(help_text="List of uploaded file paths")
+    fit_mode = models.CharField(max_length=20, default='cover')
+    export_format = models.CharField(max_length=20, default='png')
+    soft_proof = models.BooleanField(default=False)
+    
+    # Callback URL to notify when rendering completes (optional, per-request)
+    callback_url = models.URLField(max_length=2000, null=True, blank=True)
+
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    expires_at = models.DateTimeField()
+    requires_manual_review = models.BooleanField(default=False)
+    
+    class Meta:
+        db_table = 'canvas_data'
+        verbose_name = 'Canvas Data'
+        verbose_name_plural = 'Canvas Data'
+        indexes = [
+            models.Index(fields=['order_id']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        return f"Canvas {self.order_id} - {self.layout_name}"
+
+
+class RenderJob(models.Model):
+    """Async rendering job status and results."""
+    
+    STATUS_CHOICES = [
+        ('queued', 'Queued'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    canvas_data = models.ForeignKey(CanvasData, on_delete=models.CASCADE, related_name='render_jobs')
+    celery_task_id = models.CharField(max_length=255, unique=True, db_index=True, null=True, blank=True)
+    
+    # Status tracking
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='queued',
+        db_index=True
+    )
+    
+    # Queue assignment
+    queue_name = models.CharField(max_length=50)
+    
+    # Results
+    output_paths = models.JSONField(null=True, blank=True, help_text="List of generated file paths")
+    error_message = models.TextField(null=True, blank=True)
+    
+    # Timing
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    generation_time_ms = models.IntegerField(null=True, blank=True)
+    
+    # Retry tracking
+    retry_count = models.IntegerField(default=0)
+    
+    class Meta:
+        db_table = 'render_jobs'
+        verbose_name = 'Render Job'
+        verbose_name_plural = 'Render Jobs'
+        indexes = [
+            models.Index(fields=['celery_task_id']),
+            models.Index(fields=['status', 'created_at']),
+        ]
+    
+    def __str__(self):
+        return f"RenderJob {self.id} - {self.status} ({self.queue_name})"

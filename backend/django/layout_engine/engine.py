@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import logging
 from typing import List
 
@@ -13,6 +14,76 @@ class LayoutEngine:
         self.layouts_dir = layouts_dir
         self.exports_dir = exports_dir
         os.makedirs(self.exports_dir, exist_ok=True)
+
+    # ── Atomic file write helper ─────────────────────────────────────────────
+
+    def _write_output_atomic(self, image_data, output_path: str) -> str:
+        """
+        Write image data to disk atomically using .tmp → rename pattern.
+        
+        This ensures that downstream services never see partial/corrupted files.
+        The temporary file is written in the same directory as the final file
+        to guarantee the atomic move operation works on the same filesystem.
+        
+        Args:
+            image_data: PIL Image object to save
+            output_path: Final destination path
+            
+        Returns:
+            Final output path after atomic move
+        """
+        output_dir = os.path.dirname(output_path)
+        output_filename = os.path.basename(output_path)
+        
+        # Create temporary file in same directory (same filesystem)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            suffix='.tmp',
+            prefix=f'.{output_filename}.',
+            dir=output_dir
+        )
+        
+        try:
+            # Close the file descriptor as PIL will open the file itself
+            os.close(tmp_fd)
+            
+            # Write to temporary file
+            if hasattr(image_data, 'save'):
+                # PIL Image - extract format from output_path extension
+                ext = os.path.splitext(output_path)[1].lower()
+                if ext == '.tif' or ext == '.tiff':
+                    image_data.save(tmp_path, "TIFF", dpi=(300, 300))
+                elif ext == '.png':
+                    image_data.save(tmp_path, "PNG", dpi=(300, 300))
+                else:
+                    image_data.save(tmp_path)
+            else:
+                # Raw bytes
+                with open(tmp_path, 'wb') as f:
+                    f.write(image_data)
+            
+            # Set group-writable permissions (0664)
+            os.chmod(tmp_path, 0o664)
+            
+            tmp_size = os.path.getsize(tmp_path)
+            logger.info(f"Wrote temporary file: {tmp_path} ({tmp_size} bytes)")
+            
+            # Atomic move (same filesystem guaranteed)
+            os.replace(tmp_path, output_path)
+            
+            final_size = os.path.getsize(output_path)
+            logger.info(f"Atomic write completed: {output_path} ({final_size} bytes)")
+            return output_path
+            
+        except Exception as exc:
+            # Clean up temporary file on failure
+            try:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                    logger.info(f"Cleaned up temporary file after failure: {tmp_path}")
+            except Exception as cleanup_exc:
+                logger.warning(f"Failed to clean up temporary file {tmp_path}: {cleanup_exc}")
+            logger.error(f"Atomic write failed for {output_path}: {exc}")
+            raise
 
     # ── Layout / mask helpers ────────────────────────────────────────────────
 
@@ -169,11 +240,11 @@ class LayoutEngine:
 
             if export_format == "tiff_cmyk":
                 out_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}_cmyk.tif")
-                canvas.convert("CMYK").save(out_path, "TIFF", dpi=(300, 300))
+                canvas_cmyk = canvas.convert("CMYK")
+                self._write_output_atomic(canvas_cmyk, out_path)
             else:
                 out_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}.png")
-                # dpi=(300,300) injects the pHYs chunk — file is tagged as 300 DPI.
-                canvas.save(out_path, "PNG", dpi=(300, 300))
+                self._write_output_atomic(canvas, out_path)
 
             outputs.append(out_path)
 
@@ -221,18 +292,18 @@ class LayoutEngine:
 
             # ① Original RGB PNG — what you see on screen
             png_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}.png")
-            canvas_rgb.save(png_path, "PNG", dpi=(300, 300))
+            self._write_output_atomic(canvas_rgb, png_path)
 
             # ② CMYK TIFF — ICC-calibrated press file
             canvas_cmyk = converter.to_cmyk(canvas_rgb)
             tif_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}_cmyk.tif")
-            canvas_cmyk.save(tif_path, "TIFF", dpi=(300, 300))
+            self._write_output_atomic(canvas_cmyk, tif_path)
 
             # ③ Soft-proof RGB preview — CMYK gamut mapped back to screen colours
             #    This is what the physical print will look like
             preview_rgb = converter.to_rgb_preview(canvas_cmyk)
             prev_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}_cmyk_preview.png")
-            preview_rgb.save(prev_path, "PNG", dpi=(300, 300))
+            self._write_output_atomic(preview_rgb, prev_path)
 
             # ④ Colour-shift report
             shift = converter.colour_shift_report(canvas_rgb, preview_rgb)

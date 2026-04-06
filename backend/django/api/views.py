@@ -15,6 +15,7 @@ from django.utils.crypto import get_random_string
 from django.core.exceptions import ValidationError
 import platform
 import signal
+import threading
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, inline_serializer
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
@@ -38,8 +39,10 @@ def with_timeout(seconds=300):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            if platform.system() == 'Windows' or not hasattr(signal, 'SIGALRM'):
-                # SIGALRM not available on Windows — run without timeout
+            if (platform.system() == 'Windows'
+                    or not hasattr(signal, 'SIGALRM')
+                    or threading.current_thread() is not threading.main_thread()):
+                # SIGALRM only works on the main thread; skip timeout in worker threads
                 return func(*args, **kwargs)
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(seconds)
@@ -193,8 +196,206 @@ class GenerateLayoutView(APIView):
             408: OpenApiResponse(description="Timeout — generation exceeded 5 minutes"),
         },
     )
-    @with_timeout(seconds=300)
     def post(self, request):
+        """Route to sync or async mode based on callback_url parameter."""
+        callback_url = request.data.get('callback_url')
+        
+        if callback_url:
+            logger.info("Using async mode for generate request")
+            return self._handle_async(request, callback_url)
+        else:
+            logger.info("Using sync mode for generate request")
+            return self._handle_sync(request)
+    
+    def _handle_async(self, request, callback_url):
+        """Handle async generation request - enqueue job and return immediately."""
+        from api.models import CanvasData, RenderJob
+        from django.db import transaction
+        from datetime import timedelta
+        from django.utils import timezone
+        
+        try:
+            # Parse request
+            layout_data = request.data.get("layout")
+            if isinstance(layout_data, str) and (layout_data.startswith('{') or layout_data.startswith('[')):
+                try:
+                    layout_data = json.loads(layout_data)
+                except Exception:
+                    pass
+
+            layout_name = layout_data.get('name') if isinstance(layout_data, dict) else layout_data
+            files = request.FILES.getlist("images")
+
+            fit_mode = request.data.get("fit_mode", "cover")
+            if fit_mode not in ("contain", "cover"):
+                fit_mode = "cover"
+
+            export_format = request.data.get("export_format", "png")
+            if export_format not in ("png", "tiff_cmyk"):
+                export_format = "png"
+
+            # soft_proof accepts "true"/"1"/True
+            raw_sp = request.data.get("soft_proof", False)
+            soft_proof = raw_sp in (True, "true", "1", 1)
+            
+            order_id = request.data.get("order_id")
+
+            # Validate required fields
+            if not order_id:
+                return Response(
+                    {"detail": "order_id required for async mode"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not layout_name or not files:
+                return Response(
+                    {"detail": "layout and images are required"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not self._is_valid_layout_name(layout_name):
+                return Response(
+                    {"detail": f"Invalid layout name: {layout_name}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                validate_image_files(files)
+            except ValidationError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+            api_key = None
+            if isinstance(request.user, APIKeyUser):
+                api_key = request.user.api_key
+
+            # Save uploaded files
+            storage = get_storage()
+            upload_paths = []
+            for f in files:
+                fname = get_random_string(8) + "_" + f.name
+                path = storage.save_upload(fname, f.file)
+                upload_paths.append(path)
+                if api_key:
+                    UploadedFile.objects.create(
+                        api_key=api_key,
+                        file_path=path,
+                        original_filename=f.name,
+                        file_size_bytes=f.size,
+                        file_type='image',
+                    )
+
+            queue_name = 'priority' if soft_proof else 'standard'
+
+            # Upsert CanvasData — if the same order_id is resubmitted (operator
+            # retry, customer re-upload) we update in place rather than blowing
+            # up on the unique constraint.
+            with transaction.atomic():
+                canvas, created = CanvasData.objects.update_or_create(
+                    order_id=order_id,
+                    defaults=dict(
+                        api_key=api_key,
+                        layout_name=layout_name,
+                        image_paths=upload_paths,
+                        fit_mode=fit_mode,
+                        export_format=export_format,
+                        soft_proof=soft_proof,
+                        callback_url=callback_url or None,
+                        requires_manual_review=False,
+                        expires_at=timezone.now() + timedelta(days=30),
+                    ),
+                )
+
+                job = RenderJob.objects.create(
+                    canvas_data=canvas,
+                    celery_task_id=None,  # set after enqueue inside on_commit
+                    queue_name=queue_name,
+                )
+
+                # Capture loop variables explicitly to avoid late-binding closure bugs.
+                _canvas_id = str(canvas.id)
+                _job_id = str(job.id)
+                _queue = queue_name
+                transaction.on_commit(
+                    lambda cid=_canvas_id, jid=_job_id, q=_queue: self._enqueue_task(cid, jid, q)
+                )
+
+            action = 'created' if created else 'resubmitted'
+            logger.info(
+                "Async job %s: order_id=%s, job_id=%s, queue=%s",
+                action, order_id, job.id, queue_name,
+            )
+
+            return Response({
+                'job_id': str(job.id),
+                'status_url': f'/api/render-status/{job.id}/',
+                'queue': queue_name,
+                'estimated_wait_seconds': self._estimate_wait_time(queue_name),
+            }, status=status.HTTP_202_ACCEPTED)
+            
+        except Exception as exc:
+            logger.error("Error in async generate: %s", exc)
+            return Response(
+                {"detail": f"Failed to enqueue job: {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    
+    def _enqueue_task(self, canvas_id: str, job_id: str, queue_name: str):
+        """
+        Enqueue render task to Celery and update the job record with the Celery task ID.
+
+        Called inside transaction.on_commit(), so the DB row is guaranteed to exist.
+        On failure (e.g. Redis down) the job is immediately marked 'failed' so it
+        doesn't silently stay in 'queued' forever.
+        """
+        from api.tasks import render_canvas_task
+        from api.models import RenderJob
+
+        try:
+            task = render_canvas_task.apply_async(
+                args=[canvas_id, job_id],
+                queue=queue_name,
+            )
+            RenderJob.objects.filter(id=job_id).update(celery_task_id=task.id)
+            logger.info(
+                "Task enqueued: job_id=%s, celery_task_id=%s, queue=%s",
+                job_id, task.id, queue_name,
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to enqueue task for job_id=%s (queue=%s): %s",
+                job_id, queue_name, exc,
+                exc_info=True,
+            )
+            # Mark job failed so operators can see it immediately; don't leave it stuck.
+            RenderJob.objects.filter(id=job_id).update(
+                status='failed',
+                error_message=f"Failed to dispatch task to Celery: {exc}",
+                completed_at=timezone.now(),
+            )
+
+    def _estimate_wait_time(self, queue_name: str) -> int:
+        """
+        Estimate seconds until a newly-enqueued job will start processing.
+
+        Takes worker concurrency into account: with N concurrent workers, the
+        effective wait is depth/concurrency * avg_render_time, not depth * avg_render_time.
+        """
+        from api.models import RenderJob
+        from api.tasks import WORKER_CONCURRENCY
+
+        queued_count = RenderJob.objects.filter(
+            queue_name=queue_name,
+            status__in=('queued', 'processing'),
+        ).count()
+
+        avg_time_per_job = 30 if queue_name == 'priority' else 60
+        # Divide by concurrency — jobs drain in parallel across workers.
+        concurrency = max(1, WORKER_CONCURRENCY)
+        return max(0, int((queued_count / concurrency) * avg_time_per_job))
+
+    @with_timeout(seconds=300)
+    def _handle_sync(self, request):
+        """Handle synchronous generation request - backward compatible."""
         try:
             layout_data = request.data.get("layout")
             if isinstance(layout_data, str) and (layout_data.startswith('{') or layout_data.startswith('[')):
@@ -387,6 +588,146 @@ class GenerateLayoutView(APIView):
             return name in available_layouts
         except:
             return False
+
+
+
+
+class RenderStatusView(APIView):
+    """Query status of async render job."""
+    permission_classes = [IsAuthenticatedWithAPIKey]
+    
+    def get(self, request, job_id):
+        """Get render job status by job_id."""
+        from api.models import RenderJob
+        from django.core.cache import cache
+        
+        # Check cache first (50ms response target)
+        cache_key = f'render_job_status:{job_id}'
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
+        
+        try:
+            job = RenderJob.objects.select_related('canvas_data').get(id=job_id)
+        except RenderJob.DoesNotExist:
+            return Response(
+                {'detail': 'Job not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        response_data = {
+            'job_id': str(job.id),
+            'status': job.status,
+            'queue': job.queue_name,
+            'created_at': job.created_at.isoformat(),
+        }
+        
+        if job.status == 'queued':
+            # Estimate wait time based on queue depth
+            queued_count = RenderJob.objects.filter(
+                queue_name=job.queue_name,
+                status='queued',
+                created_at__lt=job.created_at
+            ).count()
+            avg_time_per_job = 30 if job.queue_name == 'priority' else 60
+            response_data['estimated_wait_seconds'] = queued_count * avg_time_per_job
+        
+        elif job.status == 'processing':
+            response_data['started_at'] = job.started_at.isoformat() if job.started_at else None
+        
+        elif job.status == 'completed':
+            response_data['completed_at'] = job.completed_at.isoformat() if job.completed_at else None
+            response_data['generation_time_ms'] = job.generation_time_ms
+            if job.output_paths:
+                response_data['output_files'] = [
+                    os.path.relpath(p, settings.EXPORTS_DIR) 
+                    for p in job.output_paths
+                ]
+        
+        elif job.status == 'failed':
+            response_data['error'] = job.error_message
+            response_data['retry_count'] = job.retry_count
+        
+        # Dynamic TTL based on job status for optimal caching
+        # Configuration can be tuned via environment variables
+        cache_ttl = settings.RENDER_JOB_STATUS_CACHE_TTL.get(
+            job.status,
+            settings.RENDER_JOB_STATUS_CACHE_TTL['default']
+        )
+        
+        cache.set(cache_key, response_data, timeout=cache_ttl)
+        
+        return Response(response_data)
+
+
+class CeleryMonitoringView(APIView):
+    """Monitoring endpoint for ops team to check Celery worker status."""
+    permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
+    
+    def get(self, request):
+        """Get Celery worker and queue statistics."""
+        from celery import current_app
+        from api.models import RenderJob
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        inspect = current_app.control.inspect()
+        
+        # Queue depths from reserved tasks
+        active_tasks = inspect.active() or {}
+        reserved_tasks = inspect.reserved() or {}
+        
+        priority_depth = 0
+        standard_depth = 0
+        
+        for worker_tasks in reserved_tasks.values():
+            for task in worker_tasks:
+                routing_key = task.get('delivery_info', {}).get('routing_key', '')
+                if routing_key == 'priority':
+                    priority_depth += 1
+                elif routing_key == 'standard':
+                    standard_depth += 1
+        
+        # Worker stats
+        stats = inspect.stats() or {}
+        worker_count = len(stats)
+        active_worker_count = len(active_tasks)
+        
+        # Job counts from database
+        now = timezone.now()
+        queued_count = RenderJob.objects.filter(status='queued').count()
+        processing_count = RenderJob.objects.filter(status='processing').count()
+        completed_24h = RenderJob.objects.filter(
+            status='completed',
+            completed_at__gte=now - timedelta(hours=24)
+        ).count()
+        failed_24h = RenderJob.objects.filter(
+            status='failed',
+            completed_at__gte=now - timedelta(hours=24)
+        ).count()
+        
+        return Response({
+            'workers': {
+                'total': worker_count,
+                'active': active_worker_count,
+            },
+            'queues': {
+                'priority': {
+                    'depth': priority_depth,
+                    'alert': priority_depth > 50
+                },
+                'standard': {
+                    'depth': standard_depth,
+                    'alert': standard_depth > 200
+                }
+            },
+            'jobs': {
+                'queued': queued_count,
+                'processing': processing_count,
+                'completed_24h': completed_24h,
+                'failed_24h': failed_24h,
+            }
+        })
 
 
 class GetLayoutView(APIView):

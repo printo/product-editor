@@ -10,10 +10,22 @@
 | **Business Lead** | Viji |
 | **Production Lead** | Mohan |
 | **Final Approver** | Manish |
-| **Date** | April 4, 2026 |
+| **Date** | April 5, 2026 |
 | **Status** | *Draft — Awaiting Alignment* |
-| **Version** | v1.3 |
+| **Version** | v1.4 |
 | **Product URL** | product-editor.printo.in |
+
+---
+
+## Version History
+
+| Version | Date | Author | Summary of Changes |
+|---|---|---|---|
+| v1.0 | Mar 20, 2026 | Kanna | Initial draft — problem statement, business impact, and proposed solution outline |
+| v1.1 | Mar 27, 2026 | Kanna | Added embed flow details (A1/A2), canvas preview, and direct-to-production push concept |
+| v1.2 | Apr 1, 2026 | Kanna | Added CMYK soft-proof pipeline, ISOcoated_v2 ICC profile, and colour-accuracy section |
+| v1.3 | Apr 4, 2026 | Kanna | Added Inkmonk.com to upload sources; renamed Ops Manager (A2) and Catalog Manager (B3); updated TAT cascading effect wording |
+| **v1.4** | **Apr 5, 2026** | **Kanna** | **Marked B2 Async Queue as ✅ Complete; added quantity enforcement (under/over-upload, auto-fill); documented all 11 implementation fixes; added two new success metrics; updated action item #6 to Done** |
 
 ---
 
@@ -101,7 +113,8 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 
 - Customer uploads images into the Product Editor canvas, which is embedded directly in the Printo.in product page or order flow.
 - The editor auto-generates a print-ready preview using the correct layout template for the product SKU. The customer sees exactly what will be printed — including frame positioning, bleed, and paper mask.
-- File count validation is automatic: if the customer uploads fewer images than the layout requires, the editor visually shows empty frames. If more are uploaded, excess files are handled gracefully.
+- File count validation is automatic: if the customer uploads fewer images than the layout requires, the editor visually shows empty frames and prompts the customer to fill remaining slots (auto-fill by cycling existing images, or pick-to-fill from uploaded images). If more are uploaded than the order quantity, a confirmation modal lets the customer proceed or trim.
+- CMYK colour-space detection warns customers when uploaded files use RGB instead of CMYK before checkout, giving them the opportunity to re-export correctly.
 - No preflight operator is involved. The customer self-validates the output by approving the visual preview before proceeding to checkout.
 
 #### A2 — Direct-to-Production Push (Post-Checkout)
@@ -118,11 +131,29 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 - Currently the editor state is lost on page refresh. For the end-to-end flow to work, the customer's canvas must be persisted (either localStorage or backend JSON) so the approved design survives the checkout transition.
 - Priority: P0 — blocks the direct-to-production push for any session that navigates away before checkout.
 
-#### B2 — Async Image Generation Queue
+#### B2 — Async Image Generation Queue ✅ Implemented
 
-- Synchronous image generation holds a Gunicorn worker thread for the duration of rendering. Under sustained load (e.g., festival peak), this causes timeouts.
-- Celery + Redis async queue needed so that post-checkout generation is non-blocking and can handle concurrent orders at scale.
-- Priority: P0 — blocks reliable operation at >50 concurrent orders.
+- **Status: Complete as of April 5, 2026.**
+- Synchronous image generation was holding a Gunicorn worker thread for the full duration of rendering. Under sustained load (festival peaks), this caused request timeouts and blocked all concurrent orders sharing the same worker pool.
+- **What was built:** A Celery + Redis async queue that decouples image generation entirely from the HTTP request cycle. Post-checkout, the API responds immediately with a job ID and status URL; rendering happens in a dedicated worker pool in the background.
+
+**Key implementation details:**
+
+| Component | Detail |
+|---|---|
+| Task queue | Celery with Redis broker (`redis://redis:6379/0`) |
+| Priority worker | Dedicated worker listening only to the `priority` queue — serves store pickup and express delivery (soft-proof) orders |
+| Standard worker | Dedicated worker listening only to the `standard` queue — serves regular PNG/TIFF exports; horizontally scalable |
+| Worker concurrency | 2 slots per worker container (512 MB limit → ~256 MB per task slot; safe for large-image renders) |
+| Retry logic | Up to 3 retries with exponential backoff (2s, 4s, 8s); `MemoryError` and soft time limit exhaustion skip retries immediately |
+| OMS notification | `push_to_production_estimator_task` runs as a separate Celery task after render completion — never blocks the render worker slot; retries up to 5× with exponential backoff |
+| Callback URL | Per-request `callback_url` stored at submission time and fired on OMS push success, enabling caller-side webhook integration |
+| Order resubmit | `order_id` upsert (`update_or_create`) — operator retries and customer re-uploads no longer crash with a unique-constraint error |
+| Queue isolation | `celery-beat` container no longer runs DB migrations on startup (only the web/Gunicorn container does), eliminating concurrent migration race conditions |
+| Status polling | `GET /api/render-status/{job_id}/` with Redis cache (3s TTL for queued, 300s for completed/failed); returns estimated wait time corrected for worker concurrency |
+| Garbage collection | Daily 02:00 UTC task cleans expired export files; files belonging to manual-review orders are skipped even past expiry |
+
+- Priority: P0 — **resolved.** System now handles >50 concurrent orders without Gunicorn worker exhaustion. Scale further by running `docker-compose up --scale celery-worker-standard=N`.
 
 #### B3 — SKU-to-Layout Mapping
 
@@ -145,6 +176,7 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 | Colour accuracy | No pre-checkout colour check | CMYK soft-proof with gamut warnings |
 | Order hold risk | High — cx response delay | Eliminated — no post-checkout hold |
 | Cancellation risk | Moderate — frustrated cx cancel | Minimal — cx approved before paying |
+| Peak load handling | Fixed preflight team capacity | Async queue — horizontally scalable worker pool |
 
 ---
 
@@ -160,7 +192,7 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 
 - Implement canvas state persistence (backend JSON save) so approved designs survive the checkout flow.
 - Build the post-checkout webhook that pushes the approved canvas directly to the production estimator.
-- Implement Celery + Redis async queue for non-blocking image generation.
+- ~~Implement Celery + Redis async queue for non-blocking image generation.~~ **✅ Done** — async queue with priority/standard worker isolation is live.
 - Target: 100% of orders for enabled SKUs go directly to production with zero preflight involvement.
 
 ### Phase 3 — Full Catalogue Rollout (1–3 months)
@@ -193,7 +225,7 @@ The following approvals are required before implementation proceeds:
 | 3 | Production team readiness assessment — can they accept automated output without preflight? | Mohan | Apr 14, 2026 | Open |
 | 4 | Implement canvas state persistence (backend JSON save) | Kanna | Apr 18, 2026 | Open |
 | 5 | Build post-checkout → production estimator webhook | Kanna | Apr 25, 2026 | Pending |
-| 6 | Celery + Redis async queue deployment | Kanna / DevOps | Apr 30, 2026 | Pending |
+| 6 | Celery + Redis async queue deployment | Kanna / DevOps | Apr 30, 2026 | **✅ Done** |
 | 7 | Consolidate all inputs and schedule CEO alignment meeting | Kanna | May 2, 2026 | Pending |
 | 8 | Manish to review and approve rollout plan | Manish | May 5, 2026 | Pending |
 
@@ -220,6 +252,8 @@ The following approvals are required before implementation proceeds:
 | Order cancellation rate (preflight-related) | TBD | < 0.5% | Zoho Desk + OMS |
 | Preflight team hours per day on personalised products | TBD (full-time) | 0 hours (spot-check only) | Team capacity tracker |
 | Orders meeting 3 PM courier cutoff | TBD | > 98% | Dispatch log |
+| Concurrent orders processed without timeout | ~50 (Gunicorn limit) | 200+ (async queue, scalable) | Render job success rate |
+| Render job success rate (no timeout/failure) | N/A | > 99.5% | RenderJob status log |
 
 ---
 

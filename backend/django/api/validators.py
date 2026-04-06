@@ -59,19 +59,22 @@ def validate_image_file(file_obj, max_size_mb=MAX_FILE_SIZE_MB):
         file_obj.seek(0)
         img = Image.open(file_obj)
         width, height = img.size
-        
+
         if width < MIN_IMAGE_DIMENSION or height < MIN_IMAGE_DIMENSION:
             raise ValidationError(
                 f"Image dimensions too small. Minimum {MIN_IMAGE_DIMENSION}x{MIN_IMAGE_DIMENSION}px. "
                 f"Your image is {width}x{height}px"
             )
-            
+
         if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
             raise ValidationError(
                 f"Image dimensions too large. Maximum {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION}px. "
                 f"Your image is {width}x{height}px"
             )
-            
+
+        # Reset position so callers can read the raw bytes after validation.
+        file_obj.seek(0)
+
     except Exception as e:
         logger.error(f"Image validation error: {e}")
         raise ValidationError(f"Invalid image file: {str(e)}")

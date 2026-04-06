@@ -67,6 +67,14 @@ export default function LayoutEditorPage() {
     return new URLSearchParams(window.location.search).get('token');
   }, []);
 
+  // Quantity enforcement — optional ?qty=N URL param (single-surface only)
+  const orderQty = useMemo<number | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const v = new URLSearchParams(window.location.search).get('qty');
+    const n = v ? parseInt(v, 10) : NaN;
+    return isNaN(n) || n <= 0 ? null : n;
+  }, []);
+
   // For embed flow: use short-lived embed token (never exposes real key).
   // For regular users: use the static DIRECT_API_KEY baked into the bundle —
   // this bypasses PIA token verification entirely (local DB lookup only, ~1ms).
@@ -95,6 +103,11 @@ export default function LayoutEditorPage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [uploadWarning, setUploadWarning] = useState<string | null>(null);
   const [colorWarning, setColorWarning] = useState<string | null>(null);
+  // Qty enforcement state
+  const [qtyUnder, setQtyUnder] = useState<{ uploaded: number; needed: number } | null>(null);
+  const [pendingOverFiles, setPendingOverFiles] = useState<File[] | null>(null);
+  const [showAutoFillPicker, setShowAutoFillPicker] = useState(false);
+  const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloadTab, setDownloadTab] = useState<'output' | 'original'>('output');
   const [showImpositionModal, setShowImpositionModal] = useState(false);
@@ -520,6 +533,21 @@ export default function LayoutEditorPage() {
         `${cmykFiles.length === 1 ? `"${cmykFiles[0].name}"` : `${cmykFiles.length} files`} use CMYK colour (ISOCoated). Colours may shift — convert to sRGB for accurate on-screen preview.`
       );
     }
+    // ── Qty enforcement (single-surface only) ──────────────────────────────
+    if (orderQty !== null && surfaceStates.length <= 1) {
+      setQtyUnder(null);
+      setPendingOverFiles(null);
+      if (allFiles.length < orderQty) {
+        // Under: generate with what we have, show persistent banner
+        setQtyUnder({ uploaded: allFiles.length, needed: orderQty });
+      } else if (allFiles.length > orderQty) {
+        // Over: hold files, show confirm modal
+        setPendingOverFiles(allFiles);
+        return; // don't process yet — wait for user confirm
+      }
+      // Exact match or under (proceed with current files)
+    }
+
     if (surfaceStates.length > 1 && normalizedLayoutState) {
       setIsProcessing(true);
       setError(null);
@@ -556,6 +584,41 @@ export default function LayoutEditorPage() {
     }
     setCanvases([]);
     setFiles(allFiles);
+  };
+
+  // ── Qty: auto-fill (cycle images to fill remaining slots) ─────────────────
+  const handleAutoFill = () => {
+    if (!qtyUnder || files.length === 0) return;
+    const needed = qtyUnder.needed - files.length;
+    const filled = [...files];
+    for (let i = 0; i < needed; i++) filled.push(files[i % files.length]);
+    setQtyUnder(null);
+    setFiles(filled);
+  };
+
+  // ── Qty: fill with user-chosen duplicates from picker ─────────────────────
+  const handleFillWithPicked = () => {
+    if (!qtyUnder || pickerSelected.size === 0) return;
+    const needed = qtyUnder.needed - files.length;
+    const picks = Array.from(pickerSelected).slice(0, needed).map(i => files[i]);
+    // Pad with auto-cycling if picker selection was fewer than needed
+    const filled = [...files, ...picks];
+    if (filled.length < qtyUnder.needed) {
+      for (let i = 0; filled.length < qtyUnder.needed; i++) filled.push(files[i % files.length]);
+    }
+    setQtyUnder(null);
+    setShowAutoFillPicker(false);
+    setPickerSelected(new Set());
+    setFiles(filled);
+  };
+
+  // ── Qty: over-upload — user confirmed, process all pending files ───────────
+  const handleOverConfirm = (proceed: boolean) => {
+    if (!pendingOverFiles) return;
+    if (proceed) {
+      setFiles(pendingOverFiles);
+    }
+    setPendingOverFiles(null);
   };
 
   const impositionResult = useMemo(() => {
@@ -838,7 +901,7 @@ export default function LayoutEditorPage() {
         </div>
       )}
       {colorWarning && (
-        <div className={`fixed ${uploadWarning ? 'top-44' : 'top-24'} right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-orange-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-orange-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
+        <div className={`fixed ${uploadWarning ? 'top-44' : 'top-24'} right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-orange-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-orange-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group`}>
           <div className="w-7 h-7 mt-0.5 rounded-xl bg-orange-500/10 text-orange-600 flex items-center justify-center shrink-0">
             <span className="text-[13px] font-black">⚠</span>
           </div>
@@ -851,6 +914,114 @@ export default function LayoutEditorPage() {
           </button>
         </div>
       )}
+      {/* ── Under-upload banner ─────────────────────────────────────────────── */}
+      {qtyUnder && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200002] w-full max-w-md bg-white/95 backdrop-blur-2xl border border-indigo-200/60 rounded-2xl shadow-2xl shadow-indigo-900/10 p-4 animate-in fade-in slide-in-from-top-4 duration-400">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 text-[15px] font-black">↑</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">
+                {qtyUnder.uploaded} of {qtyUnder.needed} images uploaded
+              </p>
+              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                {qtyUnder.needed - qtyUnder.uploaded} more needed to match your order quantity. You can upload more, or fill the remaining slots from your existing images.
+              </p>
+            </div>
+            <button onClick={() => setQtyUnder(null)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-all shrink-0">
+              <X className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAutoFill}
+              className="flex-1 py-2 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+            >
+              Auto-fill {qtyUnder.needed - qtyUnder.uploaded} remaining
+            </button>
+            <button
+              onClick={() => { setShowAutoFillPicker(true); setPickerSelected(new Set()); }}
+              className="flex-1 py-2 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+            >
+              Choose which to repeat
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Auto-fill picker modal ──────────────────────────────────────────── */}
+      {showAutoFillPicker && qtyUnder && (
+        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight">Choose images to repeat</p>
+              <button onClick={() => setShowAutoFillPicker(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-all">
+                <X className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 mb-3">
+              Select {qtyUnder.needed - qtyUnder.uploaded} image{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''} to duplicate into the remaining slots.
+            </p>
+            <div className="grid grid-cols-3 gap-2 mb-4 max-h-56 overflow-y-auto custom-scrollbar">
+              {files.map((f, i) => {
+                const url = fileUrlCache.current.get(f) || URL.createObjectURL(f);
+                const isSelected = pickerSelected.has(i);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setPickerSelected(prev => {
+                      const next = new Set(prev);
+                      isSelected ? next.delete(i) : next.add(i);
+                      return next;
+                    })}
+                    className={clsx('relative aspect-square rounded-xl overflow-hidden border-2 transition-all active:scale-95', isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300')}
+                  >
+                    <img src={url} alt={f.name} className="w-full h-full object-cover" />
+                    {isSelected && (
+                      <div className="absolute inset-0 bg-indigo-500/20 flex items-center justify-center">
+                        <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">\u2713</div>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={handleFillWithPicked}
+              disabled={pickerSelected.size === 0}
+              className="w-full py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              Use selected to fill {qtyUnder.needed - qtyUnder.uploaded} slot{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Over-upload confirm modal ───────────────────────────────────────── */}
+      {pendingOverFiles && orderQty && (
+        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
+            <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">More images than ordered</p>
+            <p className="text-[10px] text-slate-500 leading-snug mb-4">
+              You uploaded <span className="font-black text-slate-800">{pendingOverFiles.length} images</span> but your order quantity is <span className="font-black text-slate-800">{orderQty}</span>. Do you want to proceed with all {pendingOverFiles.length}, or go back and remove some?
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleOverConfirm(true)}
+                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+              >
+                Proceed with all {pendingOverFiles.length}
+              </button>
+              <button
+                onClick={() => handleOverConfirm(false)}
+                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+              >
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="fixed top-4 right-4 z-[200000] max-w-sm bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
           <span className="flex-1">{error}</span>
