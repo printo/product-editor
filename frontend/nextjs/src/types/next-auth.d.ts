@@ -4,6 +4,9 @@ declare module "next-auth" {
   interface Session {
     accessToken?: string
     is_ops_team?: boolean
+    /** Set to 'RefreshAccessTokenError' when the PIA refresh token has expired.
+     *  The app should check for this and redirect to /login. */
+    error?: string
     user: {
       id: string
       role?: string
@@ -28,5 +31,7 @@ declare module "next-auth/jwt" {
     refreshToken?: string
     accessTokenExpires?: number
     is_ops_team?: boolean
+    /** Propagated from the token refresh failure to the session callback. */
+    error?: string
   }
 }

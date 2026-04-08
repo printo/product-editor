@@ -181,12 +181,23 @@ os.makedirs(EXPORTS_DIR, exist_ok=True)
 
 
 # File Upload Configuration
-MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+# NOTE: MAX_UPLOAD_FILE_SIZE is NOT the enforced limit — api/validators.py
+# controls the actual rejection threshold (currently 50 MB via MAX_FILE_SIZE_MB).
+# This value is informational only and is not read by any application code.
+MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024  # 10 MB — informational, not enforced here
+# Django spools files to disk when they exceed FILE_UPLOAD_MAX_MEMORY_SIZE;
+# it does NOT reject uploads at this size (files just move from memory to disk).
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — non-file request body limit
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — spool-to-disk threshold
 
 # Security Headers
 SECURE_BROWSER_XSS_FILTER = True
+# SECURE_CONTENT_SECURITY_POLICY is NOT a native Django setting and has no effect.
+# Django's SecurityMiddleware does not read it.  To add real CSP headers either:
+#   1. Install django-csp (pip install django-csp) and add
+#      "csp.middleware.CSPMiddleware" to MIDDLEWARE, then configure CSP_* settings.
+#   2. Set CSP headers in Traefik / nginx upstream instead.
+# The dict below is left as documentation of the intended policy only.
 SECURE_CONTENT_SECURITY_POLICY = {
     "default-src": ("'self'",),
     "script-src": ("'self'", "'unsafe-inline'"),

@@ -5,11 +5,20 @@ set -e
 # Running migrate inside celery-beat would race with the backend container on
 # startup; running it inside celery-worker is also unnecessary and slow.
 if [ "$1" = "celery-worker" ]; then
-    CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-2}"
-    echo "Starting Celery worker (concurrency=${CELERY_CONCURRENCY}, queue=${CELERY_QUEUE:-priority,standard})..."
+    # If CELERY_CONCURRENCY is explicitly set (via .env or docker-compose
+    # environment), respect it. Otherwise pass no --concurrency flag so Celery
+    # auto-detects based on the number of available CPUs — which fully utilises
+    # the server without an artificial cap.
+    if [ -n "${CELERY_CONCURRENCY}" ]; then
+        CONCURRENCY_ARG="--concurrency=${CELERY_CONCURRENCY}"
+        echo "Starting Celery worker (concurrency=${CELERY_CONCURRENCY} [explicit], queue=${CELERY_QUEUE:-priority,standard})..."
+    else
+        CONCURRENCY_ARG=""
+        echo "Starting Celery worker (concurrency=auto [CPU count], queue=${CELERY_QUEUE:-priority,standard})..."
+    fi
     exec /opt/venv/bin/celery -A product_editor worker \
         --loglevel=info \
-        --concurrency="${CELERY_CONCURRENCY}" \
+        ${CONCURRENCY_ARG} \
         --max-tasks-per-child=10 \
         -Q "${CELERY_QUEUE:-priority,standard}"
 fi
@@ -38,43 +47,57 @@ django.setup()
 
 from api.models import APIKey
 
-direct_key  = os.getenv("DIRECT_API_KEY")
+direct_key   = os.getenv("DIRECT_API_KEY")
 external_key = os.getenv("EXTERNAL_API_KEY")
-test_key    = os.getenv("TESTING_API_KEY")
+test_key     = os.getenv("TESTING_API_KEY")
 
-if direct_key and not APIKey.objects.filter(key=direct_key).exists():
-    APIKey.objects.create(
-        name="DIRECT", key=direct_key,
-        description="Direct Ops Team API key",
-        is_active=True, is_ops_team=True,
-        can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
-        max_requests_per_day=10000,
+# Use update_or_create keyed on *name* (not key) so that rotating the env-var
+# value updates the existing DB record instead of raising IntegrityError
+# (name has unique=True, so create() would fail if the record already exists).
+if direct_key:
+    _, created = APIKey.objects.update_or_create(
+        name="DIRECT",
+        defaults=dict(
+            key=direct_key,
+            description="Direct Ops Team API key",
+            is_active=True, is_ops_team=True,
+            can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
+            max_requests_per_day=10000,
+        ),
     )
-    print("✓ DIRECT API key loaded from environment")
+    print(f"{'✓ Created' if created else '✓ Updated'} DIRECT API key from environment")
 
-if external_key and not APIKey.objects.filter(key=external_key).exists():
-    APIKey.objects.create(
-        name="EXTERNAL", key=external_key,
-        description="External Partner API key",
-        is_active=True, is_ops_team=False,
-        can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
-        max_requests_per_day=1000,
+if external_key:
+    _, created = APIKey.objects.update_or_create(
+        name="EXTERNAL",
+        defaults=dict(
+            key=external_key,
+            description="External Partner API key",
+            is_active=True, is_ops_team=False,
+            can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
+            max_requests_per_day=1000,
+        ),
     )
-    print("✓ EXTERNAL API key loaded from environment")
+    print(f"{'✓ Created' if created else '✓ Updated'} EXTERNAL API key from environment")
 
-if test_key and not APIKey.objects.filter(key=test_key).exists():
-    APIKey.objects.create(
-        name="TESTING", key=test_key,
-        description="Testing API key",
-        is_active=True, is_ops_team=False,
-        can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
-        max_requests_per_day=5000,
+if test_key:
+    _, created = APIKey.objects.update_or_create(
+        name="TESTING",
+        defaults=dict(
+            key=test_key,
+            description="Testing API key",
+            is_active=True, is_ops_team=False,
+            can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
+            max_requests_per_day=5000,
+        ),
     )
-    print("✓ TESTING API key loaded from environment")
+    print(f"{'✓ Created' if created else '✓ Updated'} TESTING API key from environment")
 
-print("\n🔑 Available API Keys:")
-for key in APIKey.objects.filter(is_active=True):
-    print(f"   {key.name}: {key.key}")
+# Print key names only — never log full key values to stdout since container
+# logs are typically forwarded to centralised log aggregators (Datadog, etc.).
+print("\n🔑 Active API Keys:")
+for k in APIKey.objects.filter(is_active=True):
+    print(f"   {k.name}: {k.key[:12]}…")
 PY
 
 # ── Launch Gunicorn ───────────────────────────────────────────────────────────

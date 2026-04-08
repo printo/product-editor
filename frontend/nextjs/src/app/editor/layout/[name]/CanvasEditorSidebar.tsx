@@ -250,24 +250,13 @@ export function CanvasEditorSidebar({
               <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
                 <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all group">
                   <div className="space-y-0.5">
-                    <p className="text-[11px] font-medium text-slate-800 uppercase">Workspace</p>
+                    <p className="text-[11px] font-medium text-slate-800 uppercase">Background Colour</p>
                     <p className="text-[10px] text-slate-400 uppercase tracking-tight">Base canvas color</p>
                   </div>
                   <ColorPicker value={editingCanvas.bgColor || '#ffffff'}
                     onChange={color => {
                       pushUndo(editingCanvas, true);
                       debouncedRender({ ...editingCanvas, bgColor: color });
-                    }} />
-                </div>
-                <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all group">
-                  <div className="space-y-0.5">
-                    <p className="text-[11px] font-medium text-slate-800 uppercase">Matte / Mask</p>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-tight">Border protection</p>
-                  </div>
-                  <ColorPicker value={editingCanvas.paperColor || '#ffffff'}
-                    onChange={color => {
-                      pushUndo(editingCanvas, true);
-                      debouncedRender({ ...editingCanvas, paperColor: color });
                     }} />
                 </div>
               </div>

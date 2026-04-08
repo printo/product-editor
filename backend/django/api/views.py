@@ -197,15 +197,27 @@ class GenerateLayoutView(APIView):
         },
     )
     def post(self, request):
-        """Route to sync or async mode based on callback_url parameter."""
-        callback_url = request.data.get('callback_url')
-        
-        if callback_url:
-            logger.info("Using async mode for generate request")
-            return self._handle_async(request, callback_url)
-        else:
-            logger.info("Using sync mode for generate request")
-            return self._handle_sync(request)
+        """
+        Always async — order_id is mandatory for both embed and direct UI.
+
+        callback_url is optional: if provided the backend will POST to it on
+        completion; if absent the caller should poll /api/render-status/<job_id>/.
+        """
+        order_id = request.data.get('order_id')
+        if not order_id:
+            return Response(
+                {
+                    "detail": (
+                        "order_id is required.  "
+                        "The direct UI auto-generates one; embed callers must supply it."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        callback_url = request.data.get('callback_url')  # optional
+        logger.info("Async generate: order_id=%s, callback_url=%s", order_id, bool(callback_url))
+        return self._handle_async(request, callback_url)
     
     def _handle_async(self, request, callback_url):
         """Handle async generation request - enqueue job and return immediately."""
@@ -286,14 +298,14 @@ class GenerateLayoutView(APIView):
 
             queue_name = 'priority' if soft_proof else 'standard'
 
-            # Upsert CanvasData — if the same order_id is resubmitted (operator
-            # retry, customer re-upload) we update in place rather than blowing
-            # up on the unique constraint.
+            # Upsert CanvasData — if the same (order_id, api_key) pair is
+            # resubmitted (operator retry, customer re-upload) we update in
+            # place rather than blowing up on the unique_together constraint.
             with transaction.atomic():
                 canvas, created = CanvasData.objects.update_or_create(
                     order_id=order_id,
+                    api_key=api_key,        # part of the lookup key
                     defaults=dict(
-                        api_key=api_key,
                         layout_name=layout_name,
                         image_paths=upload_paths,
                         fit_mode=fit_mode,
@@ -458,7 +470,14 @@ class GenerateLayoutView(APIView):
                             file_type='image',
                         )
 
-                engine = LayoutEngine(storage.layouts_dir(), settings.EXPORTS_DIR)
+                # Give every render request its own subdirectory so concurrent
+                # jobs for the same layout name never overwrite each other's files.
+                import uuid as _uuid
+                render_id = str(_uuid.uuid4())
+                render_exports_dir = os.path.join(settings.EXPORTS_DIR, render_id)
+                os.makedirs(render_exports_dir, exist_ok=True)
+
+                engine = LayoutEngine(storage.layouts_dir(), render_exports_dir)
                 generation_time_ms = 0
 
                 if soft_proof:
@@ -599,14 +618,25 @@ class RenderStatusView(APIView):
     def get(self, request, job_id):
         """Get render job status by job_id."""
         from api.models import RenderJob
+        from api.tasks import WORKER_CONCURRENCY
         from django.core.cache import cache
-        
+
         # Check cache first (50ms response target)
         cache_key = f'render_job_status:{job_id}'
         cached = cache.get(cache_key)
         if cached:
+            # Still enforce ownership on cached responses — the cache entry was
+            # built by whoever first fetched the job, and a different API key
+            # must not be allowed to read it.
+            if isinstance(request.user, APIKeyUser):
+                try:
+                    job_check = RenderJob.objects.select_related('canvas_data').get(id=job_id)
+                    if job_check.canvas_data.api_key != request.user.api_key:
+                        return Response({'detail': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
+                except RenderJob.DoesNotExist:
+                    return Response({'detail': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
             return Response(cached)
-        
+
         try:
             job = RenderJob.objects.select_related('canvas_data').get(id=job_id)
         except RenderJob.DoesNotExist:
@@ -614,23 +644,35 @@ class RenderStatusView(APIView):
                 {'detail': 'Job not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
+
+        # Ownership check: APIKeyUsers may only view their own jobs.
+        # PIAUsers are internal and may view any job.
+        if isinstance(request.user, APIKeyUser):
+            if job.canvas_data.api_key != request.user.api_key:
+                # Return 404 rather than 403 to avoid leaking job existence
+                # to callers who don't own it.
+                return Response({'detail': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
+
         response_data = {
             'job_id': str(job.id),
             'status': job.status,
             'queue': job.queue_name,
             'created_at': job.created_at.isoformat(),
         }
-        
+
         if job.status == 'queued':
-            # Estimate wait time based on queue depth
+            # Estimate wait time accounting for worker concurrency so the
+            # estimate matches the logic in GenerateLayoutView._estimate_wait_time().
             queued_count = RenderJob.objects.filter(
                 queue_name=job.queue_name,
                 status='queued',
                 created_at__lt=job.created_at
             ).count()
             avg_time_per_job = 30 if job.queue_name == 'priority' else 60
-            response_data['estimated_wait_seconds'] = queued_count * avg_time_per_job
+            concurrency = max(1, WORKER_CONCURRENCY)
+            response_data['estimated_wait_seconds'] = max(
+                0, int((queued_count / concurrency) * avg_time_per_job)
+            )
         
         elif job.status == 'processing':
             response_data['started_at'] = job.started_at.isoformat() if job.started_at else None
@@ -865,21 +907,10 @@ class SecureExportDownloadView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
-            # Construct full path
-            # Fallback to STORAGE_ROOT or current directory if MEDIA_ROOT is not set
-            base_dir = getattr(settings, 'MEDIA_ROOT', getattr(settings, 'STORAGE_ROOT', '.'))
-            # The following line seems to be a partial instruction.
-            # Assuming the intent is to use base_dir for the full_path construction,
-            # and the `for` loop was a mistake or incomplete.
-            # If the original `settings.EXPORTS_DIR` should be replaced, it would be:
-            # full_path = os.path.join(base_dir, file_path)
-            # However, the instruction explicitly shows `S_DIR, file_path)` which is malformed.
-            # Given the context of "Fix MEDIA_ROOT fallback", it's likely `base_dir` should be used.
-            # But `settings.EXPORTS_DIR` is also a valid base for exports.
-            # I will assume the instruction meant to replace `settings.EXPORTS_DIR` with `base_dir`
-            # for the `full_path` construction, and the `for` loop was an error in the instruction.
-            # If the intent was to iterate, the instruction is too incomplete to implement correctly.
-            # Sticking to the most plausible interpretation of "Fix MEDIA_ROOT fallback" for a base directory.
+            # Construct full path — export files live under EXPORTS_DIR.
+            # MEDIA_ROOT does not exist in this project's settings; using it
+            # caused every download to resolve against a nonexistent directory.
+            base_dir = settings.EXPORTS_DIR
             full_path = os.path.join(base_dir, file_path)
             
             # Double-check path safety (defense in depth)
@@ -901,8 +932,10 @@ class SecureExportDownloadView(APIView):
             with open(full_path, 'rb') as f:
                 file_content = f.read()
             
+            import mimetypes
+            content_type, _ = mimetypes.guess_type(full_path)
             response = Response(file_content)
-            response['Content-Type'] = 'image/png'  # Adjust based on actual file type
+            response['Content-Type'] = content_type or 'application/octet-stream'
             response['Content-Length'] = len(file_content)
             response['Content-Disposition'] = f'attachment; filename="{os.path.basename(full_path)}"'
             
@@ -1303,7 +1336,9 @@ class ExternalLayoutDetailView(APIView):
     permission_classes = [IsAuthenticatedWithAPIKey, CanListLayouts]
 
     def _is_valid_layout_name(self, name: str) -> bool:
-        return bool(re.match(r'^[a-zA-Z0-9_\-]+$', name))
+        # Dots are valid — layout names like `retro_polaroid_4.2x3.5` contain them.
+        # Double-dot sequences are still blocked to prevent path traversal.
+        return bool(re.match(r'^[a-zA-Z0-9_.\-]+$', name)) and '..' not in name
 
     def _is_path_safe(self, path: str, base_dir: str) -> bool:
         return os.path.abspath(path).startswith(os.path.abspath(base_dir))
@@ -1579,3 +1614,468 @@ class FontsView(APIView):
 
         _write_fonts(fonts)
         return Response({'fonts': fonts})
+
+
+class RenderJobDownloadView(APIView):
+    """
+    Stream all output files of a completed render job as a single ZIP archive.
+
+    This replaces the client-side ZIP assembly (JSZip + canvas re-render) with a
+    lightweight server-side stream, eliminating the CPU/RAM spike on low-end devices.
+
+    GET /api/jobs/<job_id>/download/
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey, CanAccessExports]
+
+    @extend_schema(
+        tags=["exports"],
+        summary="Download completed job output as ZIP",
+        description=(
+            "Streams all output files (PNG, TIFF CMYK, soft-proof preview) for a "
+            "completed render job as a single ZIP archive. "
+            "Returns 409 if the job has not yet completed."
+        ),
+        responses={
+            200: OpenApiResponse(description="application/zip binary stream"),
+            404: OpenApiResponse(description="Job not found or no output files"),
+            409: OpenApiResponse(description="Job not yet completed"),
+        },
+    )
+    def get(self, request, job_id):
+        import zipfile
+        import io
+        from django.http import StreamingHttpResponse
+        from api.models import RenderJob
+
+        try:
+            job = RenderJob.objects.select_related('canvas_data').get(id=job_id)
+        except RenderJob.DoesNotExist:
+            return Response({'detail': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ownership check: APIKeyUsers may only download their own jobs.
+        if isinstance(request.user, APIKeyUser):
+            if job.canvas_data.api_key != request.user.api_key:
+                return Response({'detail': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if job.status != 'completed':
+            return Response(
+                {'detail': f'Job is not completed yet (status: {job.status})'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if not job.output_paths:
+            return Response(
+                {'detail': 'No output files available for this job'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Path-traversal guard: every path must resolve inside EXPORTS_DIR.
+        exports_root = os.path.realpath(settings.EXPORTS_DIR)
+        safe_paths = []
+        for raw_path in job.output_paths:
+            resolved = os.path.realpath(raw_path)
+            if resolved.startswith(exports_root + os.sep) and os.path.isfile(resolved):
+                safe_paths.append(resolved)
+            else:
+                logger.warning("RenderJobDownloadView: blocked path %s for job %s", raw_path, job_id)
+
+        if not safe_paths:
+            return Response(
+                {'detail': 'No accessible output files found on disk'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Build the ZIP in memory.
+        # Typical output: 1-3 files at 1-5 MB each → well within a 512 MB worker.
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            for path in safe_paths:
+                # Archive name is the path relative to EXPORTS_DIR so the ZIP
+                # retains a meaningful folder structure (e.g. <order_id>/out.png).
+                arcname = os.path.relpath(path, exports_root)
+                zf.write(path, arcname)
+
+        zip_bytes = buf.getvalue()
+        zip_name = f"job-{job_id}.zip"
+
+        api_key = request.user.api_key if isinstance(request.user, APIKeyUser) else None
+        if api_key:
+            logger.info("Job ZIP downloaded: job=%s files=%d by %s", job_id, len(safe_paths), api_key.name)
+
+        response = StreamingHttpResponse(
+            iter([zip_bytes]),
+            content_type='application/zip',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{zip_name}"'
+        response['Content-Length'] = len(zip_bytes)
+        return response
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Canvas State Persistence  (P0 — survives page refresh / checkout transition)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class CanvasStateView(APIView):
+    """
+    Save / load the full editor state for a given order_id.
+
+    PUT  /api/canvas-state/<order_id>/  — upsert editor state (called by the
+         frontend on every meaningful edit, debounced ~2 s).
+    GET  /api/canvas-state/<order_id>/  — restore editor state on page open or
+         refresh.
+
+    The state JSON is opaque to the backend — it stores whatever the frontend
+    sends (frames, overlays, colours, surface layouts).  The only thing the
+    backend validates is that it's valid JSON and under 5 MB.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    MAX_STATE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+    @extend_schema(
+        tags=["canvas-state"],
+        summary="Load saved editor state",
+        responses={
+            200: OpenApiResponse(description="Editor state JSON"),
+            404: OpenApiResponse(description="No saved state for this order_id"),
+        },
+    )
+    def get(self, request, order_id: str):
+        from api.models import CanvasData
+
+        # Resolve the API key so we can scope the lookup to the requesting
+        # tenant.  Two different keys can legitimately share the same order_id
+        # (e.g. separate embed customers); scoping prevents cross-tenant reads.
+        api_key = getattr(request.user, 'api_key', None)
+        if not api_key:
+            return Response({'detail': 'API key required'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            canvas = CanvasData.objects.get(order_id=order_id, api_key=api_key)
+        except CanvasData.DoesNotExist:
+            return Response(
+                {'detail': 'No saved state for this order'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({
+            'order_id': canvas.order_id,
+            'layout_name': canvas.layout_name,
+            'fit_mode': canvas.fit_mode,
+            'editor_state': canvas.editor_state,
+            'image_paths': canvas.image_paths,
+            'updated_at': canvas.updated_at.isoformat() if canvas.updated_at else None,
+        })
+
+    @extend_schema(
+        tags=["canvas-state"],
+        summary="Save editor state (upsert)",
+        responses={
+            200: OpenApiResponse(description="State saved / updated"),
+            201: OpenApiResponse(description="State created"),
+            400: OpenApiResponse(description="Invalid payload"),
+        },
+    )
+    def put(self, request, order_id: str):
+        from api.models import CanvasData
+        from datetime import timedelta
+
+        body = request.data
+        editor_state = body.get('editor_state')
+        layout_name = body.get('layout_name', '')
+        image_paths = body.get('image_paths', [])
+        fit_mode = body.get('fit_mode', 'cover')
+
+        if not order_id:
+            return Response({'detail': 'order_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not layout_name:
+            return Response({'detail': 'layout_name is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Size guard — editor_state is opaque JSON but we cap it at 5 MB.
+        raw = json.dumps(editor_state) if editor_state is not None else '{}'
+        if len(raw) > self.MAX_STATE_SIZE:
+            return Response(
+                {'detail': f'editor_state exceeds {self.MAX_STATE_SIZE // (1024*1024)} MB limit'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        api_key = None
+        if isinstance(request.user, APIKeyUser):
+            api_key = request.user.api_key
+
+        if not api_key:
+            return Response({'detail': 'API key required'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Look up by (order_id, api_key) so each tenant owns its own namespace.
+        # api_key is in the lookup key, NOT in defaults, so it's never changed
+        # on update and is always set correctly on create.
+        canvas, created = CanvasData.objects.update_or_create(
+            order_id=order_id,
+            api_key=api_key,
+            defaults=dict(
+                layout_name=layout_name,
+                image_paths=image_paths or [],
+                fit_mode=fit_mode,
+                editor_state=editor_state,
+                expires_at=timezone.now() + timedelta(days=30),
+            ),
+        )
+
+        logger.info(
+            "Canvas state %s: order_id=%s, layout=%s",
+            "created" if created else "updated",
+            order_id,
+            layout_name,
+        )
+
+        return Response(
+            {
+                'order_id': canvas.order_id,
+                'layout_name': canvas.layout_name,
+                'saved': True,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Chunked / Resumable Upload
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ChunkedUploadInitView(APIView):
+    """
+    POST /api/upload/init  — start a resumable upload session.
+
+    Accepts: { filename, file_size, total_chunks, content_type? }
+    Returns: { upload_id, chunk_size }
+
+    The upload_id is used by the client to push individual chunks via
+    ChunkedUploadChunkView.  Once all chunks land, ChunkedUploadCompleteView
+    assembles and validates the file.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB recommended chunk size
+
+    @extend_schema(tags=["upload"], summary="Initialise a chunked upload session")
+    def post(self, request):
+        import uuid as _uuid
+
+        filename = request.data.get('filename')
+        file_size = request.data.get('file_size')
+        total_chunks = request.data.get('total_chunks')
+
+        if not filename or not file_size or not total_chunks:
+            return Response(
+                {'detail': 'filename, file_size, and total_chunks are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            file_size = int(file_size)
+            total_chunks = int(total_chunks)
+        except (TypeError, ValueError):
+            return Response({'detail': 'file_size and total_chunks must be integers'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if file_size > 50 * 1024 * 1024:
+            return Response({'detail': 'File exceeds 50 MB limit'}, status=status.HTTP_400_BAD_REQUEST)
+
+        upload_id = str(_uuid.uuid4())
+
+        # Create a staging directory for this upload's chunks.
+        staging_dir = os.path.join(settings.UPLOADS_DIR, '.chunks', upload_id)
+        os.makedirs(staging_dir, exist_ok=True)
+
+        # Persist metadata alongside chunks so complete-step can validate.
+        meta = {
+            'filename': filename,
+            'file_size': file_size,
+            'total_chunks': total_chunks,
+            'received_chunks': [],
+        }
+        with open(os.path.join(staging_dir, '_meta.json'), 'w') as f:
+            json.dump(meta, f)
+
+        return Response({
+            'upload_id': upload_id,
+            'chunk_size': self.CHUNK_SIZE,
+            'total_chunks': total_chunks,
+        }, status=status.HTTP_201_CREATED)
+
+
+class ChunkedUploadChunkView(APIView):
+    """
+    PUT /api/upload/<upload_id>/chunk?index=N  — push a single chunk.
+
+    The chunk is written to a staging directory as `<index>.part`.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(tags=["upload"], summary="Upload a single chunk")
+    def put(self, request, upload_id: str):
+        # Reject anything that isn't a canonical UUID v4 string to prevent
+        # path traversal attacks (e.g. upload_id='../../etc/passwd').
+        if not re.match(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+            upload_id,
+            re.IGNORECASE,
+        ):
+            return Response({'detail': 'Invalid upload session'}, status=status.HTTP_400_BAD_REQUEST)
+
+        chunk_index = request.query_params.get('index')
+        if chunk_index is None:
+            return Response({'detail': 'index query param required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            chunk_index = int(chunk_index)
+        except ValueError:
+            return Response({'detail': 'index must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+        staging_dir = os.path.join(settings.UPLOADS_DIR, '.chunks', upload_id)
+        meta_path = os.path.join(staging_dir, '_meta.json')
+
+        if not os.path.isdir(staging_dir) or not os.path.isfile(meta_path):
+            return Response({'detail': 'Upload session not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+
+        if chunk_index < 0 or chunk_index >= meta['total_chunks']:
+            return Response({'detail': 'chunk index out of range'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Write chunk to staging — accept raw body or multipart "chunk" field.
+        chunk_data = request.FILES.get('chunk')
+        if chunk_data:
+            chunk_bytes = chunk_data.read()
+        else:
+            chunk_bytes = request.body
+
+        if not chunk_bytes:
+            return Response({'detail': 'No chunk data received'}, status=status.HTTP_400_BAD_REQUEST)
+
+        chunk_path = os.path.join(staging_dir, f'{chunk_index}.part')
+        with open(chunk_path, 'wb') as out:
+            out.write(chunk_bytes)
+
+        # Track received chunks.
+        if chunk_index not in meta['received_chunks']:
+            meta['received_chunks'].append(chunk_index)
+            meta['received_chunks'].sort()
+            with open(meta_path, 'w') as f:
+                json.dump(meta, f)
+
+        return Response({
+            'chunk_index': chunk_index,
+            'received': len(meta['received_chunks']),
+            'total': meta['total_chunks'],
+        })
+
+
+class ChunkedUploadCompleteView(APIView):
+    """
+    POST /api/upload/<upload_id>/complete  — assemble chunks → final file.
+
+    Validates:
+      1. All chunks present
+      2. Assembled file size matches declared size
+      3. PIL image integrity check (same as regular uploads)
+
+    Returns the file path usable in subsequent canvas-state saves or
+    generate requests.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(tags=["upload"], summary="Assemble chunks and finalise upload")
+    def post(self, request, upload_id: str):
+        import shutil
+
+        # Reject anything that isn't a canonical UUID v4 string to prevent
+        # path traversal attacks (e.g. upload_id='../../etc/passwd').
+        if not re.match(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+            upload_id,
+            re.IGNORECASE,
+        ):
+            return Response({'detail': 'Invalid upload session'}, status=status.HTTP_400_BAD_REQUEST)
+
+        staging_dir = os.path.join(settings.UPLOADS_DIR, '.chunks', upload_id)
+        meta_path = os.path.join(staging_dir, '_meta.json')
+
+        if not os.path.isdir(staging_dir) or not os.path.isfile(meta_path):
+            return Response({'detail': 'Upload session not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+
+        expected = set(range(meta['total_chunks']))
+        received = set(meta['received_chunks'])
+        missing = expected - received
+        if missing:
+            return Response(
+                {'detail': f'Missing chunks: {sorted(missing)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Assemble chunks in order into UPLOADS_DIR.
+        final_name = get_random_string(8) + '_' + meta['filename']
+        final_path = os.path.join(settings.UPLOADS_DIR, final_name)
+        assembled_size = 0
+
+        try:
+            with open(final_path, 'wb') as out:
+                for idx in range(meta['total_chunks']):
+                    chunk_path = os.path.join(staging_dir, f'{idx}.part')
+                    with open(chunk_path, 'rb') as cp:
+                        data = cp.read()
+                        assembled_size += len(data)
+                        out.write(data)
+        except Exception as exc:
+            # Clean up partial file.
+            if os.path.exists(final_path):
+                os.remove(final_path)
+            logger.error("Chunk assembly failed for %s: %s", upload_id, exc)
+            return Response({'detail': 'Chunk assembly failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Validate size.
+        if assembled_size != meta['file_size']:
+            os.remove(final_path)
+            return Response(
+                {'detail': f"Size mismatch: expected {meta['file_size']}, got {assembled_size}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate image integrity with PIL (same check as regular uploads).
+        try:
+            from api.validators import validate_image_file
+            from django.core.files.uploadedfile import SimpleUploadedFile
+            with open(final_path, 'rb') as f:
+                temp = SimpleUploadedFile(meta['filename'], f.read())
+            validate_image_file(temp)
+        except ValidationError as e:
+            os.remove(final_path)
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Clean up staging directory.
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+        # Record in database.
+        api_key = None
+        if isinstance(request.user, APIKeyUser):
+            api_key = request.user.api_key
+
+        if api_key:
+            UploadedFile.objects.create(
+                api_key=api_key,
+                file_path=final_path,
+                original_filename=meta['filename'],
+                file_size_bytes=assembled_size,
+                file_type='image',
+                upload_session_id=upload_id,
+            )
+
+        logger.info("Chunked upload completed: %s (%d bytes) → %s", meta['filename'], assembled_size, final_path)
+
+        return Response({
+            'file_path': final_path,
+            'filename': meta['filename'],
+            'file_size': assembled_size,
+        }, status=status.HTTP_201_CREATED)

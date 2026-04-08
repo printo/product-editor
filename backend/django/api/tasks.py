@@ -60,7 +60,13 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
     try:
         canvas = CanvasData.objects.get(id=canvas_data_id)
         storage = get_storage()
-        engine = LayoutEngine(storage.layouts_dir(), settings.EXPORTS_DIR)
+
+        # Give each async job its own exports subdirectory so concurrent jobs
+        # for the same layout name never overwrite each other's output files.
+        job_exports_dir = os.path.join(settings.EXPORTS_DIR, job_id)
+        os.makedirs(job_exports_dir, exist_ok=True)
+
+        engine = LayoutEngine(storage.layouts_dir(), job_exports_dir)
 
         start_time = time.time()
 
@@ -272,7 +278,7 @@ def garbage_collector_task():
     """
     import shutil
     from datetime import timedelta
-    from api.models import ExportedResult, CanvasData
+    from api.models import ExportedResult, CanvasData, RenderJob
 
     now = timezone.now()
     retention_days = 14
@@ -333,14 +339,116 @@ def garbage_collector_task():
         except Exception as exc:
             logger.error("GC: failed to delete %s: %s", export.export_file_path, exc)
 
+    # ── Upload file cleanup ─────────────────────────────────────────────────
+    # Delete uploaded images older than retention period (same as exports).
+    from api.models import UploadedFile
+    upload_cutoff = now - timedelta(days=retention_days)
+    expired_uploads = UploadedFile.objects.filter(
+        created_at__lt=upload_cutoff,
+        is_deleted=False,
+    )
+    upload_deleted = 0
+    upload_deleted_bytes = 0
+    for upload in expired_uploads:
+        try:
+            if os.path.exists(upload.file_path):
+                fsize = os.path.getsize(upload.file_path)
+                os.remove(upload.file_path)
+                upload_deleted_bytes += fsize
+                upload_deleted += 1
+            upload.is_deleted = True
+            upload.save(update_fields=['is_deleted'])
+        except Exception as exc:
+            logger.error("GC: failed to delete upload %s: %s", upload.file_path, exc)
+
+    # ── Stale chunked-upload staging cleanup ──────────────────────────────
+    # Abandon sessions older than 24 hours — the user gave up or the network
+    # dropped permanently.
+    chunks_dir = os.path.join(settings.UPLOADS_DIR, '.chunks')
+    stale_sessions = 0
+    if os.path.isdir(chunks_dir):
+        import time as _time
+        stale_threshold = _time.time() - 86400  # 24 hours
+        for session_id in os.listdir(chunks_dir):
+            session_path = os.path.join(chunks_dir, session_id)
+            if os.path.isdir(session_path):
+                try:
+                    mtime = os.path.getmtime(session_path)
+                    if mtime < stale_threshold:
+                        shutil.rmtree(session_path, ignore_errors=True)
+                        stale_sessions += 1
+                except Exception as exc:
+                    logger.error("GC: failed to clean chunk session %s: %s", session_id, exc)
+
+    # ── Async render output file cleanup ─────────────────────────────────
+    # Async renders (via render_canvas_task) write output paths to
+    # RenderJob.output_paths but do NOT create ExportedResult records, so
+    # the ExportedResult-based GC loop above never touches them.
+    # Clean up by finding completed RenderJobs whose CanvasData has expired
+    # and deleting the actual files on disk.
+    async_files_deleted = 0
+    async_bytes_deleted = 0
+    try:
+        expired_jobs = (
+            RenderJob.objects
+            .filter(
+                status='completed',
+                canvas_data__expires_at__lt=now,
+                canvas_data__requires_manual_review=False,
+                output_paths__isnull=False,
+            )
+            .exclude(output_paths=[])
+            .select_related('canvas_data')
+        )
+        for rjob in expired_jobs:
+            for fpath in (rjob.output_paths or []):
+                try:
+                    if os.path.exists(fpath):
+                        fsize = os.path.getsize(fpath)
+                        os.remove(fpath)
+                        async_bytes_deleted += fsize
+                        async_files_deleted += 1
+                except Exception as exc:
+                    logger.error("GC: failed to delete async render file %s: %s", fpath, exc)
+    except Exception as exc:
+        logger.error("GC: async render file cleanup failed: %s", exc)
+
+    # ── Canvas-state record cleanup ───────────────────────────────────────
+    # CanvasData rows that have passed their expires_at date accumulate large
+    # editor_state JSON blobs (dataUrl previews).  Delete the expired rows that
+    # are not flagged for manual review so the DB doesn't grow unbounded.
+    # Note: this runs AFTER the file cleanups above so files are removed before
+    # their parent DB records (and child RenderJob rows) are cascade-deleted.
+    canvas_deleted = 0
+    try:
+        canvas_deleted, _ = CanvasData.objects.filter(
+            expires_at__lt=now,
+            requires_manual_review=False,
+        ).delete()
+        if canvas_deleted:
+            logger.info("GC: deleted %d expired CanvasData records", canvas_deleted)
+    except Exception as exc:
+        logger.error("GC: failed to delete expired CanvasData records: %s", exc)
+
     logger.info(
-        "GC complete: deleted=%d files (%.2f MB), skipped=%d manual-review, disk=%.1f%%",
-        deleted_count, deleted_bytes / 1024 / 1024, skipped_count, usage_percent,
+        "GC complete: exports deleted=%d (%.2f MB), skipped=%d manual-review, "
+        "uploads deleted=%d (%.2f MB), async render files deleted=%d (%.2f MB), "
+        "stale chunk sessions=%d, canvas_data deleted=%d, disk=%.1f%%",
+        deleted_count, deleted_bytes / 1024 / 1024, skipped_count,
+        upload_deleted, upload_deleted_bytes / 1024 / 1024,
+        async_files_deleted, async_bytes_deleted / 1024 / 1024,
+        stale_sessions, canvas_deleted, usage_percent,
     )
 
     return {
         'deleted_count': deleted_count,
         'deleted_bytes': deleted_bytes,
         'skipped_count': skipped_count,
+        'upload_deleted_count': upload_deleted,
+        'upload_deleted_bytes': upload_deleted_bytes,
+        'async_render_files_deleted': async_files_deleted,
+        'async_render_bytes_deleted': async_bytes_deleted,
+        'stale_chunk_sessions_cleaned': stale_sessions,
+        'canvas_data_deleted': canvas_deleted,
         'disk_usage_percent': usage_percent,
     }

@@ -1,5 +1,16 @@
 'use client';
 
+// ── Dev-only logging helpers ──────────────────────────────────────────────────
+// In production builds these are no-ops so the browser console stays clean and
+// no internal layout geometry is exposed to end users.
+const _DEV = process.env.NODE_ENV !== 'production';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const log              = _DEV ? (...a: any[]) => log(...a)             : (..._: any[]) => {};
+const logGroup         = _DEV ? (...a: any[]) => logGroup(...a)           : (..._: any[]) => {};
+const logGroupCollapsed = _DEV ? (...a: any[]) => logGroupCollapsed(...a) : (..._: any[]) => {};
+const logGroupEnd      = _DEV ? () => logGroupEnd()                        : () => {};
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
   Canvas, FabricImage, Textbox, Point, Path,
@@ -103,7 +114,7 @@ function applyOverlayToObject(
     const sy = (overlay.y / 100) * canvasH;
     const sw = (overlay.width / 100) * canvasW;
     const sh = (overlay.height / 100) * canvasH;
-    console.log('Shape Overlay Calculation (In-place Update):', { overlay, sx, sy, sw, sh });
+    log('Shape Overlay Calculation (In-place Update):', { overlay, sx, sy, sw, sh });
     const def = getShapeDef(overlay.shapeType);
     if (def?.fabricType === 'circle') {
       const radius = Math.min(sw, sh) / 2;
@@ -123,7 +134,7 @@ function applyOverlayToObject(
   } else if (overlay.type === 'image') {
     const left = (overlay.x / 100) * canvasW;
     const top = (overlay.y / 100) * canvasH;
-    console.log('Image Overlay Calculation (In-place Update):', { overlay, left, top });
+    log('Image Overlay Calculation (In-place Update):', { overlay, left, top });
     obj.set({
       left,
       top,
@@ -218,7 +229,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
       const fr = Math.round(Math.min(fw / 2, fh / 2, frMm * pxPerMm) * 10) / 10;
 
-      console.log(
+      log(
         `[getPaperPath] Frame[${_fIdx}]:`,
         `isPercent=${isPercent} | isTransforming=${isTransforming}`,
         `| raw=(x:${frameSpec.x}, y:${frameSpec.y}, w:${frameSpec.width}, h:${frameSpec.height})`,
@@ -270,7 +281,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       renderOnAddRemove: false,
     });
 
-    console.log(
+    log(
       '[FabricEditor] Canvas element created | logical size: %d×%d px | clipPath: absolutePositioned=false',
       canvasW, canvasH,
     );
@@ -415,15 +426,15 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     // ── Canvas Build Debug Summary ──────────────────────────────────────────
     {
       const _pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
-      console.groupCollapsed(
+      logGroupCollapsed(
         `[FabricEditor] Render | canvas=${canvasW}×${canvasH}px | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length} | needsFullRebuild=${needsFullRebuild}`,
       );
-      console.log('Canvas logical WxH (used):', canvasW, '×', canvasH,
+      log('Canvas logical WxH (used):', canvasW, '×', canvasH,
         '| from props:', canvasWidth, '×', canvasHeight,
         '| from layout.canvas:', layout?.canvas?.width, '×', layout?.canvas?.height);
-      console.log('layout.canvas object:', JSON.stringify(layout?.canvas));
-      console.log('pxPerMm:', _pxPerMm.toFixed(3), '(canvasW / widthMm =', canvasW, '/', layout?.canvas?.widthMm, ')');
-      console.log('layout.frames:', JSON.stringify(layout?.frames));
+      log('layout.canvas object:', JSON.stringify(layout?.canvas));
+      log('pxPerMm:', _pxPerMm.toFixed(3), '(canvasW / widthMm =', canvasW, '/', layout?.canvas?.widthMm, ')');
+      log('layout.frames:', JSON.stringify(layout?.frames));
       if (Array.isArray(layout?.frames) && layout.frames.length > 0) {
         (layout.frames as any[]).forEach((f: any, i: number) => {
           const _isP = f.width <= 1 && f.height <= 1;
@@ -431,7 +442,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           const _fy = _isP ? f.y * canvasH : f.y;
           const _fw = _isP ? f.width * canvasW : f.width;
           const _fh = _isP ? f.height * canvasH : f.height;
-          console.log(
+          log(
             `  Frame[${i}]: isPercent=${_isP}`,
             `| raw=(x:${f.x}, y:${f.y}, w:${f.width}, h:${f.height})`,
             `| px=(x:${_fx.toFixed(1)}, y:${_fy.toFixed(1)}, w:${_fw.toFixed(1)}, h:${_fh.toFixed(1)})`,
@@ -439,13 +450,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           );
         });
       }
-      console.groupEnd();
+      logGroupEnd();
     }
     // ─────────────────────────────────────────────────────────────────────────
 
     if (!needsFullRebuild) {
       // ── #3 In-place property update ─────────────
-      console.log(
+      log(
         `[FabricEditor] ↻ In-place update | canvas=${canvasW}×${canvasH}px | transformChanged=${transformChanged} | isTransforming=${isTransforming} | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length}`,
       );
       const objs = fc.getObjects();
@@ -456,7 +467,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         if (transformChanged || !paperObj.path) {
           // Use Path constructor to parse string into array of commands to avoid TypeError in toDataURL/toJSON
           const updatedPath = getPaperPath(isTransforming);
-          console.log(`  [Paper In-place] transformChanged=${transformChanged} | path (first 80 chars): "${updatedPath.substring(0, 80)}..."`);
+          log(`  [Paper In-place] transformChanged=${transformChanged} | path (first 80 chars): "${updatedPath.substring(0, 80)}..."`);
           const tempPath = new Path(updatedPath);
           paperObj.set({ path: tempPath.path });
         }
@@ -471,12 +482,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       // ✅ Update bleed zone visibility during transform
       objs.forEach((o: any) => {
         if (o[BLEED_KEY]) {
-          console.log(`  [Bleed update] Frame[${o.__frameIdx ?? '?'}] visible=${isTransforming} opacity=0.5`);
+          log(`  [Bleed update] Frame[${o.__frameIdx ?? '?'}] visible=${isTransforming} opacity=0.5`);
           o.set({ visible: isTransforming, opacity: 0.5 });
         }
         if (o[SAFE_KEY]) {
           const _safeOpacity = isTransforming ? 0.25 : 0.45;
-          console.log(`  [SafeZone update] Frame[${o.__frameIdx ?? '?'}] opacity=${_safeOpacity}`);
+          log(`  [SafeZone update] Frame[${o.__frameIdx ?? '?'}] opacity=${_safeOpacity}`);
           o.set({ visible: true, opacity: _safeOpacity });
         }
       });
@@ -521,7 +532,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const imgX = clip.fx + (clip.fw - imgW * scale) / 2 + frameState.offset.x;
         const imgY = clip.fy + (clip.fh - imgH * scale) / 2 + frameState.offset.y;
 
-        console.log('Frame Image Calculation (In-place Update):', {
+        log('Frame Image Calculation (In-place Update):', {
           frameState,
           clip,
           imgW,
@@ -555,10 +566,10 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     fc.backgroundColor = 'transparent';
     fc.set({ renderOnAddRemove: false });
 
-    console.group(`[FabricEditor] 🔨 Full Rebuild (gen=${gen}) | canvas=${canvasW}×${canvasH}px | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length}`);
-    console.log('bgColor:', editingCanvas.bgColor || '#ffffff', '| paperColor:', editingCanvas.paperColor || '#ffffff');
-    console.log('layout.canvas:', JSON.stringify(layout?.canvas));
-    console.log('layout.maskUrl:', layout?.maskUrl ?? '(none)');
+    logGroup(`[FabricEditor] 🔨 Full Rebuild (gen=${gen}) | canvas=${canvasW}×${canvasH}px | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length}`);
+    log('bgColor:', editingCanvas.bgColor || '#ffffff', '| paperColor:', editingCanvas.paperColor || '#ffffff');
+    log('layout.canvas:', JSON.stringify(layout?.canvas));
+    log('layout.maskUrl:', layout?.maskUrl ?? '(none)');
 
     let zIndex = 0;
 
@@ -590,7 +601,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
       const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
 
-      console.log(
+      log(
         `  [SafeZone Frame ${frameIdx}]`,
         `isPercent=${isPercent}`,
         `| raw: x=${frameSpec.x} y=${frameSpec.y} w=${frameSpec.width} h=${frameSpec.height}`,
@@ -632,7 +643,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const frMm = Number(frameSpec.borderRadiusMm || 0);
       const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
 
-      console.log('Bleed Zone Calculation:', {
+      log('Bleed Zone Calculation:', {
         frameSpec,
         canvasW,
         canvasH,
@@ -735,7 +746,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     // ── Paper Overlay ──
     const _paperPathStr = getPaperPath(isTransforming);
-    console.log(
+    log(
       `  [Paper Overlay] fill=${editingCanvas.paperColor || '#ffffff'} | fillRule=evenodd | isTransforming=${isTransforming}`,
       `| path (first 120 chars): "${_paperPathStr.substring(0, 120)}..."`,
     );
@@ -748,7 +759,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     });
     (paperOverlay as any)[PAPER_KEY] = true;
     fc.add(paperOverlay);
-    console.log(`  [Paper Overlay] added to canvas | path commands: ${(paperOverlay.path as any[])?.length ?? 'n/a'}`);
+    log(`  [Paper Overlay] added to canvas | path commands: ${(paperOverlay.path as any[])?.length ?? 'n/a'}`);
     const paperOverlayZ = 1 + frames.length + guidesCount + (frames.length * 2);
     fc.moveObjectTo(paperOverlay, paperOverlayZ);
 
@@ -791,7 +802,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (overlay.type === 'text') {
         const left = (overlay.x / 100) * canvasW;
         const top = (overlay.y / 100) * canvasH;
-        console.log('Text Overlay Calculation (Full Rebuild):', { overlay, left, top });
+        log('Text Overlay Calculation (Full Rebuild):', { overlay, left, top });
         fabricObj = new Textbox(overlay.text, {
           left, top,
           originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
@@ -805,7 +816,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       } else if (overlay.type === 'shape') {
         fabricObj = makeShapeObject(overlay as any, canvasW, canvasH);
         if (fabricObj) {
-          console.log('Shape Overlay Calculation (Full Rebuild):', { overlay, fabricObj });
+          log('Shape Overlay Calculation (Full Rebuild):', { overlay, fabricObj });
           (fabricObj as any)[DATA_KEY] = 'shape';
         }
       } else if (overlay.type === 'image') {
@@ -814,7 +825,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           if (buildGenRef.current !== gen) return;
           const left = (overlay.x / 100) * canvasW;
           const top = (overlay.y / 100) * canvasH;
-          console.log('Image Overlay Calculation (Full Rebuild):', { overlay, left, top });
+          log('Image Overlay Calculation (Full Rebuild):', { overlay, left, top });
           img.set({
             left, top,
             originX: 'left', originY: 'top', scaleX: ((overlay.width / 100) * canvasW) / (img.width || 1), scaleY: ((overlay.height / 100) * canvasH) / (img.height || 1),
@@ -834,12 +845,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     // ── Mask ──
     let maskPromise = Promise.resolve();
     if (layout?.maskUrl) {
-      console.log(`  [Mask] Loading from: ${layout.maskUrl}`);
+      log(`  [Mask] Loading from: ${layout.maskUrl}`);
       maskPromise = FabricImage.fromURL(layout.maskUrl).then(maskImg => {
         if (fc !== fabricRef.current || buildGenRef.current !== gen) return;
         const scaleX = canvasW / maskImg.width!;
         const scaleY = canvasH / maskImg.height!;
-        console.log(
+        log(
           `  [Mask] Loaded: naturalSize=${maskImg.width}×${maskImg.height}px`,
           `→ scaled to ${canvasW}×${canvasH}px (scaleX=${scaleX.toFixed(3)}, scaleY=${scaleY.toFixed(3)})`,
         );
@@ -850,12 +861,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         (maskImg as any)[DATA_KEY] = 'mask'; fc.add(maskImg); fc.bringObjectToFront(maskImg);
       });
     } else {
-      console.log('  [Mask] No maskUrl — skipping mask overlay');
+      log('  [Mask] No maskUrl — skipping mask overlay');
     }
 
     Promise.all([...loadFramePromises, ...loadOverlayPromises, maskPromise]).then(() => {
       if (fc !== fabricRef.current || buildGenRef.current !== gen) return;
-      console.groupEnd(); // close 🔨 Full Rebuild group
+      logGroupEnd(); // close 🔨 Full Rebuild group
       const { width: cW, height: cH } = containerSize;
       if (cW > 0 && cH > 0) fitZoomRef.current = centerCanvasViewport(fc, cW, cH, canvasW, canvasH, viewZoom);
       

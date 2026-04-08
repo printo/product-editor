@@ -29,11 +29,28 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
         
         try:
             api_key = APIKey.objects.get(key=token, is_active=True)
-            
+
+            # Throttle last_used_at writes to once every 5 minutes per key.
+            # Writing on every request causes unnecessary DB churn under load;
+            # 5-minute granularity is precise enough for monitoring purposes.
             from django.utils import timezone
-            api_key.last_used_at = timezone.now()
-            api_key.save(update_fields=['last_used_at'])
-            
+            now = timezone.now()
+            update_threshold_minutes = 5
+            should_update = (
+                api_key.last_used_at is None
+                or (now - api_key.last_used_at).total_seconds() > update_threshold_minutes * 60
+            )
+            if should_update:
+                api_key.last_used_at = now
+                api_key.save(update_fields=['last_used_at'])
+
+            # Stamp the raw Django request so the logging middleware can read
+            # the resolved auth source in its response phase.  DRF resolves its
+            # user on a wrapper object that is discarded before the middleware
+            # response phase runs, so we must persist it here.
+            raw_request = getattr(request, '_request', request)
+            raw_request._api_auth_source = api_key.name
+
             logger.info(f"API Key authenticated: {api_key.name}")
             return (APIKeyUser(api_key), token)
             
@@ -91,6 +108,8 @@ class PIAAuthentication(authentication.BaseAuthentication):
                 user_data = response.json()
                 # Cache for 30 mins so subsequent requests skip this network call entirely
                 cache.set(cache_key, user_data, 1800)
+                raw_request = getattr(request, '_request', request)
+                raw_request._api_auth_source = "PIA"
                 return (PIAUser(user_data), token)
             else:
                 logger.warning(f"PIA token verification failed: {response.status_code}")

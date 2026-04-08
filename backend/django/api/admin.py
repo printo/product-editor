@@ -26,8 +26,9 @@ class APIKeyAdmin(admin.ModelAdmin):
     )
     
     def key_preview(self, obj):
-        """Show truncated key in admin list."""
-        return f"{obj.key[:20]}..." if obj.key else "N/A"
+        """Show only the trailing 4 characters — avoids leaking significant
+        key material in screenshots, browser history, or audit logs."""
+        return f"...{obj.key[-4:]}" if obj.key else "N/A"
     key_preview.short_description = "API Key"
     
     def has_add_permission(self, request):

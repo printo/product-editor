@@ -103,7 +103,13 @@ class UploadedFile(models.Model):
     original_filename = models.CharField(max_length=255)
     file_size_bytes = models.BigIntegerField()
     file_type = models.CharField(max_length=50, default='image')  # image, layout, export
-    
+
+    # Chunked upload — groups chunks belonging to the same resumable session.
+    upload_session_id = models.CharField(
+        max_length=64, null=True, blank=True, db_index=True,
+        help_text="Groups chunks belonging to the same resumable upload session.",
+    )
+
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     expires_at = models.DateTimeField(null=True, blank=True, help_text="File will be auto-deleted after this date")
@@ -186,24 +192,35 @@ class EmbedSession(models.Model):
 
 
 class CanvasData(models.Model):
-    """Persisted canvas design for async rendering."""
-    
+    """Persisted canvas design for async rendering and editor state recovery."""
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
-    order_id = models.CharField(max_length=100, db_index=True, unique=True)
+    # Not globally unique — scoped per API key so embed tenants are isolated.
+    # Uniqueness is enforced by unique_together = ('order_id', 'api_key') below.
+    order_id = models.CharField(max_length=100, db_index=True)
     api_key = models.ForeignKey(APIKey, on_delete=models.CASCADE, related_name='canvas_data')
-    
+
     # Canvas configuration
     layout_name = models.CharField(max_length=255)
     image_paths = models.JSONField(help_text="List of uploaded file paths")
     fit_mode = models.CharField(max_length=20, default='cover')
     export_format = models.CharField(max_length=20, default='png')
     soft_proof = models.BooleanField(default=False)
-    
+
+    # Full editor state — persisted on every meaningful change so the design
+    # survives page refresh / navigation away before checkout.
+    # Structure: { canvases: [...], surfaceStates: [...], globalFitMode: str }
+    editor_state = models.JSONField(
+        null=True, blank=True,
+        help_text="Full editor state JSON (frames, overlays, colours, surfaces).",
+    )
+
     # Callback URL to notify when rendering completes (optional, per-request)
     callback_url = models.URLField(max_length=2000, null=True, blank=True)
 
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField()
     requires_manual_review = models.BooleanField(default=False)
     
@@ -211,9 +228,15 @@ class CanvasData(models.Model):
         db_table = 'canvas_data'
         verbose_name = 'Canvas Data'
         verbose_name_plural = 'Canvas Data'
+        # Tenant-scoped uniqueness: the same order_id can exist for different
+        # API keys (e.g. two separate embed customers) without colliding.
+        unique_together = [('order_id', 'api_key')]
         indexes = [
             models.Index(fields=['order_id']),
             models.Index(fields=['created_at']),
+            # Added via migration 0004 — keeps model in sync with DB so
+            # `makemigrations` doesn't generate a spurious drop-index migration.
+            models.Index(fields=['expires_at'], name='canvas_data_expires_idx'),
         ]
     
     def __str__(self):

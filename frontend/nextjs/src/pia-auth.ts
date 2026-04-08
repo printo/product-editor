@@ -56,6 +56,7 @@ const nextAuth = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
+      // First login: populate token from user object returned by authorize()
       if (user) {
         return {
           ...token,
@@ -64,10 +65,45 @@ const nextAuth = NextAuth({
           accessToken: user.accessToken,
           refreshToken: user.refreshToken,
           accessTokenExpires: user.accessTokenExpires,
-          is_ops_team: user.is_ops_team
+          is_ops_team: user.is_ops_team,
         }
       }
-      return token
+
+      // Access token still valid — return as-is (fast path)
+      if (Date.now() < (token.accessTokenExpires as number)) {
+        return token
+      }
+
+      // Access token has expired — attempt a silent refresh via PIA.
+      // PIA uses Django REST Framework SimpleJWT, so the refresh endpoint
+      // follows the standard pattern: POST /auth/token/refresh/ → { access, refresh? }
+      const piaUrl = process.env.PIA_API_BASE_URL || "https://pia.printo.in/api/v1"
+      try {
+        const res = await fetch(`${piaUrl}/auth/token/refresh/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh: token.refreshToken }),
+        })
+        if (res.ok) {
+          const refreshed = await res.json()
+          const decoded = decodeJwt(refreshed.access) as unknown as DecodedToken
+          return {
+            ...token,
+            accessToken: refreshed.access,
+            accessTokenExpires: decoded.exp * 1000,
+            // Rotating refresh tokens: update if the server returns a new one
+            ...(refreshed.refresh ? { refreshToken: refreshed.refresh } : {}),
+            error: undefined, // clear any previous refresh error
+          }
+        }
+      } catch (e) {
+        console.error("PIA token refresh failed", e)
+      }
+
+      // Refresh failed (refresh token expired / revoked / network error).
+      // Propagate an error so the session callback can surface it to the UI,
+      // allowing the app to redirect to login instead of silently failing.
+      return { ...token, error: 'RefreshAccessTokenError' }
     },
     async session({ session, token }) {
         if (token) {
@@ -75,6 +111,10 @@ const nextAuth = NextAuth({
             session.user.role = token.role as string | undefined
             session.accessToken = token.accessToken as string | undefined
             session.is_ops_team = token.is_ops_team as boolean | undefined
+            // Surface refresh errors to the client so the app can prompt re-login
+            if (token.error) {
+                session.error = token.error as string
+            }
         }
       return session
     },

@@ -1,9 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import TemplateView
-from django.conf import settings
 from drf_spectacular.views import SpectacularAPIView
-from api.views import SecureExportDownloadView
 
 urlpatterns = [
     path("admin/django-admin/", admin.site.urls),

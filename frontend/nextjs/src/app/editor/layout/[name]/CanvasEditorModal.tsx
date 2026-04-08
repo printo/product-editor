@@ -1,18 +1,27 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { Upload, CheckCircle2, X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus, Type, Trash2, AlignLeft, AlignCenter, AlignRight, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
-  import { FabricImage } from 'fabric';
+// FabricImage is used only inside an async callback — imported lazily at call-site below
 import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
-import { FabricEditor, type FabricEditorHandle } from './FabricEditor';
+// Type-only import: erased at compile time, zero bundle impact
+import type { FabricEditorHandle } from './FabricEditor';
 import { ShapesPicker } from './ShapesPicker';
 import { IconBrowser } from './IconBrowser';
 import { ColorPicker } from '@/components/ColorPicker';
 import { CanvasEditorSidebar } from './CanvasEditorSidebar';
+
+// Dynamically import FabricEditor so that Fabric.js (~2 MB) is excluded from
+// the initial bundle and only downloaded when the editor modal opens.
+const FabricEditor = dynamic(
+  () => import('./FabricEditor').then(m => ({ default: m.FabricEditor })),
+  { ssr: false, loading: () => null },
+);
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -209,6 +218,7 @@ export function CanvasEditorModal({
     const file = frameState.originalFile;
     if (!file) return;
     const imgSource = getFileUrl(file);
+    const { FabricImage } = await import('fabric');
     const fabricImg = await FabricImage.fromURL(imgSource, { crossOrigin: 'anonymous' });
     const imgW = fabricImg.width!;
     const imgH = fabricImg.height!;

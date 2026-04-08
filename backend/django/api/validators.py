@@ -75,6 +75,10 @@ def validate_image_file(file_obj, max_size_mb=MAX_FILE_SIZE_MB):
         # Reset position so callers can read the raw bytes after validation.
         file_obj.seek(0)
 
+    except ValidationError:
+        # Re-raise dimension/format errors unchanged so the user-facing
+        # message is not double-wrapped as "Invalid image file: [...]".
+        raise
     except Exception as e:
         logger.error(f"Image validation error: {e}")
         raise ValidationError(f"Invalid image file: {str(e)}")

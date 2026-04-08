@@ -10,6 +10,16 @@
  *      token for the real API key (server → server, never client-visible).
  *   3. The real request is forwarded to Django with `Authorization: Bearer <key>`.
  *   4. The response is streamed back to the browser.
+ *
+ * Token cache:
+ *   Embed sessions live for 2 hours.  Without caching, every proxied request
+ *   (including canvas-state auto-saves every 2 s) hits the Django validate
+ *   endpoint and therefore the DB.  The in-process Map below makes that a
+ *   single DB round-trip per session instead of one per request.
+ *
+ *   TTL is set to 110 minutes so we re-validate 10 minutes before the session
+ *   would naturally expire, preventing stale cache entries serving a revoked token.
+ *   Expired entries are lazily evicted on each cache miss to keep memory bounded.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,17 +34,53 @@ const INTERNAL_API =
 
 const INTERNAL_SECRET = process.env.EMBED_INTERNAL_SECRET || '';
 
-/** Exchange an embed token for the real API key. Result is cached per token per request. */
+// ── In-process token → API key cache ─────────────────────────────────────────
+// Module-level so it persists across requests within the same Next.js worker
+// process (Node.js keeps module scope alive between hot invocations).
+interface CacheEntry { apiKey: string; exp: number }
+const tokenCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 110 * 60 * 1000; // 110 minutes (session TTL is 120 min)
+
+/** Remove all entries whose TTL has elapsed — called on every cache miss. */
+function evictExpired(): void {
+  const now = Date.now();
+  for (const [token, entry] of tokenCache) {
+    if (entry.exp <= now) tokenCache.delete(token);
+  }
+}
+
+/**
+ * Exchange an embed token for the real API key.
+ * Returns the cached value if still valid; otherwise hits Django's internal
+ * validate endpoint and stores the result.
+ */
 async function resolveApiKey(embedToken: string): Promise<string | null> {
+  const now = Date.now();
+
+  // Fast path: valid cached entry.
+  const cached = tokenCache.get(embedToken);
+  if (cached && cached.exp > now) return cached.apiKey;
+
+  // Cache miss — purge stale entries then fetch from Django.
+  evictExpired();
+
   const url = `${INTERNAL_API}/embed/session/validate?token=${encodeURIComponent(embedToken)}`;
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (INTERNAL_SECRET) headers['X-Internal-Secret'] = INTERNAL_SECRET;
 
   try {
     const res = await fetch(url, { headers, cache: 'no-store' });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Token is invalid or revoked — remove any stale cache entry.
+      tokenCache.delete(embedToken);
+      return null;
+    }
     const data = await res.json();
-    return data.api_key ?? null;
+    const apiKey: string | null = data.api_key ?? null;
+    if (apiKey) {
+      tokenCache.set(embedToken, { apiKey, exp: now + CACHE_TTL_MS });
+    }
+    return apiKey;
   } catch {
     return null;
   }

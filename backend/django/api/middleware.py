@@ -28,7 +28,11 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
         # Log response
         if request.path.startswith('/api/'):
             duration = time.time() - start_time
-            user_label = getattr(request.user, 'auth_source', 'anonymous')
+            # _api_auth_source is written onto the Django request by
+            # BearerTokenAuthentication / PIAAuthentication so the resolved
+            # auth source is available here even though DRF's user wrapper is
+            # already discarded by the time this middleware phase runs.
+            user_label = getattr(request, '_api_auth_source', 'anonymous')
             logger.info(f"API Response: {response.status_code} in {duration:.3f}s [Source: {user_label}]")
         
         return response

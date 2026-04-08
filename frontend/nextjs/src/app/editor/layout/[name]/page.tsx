@@ -20,7 +20,10 @@ import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/li
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
-import { Canvas as FabricCanvas, StaticCanvas, Rect as FabricRect, FabricImage, Line } from 'fabric';
+// Type-only import — erased at compile time, zero bundle impact.
+// The actual Fabric.js runtime is loaded lazily inside executeImposition / the
+// imposition preview useEffect so it does NOT inflate the initial page bundle.
+import type { StaticCanvas as FabricStaticCanvas } from 'fabric';
 import { MM_TO_IN, computeImpositionLayout, resolveSheetSize } from './imposition';
 import { CanvasEditorModal } from './CanvasEditorModal';
 
@@ -75,6 +78,29 @@ export default function LayoutEditorPage() {
     return isNaN(n) || n <= 0 ? null : n;
   }, []);
 
+  // Stable order ID — read from URL or generate a new friendly ID.
+  // Written back to the URL immediately so a refresh / share keeps the same ID.
+  const [orderId, setOrderId] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    const sp = new URLSearchParams(window.location.search);
+    let id = sp.get('order_id');
+    if (!id) {
+      // Generate PE-XXXXXXXX (8 uppercase hex chars)
+      const hex = crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+      id = `PE-${hex}`;
+    }
+    return id;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !orderId) return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('order_id') !== orderId) {
+      sp.set('order_id', orderId);
+      window.history.replaceState(null, '', `?${sp.toString()}`);
+    }
+  }, [orderId]);
+
   // For embed flow: use short-lived embed token (never exposes real key).
   // For regular users: use the static DIRECT_API_KEY baked into the bundle —
   // this bypasses PIA token verification entirely (local DB lookup only, ~1ms).
@@ -95,9 +121,15 @@ export default function LayoutEditorPage() {
   const [layoutLoading, setLayoutLoading] = useState(true);
   const [files, setFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [renderProgress, setRenderProgress] = useState<{ current: number; total: number } | null>(null);
   const [canvases, setCanvases] = useState<CanvasItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [globalFitMode, setGlobalFitMode] = useState<FitMode>('contain');
+  const globalFitModeRef = useRef<FitMode>(globalFitMode);
+  useEffect(() => {
+    globalFitModeRef.current = globalFitMode;
+  }, [globalFitMode]);
+
   const [activeCanvasIdx, setActiveCanvasIdx] = useState<number | null>(null);
   const [editingCanvas, setEditingCanvas] = useState<CanvasItem | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -120,16 +152,52 @@ export default function LayoutEditorPage() {
   const fileUrlCache = useRef<Map<File, string>>(new Map());
   const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impositionPreviewRef = useRef<HTMLCanvasElement>(null);
-  const impositionFabricRef = useRef<StaticCanvas | null>(null);
+  const impositionFabricRef = useRef<FabricStaticCanvas | null>(null);
   const skipNextGenerateRef = useRef(false);
   const [previewSheetIdx, setPreviewSheetIdx] = useState(0);
 
+  // ── Canvas-state persistence ──────────────────────────────────────────────
+  const [isSaving, setIsSaving] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [dragOverIdx, setDragOverIdx] = useState<{ idx: number, surfaceKey: string | null } | null>(null);
+
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Tracks the 3-second "saved → idle" indicator reset so it can be cancelled
+  // on unmount and won't call setState on a dead component.
+  const saveIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track whether we've attempted a restore on this page-load already.
+  const restoredRef = useRef(false);
+  // Set to true during restore so the resulting state-update doesn't trigger
+  // a redundant auto-save of data we just loaded from the server.
+  const isRestoringRef = useRef(false);
+
+  /**
+   * Strip un-serialisable File objects from a canvas item so it can be
+   * stored as JSON.  The dataUrl is kept so the preview is still visible
+   * after restore even though the original File is gone.
+   */
+  const serializeCanvasState = useCallback((items: CanvasItem[]) =>
+    items.map(c => ({
+      ...c,
+      frames: c.frames.map(f => ({ ...f, originalFile: null })),
+      overlays: c.overlays.map(o => ({ ...o, originalFile: undefined })),
+    }))
+    , []);
+
   const [surfaceStates, setSurfaceStates] = useState<SurfaceState[]>([]);
   const [activeSurfaceKey, setActiveSurfaceKey] = useState<string>('default');
+
+  // Ref-mirrors so the auto-save timeout closure always reads the latest values
+  // without needing these in the effect deps (which would restart the debounce
+  // on every surface update). Must be declared after the useState lines above.
+  const surfaceStatesRef = useRef(surfaceStates);
+  useEffect(() => { surfaceStatesRef.current = surfaceStates; }, [surfaceStates]);
+  const activeSurfaceKeyRef = useRef(activeSurfaceKey);
+  useEffect(() => { activeSurfaceKeyRef.current = activeSurfaceKey; }, [activeSurfaceKey]);
   const [normalizedLayoutState, setNormalizedLayoutState] = useState<NormalizedLayout | null>(null);
 
   const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
   const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
 
   useEffect(() => {
@@ -138,7 +206,7 @@ export default function LayoutEditorPage() {
     setDescription('');
     setCenterActions(null);
     setRightActions(
-      <button 
+      <button
         onClick={() => router.push('/dashboard')}
         className="text-[11px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 px-4 py-2 rounded-2xl border-2 border-indigo-100/50 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center gap-2 group shadow-sm shadow-indigo-100/50"
       >
@@ -165,7 +233,7 @@ export default function LayoutEditorPage() {
     fetch(fontsUrl, { headers })
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data?.fonts) setSelectedFonts(data.fonts); })
-      .catch(() => {});
+      .catch(() => { });
   }, [embedToken, directKey]);
 
   const loadGoogleFont = useCallback((fontName: string) => {
@@ -252,6 +320,10 @@ export default function LayoutEditorPage() {
     return () => {
       cache.forEach(url => URL.revokeObjectURL(url));
       if (timeout) clearTimeout(timeout);
+      // Cancel pending save / idle-reset timers so they don't call setState
+      // on an unmounted component.
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (saveIdleTimeoutRef.current) clearTimeout(saveIdleTimeoutRef.current);
     };
   }, []);
 
@@ -266,18 +338,25 @@ export default function LayoutEditorPage() {
 
   useEffect(() => {
     if (!activeSurface || surfaceStates.length === 0) return;
-    
+
     // Check if we actually need to update surfaceStates to prevent unnecessary re-renders
-     const currentSurface = surfaceStates.find(s => s.key === activeSurfaceKey);
-     if (currentSurface && (
-       currentSurface.files !== files || 
-       currentSurface.canvases !== canvases
-     )) {
-       setSurfaceStates(prev => prev.map(s =>
-         s.key === activeSurfaceKey ? { ...s, files, canvases } : s
-       ));
-     }
-   }, [files, canvases, activeSurfaceKey, surfaceStates]);
+    const currentSurface = surfaceStates.find(s => s.key === activeSurfaceKey);
+    if (currentSurface && (
+      currentSurface.files !== files ||
+      currentSurface.canvases !== canvases
+    )) {
+      setSurfaceStates(prev => {
+        const sIdx = prev.findIndex(s => s.key === activeSurfaceKey);
+        if (sIdx === -1) return prev;
+        const s = prev[sIdx];
+        if (s.files === files && s.canvases === canvases) return prev;
+        
+        const next = [...prev];
+        next[sIdx] = { ...s, files, canvases };
+        return next;
+      });
+    }
+  }, [files, canvases, activeSurfaceKey]); // Removed surfaceStates from dependencies
 
   useEffect(() => {
     if (!activeSurface?.def || !normalizedLayoutState) return;
@@ -307,8 +386,147 @@ export default function LayoutEditorPage() {
     });
   }, [getFileUrl]);
 
+  // ── Auto-save: debounce 2 s after canvases change ────────────────────────
+  useEffect(() => {
+    // Don't save before the layout is known or before the orderId is set.
+    if (!orderId || !layout) return;
+    // Skip the first save that fires as a side-effect of restoring state —
+    // we'd just be writing back the exact data we loaded from the server.
+    if (isRestoringRef.current) { isRestoringRef.current = false; return; }
+    // Allow saving even when canvases is empty — this covers the "delete all"
+    // case so that a refresh after clearing doesn't restore the old design.
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    setIsSaving('saving');
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        // Read from refs so the timeout always uses the latest surface data,
+        // even if other surfaces were updated during the 2 s debounce window.
+        const latestSurfaces = surfaceStatesRef.current;
+        const latestActiveKey = activeSurfaceKeyRef.current;
+
+        // The backend stores `editor_state` as an opaque JSON blob.
+        const editorState = {
+          surfaces: latestSurfaces.map(s => ({
+            key: s.key,
+            canvases: serializeCanvasState(s.canvases),
+            globalFitMode: s.globalFitMode,
+          })),
+          activeSurfaceKey: latestActiveKey,
+          layoutName,
+        };
+
+        const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
+          method: 'PUT',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            layout_name: layoutName,   // required by backend
+            editor_state: editorState,
+          }),
+        });
+
+        if (res.ok) {
+          setIsSaving('saved');
+          // Reset indicator to idle after 3 s; tracked so unmount can cancel it.
+          if (saveIdleTimeoutRef.current) clearTimeout(saveIdleTimeoutRef.current);
+          saveIdleTimeoutRef.current = setTimeout(() => setIsSaving('idle'), 3000);
+        } else {
+          setIsSaving('idle');
+        }
+      } catch {
+        setIsSaving('idle');
+      }
+    }, 2000);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+    // surfaceStates/activeSurfaceKey are intentionally read via refs so this
+    // effect only re-runs when the active surface's canvases actually change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvases, orderId, layout]);
+
+  // ── Auto-restore: run once after layout is ready ──────────────────────────
+  useEffect(() => {
+    if (!orderId || !layout || layoutLoading || restoredRef.current) return;
+    restoredRef.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
+          headers: { ...getAuthHeaders(), Accept: 'application/json' },
+        });
+        if (!res.ok) return; // 404 = first visit, no state to restore
+
+        const data = await res.json();
+        if (!data?.editor_state?.surfaces?.length) return;
+
+        const savedLayoutName: string | undefined = data.editor_state.layoutName;
+        // Don't restore if it belongs to a different layout template.
+        if (savedLayoutName && savedLayoutName !== layoutName) return;
+
+        const savedSurfaces: Array<{
+          key: string;
+          canvases: CanvasItem[];
+          globalFitMode: FitMode;
+        }> = data.editor_state.surfaces;
+
+        // Flag: the state updates below will trigger the auto-save effect —
+        // suppress that one fire since we just loaded the data from the server.
+        isRestoringRef.current = true;
+
+        // Remove any stale ?canvas= param from a previous session so the modal
+        // doesn't auto-open on top of the freshly-restored state.
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.has('canvas')) {
+          sp.delete('canvas');
+          window.history.replaceState(null, '', sp.toString() ? `?${sp.toString()}` : window.location.pathname);
+        }
+
+        // Merge saved canvas data into the surface states that were just
+        // initialised from the layout definition.
+        setSurfaceStates(prev => prev.map(s => {
+          const saved = savedSurfaces.find(ss => ss.key === s.key);
+          if (!saved || !saved.canvases?.length) return s;
+          // Each restored canvas has originalFile=null (Files can't be
+          // serialised).  The dataUrl is enough for the preview grid.
+          return {
+            ...s,
+            canvases: saved.canvases,
+            globalFitMode: saved.globalFitMode ?? s.globalFitMode,
+          };
+        }));
+
+        // Activate the surface that was open when the user last saved.
+        const savedActiveKey: string | undefined = data.editor_state.activeSurfaceKey;
+        if (savedActiveKey) setActiveSurfaceKey(savedActiveKey);
+
+        // Sync the active-surface shortcut state.
+        const activeSaved = savedSurfaces.find(
+          ss => ss.key === (savedActiveKey ?? activeSurfaceKey)
+        );
+        if (activeSaved?.canvases?.length) {
+          skipNextGenerateRef.current = true; // suppress generateCanvases trigger
+          setCanvases(activeSaved.canvases);
+          setGlobalFitMode(activeSaved.globalFitMode ?? 'contain');
+        }
+      } catch {
+        // Restore failures are silent — user just starts fresh.
+      }
+    })();
+    // Run exactly once when layout becomes available.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, layoutLoading, orderId]);
+
+  const canvasesRef = useRef<CanvasItem[]>([]);
+  useEffect(() => {
+    canvasesRef.current = canvases;
+  }, [canvases]);
+
   const generateCanvasesForLayout = useCallback(async (
     layoutDef: any, surfaceFiles: File[], fitMode: FitMode,
+    existingCanvases: CanvasItem[] = canvasesRef.current
   ): Promise<CanvasItem[]> => {
     if (!layoutDef || surfaceFiles.length === 0) return [];
     const frameCount = layoutDef.frames?.length || 1;
@@ -316,37 +534,148 @@ export default function LayoutEditorPage() {
     const newCanvases: CanvasItem[] = [];
     for (let i = 0; i < canvasCount; i++) {
       const canvasFrames: FrameState[] = [];
+      const existing = existingCanvases[i];
+
       for (let f = 0; f < frameCount; f++) {
         const file = surfaceFiles[(i * frameCount + f) % surfaceFiles.length];
-        if (file) canvasFrames.push({
-          id: f, originalFile: file,
-          offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode,
-        });
+        const existingFrame = existing?.frames?.[f];
+
+        if (file) {
+            // If we have an existing frame with the SAME file name/size, preserve its transforms
+            const isSameFile = existingFrame?.originalFile && 
+                              existingFrame.originalFile.name === file.name && 
+                              existingFrame.originalFile.size === file.size &&
+                              existingFrame.originalFile.lastModified === file.lastModified;
+            
+            if (isSameFile && existingFrame) {
+            canvasFrames.push({
+              ...existingFrame,
+              originalFile: file // Ensure we use the latest file object
+            });
+          } else {
+            canvasFrames.push({
+              id: f, originalFile: file,
+              offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode,
+            });
+          }
+        }
       }
       const item: CanvasItem = {
         id: i,
         frames: canvasFrames,
-        overlays: [],
-        bgColor: '#ffffff',
-        paperColor: '#ffffff',
-        dataUrl: null
+        overlays: existing?.overlays || [],
+        bgColor: existing?.bgColor || '#ffffff',
+        paperColor: existing?.paperColor || '#ffffff',
+        dataUrl: existing?.dataUrl || null
       };
-      item.dataUrl = await renderCanvas(item, null, false, true, layoutDef);
+
+      const framesChanged = !existing || 
+        canvasFrames.length !== existing.frames.length ||
+        canvasFrames.some((f, idx) => {
+          const ef = existing.frames[idx];
+          return !ef || 
+                 ef.originalFile !== f.originalFile || 
+                 ef.rotation !== f.rotation || 
+                 ef.fitMode !== f.fitMode ||
+                 ef.scale !== f.scale ||
+                 ef.offset.x !== f.offset.x ||
+                 ef.offset.y !== f.offset.y;
+        });
+
+      if (framesChanged || !item.dataUrl) {
+        item.dataUrl = await renderCanvas({ ...item, dataUrl: null }, null, false, true, layoutDef);
+      }
+
       newCanvases.push(item);
     }
     return newCanvases;
   }, [renderCanvas]);
 
   const generateCanvases = useCallback(async () => {
-    if (!layout || files.length === 0) return;
+    if (!layout || files.length === 0 || isProcessing) return;
     setIsProcessing(true);
     setError(null);
+
+    const frameCount = layout.frames?.length || 1;
+    const canvasCount = Math.ceil(files.length / frameCount);
+    setRenderProgress({ current: 0, total: canvasCount });
+    
+    // Use current canvases from ref to preserve transforms without creating a dependency loop
+    const existingCanvases = [...canvasesRef.current];
+
     try {
-      const newCanvases = await generateCanvasesForLayout(layout, files, globalFitMode);
-      setCanvases(newCanvases);
-    } catch { setError('Failed to process images'); }
-    finally { setIsProcessing(false); }
-  }, [layout, files, generateCanvasesForLayout, globalFitMode]);
+      const built: CanvasItem[] = [];
+      for (let i = 0; i < canvasCount; i++) {
+        const canvasFrames: FrameState[] = [];
+        const existing = existingCanvases[i];
+
+        for (let f = 0; f < frameCount; f++) {
+          const file = files[(i * frameCount + f) % files.length];
+          const existingFrame = existing?.frames?.[f];
+
+          if (file) {
+            const isSameFile = existingFrame?.originalFile && 
+                              existingFrame.originalFile.name === file.name && 
+                              existingFrame.originalFile.size === file.size &&
+                              existingFrame.originalFile.lastModified === file.lastModified;
+            
+            if (isSameFile && existingFrame) {
+              canvasFrames.push({
+                ...existingFrame,
+                originalFile: file
+              });
+            } else {
+              canvasFrames.push({
+                id: f, originalFile: file,
+                offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: globalFitModeRef.current,
+              });
+            }
+          }
+        }
+        const item: CanvasItem = {
+          id: i, 
+          frames: canvasFrames, 
+          overlays: existing?.overlays || [],
+          bgColor: existing?.bgColor || '#ffffff', 
+          paperColor: existing?.paperColor || '#ffffff', 
+          dataUrl: existing?.dataUrl || null,
+        };
+
+        // Check if we actually need to re-render this canvas
+        const framesChanged = !existing || 
+          canvasFrames.length !== existing.frames.length ||
+          canvasFrames.some((f, idx) => {
+            const ef = existing.frames[idx];
+            // Compare file identity and key transforms to decide if re-render is needed
+            return !ef || 
+                   ef.originalFile !== f.originalFile || 
+                   ef.rotation !== f.rotation || 
+                   ef.fitMode !== f.fitMode ||
+                   ef.scale !== f.scale ||
+                   ef.offset.x !== f.offset.x ||
+                   ef.offset.y !== f.offset.y;
+          });
+
+        if (framesChanged || !item.dataUrl) {
+          item.dataUrl = await renderCanvas({ ...item, dataUrl: null }, null, false, true);
+        }
+        
+        built.push(item);
+        // Progressive: each finished canvas appears immediately — user sees
+        // their images loading one by one rather than all-at-once at the end.
+        // For large batches, update every 5 images or at the end to avoid update depth errors
+        if (i % 5 === 0 || i === canvasCount - 1) {
+          setCanvases([...built]);
+          setRenderProgress({ current: i + 1, total: canvasCount });
+        }
+      }
+    } catch {
+      setError('Failed to process images');
+    } finally {
+      setIsProcessing(false);
+      setRenderProgress(null);
+    }
+  }, [layout, files, renderCanvas]); // Removed globalFitMode from dependencies
 
   useEffect(() => {
     if (skipNextGenerateRef.current) { skipNextGenerateRef.current = false; return; }
@@ -358,20 +687,32 @@ export default function LayoutEditorPage() {
     let cancelled = false;
     (async () => {
       setIsProcessing(true);
-      
-      // Update ALL surfaces and ALL their canvases with the new fit mode
-      const updatedSurfaces = await Promise.all(surfaceStates.map(async (s) => {
-        const updatedCanvases = await Promise.all(s.canvases.map(async (c) => {
-          const patchedCanvas = {
-            ...c,
-            frames: c.frames.map(f => ({ ...f, fitMode: globalFitMode }))
-          };
-          // Re-render each canvas to update the preview dataUrl
-          const dataUrl = await renderCanvas(patchedCanvas, null, false, true, s.def);
-          return { ...patchedCanvas, dataUrl };
-        }));
-        return { ...s, globalFitMode, canvases: updatedCanvases };
-      }));
+      setRenderProgress({ current: 0, total: surfaceStates.reduce((acc, s) => acc + s.canvases.length, 0) });
+
+      const updatedSurfaces: SurfaceState[] = [];
+      let totalProcessed = 0;
+
+      for (const s of surfaceStates) {
+        const updatedCanvases: CanvasItem[] = [];
+        // Process canvases in small chunks to avoid hanging the UI
+        const chunkSize = 5;
+        for (let i = 0; i < s.canvases.length; i += chunkSize) {
+          if (cancelled) return;
+          const chunk = s.canvases.slice(i, i + chunkSize);
+          const processedChunk = await Promise.all(chunk.map(async (c) => {
+            const patchedCanvas = {
+              ...c,
+              frames: c.frames.map(f => ({ ...f, fitMode: globalFitMode }))
+            };
+            const dataUrl = await renderCanvas(patchedCanvas, null, false, true, s.def);
+            return { ...patchedCanvas, dataUrl };
+          }));
+          updatedCanvases.push(...processedChunk);
+          totalProcessed += processedChunk.length;
+          setRenderProgress(prev => prev ? { ...prev, current: totalProcessed } : null);
+        }
+        updatedSurfaces.push({ ...s, globalFitMode, canvases: updatedCanvases });
+      }
 
       if (cancelled) return;
 
@@ -382,8 +723,9 @@ export default function LayoutEditorPage() {
       if (active) {
         setCanvases(active.canvases);
       }
-      
+
       setIsProcessing(false);
+      setRenderProgress(null);
     })();
     return () => { cancelled = true; };
   }, [globalFitMode, renderCanvas]); // removed surfaceStates from deps to avoid loop, using internal surfaceStates
@@ -425,11 +767,15 @@ export default function LayoutEditorPage() {
       const targetSurface = surfaceStates[sIdx];
       const targetCanvas = targetSurface.canvases[idx];
       if (!targetCanvas) return;
-      
+
       const updatedCanvas = updateFn(targetCanvas);
-      updatedCanvas.dataUrl = await renderCanvas(updatedCanvas);
-      
-      setSurfaceStates(prev => prev.map((s, i) => 
+      // If every frame is missing its original file (restored from saved state,
+      // no re-upload yet), skip the re-render to avoid overwriting the stored
+      // dataUrl preview with a blank canvas.
+      const canRerender = updatedCanvas.frames.some(f => f.originalFile !== null);
+      if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas);
+
+      setSurfaceStates(prev => prev.map((s, i) =>
         i === sIdx ? { ...s, canvases: s.canvases.map((c, ci) => ci === idx ? updatedCanvas : c) } : s
       ));
       if (surfaceKey === activeSurfaceKey) {
@@ -438,10 +784,11 @@ export default function LayoutEditorPage() {
     } else {
       const targetCanvas = canvases[idx];
       if (!targetCanvas) return;
-      
+
       const updatedCanvas = updateFn(targetCanvas);
-      updatedCanvas.dataUrl = await renderCanvas(updatedCanvas);
-      
+      const canRerender = updatedCanvas.frames.some(f => f.originalFile !== null);
+      if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas);
+
       setCanvases(prev => prev.map((c, ci) => ci === idx ? updatedCanvas : c));
     }
   }, [surfaceStates, canvases, activeSurfaceKey, renderCanvas]);
@@ -461,24 +808,29 @@ export default function LayoutEditorPage() {
   };
 
   const handleQuickCycleBg = (idx: number, surfaceKey: string | null = null) => {
-     updateCanvasState(idx, surfaceKey, (c) => ({
-       ...c,
-       bgColor: c.bgColor === '#ffffff' ? '#000000' : c.bgColor === '#000000' ? '#f8fafc' : '#ffffff'
-     }));
-   };
- 
-   const handleQuickSetBg = (idx: number, color: string, surfaceKey: string | null = null) => {
-     updateCanvasState(idx, surfaceKey, (c) => ({
+    updateCanvasState(idx, surfaceKey, (c) => ({
+      ...c,
+      bgColor: c.bgColor === '#ffffff' ? '#000000' : c.bgColor === '#000000' ? '#f8fafc' : '#ffffff'
+    }));
+  };
+
+  const handleQuickSetBg = (idx: number, color: string, surfaceKey: string | null = null) => {
+    updateCanvasState(idx, surfaceKey, (c) => ({
       ...c,
       bgColor: color
     }));
   };
 
   const handleQuickDelete = (idx: number, surfaceKey: string | null = null) => {
-    if (window.confirm('Are you sure you want to remove this image?')) {
-      if (surfaceKey) {
-        const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
-        if (sIdx === -1) return;
+    setDeleteConfirm({ idx, surfaceKey });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteConfirm) return;
+    const { idx, surfaceKey } = deleteConfirm;
+    if (surfaceKey) {
+      const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
+      if (sIdx !== -1) {
         setSurfaceStates(prev => prev.map((s, i) =>
           i === sIdx ? { ...s, files: [], canvases: [] } : s
         ));
@@ -486,10 +838,11 @@ export default function LayoutEditorPage() {
           setFiles([]);
           setCanvases([]);
         }
-      } else {
-        setFiles(prev => prev.filter((_, i) => i !== idx));
       }
+    } else {
+      setFiles(prev => prev.filter((_, i) => i !== idx));
     }
+    setDeleteConfirm(null);
   };
 
   const handleQuickDownload = (idx: number, surfaceKey: string | null = null) => {
@@ -517,6 +870,131 @@ export default function LayoutEditorPage() {
       }
     }
   }, [canvases, activeCanvasIdx]);
+
+  const handleDrop = async (e: React.DragEvent, idx: number, surfaceKey: string | null = null) => {
+    e.preventDefault();
+    setDragOverIdx(null);
+    if (isProcessing) return;
+    
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    
+    if (droppedFiles.length > 0) {
+      // ── Handle external files ──────────────────────────────────────────────
+      const firstFile = droppedFiles[0];
+      if (!firstFile.type.startsWith('image/')) return;
+      
+      if (surfaceKey) {
+        // Multi-surface: update that specific surface's file
+        const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
+        if (sIdx === -1) return;
+        
+        const s = surfaceStates[sIdx];
+        const surfaceLayout = {
+          ...normalizedLayoutState?._raw,
+          canvas: s.def.canvas,
+          frames: s.def.frames,
+          maskUrl: s.def.maskUrl,
+          maskOnExport: s.def.maskOnExport,
+        };
+        
+        const newCanvases = await generateCanvasesForLayout(surfaceLayout, [firstFile], s.globalFitMode);
+        setSurfaceStates(prev => prev.map((ps, pi) => 
+          pi === sIdx ? { ...ps, files: [firstFile], canvases: newCanvases } : ps
+        ));
+        
+        if (surfaceKey === activeSurfaceKey) {
+          setFiles([firstFile]);
+          setCanvases(newCanvases);
+        }
+      } else {
+        // Single surface: update files array at index idx
+        const frameCount = layout?.frames?.length || 1;
+        const fileIdx = idx * frameCount; // Start file index for this canvas
+        
+        const nextFiles = [...files];
+        // Replace/Insert files starting at the target index
+        nextFiles.splice(fileIdx, droppedFiles.length, ...droppedFiles);
+        setFiles(nextFiles);
+      }
+    } else {
+      // ── Handle internal image swap ──────────────────────────────────────────
+      const sourceIdx = e.dataTransfer.getData('canvasIdx');
+      const sourceSurface = e.dataTransfer.getData('surfaceKey') || null;
+      
+      if (sourceIdx !== '') {
+        const sIdx = parseInt(sourceIdx);
+        if (sIdx === idx && sourceSurface === surfaceKey) return;
+        
+        if (surfaceKey || sourceSurface) {
+          // Multi-surface swap
+          const targetSurfaceIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
+          const sourceSurfaceIdx = surfaceStates.findIndex(s => s.key === sourceSurface);
+          
+          if (targetSurfaceIdx !== -1 && sourceSurfaceIdx !== -1) {
+            const targetFiles = [...surfaceStates[targetSurfaceIdx].files];
+            const sourceFiles = [...surfaceStates[sourceSurfaceIdx].files];
+            
+            // Swap files
+            const temp = targetFiles[0];
+            targetFiles[0] = sourceFiles[0];
+            sourceFiles[0] = temp;
+            
+            // Regenerate canvases for both surfaces
+            const updatedSurfaces = [...surfaceStates];
+            
+            // Update target
+            const targetS = updatedSurfaces[targetSurfaceIdx];
+            updatedSurfaces[targetSurfaceIdx] = {
+              ...targetS,
+              files: targetFiles,
+              canvases: await generateCanvasesForLayout({ ...normalizedLayoutState?._raw, ...targetS.def }, targetFiles, targetS.globalFitMode)
+            };
+            
+            // Update source
+            const sourceS = updatedSurfaces[sourceSurfaceIdx];
+            updatedSurfaces[sourceSurfaceIdx] = {
+              ...sourceS,
+              files: sourceFiles,
+              canvases: await generateCanvasesForLayout({ ...normalizedLayoutState?._raw, ...sourceS.def }, sourceFiles, sourceS.globalFitMode)
+            };
+            
+            setSurfaceStates(updatedSurfaces);
+            
+            // Sync active states
+            const active = updatedSurfaces.find(s => s.key === activeSurfaceKey);
+            if (active) {
+              setFiles(active.files);
+              setCanvases(active.canvases);
+            }
+          }
+        } else {
+          // Single surface: swap in files array
+          const frameCount = layout?.frames?.length || 1;
+          const targetFileIdx = idx * frameCount;
+          const sourceFileIdx = sIdx * frameCount;
+          
+          const nextFiles = [...files];
+          const temp = nextFiles[targetFileIdx];
+          nextFiles[targetFileIdx] = nextFiles[sourceFileIdx];
+          nextFiles[sourceFileIdx] = temp;
+          setFiles(nextFiles);
+        }
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, idx: number, surfaceKey: string | null = null) => {
+    e.preventDefault();
+    if (dragOverIdx?.idx !== idx || dragOverIdx?.surfaceKey !== surfaceKey) {
+      setDragOverIdx({ idx, surfaceKey });
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent, idx: number, surfaceKey: string | null = null) => {
+    e.dataTransfer.setData('canvasIdx', idx.toString());
+    if (surfaceKey) e.dataTransfer.setData('surfaceKey', surfaceKey);
+    e.dataTransfer.effectAllowed = 'move';
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
@@ -622,10 +1100,10 @@ export default function LayoutEditorPage() {
   };
 
   const impositionResult = useMemo(() => {
-    const allCanvases = surfaceStates.length > 1 
+    const allCanvases = surfaceStates.length > 1
       ? surfaceStates.flatMap(s => s.canvases)
       : canvases;
-    
+
     if (allCanvases.length === 0 || !layout) return { sheets: [] as SheetLayout[], skippedCount: 0 };
     const dpi = 300;
     const itemSizes = allCanvases.map(() => ({
@@ -647,27 +1125,34 @@ export default function LayoutEditorPage() {
     const pw = Math.round(sheetWIn * scale), ph = Math.round(sheetHIn * scale);
     const mPx = (impositionSettings.marginMm / MM_TO_IN) * scale;
     const markLen = (5 / MM_TO_IN) * scale, markOffset = (2 / MM_TO_IN) * scale;
-    if (impositionFabricRef.current) {
-      impositionFabricRef.current.dispose();
-      impositionFabricRef.current = null;
-    }
-    const fc = new StaticCanvas(canvasEl, {
-      width: pw, height: ph, backgroundColor: '#f8fafc', renderOnAddRemove: false,
-    });
-    impositionFabricRef.current = fc;
-    fc.add(new FabricRect({
-      left: mPx, top: mPx, width: pw - 2 * mPx, height: ph - 2 * mPx,
-      fill: '#ffffff', stroke: '#e2e8f0', strokeWidth: 1,
-      strokeDashArray: [4, 3], selectable: false, evented: false,
-    }));
-    fc.add(new FabricRect({
-      left: 0, top: 0, width: pw, height: ph,
-      fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1.5,
-      selectable: false, evented: false,
-    }));
+
     let aborted = false;
-    const drawItems = async () => {
-      const allCanvases = surfaceStates.length > 1 
+
+    // Lazy-load Fabric.js only when the imposition modal is actually opened.
+    const run = async () => {
+      const { StaticCanvas, Rect: FabricRect, FabricImage, Line } = await import('fabric');
+      if (aborted) return;
+
+      if (impositionFabricRef.current) {
+        impositionFabricRef.current.dispose();
+        impositionFabricRef.current = null;
+      }
+      const fc = new StaticCanvas(canvasEl, {
+        width: pw, height: ph, backgroundColor: '#f8fafc', renderOnAddRemove: false,
+      });
+      impositionFabricRef.current = fc;
+      fc.add(new FabricRect({
+        left: mPx, top: mPx, width: pw - 2 * mPx, height: ph - 2 * mPx,
+        fill: '#ffffff', stroke: '#e2e8f0', strokeWidth: 1,
+        strokeDashArray: [4, 3], selectable: false, evented: false,
+      }));
+      fc.add(new FabricRect({
+        left: 0, top: 0, width: pw, height: ph,
+        fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1.5,
+        selectable: false, evented: false,
+      }));
+
+      const allCanvases = surfaceStates.length > 1
         ? surfaceStates.flatMap(s => s.canvases)
         : canvases;
 
@@ -706,7 +1191,8 @@ export default function LayoutEditorPage() {
       }
       if (!aborted) fc.requestRenderAll();
     };
-    drawItems();
+
+    run();
     return () => {
       aborted = true;
       if (impositionFabricRef.current) {
@@ -719,24 +1205,24 @@ export default function LayoutEditorPage() {
   const executeBatchDownload = async () => {
     setIsDownloading(true);
     try {
-            const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
-      
+      const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
+
       // Structure: 
       // zip/cx_file/ -> Original uploaded files
       // zip/mockup_file/ -> Low-quality reference PNGs
       // zip/print_file/ -> High-quality, print-ready PNGs (no shadow)
-      
+
       const filesToZip: { name: string; url?: string; blob?: Blob }[] = [];
-      
+
       // 1. High-quality Print Files (no shadow)
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
           const printCanvases = await Promise.all(s.canvases.map(c => renderCanvas(c, null, true, false, s.def)));
           printCanvases.forEach((dataUrl, ci) => {
             if (dataUrl) {
-              filesToZip.push({ 
-                name: `print_file/${s.key}-${ci + 1}.png`, 
-                url: dataUrl 
+              filesToZip.push({
+                name: `print_file/${s.key}-${ci + 1}.png`,
+                url: dataUrl
               });
             }
           });
@@ -745,9 +1231,9 @@ export default function LayoutEditorPage() {
         const printCanvases = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
         printCanvases.forEach((dataUrl, i) => {
           if (dataUrl) {
-            filesToZip.push({ 
-              name: `print_file/canvas-${i + 1}.png`, 
-              url: dataUrl 
+            filesToZip.push({
+              name: `print_file/canvas-${i + 1}.png`,
+              url: dataUrl
             });
           }
         });
@@ -758,9 +1244,9 @@ export default function LayoutEditorPage() {
         for (const s of surfaceStates) {
           s.canvases.forEach((c, ci) => {
             if (c.dataUrl) { // Use existing low-res data URL with shadow
-              filesToZip.push({ 
-                name: `mockup_file/${s.key}-${ci + 1}.png`, 
-                url: c.dataUrl 
+              filesToZip.push({
+                name: `mockup_file/${s.key}-${ci + 1}.png`,
+                url: c.dataUrl
               });
             }
           });
@@ -768,24 +1254,24 @@ export default function LayoutEditorPage() {
       } else {
         canvases.forEach((c, i) => {
           if (c.dataUrl) {
-            filesToZip.push({ 
-              name: `mockup_file/canvas-${i + 1}.png`, 
-              url: c.dataUrl 
+            filesToZip.push({
+              name: `mockup_file/canvas-${i + 1}.png`,
+              url: c.dataUrl
             });
           }
         });
       }
 
       // 3. Original Files (CX Files)
-      const allOriginalFiles = surfaceStates.length > 1 
+      const allOriginalFiles = surfaceStates.length > 1
         ? surfaceStates.flatMap(s => s.files)
         : files;
-      
+
       allOriginalFiles.forEach((file, i) => {
         const url = getFileUrl(file);
         if (url) {
-          filesToZip.push({ 
-            name: `cx_file/${file.name}`, 
+          filesToZip.push({
+            name: `cx_file/${file.name}`,
             url: url
           });
         }
@@ -806,8 +1292,8 @@ export default function LayoutEditorPage() {
       const dpi = 300;
       const canvasW = layout.canvas?.width || 1200;
       const canvasH = layout.canvas?.height || 1800;
-      
-      const allCanvases = surfaceStates.length > 1 
+
+      const allCanvases = surfaceStates.length > 1
         ? surfaceStates.flatMap(s => s.canvases)
         : canvases;
 
@@ -817,16 +1303,17 @@ export default function LayoutEditorPage() {
       );
       const { w: sheetWIn, h: sheetHIn } = resolveSheetSize(impositionSettings);
       const sheetW = Math.round(sheetWIn * dpi), sheetH = Math.round(sheetHIn * dpi);
-      
+
       // Use TRUE for includeMask so we get the frames in the print sheets
       const canvasDataUrls = await Promise.all(allCanvases.map(c => renderCanvas(c, null, true, true)));
-      
+
       const cropMarkLen = Math.round((5 / MM_TO_IN) * dpi);
       const cropMarkOff = Math.round((2 / MM_TO_IN) * dpi);
       const sheetBlobs: { name: string; blob: Blob }[] = [];
       for (let si = 0; si < impositionSheets.length; si++) {
         const sheetEl = document.createElement('canvas');
         sheetEl.width = sheetW; sheetEl.height = sheetH;
+        const { Canvas: FabricCanvas, FabricImage, Line } = await import('fabric');
         const fabricSheet = new FabricCanvas(sheetEl, { width: sheetW, height: sheetH, backgroundColor: 'white', renderOnAddRemove: false });
         for (const item of impositionSheets[si].items) {
           const [px, py, pw, ph] = [Math.round(item.x * dpi), Math.round(item.y * dpi), Math.round(item.w * dpi), Math.round(item.h * dpi)];
@@ -863,7 +1350,7 @@ export default function LayoutEditorPage() {
     if (canvases.length === 0) return;
     setIsDownloading(true);
     try {
-            const rendered = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
+      const rendered = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
       const surfacesPayload: Record<string, { index: number; dataUrl: string }[]> = {};
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
@@ -881,8 +1368,17 @@ export default function LayoutEditorPage() {
     finally { setIsDownloading(false); }
   };
 
-  if (status === 'loading' && !embedToken) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-8 h-8 text-indigo-600 animate-spin" /></div>;
-  if (layoutLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-8 h-8 text-indigo-600 animate-spin" /></div>;
+  if (status === 'loading' && !embedToken) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+    </div>
+  );
+  if (layoutLoading) return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-slate-50">
+      <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Loading template…</p>
+    </div>
+  );
   if (!layout) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="text-center"><p className="text-slate-600 font-medium">Layout not found.</p></div></div>;
 
   const totalUploadedCount = files.length > 0 ? files.length : surfaceStates.reduce((acc, s) => acc + s.files.length, 0);
@@ -996,6 +1492,30 @@ export default function LayoutEditorPage() {
         </div>
       )}
 
+      {/* ── Delete confirm modal ─────────────────────────────────────────────── */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7 animate-in zoom-in-95 duration-200">
+            <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Remove image?</p>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6">This image will be removed from the canvas. This cannot be undone.</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={confirmDelete}
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all active:scale-95"
+              >
+                Remove
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Over-upload confirm modal ───────────────────────────────────────── */}
       {pendingOverFiles && orderQty && (
         <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -1044,10 +1564,28 @@ export default function LayoutEditorPage() {
               <h1 className="text-base font-black text-slate-900 uppercase tracking-tighter truncate">
                 {layout?.name || layoutName}
               </h1>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight truncate">
-                {layout?.dimensions ? `${layout.dimensions} | ` : ''}
-                { (files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'Generated Canvases' : 'Upload File' }
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight truncate">
+                  {layout?.dimensions ? `${layout.dimensions} | ` : ''}
+                  {(files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'Generated Canvases' : 'Upload File'}
+                </p>
+                {/* Auto-save status indicator */}
+                {isSaving === 'saving' && (
+                  <span className="flex items-center gap-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> Saving…
+                  </span>
+                )}
+                {isSaving === 'saved' && (
+                  <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-500 uppercase tracking-widest shrink-0">
+                    <CheckCircle2 className="w-2.5 h-2.5" /> Saved
+                  </span>
+                )}
+                {orderId && (
+                  <span className="text-[9px] font-mono text-slate-300 shrink-0 hidden sm:inline">
+                    {orderId}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex-1 max-w-md relative group">
               <div className={clsx("relative flex items-center gap-3 px-4 py-2 rounded-2xl border-2 border-dashed transition-all", (files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'border-emerald-200 bg-emerald-50/30' : 'border-indigo-200 bg-indigo-50/30 hover:border-indigo-400')}>
@@ -1056,9 +1594,9 @@ export default function LayoutEditorPage() {
                   <Upload className="w-4 h-4" />
                 </div>
                 <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">
-                  {totalUploadedCount > 0 
-                    ? `Upload Photos | Currently uploaded (${totalUploadedCount})` 
-                    : surfaceStates.length > 1 
+                  {totalUploadedCount > 0
+                    ? `Upload Photos | Currently uploaded (${totalUploadedCount})`
+                    : surfaceStates.length > 1
                       ? `Select Files | Multi-Surface: Select ${surfaceStates.length} photos`
                       : 'Select Files'}
                 </p>
@@ -1082,6 +1620,76 @@ export default function LayoutEditorPage() {
             </div>
           </div>
 
+          {/* ── Fixed Processing Overlay ────────────────────────────────────── */}
+          {isProcessing && renderProgress && (
+            <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-300">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
+                      Processing Your Design
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      Optimizing images for print
+                    </span>
+                  </div>
+                  <span className="text-[14px] font-black text-indigo-600 tabular-nums bg-indigo-50 px-3 py-1 rounded-xl">
+                    {Math.round((renderProgress.current / renderProgress.total) * 100)}%
+                  </span>
+                </div>
+                
+                <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden p-0.5">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full transition-all duration-300 ease-out shadow-[0_0_12px_rgba(99,102,241,0.4)]"
+                    style={{ width: `${Math.round((renderProgress.current / renderProgress.total) * 100)}%` }}
+                  />
+                </div>
+                
+                <div className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">
+                    Rendering File {renderProgress.current} of {renderProgress.total}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Empty state (no canvases, not processing) ─────────────────── */}
+          {!isProcessing && canvases.length === 0 && (
+            <div 
+              className={clsx(
+                "flex flex-col items-center justify-center py-24 gap-5 select-none border-2 border-dashed rounded-3xl transition-all",
+                dragOverIdx?.idx === -1 
+                  ? "border-indigo-500 bg-indigo-50/50 scale-[1.01]" 
+                  : "border-slate-200 bg-slate-50/50"
+              )}
+              onDragOver={(e) => { e.preventDefault(); setDragOverIdx({ idx: -1, surfaceKey: null }); }}
+              onDragLeave={() => setDragOverIdx(null)}
+              onDrop={async (e) => {
+                e.preventDefault();
+                setDragOverIdx(null);
+                const droppedFiles = Array.from(e.dataTransfer.files);
+                if (droppedFiles.length > 0) {
+                  const event = { target: { files: e.dataTransfer.files } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                  handleFileChange(event);
+                }
+              }}
+            >
+              <div className="w-16 h-16 rounded-3xl bg-indigo-50 flex items-center justify-center">
+                <Upload className="w-7 h-7 text-indigo-400" />
+              </div>
+              <div className="text-center space-y-1.5">
+                <p className="text-[13px] font-black text-slate-800 uppercase tracking-tight">
+                  No images selected
+                </p>
+                <p className="text-[11px] text-slate-400 font-medium max-w-[220px]">
+                  Drag and drop your photos here, or use the upload bar above
+                </p>
+              </div>
+            </div>
+          )}
+
           {canvases.length > 0 && (
             <section className="space-y-6 pt-0">
               {surfaceStates.length > 1 ? (
@@ -1091,41 +1699,55 @@ export default function LayoutEditorPage() {
                     const ch = surface.def.canvas?.height || 1800;
                     const surfaceCanvas = surface.canvases[0] || null;
                     return (
-                      <div key={surface.key} className="shrink-0 flex flex-col gap-3" style={{ width: cw > ch ? '400px' : '280px' }}>
+                      <div 
+                        key={surface.key} 
+                        className="shrink-0 flex flex-col gap-3" 
+                        style={{ width: cw > ch ? '400px' : '280px' }}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, 0, surface.key)}
+                        onDragOver={(e) => handleDragOver(e, 0, surface.key)}
+                        onDragLeave={() => setDragOverIdx(null)}
+                        onDrop={(e) => handleDrop(e, 0, surface.key)}
+                      >
                         <div className="flex items-center justify-between px-1">
                           <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight truncate">{surface.label}</h3>
                           <button onClick={() => openEditor(0, surface.key)} className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wide">Edit</button>
                         </div>
-                        <div className="bg-white rounded-2xl border-2 border-slate-100 hover:border-indigo-400 transition-all overflow-hidden cursor-pointer group/card relative" onClick={() => openEditor(0, surface.key)}>
+                        <div className={clsx(
+                          "bg-white rounded-2xl border-2 transition-all overflow-hidden cursor-pointer group/card relative",
+                          dragOverIdx?.idx === 0 && dragOverIdx?.surfaceKey === surface.key 
+                            ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100" 
+                            : "border-slate-100 hover:border-indigo-400"
+                        )} onClick={() => openEditor(0, surface.key)}>
                           <div className="relative overflow-hidden bg-slate-100" style={{ aspectRatio: `${cw} / ${ch}` }}>
                             {surfaceCanvas?.dataUrl ? <img src={surfaceCanvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={surface.label} /> : <div className="absolute inset-0 flex items-center justify-center text-slate-300"><Layout className="w-10 h-10 opacity-20" /></div>}
-                            
+
                             <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
-                               <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-xl hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
-                                 <RotateCw className="w-3.5 h-3.5" />
-                               </button>
-                               <button onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(0, surface.key); }} className="p-2 bg-emerald-50/80 text-emerald-600 rounded-xl hover:bg-emerald-100 hover:scale-105 transition-all" title="Toggle Fit/Cover">
-                                 <Maximize className="w-3.5 h-3.5" />
-                               </button>
-                               <div className="relative">
-                                 <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="p-2 bg-amber-50/80 text-amber-600 rounded-xl hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
-                                   <Palette className="w-3.5 h-3.5" />
-                                 </button>
-                                 <input 
-                                   type="color" 
-                                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none" 
-                                   value={surfaceCanvas?.bgColor || '#ffffff'}
-                                   onChange={(e) => handleQuickSetBg(0, e.target.value, surface.key)}
-                                   onClick={(e) => e.stopPropagation()}
-                                 />
-                               </div>
-                               <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
-                                 <Download className="w-3.5 h-3.5" />
-                               </button>
-                               <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Delete">
-                                 <Trash2 className="w-3.5 h-3.5" />
-                               </button>
-                             </div>
+                              <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-xl hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
+                                <RotateCw className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(0, surface.key); }} className="p-2 bg-emerald-50/80 text-emerald-600 rounded-xl hover:bg-emerald-100 hover:scale-105 transition-all" title="Toggle Fit/Cover">
+                                <Maximize className="w-3.5 h-3.5" />
+                              </button>
+                              <div className="relative">
+                                <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="p-2 bg-amber-50/80 text-amber-600 rounded-xl hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
+                                  <Palette className="w-3.5 h-3.5" />
+                                </button>
+                                <input
+                                  type="color"
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none"
+                                  value={surfaceCanvas?.bgColor || '#ffffff'}
+                                  onChange={(e) => handleQuickSetBg(0, e.target.value, surface.key)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                              <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Delete">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                           <div className="px-3 py-2 flex items-center justify-between bg-white border-t border-slate-50">
                             <span className="text-[10px] font-bold text-slate-400">{surface.def.canvas?.widthMm}×{surface.def.canvas?.heightMm}mm</span>
@@ -1138,10 +1760,24 @@ export default function LayoutEditorPage() {
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 justify-center">
                   {canvases.map((canvas, idx) => (
-                    <div key={idx} className="bg-white rounded-2xl border border-slate-200 transition-all cursor-pointer group/card relative" onClick={() => openEditor(idx)}>
+                    <div 
+                      key={idx} 
+                      className={clsx(
+                        "bg-white rounded-2xl border-2 transition-all cursor-pointer group/card relative",
+                        dragOverIdx?.idx === idx && dragOverIdx?.surfaceKey === null
+                          ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100" 
+                          : "border-slate-200 hover:border-indigo-400"
+                      )}
+                      onClick={() => openEditor(idx)}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, idx)}
+                      onDragOver={(e) => handleDragOver(e, idx)}
+                      onDragLeave={() => setDragOverIdx(null)}
+                      onDrop={(e) => handleDrop(e, idx)}
+                    >
                       <div className="relative rounded-t-2xl overflow-hidden bg-slate-100" style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}>
                         {canvas.dataUrl && <img src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
-                        
+
                         <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
                           <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-xl hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
                             <RotateCw className="w-3.5 h-3.5" />
@@ -1153,9 +1789,9 @@ export default function LayoutEditorPage() {
                             <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="p-2 bg-amber-50/80 text-amber-600 rounded-xl hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
                               <Palette className="w-3.5 h-3.5" />
                             </button>
-                            <input 
-                              type="color" 
-                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none" 
+                            <input
+                              type="color"
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none"
                               value={canvas.bgColor || '#ffffff'}
                               onChange={(e) => handleQuickSetBg(idx, e.target.value)}
                               onClick={(e) => e.stopPropagation()}
@@ -1202,7 +1838,7 @@ export default function LayoutEditorPage() {
 
                   <div className="space-y-3">
                     <div className="flex p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
-                      <button 
+                      <button
                         onClick={() => setDownloadTab('output')}
                         className={clsx(
                           "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
@@ -1211,7 +1847,7 @@ export default function LayoutEditorPage() {
                       >
                         Output Files
                       </button>
-                      <button 
+                      <button
                         onClick={() => setDownloadTab('original')}
                         className={clsx(
                           "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
@@ -1271,13 +1907,13 @@ export default function LayoutEditorPage() {
                       Sheet {previewSheetIdx + 1} of {impositionResult.sheets.length}
                     </p>
                   </div>
-                  
+
                   <div className="relative bg-white p-1 rounded-sm">
                     <canvas ref={impositionPreviewRef} className="max-w-full h-auto rounded-sm border border-slate-200" />
                   </div>
 
                   <div className="mt-8 flex items-center gap-4 bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 shadow-sm">
-                    <button 
+                    <button
                       disabled={previewSheetIdx === 0}
                       onClick={() => setPreviewSheetIdx(p => p - 1)}
                       className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-xl hover:bg-slate-50"
@@ -1287,7 +1923,7 @@ export default function LayoutEditorPage() {
                     <span className="text-[10px] font-black text-slate-700 uppercase tracking-tighter min-w-[60px] text-center">
                       Page {previewSheetIdx + 1}
                     </span>
-                    <button 
+                    <button
                       disabled={previewSheetIdx === impositionResult.sheets.length - 1}
                       onClick={() => setPreviewSheetIdx(p => p + 1)}
                       className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-xl hover:bg-slate-50"
@@ -1329,8 +1965,8 @@ export default function LayoutEditorPage() {
                       <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Gutter (Gap)</label>
                         <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             value={impositionSettings.gutterMm}
                             onChange={e => setImpositionSettings(s => ({ ...s, gutterMm: Number(e.target.value) }))}
                             className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
@@ -1341,8 +1977,8 @@ export default function LayoutEditorPage() {
                       <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Margin</label>
                         <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             value={impositionSettings.marginMm}
                             onChange={e => setImpositionSettings(s => ({ ...s, marginMm: Number(e.target.value) }))}
                             className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
@@ -1366,7 +2002,7 @@ export default function LayoutEditorPage() {
 
                   <div className="mt-auto pt-6 border-t border-slate-100 flex gap-4">
                     <button onClick={executeImposition} disabled={isImposing} className="w-full py-4 bg-slate-900 text-white rounded-[24px] text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 shadow-xl shadow-slate-200">
-                      {isImposing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} 
+                      {isImposing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                       Download Print Sheets
                     </button>
                   </div>
