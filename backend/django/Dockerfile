@@ -17,13 +17,8 @@ RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
 COPY backend/django /app
 
-# Bundle ICC colour profiles for CMYK soft-proof conversion.
-# icc_profiles/ISOcoated_v2_eci.icc must exist locally before building.
-# See backend/django/icc_profiles/README.md for download instructions.
-# The directory is always copied; the engine falls back gracefully if the
-# .icc file is absent (profile-less conversion with a logged warning).
-COPY backend/django/icc_profiles /app/icc_profiles
-
+# ICC colour profiles (icc_profiles/) are already copied by 'COPY backend/django /app'
+# The engine falls back gracefully if the .icc file is absent.
 RUN python manage.py collectstatic --noinput
 
 # entrypoint.sh is already copied by the previous 'COPY backend/django /app'
