@@ -127,6 +127,7 @@ export default function LayoutEditorPage() {
   });
 
   const fileUrlCache = useRef<Map<File, string>>(new Map());
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impositionPreviewRef = useRef<HTMLCanvasElement>(null);
   const impositionFabricRef = useRef<FabricStaticCanvas | null>(null);
@@ -1726,7 +1727,7 @@ export default function LayoutEditorPage() {
             </div>
             <div className="flex-1 max-w-md relative group">
               <div className={clsx("relative flex items-center gap-3 px-4 py-2 rounded-2xl border-2 border-dashed transition-all", (files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'border-emerald-200 bg-emerald-50/30' : 'border-indigo-200 bg-indigo-50/30 hover:border-indigo-400')}>
-                <input type="file" multiple onChange={handleFileChange} accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                <input ref={uploadInputRef} type="file" multiple onChange={handleFileChange} accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                 <div className={clsx("w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm", totalUploadedCount > 0 ? 'bg-emerald-500 text-white' : 'bg-indigo-600 text-white')}>
                   <Upload className="w-4 h-4" />
                 </div>
@@ -1796,11 +1797,20 @@ export default function LayoutEditorPage() {
           {!isProcessing && canvases.length === 0 && (
             <div 
               className={clsx(
-                "flex flex-col items-center justify-center py-24 gap-5 select-none border-2 border-dashed rounded-3xl transition-all",
+                "flex flex-col items-center justify-center py-24 gap-5 select-none border-2 border-dashed rounded-3xl transition-all cursor-pointer",
                 dragOverIdx?.idx === -1 
                   ? "border-indigo-500 bg-indigo-50/50 scale-[1.01]" 
                   : "border-slate-200 bg-slate-50/50"
               )}
+              role="button"
+              tabIndex={0}
+              onClick={() => uploadInputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  uploadInputRef.current?.click();
+                }
+              }}
               onDragOver={(e) => { e.preventDefault(); setDragOverIdx({ idx: -1, surfaceKey: null }); }}
               onDragLeave={() => setDragOverIdx(null)}
               onDrop={async (e) => {
