@@ -12,10 +12,13 @@ The Product Editor is a full-stack print-automation platform. Customers upload i
 
 ### 1. Frontend (Next.js 16, App Router)
 
-- **Editor page**: `frontend/nextjs/src/app/editor/layout/[name]/page.tsx` — main state machine: file upload, qty enforcement (`?qty=N` URL param), CMYK colour-space detection and warning, canvas orchestration, embed submit flow.
+- **Editor page**: `frontend/nextjs/src/app/editor/layout/[name]/page.tsx` — main state machine: file upload, qty enforcement (`?qty=N` URL param), CMYK colour-space detection and warning, canvas orchestration, embed submit flow. Optimized for high-volume orders via parallel batching and progressive loading.
 - **Fabric canvas**: `FabricEditor.tsx` — Fabric.js 7.2 interactive editor with paper overlay (evenodd punch-holes for frame shapes) and subtle frame outlines. Outlines are gated by `!isExport` — they never appear in downloaded print files.
-- **Off-screen renderer**: `fabric-renderer.ts` — generates preview PNGs; same `isExport` flag omits preview-only elements from download output.
+- **Off-screen renderer**: `fabric-renderer.ts` — generates preview PNGs; same `isExport` flag omits preview-only elements from download output. Includes a `thumbnail` mode (0.2x multiplier) for memory-efficient grid previews.
 - **Sidebar**: `CanvasEditorSidebar.tsx` — upload zone, fit-mode controls, layer panel. Shapes tab removed (shapes achievable via image upload). Padding kept compact by design.
+- **Utility functions**: 
+  - `image-utils.ts` — metadata extraction with `WeakMap` caching and `createObjectURL` for performance.
+  - `zip-utils.ts` — chunked ZIP generation with `STORE` compression for fast batch downloads.
 - **Types**: `types.ts` — shared TypeScript interfaces for editor state.
 
 ### 2. Backend (Django 5 + DRF)

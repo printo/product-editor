@@ -19,6 +19,7 @@ A production-ready full-stack application for generating photo layouts for perso
 - React 19, TypeScript 5.7
 - Fabric.js 7.2 — interactive canvas editing
 - Tailwind CSS 3.4
+- Performance optimized for large batches (100–200+ images) via parallel rendering and metadata caching
 
 **Infrastructure**
 - Docker Compose

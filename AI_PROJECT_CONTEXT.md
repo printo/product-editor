@@ -43,6 +43,14 @@ When a customer uploads an image, the editor checks the ICC profile. If the file
 
 Post-checkout, canvas data (images + layout + overlays) is sent to `POST /api/layout/generate` with an `order_id`. The API immediately returns `202 Accepted` with a `job_id`. Rendering happens in a dedicated Celery worker pool in the background.
 
+### Performance & High-Volume Handling
+
+The editor is optimized for large orders (100–200+ images):
+- **Parallel Batching**: Client-side rendering and metadata extraction occur in parallel chunks of 5, keeping the UI responsive while maximizing throughput.
+- **Metadata Caching**: Image dimensions and EXIF data are cached in a `WeakMap` to avoid redundant disk reads.
+- **Thumbnail Previews**: The main grid view uses 0.2x resolution thumbnails to minimize memory pressure and rendering time.
+- **Optimized ZIP Generation**: Uses `STORE` compression for batch downloads, significantly reducing the wait time for large zip files.
+
 Two dedicated worker services prevent priority starvation:
 - **`celery-worker-priority`**: serves express delivery and store pickup orders (soft-proof / `soft_proof=true` requests). Never touches the standard queue.
 - **`celery-worker-standard`**: serves regular PNG/TIFF exports. Horizontally scalable via `--scale celery-worker-standard=N`.
