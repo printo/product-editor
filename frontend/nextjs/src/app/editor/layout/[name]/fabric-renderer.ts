@@ -84,8 +84,12 @@ export async function renderCanvas(
   const usedLayout = layoutOverride || layoutDef;
   if (!usedLayout) return '';
 
-  // Use a lower resolution for thumbnails to save memory and CPU
-  const multiplier = thumbnail ? 0.2 : 1;
+  // Auto-detect resolution based on screen DPI for sharpness.
+  // We use devicePixelRatio to ensure Retina/High-DPI screens stay sharp.
+  // For high-volume batches, we still cap it to avoid memory exhaustion.
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
+  const thumbnailMultiplier = Math.min(dpr * 0.25, 0.75); // Range: 0.25x (Standard) to 0.75x (Retina)
+  const multiplier = thumbnail ? thumbnailMultiplier : 1;
   const canvasW = Math.round((usedLayout.canvas?.width || usedLayout.surfaces?.[0]?.canvas?.width || 1200) * multiplier);
   const canvasH = Math.round((usedLayout.canvas?.height || usedLayout.surfaces?.[0]?.canvas?.height || 1800) * multiplier);
 
