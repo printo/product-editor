@@ -225,7 +225,7 @@ export default function LayoutEditorPage() {
   }, [selectedFonts, loadGoogleFont]);
 
   useEffect(() => {
-    const canFetch = embedToken || session?.accessToken;
+    const canFetch = embedToken || status === 'authenticated';
     if (!canFetch || !layoutName) return;
 
     const fetchLayout = async () => {
@@ -281,7 +281,7 @@ export default function LayoutEditorPage() {
       }
     };
     fetchLayout();
-  }, [layoutName, embedToken, apiBase, getAuthHeaders]);
+  }, [layoutName, embedToken, status, apiBase, getAuthHeaders]);
 
   const getFileUrl = useCallback((file: File): string => {
     let url = fileUrlCache.current.get(file);
@@ -1298,129 +1298,78 @@ export default function LayoutEditorPage() {
 
   const executeBatchDownload = async () => {
     setIsDownloading(true);
-    setRenderProgress({ current: 0, total: canvases.length });
+    setRenderProgress({ current: 0, total: 100 });
     try {
       const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
-
-      // Structure: 
-      // zip/cx_file/ -> Original uploaded files
-      // zip/mockup_file/ -> Low-quality reference PNGs
-      // zip/print_file/ -> High-quality, print-ready PNGs (no shadow)
-
-      const filesToZip: { name: string; blob: Blob }[] = [];
-      const allCanvases = surfaceStates.length > 1
-        ? surfaceStates.flatMap(s => s.canvases)
-        : canvases;
-      const totalSteps = allCanvases.length;
-      let processed = 0;
-
-      // Helper to convert dataURL to Blob and free memory
-      const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
-        // More robust way to convert dataURL to Blob without using fetch
-        const parts = dataUrl.split(',');
-        const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
-        const bstr = atob(parts[1]);
-        let n = bstr.length;
-        const u8arr = new Uint8Array(n);
-        while (n--) {
-          u8arr[n] = bstr.charCodeAt(n);
-        }
-        return new Blob([u8arr], { type: mime });
-      };
-
-      // 1. High-quality Print Files (no shadow)
-      const BATCH_SIZE = 3; // Reduced batch size for high-res rendering
       
-      if (surfaceStates.length > 1) {
-        for (const s of surfaceStates) {
-          for (let i = 0; i < s.canvases.length; i += BATCH_SIZE) {
-            const chunk = s.canvases.slice(i, i + BATCH_SIZE);
-            // Render one by one instead of Promise.all to be safer with memory
-            for (let ci = 0; ci < chunk.length; ci++) {
-              const c = chunk[ci];
-              const dataUrl = await renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: s.def });
-              if (dataUrl) {
-                const blob = await dataUrlToBlob(dataUrl);
-                filesToZip.push({
-                  name: `print_file/${s.key}-${i + ci + 1}.png`,
-                  blob
-                });
-              }
-              processed++;
-              setRenderProgress({ current: processed, total: totalSteps });
-              await new Promise(r => setTimeout(r, 0)); 
-            }
-          }
+      // 1. Prepare the list of all canvases across all surfaces
+      const allCanvases = surfaceStates.length > 1
+        ? surfaceStates.flatMap(s => ({ ...s.canvases, surfaceKey: s.key }))
+        : canvases.map(c => ({ ...c, surfaceKey: 'canvas' }));
+      
+      const totalSteps = allCanvases.length;
+      const items: { name: string; blob: Blob }[] = [];
+
+      // 2. Render each canvas ONE BY ONE to keep RAM usage near zero
+      // We use sequential rendering so we only ever hold ONE high-res image in memory at a time.
+      for (let i = 0; i < totalSteps; i++) {
+        const c = (allCanvases as any)[i];
+        const surfaceKey = c.surfaceKey;
+        
+        // Find the correct layout definition for this surface
+        const layoutDef = surfaceStates.length > 1 
+          ? surfaceStates.find(s => s.key === surfaceKey)?.def 
+          : layout;
+
+        // Render high-res PNG
+        const dataUrl = await renderCanvas(c, { 
+          isExport: true, 
+          includeMask: false, 
+          layoutOverride: layoutDef 
+        });
+
+        if (dataUrl) {
+          const blob = await dataUrlToBlob(dataUrl);
+          items.push({
+            name: `print_file/${surfaceKey}-${i + 1}.png`,
+            blob
+          });
         }
-      } else {
-        for (let i = 0; i < canvases.length; i += BATCH_SIZE) {
-          const chunk = canvases.slice(i, i + BATCH_SIZE);
-          for (let ci = 0; ci < chunk.length; ci++) {
-            const c = chunk[ci];
-            const dataUrl = await renderCanvas(c, { isExport: true, includeMask: false });
-            if (dataUrl) {
-              const blob = await dataUrlToBlob(dataUrl);
-              filesToZip.push({
-                name: `print_file/canvas-${i + ci + 1}.png`,
-                blob
-              });
-            }
-            processed++;
-            setRenderProgress({ current: processed, total: totalSteps });
-            await new Promise(r => setTimeout(r, 0));
-          }
+
+        // Add reference mockup (already rendered in low-res)
+        if (c.dataUrl) {
+          const mockupBlob = await dataUrlToBlob(c.dataUrl);
+          items.push({
+            name: `mockup_file/${surfaceKey}-${i + 1}.png`,
+            blob: mockupBlob
+          });
         }
+
+        setRenderProgress({ current: i + 1, total: totalSteps });
+        // Yield to browser to prevent UI freeze and allow garbage collection
+        await new Promise(r => setTimeout(r, 0));
       }
 
-      // 2. Low-quality Mockup Files (with shadow) - Use existing dataUrls
-      // These are already rendered so we just convert them to blobs
-      processed = 0; // Reset for zipping progress later or just keep going
-      if (surfaceStates.length > 1) {
-        for (const s of surfaceStates) {
-          for (let ci = 0; ci < s.canvases.length; ci++) {
-            const c = s.canvases[ci];
-            if (c.dataUrl) {
-              const blob = await dataUrlToBlob(c.dataUrl);
-              filesToZip.push({
-                name: `mockup_file/${s.key}-${ci + 1}.png`,
-                blob
-              });
-            }
-          }
-        }
-      } else {
-        for (let i = 0; i < canvases.length; i++) {
-          const c = canvases[i];
-          if (c.dataUrl) {
-            const blob = await dataUrlToBlob(c.dataUrl);
-            filesToZip.push({
-              name: `mockup_file/canvas-${i + 1}.png`,
-              blob
-            });
-          }
-        }
-      }
-
-      // 3. Original Files (CX Files)
+      // 3. Add Original Files (CX Files)
       const allOriginalFiles = surfaceStates.length > 1
         ? surfaceStates.flatMap(s => s.files)
         : files;
 
       for (const file of allOriginalFiles) {
-        // We can just use the file directly as a Blob
-        filesToZip.push({
+        items.push({
           name: `cx_file/${file.name}`,
           blob: file
         });
       }
 
-      // Zipping with progress
-      const blob = await createZipFromDataUrls(
-        filesToZip,
+      // 4. Use optimized zipping
+      const finalZipBlob = await createZipFromDataUrls(
+        items,
         (p) => setRenderProgress({ current: Math.round(p * 100), total: 100 })
       );
       
-      downloadBlob(blob, `${zipName}.zip`);
+      downloadBlob(finalZipBlob, `${zipName}.zip`);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed.');
     } finally {
@@ -1428,6 +1377,15 @@ export default function LayoutEditorPage() {
       setShowDownloadModal(false);
       setRenderProgress(null);
     }
+  };
+
+  const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
+    const parts = dataUrl.split(',');
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new Blob([u8arr], { type: 'image/png' });
   };
 
   const executeImposition = async () => {
@@ -1448,63 +1406,92 @@ export default function LayoutEditorPage() {
       const { w: sheetWIn, h: sheetHIn } = resolveSheetSize(impositionSettings);
       const sheetW = Math.round(sheetWIn * dpi), sheetH = Math.round(sheetHIn * dpi);
 
-      // Use TRUE for includeMask so we get the frames in the print sheets
-      const canvasDataUrls = await Promise.all(allCanvases.map(c => renderCanvas(c, { isExport: true, includeMask: true })));
-
+      // 1. Prepare for sheet generation
       const cropMarkLen = Math.round((5 / MM_TO_IN) * dpi);
       const cropMarkOff = Math.round((2 / MM_TO_IN) * dpi);
       const sheetBlobs: { name: string; blob: Blob }[] = [];
+      const { Canvas: FabricCanvas, FabricImage, Line } = await import('fabric');
+
+      // 2. Process each sheet sequentially to keep memory usage low
       for (let si = 0; si < impositionSheets.length; si++) {
+        const sheet = impositionSheets[si];
         const sheetEl = document.createElement('canvas');
         sheetEl.width = sheetW; sheetEl.height = sheetH;
-        const { Canvas: FabricCanvas, FabricImage, Line } = await import('fabric');
         const fabricSheet = new FabricCanvas(sheetEl, { width: sheetW, height: sheetH, backgroundColor: 'white', renderOnAddRemove: false });
-        for (const item of impositionSheets[si].items) {
+
+        // For each item in the sheet, render the high-res canvas and place it
+        for (let ii = 0; ii < sheet.items.length; ii++) {
+          const item = sheet.items[ii];
+          const canvasObj = allCanvases[item.canvasIdx];
           const [px, py, pw, ph] = [Math.round(item.x * dpi), Math.round(item.y * dpi), Math.round(item.w * dpi), Math.round(item.h * dpi)];
+          
           try {
-            const img = await FabricImage.fromURL(canvasDataUrls[item.canvasIdx], { crossOrigin: 'anonymous' });
-            if (item.rotated) {
-              img.set({ left: px + pw / 2, top: py + ph / 2, originX: 'center', originY: 'center', scaleX: ph / img.width!, scaleY: pw / img.height!, angle: -90, selectable: false, evented: false });
-            } else {
-              img.set({ left: px, top: py, originX: 'left', originY: 'top', scaleX: pw / img.width!, scaleY: ph / img.height!, selectable: false, evented: false });
+            // Render the high-res image for this specific spot on the sheet
+            const dataUrl = await renderCanvas(canvasObj, { isExport: true, includeMask: true });
+            if (dataUrl) {
+              const img = await FabricImage.fromURL(dataUrl, { crossOrigin: 'anonymous' });
+              if (item.rotated) {
+                img.set({ left: px + pw / 2, top: py + ph / 2, originX: 'center', originY: 'center', scaleX: ph / img.width!, scaleY: pw / img.height!, angle: -90, selectable: false, evented: false });
+              } else {
+                img.set({ left: px, top: py, originX: 'left', originY: 'top', scaleX: pw / img.width!, scaleY: ph / img.height!, selectable: false, evented: false });
+              }
+              fabricSheet.add(img);
             }
-            fabricSheet.add(img);
-          } catch { }
+          } catch (err) {
+            console.error('Failed to render imposition item:', err);
+          }
+
+          // Add crop marks
           for (const [cx, cy, dx, dy] of [[px, py, -1, -1], [px + pw, py, 1, -1], [px, py + ph, -1, 1], [px + pw, py + ph, 1, 1]] as [number, number, number, number][]) {
             fabricSheet.add(new Line([cx, cy + dy * cropMarkOff, cx, cy + dy * (cropMarkOff + cropMarkLen)], { stroke: '#000', strokeWidth: 1, selectable: false, evented: false }));
             fabricSheet.add(new Line([cx + dx * cropMarkOff, cy, cx + dx * (cropMarkOff + cropMarkLen), cy], { stroke: '#000', strokeWidth: 1, selectable: false, evented: false }));
           }
+
+          // Update progress
+          setRenderProgress({ 
+            current: (si * sheet.items.length) + (ii + 1), 
+            total: impositionSheets.reduce((acc, s) => acc + s.items.length, 0) 
+          });
+          await new Promise(r => setTimeout(r, 0));
         }
+
         fabricSheet.renderAll();
         const blob = await new Promise<Blob>(res => sheetEl.toBlob(b => res(b!), 'image/png'));
         sheetBlobs.push({ name: `imposition-sheet-${si + 1}.png`, blob });
         fabricSheet.dispose();
       }
+
       if (sheetBlobs.length === 1) downloadBlob(sheetBlobs[0].blob, sheetBlobs[0].name);
       else {
-        const zip = sheetBlobs.map(sb => ({ name: sb.name, url: URL.createObjectURL(sb.blob) }));
-        downloadBlob(await createZipFromDataUrls(zip), 'imposition-sheets.zip');
-        zip.forEach(z => URL.revokeObjectURL(z.url));
+        downloadBlob(await createZipFromDataUrls(sheetBlobs), 'imposition-sheets.zip');
       }
-    } catch { setError('Imposition failed.'); }
-    finally { setIsImposing(false); setShowImpositionModal(false); }
+    } catch (err) { 
+      console.error('Imposition failed:', err);
+      setError('Imposition failed.'); 
+    } finally { 
+      setIsImposing(false); 
+      setShowImpositionModal(false); 
+      setRenderProgress(null);
+    }
   };
 
   const handleSubmitDesign = async () => {
-    if (canvases.length === 0) return;
+    const allCanvases = surfaceStates.length > 1
+      ? surfaceStates.flatMap(s => s.canvases)
+      : canvases;
+    if (allCanvases.length === 0) return;
+
     setIsDownloading(true);
-    setRenderProgress({ current: 0, total: canvases.length });
+    setRenderProgress({ current: 0, total: allCanvases.length });
     try {
       const rendered: string[] = [];
-      const BATCH_SIZE = 5;
 
-      for (let i = 0; i < canvases.length; i += BATCH_SIZE) {
-        const chunk = canvases.slice(i, i + BATCH_SIZE);
-        const chunkRendered = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false })));
-        rendered.push(...chunkRendered.filter((url): url is string => url !== null));
-        
-        setRenderProgress({ current: rendered.length, total: canvases.length });
-        await new Promise(r => setTimeout(r, 0)); // Yield to main thread
+      // Render sequentially to keep UI smooth and memory low
+      for (let i = 0; i < allCanvases.length; i++) {
+        const dataUrl = await renderCanvas(allCanvases[i], { isExport: true, includeMask: false });
+        if (dataUrl) rendered.push(dataUrl);
+        setRenderProgress({ current: i + 1, total: allCanvases.length });
+        await new Promise(r => setTimeout(r, 0));
       }
 
       const surfacesPayload: Record<string, { index: number; dataUrl: string }[]> = {};
@@ -1513,6 +1500,13 @@ export default function LayoutEditorPage() {
           surfacesPayload[s.key] = s.canvases.map((c, i) => ({ index: i, dataUrl: c.dataUrl || '' }));
         }
       }
+
+      // Safeguard for postMessage payload size (e.g., 500MB+ limit)
+      // If the batch is very large, we recommend the user to download the ZIP instead
+      if (rendered.length > 100) {
+        setUploadWarning("Large design batch. Submission might be slow. Consider 'Download ZIP' for high-res production files.");
+      }
+
       window.parent.postMessage({
         type: 'PRODUCT_EDITOR_COMPLETE',
         layoutName: layout?.id,

@@ -139,16 +139,24 @@ async function handler(
 
     const responseContentType =
       upstream.headers.get('Content-Type') || 'application/json';
-    const responseBody = await upstream.arrayBuffer();
+    
+    // Read body as arrayBuffer. If 204/304, it will be empty.
+    let responseBody: ArrayBuffer | null = null;
+    if (upstream.status !== 204 && upstream.status !== 304) {
+      responseBody = await upstream.arrayBuffer();
+    }
 
     return new NextResponse(responseBody, {
       status: upstream.status,
-      headers: { 'Content-Type': responseContentType },
+      headers: { 
+        'Content-Type': responseContentType,
+        'Cache-Control': 'no-store, max-age=0',
+      },
     });
   } catch (err: any) {
     console.error('[internal-proxy] upstream error:', err);
     return NextResponse.json(
-      { detail: 'Proxy error' },
+      { detail: 'Proxy error', error: err.message },
       { status: 502 }
     );
   }
