@@ -937,17 +937,32 @@ export default function LayoutEditorPage() {
     setDeleteConfirm(null);
   };
 
-  const handleQuickDownload = (idx: number, surfaceKey: string | null = null) => {
+  const handleQuickDownload = async (idx: number, surfaceKey: string | null = null) => {
     const targetCanvases = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.canvases : canvases;
     const c = targetCanvases?.[idx];
-    if (c?.dataUrl) {
-      const a = document.createElement('a');
-      a.href = c.dataUrl;
-      a.download = `${layout.id}-${surfaceKey || 'canvas'}-${idx + 1}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    if (!c) return;
+
+    // Re-render at full resolution if dataUrl is missing or is a thumbnail
+    let dataUrl = c.dataUrl;
+    if (!dataUrl) {
+      try {
+        const layoutDef = surfaceKey
+          ? surfaceStates.find(s => s.key === surfaceKey)?.def
+          : layout;
+        dataUrl = await renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: layoutDef });
+      } catch (err) {
+        console.error('[quick-download] render failed:', err);
+        return;
+      }
     }
+    if (!dataUrl) return;
+
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `${layout?.id || 'canvas'}-${surfaceKey || 'canvas'}-${idx + 1}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   useEffect(() => {
@@ -1298,16 +1313,22 @@ export default function LayoutEditorPage() {
 
   const executeBatchDownload = async () => {
     setIsDownloading(true);
-    setRenderProgress({ current: 0, total: 100 });
     try {
       const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
-      
+
       // 1. Prepare the list of all canvases across all surfaces
       const allCanvases = surfaceStates.length > 1
-        ? surfaceStates.flatMap(s => ({ ...s.canvases, surfaceKey: s.key }))
+        ? surfaceStates.flatMap(s => s.canvases.map(c => ({ ...c, surfaceKey: s.key })))
         : canvases.map(c => ({ ...c, surfaceKey: 'canvas' }));
-      
+
       const totalSteps = allCanvases.length;
+      if (totalSteps === 0) {
+        setError('No canvases to download.');
+        setIsDownloading(false);
+        return;
+      }
+
+      setRenderProgress({ current: 0, total: totalSteps });
       const items: { name: string; blob: Blob }[] = [];
 
       // 2. Render each canvas ONE BY ONE to keep RAM usage near zero
@@ -1315,18 +1336,23 @@ export default function LayoutEditorPage() {
       for (let i = 0; i < totalSteps; i++) {
         const c = (allCanvases as any)[i];
         const surfaceKey = c.surfaceKey;
-        
+
         // Find the correct layout definition for this surface
-        const layoutDef = surfaceStates.length > 1 
-          ? surfaceStates.find(s => s.key === surfaceKey)?.def 
+        const layoutDef = surfaceStates.length > 1
+          ? surfaceStates.find(s => s.key === surfaceKey)?.def
           : layout;
 
         // Render high-res PNG
-        const dataUrl = await renderCanvas(c, { 
-          isExport: true, 
-          includeMask: false, 
-          layoutOverride: layoutDef 
-        });
+        let dataUrl = '';
+        try {
+          dataUrl = await renderCanvas(c, {
+            isExport: true,
+            includeMask: false,
+            layoutOverride: layoutDef
+          });
+        } catch (renderErr) {
+          console.error(`[batch-download] Failed to render canvas ${i + 1}:`, renderErr);
+        }
 
         if (dataUrl) {
           const blob = await dataUrlToBlob(dataUrl);

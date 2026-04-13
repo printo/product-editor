@@ -47,21 +47,32 @@ export async function calculateSmartCropOffsets(
 ): Promise<{ x: number; y: number }> {
   const imgW = img instanceof HTMLImageElement ? img.naturalWidth : img.width;
   const imgH = img instanceof HTMLImageElement ? img.naturalHeight : img.height;
-  
+
   const crop = await getSmartCrop(img, frameW, frameH);
   if (!crop) return { x: 0, y: 0 };
 
   const cropCenterX = crop.x + crop.width / 2;
   const cropCenterY = crop.y + crop.height / 2;
-  
+
   const localDX = cropCenterX - imgW / 2;
   const localDY = cropCenterY - imgH / 2;
 
   const rad = (rotation * Math.PI) / 180;
+  const sinA = Math.abs(Math.sin(rad));
+  const cosA = Math.abs(Math.cos(rad));
   const canvasDX = localDX * Math.cos(rad) - localDY * Math.sin(rad);
   const canvasDY = localDX * Math.sin(rad) + localDY * Math.cos(rad);
 
-  return { x: -canvasDX, y: -canvasDY };
+  // Convert from image-pixel space to base-canvas space.
+  // The renderer applies offsets as `offset * multiplier` alongside positions
+  // computed using baseScale (cover: Math.max, contain: Math.min).  Without
+  // this scaling the crop offset is orders of magnitude too large/small and the
+  // image jumps to the edge of the frame instead of centering on the subject.
+  const effW = imgW * cosA + imgH * sinA;
+  const effH = imgW * sinA + imgH * cosA;
+  const baseScale = Math.max(frameW / effW, frameH / effH); // cover scale
+
+  return { x: -canvasDX * baseScale, y: -canvasDY * baseScale };
 }
 
 // ─── Fabric-based canvas rendering ───────────────────────────────────────────
