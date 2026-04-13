@@ -118,7 +118,6 @@ export default function LayoutEditorPage() {
   const [showAutoFillPicker, setShowAutoFillPicker] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
   const [showDownloadModal, setShowDownloadModal] = useState(false);
-  const [downloadTab, setDownloadTab] = useState<'output' | 'original'>('output');
   const [showImpositionModal, setShowImpositionModal] = useState(false);
   const [isImposing, setIsImposing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -1308,9 +1307,15 @@ export default function LayoutEditorPage() {
       // zip/mockup_file/ -> Low-quality reference PNGs
       // zip/print_file/ -> High-quality, print-ready PNGs (no shadow)
 
-      const filesToZip: { name: string; url?: string; blob?: Blob }[] = [];
+      const filesToZip: { name: string; blob: Blob }[] = [];
       const totalSteps = canvases.length;
       let processed = 0;
+
+      // Helper to convert dataURL to Blob and free memory
+      const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
+        const res = await fetch(dataUrl);
+        return await res.blob();
+      };
 
       // 1. High-quality Print Files (no shadow)
       // Process in small batches to keep UI responsive and allow progress updates
@@ -1320,16 +1325,18 @@ export default function LayoutEditorPage() {
         for (const s of surfaceStates) {
           for (let i = 0; i < s.canvases.length; i += BATCH_SIZE) {
             const chunk = s.canvases.slice(i, i + BATCH_SIZE);
-            const printCanvases = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: s.def })));
+            const printDataUrls = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: s.def })));
             
-            printCanvases.forEach((dataUrl, ci) => {
+            for (let ci = 0; ci < printDataUrls.length; ci++) {
+              const dataUrl = printDataUrls[ci];
               if (dataUrl) {
+                const blob = await dataUrlToBlob(dataUrl);
                 filesToZip.push({
                   name: `print_file/${s.key}-${i + ci + 1}.png`,
-                  url: dataUrl
+                  blob
                 });
               }
-            });
+            }
             processed += chunk.length;
             setRenderProgress({ current: processed, total: totalSteps });
             await new Promise(r => setTimeout(r, 0)); // Yield to main thread
@@ -1338,16 +1345,18 @@ export default function LayoutEditorPage() {
       } else {
         for (let i = 0; i < canvases.length; i += BATCH_SIZE) {
           const chunk = canvases.slice(i, i + BATCH_SIZE);
-          const printCanvases = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false })));
+          const printDataUrls = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false })));
           
-          printCanvases.forEach((dataUrl, ci) => {
+          for (let ci = 0; ci < printDataUrls.length; ci++) {
+            const dataUrl = printDataUrls[ci];
             if (dataUrl) {
+              const blob = await dataUrlToBlob(dataUrl);
               filesToZip.push({
                 name: `print_file/canvas-${i + ci + 1}.png`,
-                url: dataUrl
+                blob
               });
             }
-          });
+          }
           processed += chunk.length;
           setRenderProgress({ current: processed, total: totalSteps });
           await new Promise(r => setTimeout(r, 0)); // Yield to main thread
@@ -1357,24 +1366,28 @@ export default function LayoutEditorPage() {
       // 2. Low-quality Mockup Files (with shadow) - Use existing dataUrls
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
-          s.canvases.forEach((c, ci) => {
+          for (let ci = 0; ci < s.canvases.length; ci++) {
+            const c = s.canvases[ci];
             if (c.dataUrl) {
+              const blob = await dataUrlToBlob(c.dataUrl);
               filesToZip.push({
                 name: `mockup_file/${s.key}-${ci + 1}.png`,
-                url: c.dataUrl
+                blob
               });
             }
-          });
+          }
         }
       } else {
-        canvases.forEach((c, i) => {
+        for (let i = 0; i < canvases.length; i++) {
+          const c = canvases[i];
           if (c.dataUrl) {
+            const blob = await dataUrlToBlob(c.dataUrl);
             filesToZip.push({
               name: `mockup_file/canvas-${i + 1}.png`,
-              url: c.dataUrl
+              blob
             });
           }
-        });
+        }
       }
 
       // 3. Original Files (CX Files)
@@ -1382,19 +1395,17 @@ export default function LayoutEditorPage() {
         ? surfaceStates.flatMap(s => s.files)
         : files;
 
-      allOriginalFiles.forEach((file) => {
-        const url = getFileUrl(file);
-        if (url) {
-          filesToZip.push({
-            name: `cx_file/${file.name}`,
-            url: url
-          });
-        }
-      });
+      for (const file of allOriginalFiles) {
+        // We can just use the file directly as a Blob
+        filesToZip.push({
+          name: `cx_file/${file.name}`,
+          blob: file
+        });
+      }
 
       // Zipping with progress
       const blob = await createZipFromDataUrls(
-        filesToZip as { name: string; url: string }[],
+        filesToZip,
         (p) => setRenderProgress({ current: Math.round(p * 100), total: 100 })
       );
       
@@ -1759,16 +1770,16 @@ export default function LayoutEditorPage() {
           </div>
 
           {/* ── Fixed Processing Overlay ────────────────────────────────────── */}
-          {isProcessing && renderProgress && (
+          {(isProcessing || isDownloading) && renderProgress && (
             <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
               <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-300">
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col gap-1">
                     <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
-                      Processing Your Design
+                      {isDownloading ? 'Preparing Download' : 'Processing Your Design'}
                     </span>
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      Optimizing images for print
+                      {isDownloading ? 'Bundling high-res print files' : 'Optimizing images for print'}
                     </span>
                   </div>
                   <span className="text-[14px] font-black text-indigo-600 tabular-nums bg-indigo-50 px-3 py-1 rounded-xl">
@@ -1786,7 +1797,10 @@ export default function LayoutEditorPage() {
                 <div className="flex items-center justify-center gap-2">
                   <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
                   <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">
-                    Rendering File {renderProgress.current} of {renderProgress.total}
+                    {isDownloading 
+                      ? (renderProgress.total === 100 ? `Zipping... ${renderProgress.current}%` : `Rendering File ${renderProgress.current} of ${renderProgress.total}`)
+                      : `Rendering File ${renderProgress.current} of ${renderProgress.total}`
+                    }
                   </p>
                 </div>
               </div>
@@ -1977,50 +1991,14 @@ export default function LayoutEditorPage() {
               <div className="relative w-full max-w-sm bg-white rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
                 <div className="p-6 space-y-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Download Results</h3>
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Download Job</h3>
                     <button onClick={() => setShowDownloadModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                       <X className="w-4 h-4 text-slate-400" />
                     </button>
                   </div>
 
                   <div className="space-y-3">
-                    <div className="flex p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
-                      <button
-                        onClick={() => setDownloadTab('output')}
-                        className={clsx(
-                          "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
-                          downloadTab === 'output' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
-                        )}
-                      >
-                        Output Files
-                      </button>
-                      <button
-                        onClick={() => setDownloadTab('original')}
-                        className={clsx(
-                          "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
-                          downloadTab === 'original' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
-                        )}
-                      >
-                        CX Files
-                      </button>
-                    </div>
-
-                    {downloadTab === 'original' && (
-                      <div className="py-2 px-1">
-                        <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto custom-scrollbar pr-2">
-                          {(surfaceStates.length > 1 ? surfaceStates.flatMap(s => s.files) : files).map((f, i) => (
-                            <div key={i} className="flex items-center gap-3 p-2 bg-slate-50 rounded-xl border border-slate-100">
-                              <div className="w-8 h-8 rounded-lg bg-white border flex items-center justify-center overflow-hidden shrink-0">
-                                <img src={getFileUrl(f)} className="w-full h-full object-cover" />
-                              </div>
-                              <span className="text-[9px] font-black text-slate-500 truncate flex-1 uppercase tracking-tight">{f.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="pt-2 flex flex-col gap-3">
+                    <div className="flex flex-col gap-3">
                       <button onClick={executeBatchDownload} className="w-full group flex items-center gap-4 p-4 rounded-2xl border border-slate-100 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all text-left bg-slate-50/50">
                         <div className="w-10 h-10 bg-white rounded-xl border flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform"><Archive className="w-5 h-5 text-indigo-600" /></div>
                         <div>

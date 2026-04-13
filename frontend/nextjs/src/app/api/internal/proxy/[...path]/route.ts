@@ -85,6 +85,10 @@ async function handler(
   const { path } = await params;
   const upstreamPath = (path || []).join('/');
 
+  // Preserve trailing slash if present in the original URL
+  const hasTrailingSlash = req.nextUrl.pathname.endsWith('/');
+  const fullUpstreamPath = hasTrailingSlash ? `${upstreamPath}/` : upstreamPath;
+
   // 2a. Privilege guard for ops endpoints.
   //
   // Backend ops/* views use IsOpsTeam, which inspects the *authenticated user*.
@@ -104,7 +108,7 @@ async function handler(
     }
   }
 
-  const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${req.nextUrl.search}`;
+  const upstreamUrl = `${INTERNAL_API}/${fullUpstreamPath}${req.nextUrl.search}`;
 
   // 3. Build forwarded headers — only safe, non-hop-by-hop ones.
   const contentType = req.headers.get('Content-Type');
