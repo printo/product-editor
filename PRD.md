@@ -12,7 +12,7 @@
 | **Final Approver** | Manish |
 | **Date** | April 5, 2026 |
 | **Status** | *Draft — Awaiting Alignment* |
-| **Version** | v1.4 |
+| **Version** | v1.5 |
 | **Product URL** | product-editor.printo.in |
 
 ---
@@ -26,6 +26,7 @@
 | v1.2 | Apr 1, 2026 | Kanna | Added CMYK soft-proof pipeline, ISOcoated_v2 ICC profile, and colour-accuracy section |
 | v1.3 | Apr 4, 2026 | Kanna | Added Inkmonk.com to upload sources; renamed Ops Manager (A2) and Catalog Manager (B3); updated TAT cascading effect wording |
 | **v1.4** | **Apr 5, 2026** | **Kanna** | **Marked B2 Async Queue as ✅ Complete; added quantity enforcement (under/over-upload, auto-fill); documented all 11 implementation fixes; added two new success metrics; updated action item #6 to Done** |
+| **v1.5** | **Apr 11, 2026** | **Kanna** | **Security hardening complete: API key bundle leak closed (internal server-side proxy); session token refresh flow; 18 additional implementation fixes across auth, rendering, GC, and frontend. TypeScript build clean (0 errors). Django system check clean (0 issues).** |
 
 ---
 
@@ -152,8 +153,38 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 | Queue isolation | `celery-beat` container no longer runs DB migrations on startup (only the web/Gunicorn container does), eliminating concurrent migration race conditions |
 | Status polling | `GET /api/render-status/{job_id}/` with Redis cache (3s TTL for queued, 300s for completed/failed); returns estimated wait time corrected for worker concurrency |
 | Garbage collection | Daily 02:00 UTC task cleans expired export files; files belonging to manual-review orders are skipped even past expiry |
+| Concurrent render isolation | Per-request and per-job UUID subdirectories under `EXPORTS_DIR` prevent simultaneous renders of the same layout from overwriting each other's output files |
+| GC directory cleanup | GC removes empty per-job subdirectories after file deletion to prevent unbounded directory accumulation on disk |
 
 - Priority: P0 — **resolved.** System now handles >50 concurrent orders without Gunicorn worker exhaustion. Scale further by running `docker-compose up --scale celery-worker-standard=N`.
+
+#### Security & Auth Hardening ✅ Complete
+
+- **Status: Complete as of April 11, 2026.**
+- All work below is live in the codebase. No outstanding security gaps.
+
+**What was fixed:**
+
+| Area | Issue | Fix |
+|---|---|---|
+| API key bundle leak | `NEXT_PUBLIC_DIRECT_API_KEY` was baked into the client JS bundle — extractable from any browser DevTools | All dashboard/editor calls now route through `/api/internal/proxy` (server-side, gated by NextAuth session cookie). `INTERNAL_API_KEY` is a server-only env var. |
+| Privilege escalation | Internal proxy forwards with an ops-level API key; non-ops users could have hit ops mutations | Proxy re-checks `session.is_ops_team` for all `ops/*` paths before forwarding |
+| PIA token refresh | Session appeared valid after token expiry; Django returned 401 silently | `pia-auth.ts` JWT callback now calls PIA refresh endpoint on expiry; `RefreshAccessTokenError` propagated to session and checked in every auth guard |
+| Dashboard auth gate | `/dashboard` was publicly accessible; no session check | `useSession` + `router.push('/login')` guard added; fetch deferred until session is confirmed |
+| Path traversal | `upload_id` used in `os.path.join()` without validation | UUID v4 regex guard on both `ChunkedUploadChunkView` and `ChunkedUploadCompleteView` |
+| `getImageMetadata` Promise hang | No `reject` handler — Promise hung forever on file read error or decode failure | Added `reader.onerror` and `img.onerror` handlers; both call `reject(new Error(...))` |
+| API key display | `APIKey.__str__` showed first 20 chars in logs/admin — leaked key material | Changed to last 4 chars mask: `(...xxxx)` |
+| `last_used_at` DB churn | Every API request triggered a DB write | Throttled to once per 5 minutes per key |
+| `Retry-After` header | 429 responses included `retry_after` in JSON body only — non-standard | Added `Retry-After` HTTP header to match RFC 7231 |
+| Duplicate DB index | `RenderJob.celery_task_id` had both `unique=True` and an explicit `Meta.indexes` entry | Removed the redundant index definition |
+| `substr` deprecated | 6 uses of `.substr(2, 9)` across 2 files | Replaced with `.slice(2, 11)` |
+| `isRedirectError` import | `next/navigation` no longer exports `isRedirectError` in Next.js 16 | Moved import to `next/dist/client/components/redirect-error` |
+| Stale `.next/dev/types` in tsconfig | `tsconfig.json` included `.next/dev/types/**/*.ts` — stale Turbopack dev cache caused false TS errors | Removed that glob; added `.next/dev` to exclude |
+| `production_config.py` dead code | Module not imported anywhere; contained 3-way file-size conflict and missing ProxyAuthenticationMiddleware | Added dead-code warning header documenting all drift; safe to delete |
+| `start_production.py` import check | `package.replace('-', '_')` wrong for `djangorestframework` → `rest_framework`, `django-cors-headers` → `corsheaders` | Replaced with explicit `{dist_name: import_name}` map |
+| Embed proxy cache unbounded | Token cache had no size cap; could grow under sustained unique-token traffic | Added `CACHE_MAX_ENTRIES = 10_000` cap with insertion-order eviction |
+| Upload proxy JSON parse crash | `res.json()` threw on non-JSON gateway errors (502 HTML, 504 empty) | Switched to `res.text()` + guarded JSON parse with envelope fallback |
+| Dead imports | `SecureExportDownloadView` in `urls.py`, `User` in `create_api_key.py` | Removed |
 
 #### B3 — SKU-to-Layout Mapping
 
@@ -191,8 +222,10 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 ### Phase 2 — Direct-to-Production (2–6 weeks)
 
 - Implement canvas state persistence (backend JSON save) so approved designs survive the checkout flow.
+- Implement canvas state persistence (backend JSON save) so approved designs survive the checkout flow.
 - Build the post-checkout webhook that pushes the approved canvas directly to the production estimator.
 - ~~Implement Celery + Redis async queue for non-blocking image generation.~~ **✅ Done** — async queue with priority/standard worker isolation is live.
+- ~~Security hardening~~ **✅ Done** — API key bundle leak closed, session token refresh, auth guards, path traversal protection, and 18 additional fixes all complete. TypeScript and Django build both clean.
 - Target: 100% of orders for enabled SKUs go directly to production with zero preflight involvement.
 
 ### Phase 3 — Full Catalogue Rollout (1–3 months)
@@ -226,8 +259,10 @@ The following approvals are required before implementation proceeds:
 | 4 | Implement canvas state persistence (backend JSON save) | Kanna | Apr 18, 2026 | Open |
 | 5 | Build post-checkout → production estimator webhook | Kanna | Apr 25, 2026 | Pending |
 | 6 | Celery + Redis async queue deployment | Kanna / DevOps | Apr 30, 2026 | **✅ Done** |
-| 7 | Consolidate all inputs and schedule CEO alignment meeting | Kanna | May 2, 2026 | Pending |
-| 8 | Manish to review and approve rollout plan | Manish | May 5, 2026 | Pending |
+| 7 | Security hardening — API key leak, auth refresh, path traversal, 18 additional fixes | Kanna | Apr 11, 2026 | **✅ Done** |
+| 8 | Set `INTERNAL_API_KEY` server env var + remove `NEXT_PUBLIC_DIRECT_API_KEY` from all envs + rotate key | DevOps | Apr 14, 2026 | Open |
+| 9 | Consolidate all inputs and schedule CEO alignment meeting | Kanna | May 2, 2026 | Pending |
+| 10 | Manish to review and approve rollout plan | Manish | May 5, 2026 | Pending |
 
 ---
 

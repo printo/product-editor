@@ -6,6 +6,8 @@ services:
       - --providers.docker.exposedbydefault=false
       - --providers.docker.constraints=Label(`traefik.project`,`product-editor`)
       - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
@@ -17,6 +19,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./proxy/traefik/acme.json:/letsencrypt/acme.json
+      - ./proxy/traefik/.htpasswd:/etc/traefik/.htpasswd:ro
     networks:
       - web
 
@@ -81,32 +84,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    user: "1000:1000"
     labels:
       - traefik.enable=true
       - traefik.project=product-editor
-      - traefik.http.routers.product-editor-backend.rule=PathPrefix(`/api`)
-      - traefik.http.routers.product-editor-backend.entrypoints=web
-      - traefik.http.routers.product-editor-backend.priority=2
-      - traefik.http.routers.product-editor-backend.service=product-editor-backend
-      - traefik.http.services.product-editor-backend.loadbalancer.server.port=8000
-      - traefik.docker.network=product-editor_web
+      # Middlewares
       - traefik.http.middlewares.admin-basicauth.basicauth.usersfile=/etc/traefik/.htpasswd
-      - traefik.http.middlewares.admin-redirect.redirectscheme.scheme=https
-      - traefik.http.routers.product-editor-admin.rule=PathPrefix(`/admin/django-admin`)
-      - traefik.http.routers.product-editor-admin.entrypoints=web
-      - traefik.http.routers.product-editor-admin.middlewares=admin-redirect
-      - traefik.http.routers.product-editor-admin.service=product-editor-backend
+      # Backend API (websecure)
       - traefik.http.routers.product-editor-backend-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api`)
       - traefik.http.routers.product-editor-backend-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-backend-tls.priority=2
       - traefik.http.routers.product-editor-backend-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-backend-tls.service=product-editor-backend
-      - traefik.http.routers.product-editor-admin-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/admin/django-admin`)
-      - traefik.http.routers.product-editor-admin-tls.entrypoints=websecure
-      - traefik.http.routers.product-editor-admin-tls.tls.certresolver=letsencrypt
-      - traefik.http.routers.product-editor-admin-tls.middlewares=admin-basicauth
-      - traefik.http.routers.product-editor-admin-tls.service=product-editor-backend
+      - traefik.http.services.product-editor-backend.loadbalancer.server.port=8000
+      # Django Admin (websecure)
+      - traefik.http.routers.product-editor-admin.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/admin/django-admin`)
+      - traefik.http.routers.product-editor-admin.entrypoints=websecure
+      - traefik.http.routers.product-editor-admin.tls.certresolver=letsencrypt
+      - traefik.http.routers.product-editor-admin.middlewares=admin-basicauth
+      - traefik.http.routers.product-editor-admin.service=product-editor-backend
     networks:
       - web
 
@@ -129,6 +124,8 @@ services:
       - AUTH_URL=https://${PUBLIC_HOST}
       - NEXTAUTH_URL=https://${PUBLIC_HOST}
       - AUTH_TRUST_HOST=true
+      - AUTH_SECRET=${AUTH_SECRET:-change-me-at-least-32-chars}
+      - NEXTAUTH_SECRET=${AUTH_SECRET:-change-me-at-least-32-chars}
     depends_on:
       - backend
     labels:
@@ -194,9 +191,8 @@ services:
         reservations:
           memory: 512M
     restart: unless-stopped
-    user: "1000:1000"
 
-  # ── Standard worker — PNG/TIFF exports for regular delivery orders ────────
+  # ── Standard worker ────────— PNG/TIFF exports for regular delivery orders ────────
   # Scale horizontally under load:
   #   docker compose up --scale celery-worker-standard=4
   # Concurrency: auto-detected from CPU count per replica.
@@ -232,7 +228,6 @@ services:
         reservations:
           memory: 512M
     restart: unless-stopped
-    user: "1000:1000"
 
   celery-beat:
     build:
@@ -253,7 +248,6 @@ services:
     networks:
       - web
     restart: unless-stopped
-    user: "1000:1000"
 
 networks:
   web:

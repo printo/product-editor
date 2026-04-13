@@ -9,7 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@types/pica": "^9.0.5",
     "clsx": "^2.1.1",
+    "exifreader": "^4.38.0",
     "fabric": "^7.2.0",
     "fabric-guideline-plugin": "^0.0.11",
     "jose": "^6.2.1",
@@ -17,8 +19,10 @@
     "lucide-react": "^0.453.0",
     "next": "^16.2.0",
     "next-auth": "^5.0.0-beta.30",
+    "pica": "^9.0.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "smartcrop": "^2.0.5",
     "tailwind-merge": "2.5.4"
   },
   "devDependencies": {

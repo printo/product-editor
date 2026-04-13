@@ -73,7 +73,7 @@ export const Header = () => {
             <Link
               href="/dashboard"
               className={`relative z-10 px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 min-w-[100px] text-center ${
-                !isLayoutEditor 
+                !isLayoutEditor
                   ? 'toggle-active' 
                   : 'toggle-inactive'
               }`}

@@ -1,6 +1,19 @@
 """
 Production Configuration
-Optimized settings for Linux server deployment
+Optimized settings for Linux server deployment.
+
+⚠️ DEAD CODE WARNING ⚠️
+Nothing in the project imports this module.  The active production
+configuration lives in `product_editor/settings.py` (driven by env vars).
+Before re-wiring any helper here, audit it for drift:
+  - get_production_middleware() is missing
+    `product_editor.middleware.ProxyAuthenticationMiddleware` which is in
+    settings.py MIDDLEWARE — admin proxy enforcement would be lost.
+  - get_production_security()['MAX_UPLOAD_FILE_SIZE'] (100 MB) conflicts
+    with settings.py (10 MB) and api/validators.py MAX_FILE_SIZE_MB (50 MB).
+  - X_FRAME_OPTIONS = 'DENY' here vs 'SAMEORIGIN' in settings.py — the
+    embed-iframe flow needs SAMEORIGIN, so 'DENY' would break embedding.
+Either delete this file or wire it in and reconcile the drift.
 """
 import os
 from pathlib import Path

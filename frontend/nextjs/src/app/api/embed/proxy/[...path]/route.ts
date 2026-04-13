@@ -40,12 +40,26 @@ const INTERNAL_SECRET = process.env.EMBED_INTERNAL_SECRET || '';
 interface CacheEntry { apiKey: string; exp: number }
 const tokenCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 110 * 60 * 1000; // 110 minutes (session TTL is 120 min)
+// Hard cap to prevent unbounded growth in pathological scenarios
+// (e.g. an attacker spraying random tokens — each miss creates no entry,
+// but legitimate concurrent embeds across many tenants could still accumulate).
+const CACHE_MAX_ENTRIES = 10_000;
 
 /** Remove all entries whose TTL has elapsed — called on every cache miss. */
 function evictExpired(): void {
   const now = Date.now();
   for (const [token, entry] of tokenCache) {
     if (entry.exp <= now) tokenCache.delete(token);
+  }
+  // If still over the cap after expiry sweep, drop oldest insertion order
+  // entries (Map preserves insertion order in JS) until we're back under.
+  if (tokenCache.size > CACHE_MAX_ENTRIES) {
+    const overflow = tokenCache.size - CACHE_MAX_ENTRIES;
+    let removed = 0;
+    for (const token of tokenCache.keys()) {
+      tokenCache.delete(token);
+      if (++removed >= overflow) break;
+    }
   }
 }
 
@@ -106,21 +120,22 @@ async function handler(
   const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${req.nextUrl.search}`;
 
   // Forward only safe, non-hop-by-hop headers
+  const contentType = req.headers.get('Content-Type');
   const forwardHeaders: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
     Accept: req.headers.get('Accept') || 'application/json',
   };
-  const contentType = req.headers.get('Content-Type');
-  if (contentType) forwardHeaders['Content-Type'] = contentType;
+  // Only set Content-Type when we'll actually have a body — for GET/HEAD
+  // it's meaningless and some upstreams reject the combination.
+  if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {
+    forwardHeaders['Content-Type'] = contentType;
+  }
 
   let body: BodyInit | null = null;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     // For multipart/form-data (file uploads) stream the raw body bytes so the
     // multipart boundary is preserved exactly as the browser sent it.
     body = await req.arrayBuffer();
-    // Re-use the original Content-Type (includes boundary= for multipart)
-    if (contentType) forwardHeaders['Content-Type'] = contentType;
-    else delete forwardHeaders['Content-Type']; // let fetch determine it
   }
 
   try {

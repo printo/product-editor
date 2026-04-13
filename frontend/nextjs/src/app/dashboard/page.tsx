@@ -11,6 +11,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { clsx } from 'clsx';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { useHeader } from '@/context/HeaderContext';
 import { LayoutSVG } from '@/components/LayoutSVG';
@@ -67,6 +69,16 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  // Auth gate — without this, /dashboard renders for unauthenticated visitors
+  // and only fails (silently) when the layouts fetch comes back empty/401.
+  useEffect(() => {
+    if (status === 'unauthenticated' || (session as any)?.error === 'RefreshAccessTokenError') {
+      router.push('/login');
+    }
+  }, [status, session, router]);
 
   const normalizeLayoutItem = useCallback((item: any) => {
     if (typeof item === 'string') return { id: item, name: item, frames: [], tags: [], canvas: {}, surfaceCount: 0 };
@@ -92,20 +104,13 @@ export default function Dashboard() {
   }, []);
 
   const fetchLayouts = useCallback(async () => {
-    const apiKey = process.env.NEXT_PUBLIC_DIRECT_API_KEY;
-    if (!apiKey) {
-      setError('API key not configured');
-      return;
-    }
-
     setIsFetchingLayouts(true);
     try {
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '/api';
-      const res = await fetch(`${apiBaseUrl}/layouts`, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'application/json',
-        },
+      // Use the server-side internal proxy — the API key never leaves the
+      // Next.js server.  The proxy gates this on the NextAuth session cookie
+      // which we've already validated above.
+      const res = await fetch('/api/internal/proxy/layouts', {
+        headers: { Accept: 'application/json' },
       });
       if (res.ok) {
         const data = await res.json();
@@ -121,6 +126,9 @@ export default function Dashboard() {
     }
   }, [normalizeLayoutItem]);
 
+  // Only fetch once the session is confirmed — avoids a 401 race on first paint.
+
+
   // UseEffects (Must be before any conditional return)
   useEffect(() => {
     setTitle('Select Template');
@@ -130,8 +138,8 @@ export default function Dashboard() {
   }, [searchQuery, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
 
   useEffect(() => {
-    fetchLayouts();
-  }, [fetchLayouts]);
+    if (status === 'authenticated') fetchLayouts();
+  }, [status, fetchLayouts]);
 
   const filtered = layouts.filter(l => {
     const q = searchQuery.toLowerCase();

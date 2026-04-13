@@ -2,6 +2,68 @@ import { Canvas, Rect, FabricImage, Textbox, FabricText, Path, Shadow } from 'fa
 import type { CanvasItem } from './types';
 import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
 
+let picaInstance: any = null;
+
+/**
+ * Resizes an image using Pica for high quality.
+ */
+async function resizeImageWithPica(img: HTMLImageElement, width: number, height: number): Promise<HTMLCanvasElement> {
+  if (!picaInstance) {
+    const pica = (await import('pica')).default;
+    picaInstance = pica();
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(width);
+  canvas.height = Math.round(height);
+  await picaInstance.resize(img, canvas, {
+    unsharpAmount: 80,
+    unsharpRadius: 0.6,
+    unsharpThreshold: 2
+  });
+  return canvas;
+}
+
+/**
+ * Gets the best crop for an image using smartcrop.js.
+ */
+export async function getSmartCrop(img: HTMLImageElement | HTMLCanvasElement, width: number, height: number) {
+  try {
+    const smartcrop = (await import('smartcrop')).default;
+    const result = await smartcrop.crop(img, { width, height });
+    return result.topCrop;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Calculates the offset required to center the best crop area in the frame.
+ */
+export async function calculateSmartCropOffsets(
+  img: HTMLImageElement | HTMLCanvasElement,
+  frameW: number,
+  frameH: number,
+  rotation: number = 0,
+): Promise<{ x: number; y: number }> {
+  const imgW = img instanceof HTMLImageElement ? img.naturalWidth : img.width;
+  const imgH = img instanceof HTMLImageElement ? img.naturalHeight : img.height;
+  
+  const crop = await getSmartCrop(img, frameW, frameH);
+  if (!crop) return { x: 0, y: 0 };
+
+  const cropCenterX = crop.x + crop.width / 2;
+  const cropCenterY = crop.y + crop.height / 2;
+  
+  const localDX = cropCenterX - imgW / 2;
+  const localDY = cropCenterY - imgH / 2;
+
+  const rad = (rotation * Math.PI) / 180;
+  const canvasDX = localDX * Math.cos(rad) - localDY * Math.sin(rad);
+  const canvasDY = localDX * Math.sin(rad) + localDY * Math.cos(rad);
+
+  return { x: -canvasDX, y: -canvasDY };
+}
+
 // ─── Fabric-based canvas rendering ───────────────────────────────────────────
 
 export interface RenderCanvasOptions {
@@ -9,6 +71,7 @@ export interface RenderCanvasOptions {
   isExport?: boolean;
   includeMask?: boolean;
   layoutOverride?: any;
+  thumbnail?: boolean; // New option for low-res previews
 }
 
 export async function renderCanvas(
@@ -17,15 +80,17 @@ export async function renderCanvas(
   getFileUrlFn: (file: File) => string,
   options: RenderCanvasOptions = {},
 ): Promise<string> {
-  const { excludeFrameIdx = null, isExport = false, includeMask = true, layoutOverride } = options;
+  const { excludeFrameIdx = null, isExport = false, includeMask = true, layoutOverride, thumbnail = false } = options;
   const usedLayout = layoutOverride || layoutDef;
   if (!usedLayout) return '';
 
-  const canvasW = usedLayout.canvas?.width || usedLayout.surfaces?.[0]?.canvas?.width || 1200;
-  const canvasH = usedLayout.canvas?.height || usedLayout.surfaces?.[0]?.canvas?.height || 1800;
+  // Use a lower resolution for thumbnails to save memory and CPU
+  const multiplier = thumbnail ? 0.2 : 1;
+  const canvasW = Math.round((usedLayout.canvas?.width || usedLayout.surfaces?.[0]?.canvas?.width || 1200) * multiplier);
+  const canvasH = Math.round((usedLayout.canvas?.height || usedLayout.surfaces?.[0]?.canvas?.height || 1800) * multiplier);
 
   const frames = (usedLayout.canvas?.width ? usedLayout.frames : usedLayout.surfaces?.[0]?.frames) || 
-               (usedLayout.frames?.length > 0 ? usedLayout.frames : [{ x: 0, y: 0, width: canvasW, height: canvasH }]);
+               (usedLayout.frames?.length > 0 ? usedLayout.frames : [{ x: 0, y: 0, width: canvasW / multiplier, height: canvasH / multiplier }]);
 
   // Create an off-screen Fabric canvas
   const canvasEl = document.createElement('canvas');
@@ -47,12 +112,12 @@ export async function renderCanvas(
     if (!frameState) continue;
 
     const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-      const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
-      const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
-      const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-      const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-      const pxPerMm = canvasW / (usedLayout.canvas?.widthMm || 1);
-      const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm);
+      const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
+      const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
+      const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
+      const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
+      const pxPerMm = (canvasW / multiplier) / (usedLayout.canvas?.widthMm || 1);
+      const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
 
       const file = frameState.originalFile;
       if (!file) continue;
@@ -60,25 +125,47 @@ export async function renderCanvas(
 
       try {
         const fabricImg = await FabricImage.fromURL(imgSource, { crossOrigin: 'anonymous' });
-        const imgW = fabricImg.width!;
-        const imgH = fabricImg.height!;
+        let imgW = fabricImg.width!;
+        let imgH = fabricImg.height!;
 
-        const rot = frameState.rotation || 0;
-        const rad = (rot * Math.PI) / 180;
-        const sinA = Math.abs(Math.sin(rad));
-        const cosA = Math.abs(Math.cos(rad));
-        const effW = imgW * cosA + imgH * sinA;
-        const effH = imgW * sinA + imgH * cosA;
+        let rot = frameState.rotation || 0;
+        let rad = (rot * Math.PI) / 180;
+        let sinA = Math.abs(Math.sin(rad));
+        let cosA = Math.abs(Math.cos(rad));
+        let effW = imgW * cosA + imgH * sinA;
+        let effH = imgW * sinA + imgH * cosA;
 
-        const baseScale = frameState.fitMode === 'cover'
-          ? Math.max(fw / effW, fh / effH)
-          : Math.min(fw / effW, fh / effH);
-        const finalScale = baseScale * frameState.scale;
+        let baseScale = frameState.fitMode === 'cover'
+          ? Math.max(fw / (effW * multiplier), fh / (effH * multiplier))
+          : Math.min(fw / (effW * multiplier), fh / (effH * multiplier));
+        let finalScale = baseScale * frameState.scale * multiplier;
+
+        // --- Pica Integration for high quality downscaling on export ---
+        if (isExport && finalScale < 0.9) {
+          const targetW = imgW * finalScale;
+          const targetH = imgH * finalScale;
+          // Only resize if it's a significant downscale
+          if (targetW > 10 && targetH > 10) {
+            const picaCanvas = await resizeImageWithPica(fabricImg.getElement() as HTMLImageElement, targetW, targetH);
+            fabricImg.setElement(picaCanvas);
+            imgW = picaCanvas.width;
+            imgH = picaCanvas.height;
+            fabricImg.set({ width: imgW, height: imgH });
+            // Since we've resized to final size, the new scale is 1.0
+            finalScale = 1.0;
+            effW = imgW * cosA + imgH * sinA;
+            effH = imgW * sinA + imgH * cosA;
+          }
+        }
 
         const w = effW * finalScale;
         const h = effH * finalScale;
-        const x = fx + (fw - w) / 2 + frameState.offset.x;
-        const y = fy + (fh - h) / 2 + frameState.offset.y;
+        
+        const offsetX = frameState.offset.x * multiplier;
+        const offsetY = frameState.offset.y * multiplier;
+
+        const x = fx + (fw - w) / 2 + offsetX;
+        const y = fy + (fh - h) / 2 + offsetY;
 
         // Clip to frame region using relative clipPath
         const clipRect = new Rect({
@@ -113,12 +200,12 @@ export async function renderCanvas(
   let paperPathStr = `M 0 0 L ${canvasW} 0 L ${canvasW} ${canvasH} L 0 ${canvasH} Z`;
   frames.forEach((frameSpec: any) => {
     const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-    const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
-    const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
-    const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-    const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-    const pxPerMm = canvasW / (usedLayout.canvas?.widthMm || 1);
-    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm);
+    const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
+    const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
+    const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
+    const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
+    const pxPerMm = (canvasW / multiplier) / (usedLayout.canvas?.widthMm || 1);
+    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
 
     if (fr > 0) {
       // Counter-clockwise rounded rectangular hole (A command for arcs)
@@ -148,12 +235,12 @@ export async function renderCanvas(
   const outlineStrokeW = Math.max(2, Math.round(canvasW * 0.0025));
   for (const frameSpec of frames) {
     const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-    const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
-    const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
-    const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-    const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-    const pxPerMm = canvasW / (usedLayout.canvas?.widthMm || 1);
-    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm);
+    const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
+    const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
+    const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
+    const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
+    const pxPerMm = (canvasW / multiplier) / (usedLayout.canvas?.widthMm || 1);
+    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
     const outlineRect = new Rect({
       left: fx,
       top: fy,
@@ -179,10 +266,10 @@ export async function renderCanvas(
       if (excludeFrameIdx !== null && frameIdx === excludeFrameIdx) continue;
       const frameSpec = frames[frameIdx];
       const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-      const fx = isPercent ? frameSpec.x * canvasW : frameSpec.x;
-      const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
-      const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-      const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+      const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
+      const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
+      const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
+      const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
       const labelSize = Math.max(14, Math.min(fw, fh) * 0.08);
 
       const label = new FabricText(`Frame ${frameIdx + 1}`, {
@@ -217,7 +304,7 @@ export async function renderCanvas(
             left: tx, top: ty,
             originX: o.textAlign === 'left' ? 'left' : o.textAlign === 'right' ? 'right' : 'center',
             originY: 'center',
-            fontSize: o.fontSize,
+            fontSize: o.fontSize * multiplier,
             fontFamily: o.fontFamily || 'sans-serif',
             fill: o.color || '#000000',
             textAlign: (o.textAlign || 'center') as 'left' | 'center' | 'right' | 'justify',
@@ -276,7 +363,7 @@ export async function renderCanvas(
   fabricCanvas.renderAll();
   const dataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
   
-  const targetDpi = usedLayout.canvas?.dpi || 300;
+  const targetDpi = (usedLayout.canvas?.dpi || 300) * multiplier;
   return changeDpiDataUrl(dataUrl, targetDpi);
 
   } finally {

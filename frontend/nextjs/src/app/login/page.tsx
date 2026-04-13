@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, Suspense } from 'react';
-import { signIn } from 'next-auth/react';
 import { Lock, User, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { loginAction } from '@/app/actions/auth';
 
 const LoginForm = () => {
   const [username, setUsername] = useState('');
@@ -11,7 +11,6 @@ const LoginForm = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
 
@@ -20,21 +19,21 @@ const LoginForm = () => {
     setError(null);
     setIsLoading(true);
 
-    try {
-      const result = await signIn('credentials', {
-        redirect: false,
-        username,
-        password,
-      });
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+    formData.append('callbackUrl', callbackUrl);
 
+    try {
+      const result = await loginAction(formData);
       if (result?.error) {
-        setError('Invalid credentials. Please try again.');
+        setError(result.error);
         setIsLoading(false);
-      } else {
-        router.push(callbackUrl);
-        router.refresh();
       }
-    } catch {
+    } catch (err) {
+      // In Next.js, if the server action redirects (success), this catch won't hit
+      // unless it's a real error.
+      console.error('Login action error:', err);
       setError('An error occurred during login.');
       setIsLoading(false);
     }

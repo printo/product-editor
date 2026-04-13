@@ -104,8 +104,11 @@ export default function LayoutCreatorPage() {
   const router = useRouter();
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
 
-  // Static key for read operations — local DB lookup only, no PIA round-trip
-  const directKey = process.env.NEXT_PUBLIC_DIRECT_API_KEY ?? '';
+  // All API calls go through the server-side internal proxy at
+  // /api/internal/proxy/*.  The proxy is gated by the NextAuth session cookie
+  // and injects the server-only INTERNAL_API_KEY.  Ops-only paths are
+  // re-checked there against session.is_ops_team to prevent privilege
+  // escalation through the shared key.
 
   const [layouts, setLayouts] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -285,23 +288,22 @@ export default function LayoutCreatorPage() {
   // Fetch selected fonts from the backend on mount
   useEffect(() => {
     if (!session?.accessToken) return;
-    fetch('/api/fonts', {
-      headers: { Authorization: `Bearer ${directKey}`, Accept: 'application/json' },
+    fetch('/api/internal/proxy/fonts', {
+      headers: { Accept: 'application/json' },
     })
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data?.fonts) setSelectedFonts(data.fonts); })
       .catch(() => {});
-  }, [directKey]);
+  }, [session?.accessToken]);
 
   // Save selected fonts to the backend
   const saveFontsToBackend = useCallback(async (fonts: string[]) => {
     if (!session?.accessToken) return;
     setIsSavingFonts(true);
     try {
-      await fetch('/api/fonts', {
+      await fetch('/api/internal/proxy/fonts', {
         method: 'PUT',
         headers: {
-          Authorization: `Bearer ${session.accessToken}`,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
@@ -342,7 +344,7 @@ export default function LayoutCreatorPage() {
   }, [layoutType, activeSurfaceIdx]);
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    if (status === 'unauthenticated' || (session as any)?.error === 'RefreshAccessTokenError') {
       router.push('/login');
     } else if (status === 'authenticated' && !session?.is_ops_team) {
       router.push('/dashboard');
@@ -351,11 +353,8 @@ export default function LayoutCreatorPage() {
 
   const fetchLayouts = useCallback(async () => {
     try {
-      const res = await fetch('/api/ops/layouts', {
-        headers: {
-          'Authorization': `Bearer ${directKey}`,
-          'Accept': 'application/json'
-        }
+      const res = await fetch('/api/internal/proxy/ops/layouts', {
+        headers: { 'Accept': 'application/json' }
       });
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
@@ -375,7 +374,7 @@ export default function LayoutCreatorPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [directKey]);
+  }, []);
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -397,7 +396,7 @@ export default function LayoutCreatorPage() {
         const x = padding + c * (cellW + padding);
         const y = padding + r * (cellH + padding);
         newFrames.push({
-          id: Math.random().toString(36).substr(2, 9),
+          id: Math.random().toString(36).slice(2, 11),
           xMm: round2(x),
           yMm: round2(y),
           widthMm: round2(cellW),
@@ -534,10 +533,9 @@ export default function LayoutCreatorPage() {
     }
 
     try {
-      const res = await fetch('/api/ops/layouts', {
+      const res = await fetch('/api/internal/proxy/ops/layouts', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session?.accessToken}`,
           'Accept': 'application/json'
           // NOTE: Do NOT set Content-Type here – the browser sets it automatically
           // with the correct multipart boundary for FormData
@@ -562,12 +560,9 @@ export default function LayoutCreatorPage() {
 
   const handleDeleteLayout = async (layoutName: string) => {
     try {
-      const res = await fetch(`/api/ops/layouts/${layoutName}`, {
+      const res = await fetch(`/api/internal/proxy/ops/layouts/${layoutName}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session?.accessToken}`,
-          'Accept': 'application/json'
-        }
+        headers: { 'Accept': 'application/json' }
       });
 
       if (res.ok) {
@@ -590,11 +585,8 @@ export default function LayoutCreatorPage() {
   const fetchLayoutDetail = async (targetLayout: string) => {
     if (!targetLayout) return null;
     try {
-      const res = await fetch(`/api/ops/layouts/${targetLayout}`, {
-        headers: {
-          'Authorization': `Bearer ${directKey}`,
-          'Accept': 'application/json'
-        }
+      const res = await fetch(`/api/internal/proxy/ops/layouts/${targetLayout}`, {
+        headers: { 'Accept': 'application/json' }
       });
       if (!res.ok) return null;
       const text = await res.text();
@@ -620,7 +612,7 @@ export default function LayoutCreatorPage() {
     if (data.frames) {
       return data.frames.map((f: any) => ({
         ...f,
-        id: Math.random().toString(36).substr(2, 9),
+        id: Math.random().toString(36).slice(2, 11),
         xMm: round2(f.xMm ?? pxToMm(f.x * canvas.width, displayDpi)),
         yMm: round2(f.yMm ?? pxToMm(f.y * canvas.height, displayDpi)),
         widthMm: round2(f.widthMm ?? pxToMm(f.width * canvas.width, displayDpi)),
@@ -689,7 +681,7 @@ export default function LayoutCreatorPage() {
           for (let r = 0; r < data.grid.rows; r++) {
             for (let c = 0; c < data.grid.cols; c++) {
               fallbackFrames.push({
-                id: Math.random().toString(36).substr(2, 9),
+                id: Math.random().toString(36).slice(2, 11),
                 xMm: Number((paddMm + c * (cellW + paddMm)).toFixed(2)),
                 yMm: Number((paddMm + r * (cellH + paddMm)).toFixed(2)),
                 widthMm: Number(cellW.toFixed(2)),
@@ -725,7 +717,7 @@ export default function LayoutCreatorPage() {
       if (data.frames) {
         const loadedFrames = data.frames.map((f: any) => ({
           ...f,
-          id: Math.random().toString(36).substr(2, 9),
+          id: Math.random().toString(36).slice(2, 11),
           xMm: round2(f.xMm ?? pxToMm(f.x * data.canvas.width, displayDpi)),
           yMm: round2(f.yMm ?? pxToMm(f.y * data.canvas.height, displayDpi)),
           widthMm: round2(f.widthMm ?? pxToMm(f.width * data.canvas.width, displayDpi)),
@@ -1291,7 +1283,7 @@ export default function LayoutCreatorPage() {
                       <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider focus:outline-none">Print Areas Management (mm)</label>
                       <div className="flex items-center gap-4">
                         <button type="button" onClick={() => setShowGridGen(!showGridGen)} className="text-xs text-slate-500 hover:text-indigo-600 font-semibold transition-colors">Grid Gen</button>
-                        <button type="button" onClick={() => setActiveFrames(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), xMm: 0, yMm: 0, widthMm: 50, heightMm: 50, bleedMm: 0, x: 0, y: 0, width: 0, height: 0 }])} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Area</button>
+                        <button type="button" onClick={() => setActiveFrames(prev => [...prev, { id: Math.random().toString(36).slice(2, 11), xMm: 0, yMm: 0, widthMm: 50, heightMm: 50, bleedMm: 0, x: 0, y: 0, width: 0, height: 0 }])} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Area</button>
                       </div>
                     </div>
 

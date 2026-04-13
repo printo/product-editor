@@ -61,6 +61,18 @@ if [[ "$MODE" != "frontend" && "$MODE" != "backend" && "$MODE" != "both" ]]; the
   usage
 fi
 
+# ── Prepare Traefik config ──────────────────────────────────────────────────
+print_header "Preparing Proxy Configuration"
+mkdir -p proxy/traefik
+touch proxy/traefik/acme.json
+chmod 600 proxy/traefik/acme.json
+if [ ! -f proxy/traefik/.htpasswd ]; then
+  print_action "Creating default admin htpasswd..."
+  # default: admin / admin
+  echo "admin:\$apr1\$1mi1zF/0\$xS99PzABcMUa4qvh9b7aQ." > proxy/traefik/.htpasswd
+  print_status "Default .htpasswd created"
+fi
+
 # ── Use ONLY docker-compose.yml (never merge the dev override) ──────────────
 # docker-compose.override.yml disables Traefik labels, remaps ports, and runs
 # in dev mode — all of which break production.  By exporting COMPOSE_FILE we

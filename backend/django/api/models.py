@@ -37,7 +37,9 @@ class APIKey(models.Model):
         ]
     
     def __str__(self):
-        return f"{self.name} ({self.key[:20]}...)"
+        # Show only the trailing 4 chars — avoids leaking key material in
+        # Django error pages, admin search results, or log strings.
+        return f"{self.name} (...{self.key[-4:]})"
     
     @staticmethod
     def generate_key(name: str) -> str:
@@ -286,7 +288,9 @@ class RenderJob(models.Model):
         verbose_name = 'Render Job'
         verbose_name_plural = 'Render Jobs'
         indexes = [
-            models.Index(fields=['celery_task_id']),
+            # celery_task_id is already unique=True on the field, which creates
+            # a unique index in Postgres.  An explicit Index here would be a
+            # duplicate, so only the composite status/created_at index is needed.
             models.Index(fields=['status', 'created_at']),
         ]
     

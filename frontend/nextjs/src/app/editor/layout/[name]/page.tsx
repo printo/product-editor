@@ -18,8 +18,9 @@ import {
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/lib/zip-utils';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
+import { getImageMetadata, detectJpegColorSpace } from '@/lib/image-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
-import { renderCanvas as renderCanvasCore } from './fabric-renderer';
+import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 // Type-only import — erased at compile time, zero bundle impact.
 // The actual Fabric.js runtime is loaded lazily inside executeImposition / the
 // imposition preview useEffect so it does NOT inflate the initial page bundle.
@@ -27,37 +28,7 @@ import type { StaticCanvas as FabricStaticCanvas } from 'fabric';
 import { MM_TO_IN, computeImpositionLayout, resolveSheetSize } from './imposition';
 import { CanvasEditorModal } from './CanvasEditorModal';
 
-// ─── Color space detection (JPEG ICC profile) ────────────────────────────────
-// Reads the ICC profile embedded in JPEG APP2 markers and returns the
-// data color space signature ('CMYK', 'RGB ', etc.) or null if undetectable.
-async function detectJpegColorSpace(file: File): Promise<string | null> {
-  try {
-    const buf = await file.slice(0, 65536).arrayBuffer();
-    const d = new Uint8Array(buf);
-    if (d[0] !== 0xFF || d[1] !== 0xD8) return null; // not a JPEG
-    let offset = 2;
-    while (offset + 4 <= d.length) {
-      if (d[offset] !== 0xFF) break;
-      const marker = d[offset + 1];
-      if (marker === 0xD9 || marker === 0xDA) break; // EOI / SOS
-      const segLen = (d[offset + 2] << 8) | d[offset + 3];
-      if (marker === 0xE2 && segLen > 16) {
-        // Check for "ICC_PROFILE\0" at offset+4
-        const sig = String.fromCharCode(...Array.from(d.slice(offset + 4, offset + 16)));
-        if (sig === 'ICC_PROFILE\0') {
-          // ICC header color space at bytes [16..19] of the profile data
-          // Profile data starts at offset + 4 (marker data) + 12 (sig) + 2 (seq/total) = offset + 18
-          const icc = offset + 18;
-          if (icc + 20 <= d.length) {
-            return String.fromCharCode(d[icc + 16], d[icc + 17], d[icc + 18], d[icc + 19]);
-          }
-        }
-      }
-      offset += 2 + segLen;
-    }
-  } catch { /* ignore */ }
-  return null;
-}
+// ─── Fabric-based imposition / export ─────────────────────────────────────
 
 export default function LayoutEditorPage() {
   const params = useParams();
@@ -101,18 +72,24 @@ export default function LayoutEditorPage() {
     }
   }, [orderId]);
 
-  // For embed flow: use short-lived embed token (never exposes real key).
-  // For regular users: use the static DIRECT_API_KEY baked into the bundle —
-  // this bypasses PIA token verification entirely (local DB lookup only, ~1ms).
-  // The user is already authenticated via NextAuth session; the API key just
-  // satisfies backend permission checks for read/generate operations.
-  const directKey = process.env.NEXT_PUBLIC_DIRECT_API_KEY ?? '';
+  // Two distinct request paths, deliberately kept separate:
+  //
+  //   1. EMBED iframe flow → /api/embed/proxy/* with X-Embed-Token header.
+  //      The proxy exchanges the short-lived UUID token for the real API key
+  //      server-side; the browser never holds a real key.
+  //
+  //   2. PIA-LOGGED-IN dashboard/editor flow → /api/internal/proxy/* with no
+  //      auth header at all.  The proxy uses the NextAuth session cookie to
+  //      gate access and injects the server-side INTERNAL_API_KEY.  The
+  //      browser never holds a real key here either — replacing the previous
+  //      NEXT_PUBLIC_DIRECT_API_KEY which leaked into the client bundle.
   const getAuthHeaders = useCallback((): Record<string, string> => {
     if (embedToken) return { 'X-Embed-Token': embedToken };
-    return { Authorization: `Bearer ${directKey}` };
-  }, [embedToken, directKey]);
+    // Internal proxy reads the session cookie automatically; no header needed.
+    return {};
+  }, [embedToken]);
 
-  const apiBase = embedToken ? '/api/embed/proxy' : '/api';
+  const apiBase = embedToken ? '/api/embed/proxy' : '/api/internal/proxy';
 
   const isAdmin = !embedToken &&
     (session?.user?.role === 'admin' || (session as any)?.is_ops_team === true);
@@ -216,25 +193,23 @@ export default function LayoutEditorPage() {
   }, [embedToken, router, setTitle, setDescription, setCenterActions, setRightActions]);
 
   useEffect(() => {
-    if (status === 'unauthenticated' && !embedToken) {
+    if ((status === 'unauthenticated' || (session as any)?.error === 'RefreshAccessTokenError') && !embedToken) {
       router.push('/login');
     }
-  }, [status, embedToken, router]);
+  }, [status, session, embedToken, router]);
 
   useEffect(() => {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (embedToken) {
       headers['X-Embed-Token'] = embedToken;
-    } else {
-      // Use static key — no PIA round-trip needed for a fonts read
-      headers['Authorization'] = `Bearer ${directKey}`;
     }
-    const fontsUrl = embedToken ? '/api/embed/proxy/fonts' : '/api/fonts';
+    // Internal proxy uses the NextAuth session cookie; no auth header needed.
+    const fontsUrl = embedToken ? '/api/embed/proxy/fonts' : '/api/internal/proxy/fonts';
     fetch(fontsUrl, { headers })
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data?.fonts) setSelectedFonts(data.fonts); })
       .catch(() => { });
-  }, [embedToken, directKey]);
+  }, [embedToken]);
 
   const loadGoogleFont = useCallback((fontName: string) => {
     if (fontsLoaded.has(fontName) || ['sans-serif', 'serif', 'monospace', 'cursive'].includes(fontName)) return;
@@ -376,14 +351,15 @@ export default function LayoutEditorPage() {
 
   const renderCanvas = useCallback(async (
     canvasItem: CanvasItem,
-    excludeFrameIdx: number | null = null,
-    isExport = false,
-    includeMask = true,
-    layoutOverride?: any,
+    options: {
+      excludeFrameIdx?: number | null;
+      isExport?: boolean;
+      includeMask?: boolean;
+      layoutOverride?: any;
+      thumbnail?: boolean;
+    } = {}
   ) => {
-    return renderCanvasCore(canvasItem, layoutOverride || layoutRef.current, getFileUrl, {
-      excludeFrameIdx, isExport, includeMask,
-    });
+    return renderCanvasCore(canvasItem, options.layoutOverride || layoutRef.current, getFileUrl, options);
   }, [getFileUrl]);
 
   // ── Auto-save: debounce 2 s after canvases change ────────────────────────
@@ -553,9 +529,35 @@ export default function LayoutEditorPage() {
               originalFile: file // Ensure we use the latest file object
             });
           } else {
+            const { width: imgW, height: imgH, element: imgEl } = await getImageMetadata(file);
+            const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames) || [];
+            const frameSpec = frames[f] || { x: 0, y: 0, width: 1, height: 1 };
+            const canvasW = layoutDef?.canvas?.width || (layoutDef as any)?.surfaces?.[0]?.canvas?.width || 1200;
+            const canvasH = layoutDef?.canvas?.height || (layoutDef as any)?.surfaces?.[0]?.canvas?.height || 1800;
+            const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+            const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+            const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+
+            const imgRatio = imgW / imgH;
+            const targetRatio = frameW / frameH;
+
+            // Check if the image orientation matches the target orientation 
+            const isImgLandscape = imgRatio > 1;
+            const isTargetLandscape = targetRatio > 1;
+
+            let rotation = 0;
+            if (isImgLandscape !== isTargetLandscape) {
+              rotation = 90; // Suggest/Apply rotation to fill layout better
+            }
+
+            let offset = { x: 0, y: 0 };
+            if (fitMode === 'cover') {
+              offset = await calculateSmartCropOffsets(imgEl, frameW, frameH, rotation);
+            }
+
             canvasFrames.push({
               id: f, originalFile: file,
-              offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode,
+              offset, scale: 1, rotation, fitMode,
             });
           }
         }
@@ -583,8 +585,9 @@ export default function LayoutEditorPage() {
         });
 
       if (framesChanged || !item.dataUrl) {
-        item.dataUrl = await renderCanvas({ ...item, dataUrl: null }, null, false, true, layoutDef);
-      }
+          // Use thumbnail for grid previews to save memory and CPU
+          item.dataUrl = await renderCanvas({ ...item, dataUrl: null }, { thumbnail: true, layoutOverride: layoutDef });
+        }
 
       newCanvases.push(item);
     }
@@ -605,71 +608,105 @@ export default function LayoutEditorPage() {
 
     try {
       const built: CanvasItem[] = [];
-      for (let i = 0; i < canvasCount; i++) {
-        const canvasFrames: FrameState[] = [];
-        const existing = existingCanvases[i];
+      const BATCH_SIZE = 5;
+      
+      for (let i = 0; i < canvasCount; i += BATCH_SIZE) {
+        const end = Math.min(i + BATCH_SIZE, canvasCount);
+        const batchPromises: Promise<CanvasItem>[] = [];
 
-        for (let f = 0; f < frameCount; f++) {
-          const file = files[(i * frameCount + f) % files.length];
-          const existingFrame = existing?.frames?.[f];
+        for (let batchIdx = i; batchIdx < end; batchIdx++) {
+          const p: Promise<CanvasItem> = (async () => {
+            const canvasFrames: FrameState[] = [];
+            const existing = existingCanvases[batchIdx];
 
-          if (file) {
-            const isSameFile = existingFrame?.originalFile && 
-                              existingFrame.originalFile.name === file.name && 
-                              existingFrame.originalFile.size === file.size &&
-                              existingFrame.originalFile.lastModified === file.lastModified;
-            
-            if (isSameFile && existingFrame) {
-              canvasFrames.push({
-                ...existingFrame,
-                originalFile: file
-              });
-            } else {
-              canvasFrames.push({
-                id: f, originalFile: file,
-                offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: globalFitModeRef.current,
-              });
+            for (let f = 0; f < frameCount; f++) {
+              const file = files[(batchIdx * frameCount + f) % files.length];
+              const existingFrame = existing?.frames?.[f];
+
+              if (file) {
+                const isSameFile = existingFrame?.originalFile && 
+                                  existingFrame.originalFile.name === file.name && 
+                                  existingFrame.originalFile.size === file.size &&
+                                  existingFrame.originalFile.lastModified === file.lastModified;
+                
+                if (isSameFile && existingFrame) {
+                  canvasFrames.push({
+                    ...existingFrame,
+                    originalFile: file
+                  });
+                } else {
+                  const { width: imgW, height: imgH, element: imgEl } = await getImageMetadata(file);
+                  const frameSpec = layout.frames?.[f] || { width: 1, height: 1 };
+                  const canvasW = layout.canvas?.width || layout.surfaces?.[0]?.canvas?.width || 1200;
+                  const canvasH = layout.canvas?.height || layout.surfaces?.[0]?.canvas?.height || 1800;
+                  const frameW = frameSpec.width <= 1 ? frameSpec.width * canvasW : frameSpec.width;
+                  const frameH = frameSpec.height <= 1 ? frameSpec.height * canvasH : frameSpec.height;
+
+                  const imgRatio = imgW / imgH;
+                  const targetRatio = frameW / frameH;
+                  const isImgLandscape = imgRatio > 1;
+                  const isTargetLandscape = targetRatio > 1;
+
+                  let rotation = 0;
+                  if (isImgLandscape !== isTargetLandscape) {
+                    rotation = 90;
+                  }
+
+                  let offset = { x: 0, y: 0 };
+                  if (globalFitModeRef.current === 'cover') {
+                    offset = await calculateSmartCropOffsets(imgEl, frameW, frameH, rotation);
+                  }
+
+                  canvasFrames.push({
+                    id: f, originalFile: file,
+                    offset, scale: 1, rotation, fitMode: globalFitModeRef.current,
+                  });
+                }
+              }
             }
-          }
-        }
-        const item: CanvasItem = {
-          id: i, 
-          frames: canvasFrames, 
-          overlays: existing?.overlays || [],
-          bgColor: existing?.bgColor || '#ffffff', 
-          paperColor: existing?.paperColor || '#ffffff', 
-          dataUrl: existing?.dataUrl || null,
-        };
+            
+            const item: CanvasItem = {
+              id: batchIdx, 
+              frames: canvasFrames, 
+              overlays: existing?.overlays || [],
+              bgColor: existing?.bgColor || '#ffffff', 
+              paperColor: existing?.paperColor || '#ffffff', 
+              dataUrl: existing?.dataUrl || null,
+            };
 
-        // Check if we actually need to re-render this canvas
-        const framesChanged = !existing || 
-          canvasFrames.length !== existing.frames.length ||
-          canvasFrames.some((f, idx) => {
-            const ef = existing.frames[idx];
-            // Compare file identity and key transforms to decide if re-render is needed
-            return !ef || 
-                   ef.originalFile !== f.originalFile || 
-                   ef.rotation !== f.rotation || 
-                   ef.fitMode !== f.fitMode ||
-                   ef.scale !== f.scale ||
-                   ef.offset.x !== f.offset.x ||
-                   ef.offset.y !== f.offset.y;
-          });
+            const framesChanged = !existing || 
+              canvasFrames.length !== existing.frames.length ||
+              canvasFrames.some((f, idx) => {
+                const ef = existing.frames[idx];
+                return !ef || 
+                       ef.originalFile !== f.originalFile || 
+                       ef.rotation !== f.rotation || 
+                       ef.fitMode !== f.fitMode ||
+                       ef.scale !== f.scale ||
+                       ef.offset.x !== f.offset.x ||
+                       ef.offset.y !== f.offset.y;
+              });
 
-        if (framesChanged || !item.dataUrl) {
-          item.dataUrl = await renderCanvas({ ...item, dataUrl: null }, null, false, true);
+            if (framesChanged || !item.dataUrl) {
+              item.dataUrl = await renderCanvas({ ...item, dataUrl: null }, { thumbnail: true });
+            }
+            return item;
+          })();
+          batchPromises.push(p);
         }
+
+        const batchResults = await Promise.all(batchPromises);
+        built.push(...batchResults);
         
-        built.push(item);
-        // Progressive: each finished canvas appears immediately — user sees
-        // their images loading one by one rather than all-at-once at the end.
-        // For large batches, update every 5 images or at the end to avoid update depth errors
-        if (i % 5 === 0 || i === canvasCount - 1) {
-          setCanvases([...built]);
-          setRenderProgress({ current: i + 1, total: canvasCount });
-        }
+        // Update UI every batch
+        setCanvases([...built]);
+        setRenderProgress({ current: built.length, total: canvasCount });
+        
+        // Yield to main thread
+        await new Promise(r => setTimeout(r, 0));
       }
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError('Failed to process images');
     } finally {
       setIsProcessing(false);
@@ -700,11 +737,25 @@ export default function LayoutEditorPage() {
           if (cancelled) return;
           const chunk = s.canvases.slice(i, i + chunkSize);
           const processedChunk = await Promise.all(chunk.map(async (c) => {
-            const patchedCanvas = {
-              ...c,
-              frames: c.frames.map(f => ({ ...f, fitMode: globalFitMode }))
-            };
-            const dataUrl = await renderCanvas(patchedCanvas, null, false, true, s.def);
+            const patchedFrames = await Promise.all(c.frames.map(async (f, fIdx) => {
+              let newOffset = { ...f.offset };
+              if (globalFitMode === 'cover' && f.originalFile) {
+                const { element: imgEl } = await getImageMetadata(f.originalFile);
+                const frames = s.def.frames || [];
+                const frameSpec = frames[fIdx] || { x: 0, y: 0, width: 1, height: 1 };
+                const canvasW = s.def.canvas?.width || 1200;
+                const canvasH = s.def.canvas?.height || 1800;
+                const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+                const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+                const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+                newOffset = await calculateSmartCropOffsets(imgEl, frameW, frameH, f.rotation);
+              } else if (globalFitMode === 'contain') {
+                newOffset = { x: 0, y: 0 };
+              }
+              return { ...f, fitMode: globalFitMode, offset: newOffset };
+            }));
+            const patchedCanvas = { ...c, frames: patchedFrames };
+            const dataUrl = await renderCanvas(patchedCanvas, { thumbnail: true, layoutOverride: s.def });
             return { ...patchedCanvas, dataUrl };
           }));
           updatedCanvases.push(...processedChunk);
@@ -760,7 +811,7 @@ export default function LayoutEditorPage() {
     }
   };
 
-  const updateCanvasState = useCallback(async (idx: number, surfaceKey: string | null, updateFn: (c: CanvasItem) => CanvasItem) => {
+  const updateCanvasState = useCallback(async (idx: number, surfaceKey: string | null, updateFn: (c: CanvasItem) => CanvasItem | Promise<CanvasItem>) => {
     if (surfaceKey) {
       const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
       if (sIdx === -1) return;
@@ -768,12 +819,12 @@ export default function LayoutEditorPage() {
       const targetCanvas = targetSurface.canvases[idx];
       if (!targetCanvas) return;
 
-      const updatedCanvas = updateFn(targetCanvas);
+      const updatedCanvas = await updateFn(targetCanvas);
       // If every frame is missing its original file (restored from saved state,
       // no re-upload yet), skip the re-render to avoid overwriting the stored
       // dataUrl preview with a blank canvas.
       const canRerender = updatedCanvas.frames.some(f => f.originalFile !== null);
-      if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas);
+      if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas, { thumbnail: true });
 
       setSurfaceStates(prev => prev.map((s, i) =>
         i === sIdx ? { ...s, canvases: s.canvases.map((c, ci) => ci === idx ? updatedCanvas : c) } : s
@@ -785,26 +836,67 @@ export default function LayoutEditorPage() {
       const targetCanvas = canvases[idx];
       if (!targetCanvas) return;
 
-      const updatedCanvas = updateFn(targetCanvas);
+      const updatedCanvas = await updateFn(targetCanvas);
       const canRerender = updatedCanvas.frames.some(f => f.originalFile !== null);
-      if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas);
+      if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas, { thumbnail: true });
 
       setCanvases(prev => prev.map((c, ci) => ci === idx ? updatedCanvas : c));
     }
   }, [surfaceStates, canvases, activeSurfaceKey, renderCanvas]);
 
   const handleQuickRotate = (idx: number, surfaceKey: string | null = null) => {
-    updateCanvasState(idx, surfaceKey, (c) => ({
-      ...c,
-      frames: c.frames.map(f => ({ ...f, rotation: (f.rotation + 90) % 360 }))
-    }));
+    updateCanvasState(idx, surfaceKey, async (c) => {
+      const updatedFrames: FrameState[] = await Promise.all(c.frames.map(async (f, fIdx) => {
+        const newRotation = (f.rotation + 90) % 360;
+        let newOffset = { ...f.offset };
+        
+        // If the user hasn't manually adjusted the image, we can re-calculate smartcrop for the new rotation
+        if (f.fitMode === 'cover' && f.offset.x === 0 && f.offset.y === 0 && f.scale === 1 && f.originalFile) {
+          const { element: imgEl } = await getImageMetadata(f.originalFile);
+          const layoutDef = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.def : layout;
+          const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames) || [];
+          const frameSpec = frames[fIdx] || { x: 0, y: 0, width: 1, height: 1 };
+          const canvasW = layoutDef?.canvas?.width || (layoutDef as any)?.surfaces?.[0]?.canvas?.width || 1200;
+          const canvasH = layoutDef?.canvas?.height || (layoutDef as any)?.surfaces?.[0]?.canvas?.height || 1800;
+          const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+          const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+          const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+
+          newOffset = await calculateSmartCropOffsets(imgEl, frameW, frameH, newRotation);
+        }
+
+        return { ...f, rotation: newRotation, offset: newOffset };
+      }));
+      return { ...c, frames: updatedFrames };
+    });
   };
 
   const handleQuickToggleFit = (idx: number, surfaceKey: string | null = null) => {
-    updateCanvasState(idx, surfaceKey, (c) => ({
-      ...c,
-      frames: c.frames.map(f => ({ ...f, fitMode: f.fitMode === 'contain' ? 'cover' : 'contain' }))
-    }));
+    updateCanvasState(idx, surfaceKey, async (c) => {
+      const updatedFrames: FrameState[] = await Promise.all(c.frames.map(async (f, fIdx) => {
+        const newFitMode: FitMode = f.fitMode === 'contain' ? 'cover' : 'contain';
+        let newOffset = { ...f.offset };
+
+        if (newFitMode === 'cover' && f.offset.x === 0 && f.offset.y === 0 && f.scale === 1 && f.originalFile) {
+          const { element: imgEl } = await getImageMetadata(f.originalFile);
+          const layoutDef = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.def : layout;
+          const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames) || [];
+          const frameSpec = frames[fIdx] || { x: 0, y: 0, width: 1, height: 1 };
+          const canvasW = layoutDef?.canvas?.width || (layoutDef as any)?.surfaces?.[0]?.canvas?.width || 1200;
+          const canvasH = layoutDef?.canvas?.height || (layoutDef as any)?.surfaces?.[0]?.canvas?.height || 1800;
+          const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+          const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+          const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+
+          newOffset = await calculateSmartCropOffsets(imgEl, frameW, frameH, f.rotation);
+        } else if (newFitMode === 'contain') {
+          newOffset = { x: 0, y: 0 };
+        }
+
+        return { ...f, fitMode: newFitMode, offset: newOffset };
+      }));
+      return { ...c, frames: updatedFrames };
+    });
   };
 
   const handleQuickCycleBg = (idx: number, surfaceKey: string | null = null) => {
@@ -1204,6 +1296,7 @@ export default function LayoutEditorPage() {
 
   const executeBatchDownload = async () => {
     setIsDownloading(true);
+    setRenderProgress({ current: 0, total: canvases.length });
     try {
       const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
 
@@ -1213,37 +1306,56 @@ export default function LayoutEditorPage() {
       // zip/print_file/ -> High-quality, print-ready PNGs (no shadow)
 
       const filesToZip: { name: string; url?: string; blob?: Blob }[] = [];
+      const totalSteps = canvases.length;
+      let processed = 0;
 
       // 1. High-quality Print Files (no shadow)
+      // Process in small batches to keep UI responsive and allow progress updates
+      const BATCH_SIZE = 5;
+      
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
-          const printCanvases = await Promise.all(s.canvases.map(c => renderCanvas(c, null, true, false, s.def)));
+          for (let i = 0; i < s.canvases.length; i += BATCH_SIZE) {
+            const chunk = s.canvases.slice(i, i + BATCH_SIZE);
+            const printCanvases = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: s.def })));
+            
+            printCanvases.forEach((dataUrl, ci) => {
+              if (dataUrl) {
+                filesToZip.push({
+                  name: `print_file/${s.key}-${i + ci + 1}.png`,
+                  url: dataUrl
+                });
+              }
+            });
+            processed += chunk.length;
+            setRenderProgress({ current: processed, total: totalSteps });
+            await new Promise(r => setTimeout(r, 0)); // Yield to main thread
+          }
+        }
+      } else {
+        for (let i = 0; i < canvases.length; i += BATCH_SIZE) {
+          const chunk = canvases.slice(i, i + BATCH_SIZE);
+          const printCanvases = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false })));
+          
           printCanvases.forEach((dataUrl, ci) => {
             if (dataUrl) {
               filesToZip.push({
-                name: `print_file/${s.key}-${ci + 1}.png`,
+                name: `print_file/canvas-${i + ci + 1}.png`,
                 url: dataUrl
               });
             }
           });
+          processed += chunk.length;
+          setRenderProgress({ current: processed, total: totalSteps });
+          await new Promise(r => setTimeout(r, 0)); // Yield to main thread
         }
-      } else {
-        const printCanvases = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
-        printCanvases.forEach((dataUrl, i) => {
-          if (dataUrl) {
-            filesToZip.push({
-              name: `print_file/canvas-${i + 1}.png`,
-              url: dataUrl
-            });
-          }
-        });
       }
 
-      // 2. Low-quality Mockup Files (with shadow)
+      // 2. Low-quality Mockup Files (with shadow) - Use existing dataUrls
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
           s.canvases.forEach((c, ci) => {
-            if (c.dataUrl) { // Use existing low-res data URL with shadow
+            if (c.dataUrl) {
               filesToZip.push({
                 name: `mockup_file/${s.key}-${ci + 1}.png`,
                 url: c.dataUrl
@@ -1267,7 +1379,7 @@ export default function LayoutEditorPage() {
         ? surfaceStates.flatMap(s => s.files)
         : files;
 
-      allOriginalFiles.forEach((file, i) => {
+      allOriginalFiles.forEach((file) => {
         const url = getFileUrl(file);
         if (url) {
           filesToZip.push({
@@ -1277,12 +1389,19 @@ export default function LayoutEditorPage() {
         }
       });
 
-      downloadBlob(await createZipFromDataUrls(filesToZip as { name: string; url: string }[]), `${zipName}.zip`);
+      // Zipping with progress
+      const blob = await createZipFromDataUrls(
+        filesToZip as { name: string; url: string }[],
+        (p) => setRenderProgress({ current: Math.round(p * 100), total: 100 })
+      );
+      
+      downloadBlob(blob, `${zipName}.zip`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed.');
     } finally {
       setIsDownloading(false);
       setShowDownloadModal(false);
+      setRenderProgress(null);
     }
   };
 
@@ -1305,7 +1424,7 @@ export default function LayoutEditorPage() {
       const sheetW = Math.round(sheetWIn * dpi), sheetH = Math.round(sheetHIn * dpi);
 
       // Use TRUE for includeMask so we get the frames in the print sheets
-      const canvasDataUrls = await Promise.all(allCanvases.map(c => renderCanvas(c, null, true, true)));
+      const canvasDataUrls = await Promise.all(allCanvases.map(c => renderCanvas(c, { isExport: true, includeMask: true })));
 
       const cropMarkLen = Math.round((5 / MM_TO_IN) * dpi);
       const cropMarkOff = Math.round((2 / MM_TO_IN) * dpi);
@@ -1349,8 +1468,20 @@ export default function LayoutEditorPage() {
   const handleSubmitDesign = async () => {
     if (canvases.length === 0) return;
     setIsDownloading(true);
+    setRenderProgress({ current: 0, total: canvases.length });
     try {
-      const rendered = await Promise.all(canvases.map(c => renderCanvas(c, null, true, false)));
+      const rendered: string[] = [];
+      const BATCH_SIZE = 5;
+
+      for (let i = 0; i < canvases.length; i += BATCH_SIZE) {
+        const chunk = canvases.slice(i, i + BATCH_SIZE);
+        const chunkRendered = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false })));
+        rendered.push(...chunkRendered.filter((url): url is string => url !== null));
+        
+        setRenderProgress({ current: rendered.length, total: canvases.length });
+        await new Promise(r => setTimeout(r, 0)); // Yield to main thread
+      }
+
       const surfacesPayload: Record<string, { index: number; dataUrl: string }[]> = {};
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
@@ -1364,8 +1495,12 @@ export default function LayoutEditorPage() {
         canvases: rendered.map((dataUrl, i) => ({ index: i, dataUrl })),
       }, '*');
       setSubmitted(true);
-    } catch { setError('Failed to prepare design.'); }
-    finally { setIsDownloading(false); }
+    } catch { 
+      setError('Failed to prepare design.'); 
+    } finally { 
+      setIsDownloading(false); 
+      setRenderProgress(null);
+    }
   };
 
   if (status === 'loading' && !embedToken) return (

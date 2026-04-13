@@ -74,11 +74,15 @@ class RateLimitMiddleware(MiddlewareMixin):
                         f"Rate limit exceeded for IP {client_ip} "
                         f"(count={count}, limit={self.RATE_LIMIT})"
                     )
-                    return JsonResponse({
+                    response = JsonResponse({
                         'error': 'Rate limit exceeded',
                         'detail': 'Too many requests. Please try again later.',
                         'retry_after': self.WINDOW_SECONDS,
                     }, status=429)
+                    # RFC 6585 §4 — standard header; HTTP clients and proxies
+                    # use this, not the JSON body field.
+                    response['Retry-After'] = str(self.WINDOW_SECONDS)
+                    return response
             except Exception as exc:
                 # If the cache backend is unavailable, fail open to avoid
                 # blocking legitimate traffic.

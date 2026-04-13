@@ -18,20 +18,24 @@ def check_python_version():
 
 def check_dependencies():
     """Check required dependencies"""
-    required_packages = [
-        'django',
-        'djangorestframework',
-        'django-cors-headers',
-        'pillow',
-    ]
-    
+    # Maps PyPI distribution name -> actual import name. Naive
+    # `name.replace('-', '_')` is wrong for several common packages
+    # (djangorestframework -> rest_framework, django-cors-headers -> corsheaders),
+    # which would otherwise produce false "missing dependency" reports.
+    required_packages = {
+        'django': 'django',
+        'djangorestframework': 'rest_framework',
+        'django-cors-headers': 'corsheaders',
+        'pillow': 'PIL',
+    }
+
     print("Checking dependencies...")
-    
+
     missing_required = []
-    
-    for package in required_packages:
+
+    for package, import_name in required_packages.items():
         try:
-            __import__(package.replace('-', '_'))
+            __import__(import_name)
             print(f"  ✅ {package}")
         except ImportError:
             print(f"  ❌ {package} (REQUIRED)")

@@ -29,7 +29,16 @@ export async function POST(req: NextRequest) {
       body: rawBody,
     });
 
-    const data = await res.json();
+    // Backend may return non-JSON on gateway errors (502/504 HTML pages,
+    // empty bodies, etc.). Guard the parse so the proxy always returns
+    // a JSON envelope instead of crashing into a 500.
+    const text = await res.text();
+    let data: any;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { detail: text || 'Backend returned non-JSON response', status: res.status };
+    }
     return NextResponse.json(data, { status: res.status });
   } catch (error: any) {
     console.error("Upload Proxy Error:", error);

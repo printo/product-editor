@@ -5,10 +5,10 @@
 // no internal layout geometry is exposed to end users.
 const _DEV = process.env.NODE_ENV !== 'production';
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const log              = _DEV ? (...a: any[]) => log(...a)             : (..._: any[]) => {};
-const logGroup         = _DEV ? (...a: any[]) => logGroup(...a)           : (..._: any[]) => {};
-const logGroupCollapsed = _DEV ? (...a: any[]) => logGroupCollapsed(...a) : (..._: any[]) => {};
-const logGroupEnd      = _DEV ? () => logGroupEnd()                        : () => {};
+const log              = _DEV ? (...a: any[]) => console.log(...a)             : (..._: any[]) => {};
+const logGroup         = _DEV ? (...a: any[]) => console.group(...a)           : (..._: any[]) => {};
+const logGroupCollapsed = _DEV ? (...a: any[]) => console.groupCollapsed(...a) : (..._: any[]) => {};
+const logGroupEnd      = _DEV ? () => console.groupEnd()                       : () => {};
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
@@ -693,16 +693,25 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         if (buildGenRef.current !== gen) return;
         const imgW = img.width!;
         const imgH = img.height!;
+        const rot = frameState.rotation || 0;
+        const rad = (rot * Math.PI) / 180;
+        const sinA = Math.abs(Math.sin(rad));
+        const cosA = Math.abs(Math.cos(rad));
+        const effW = imgW * cosA + imgH * sinA;
+        const effH = imgW * sinA + imgH * cosA;
+
         let scale = frameState.scale;
         if (frameState.fitMode === 'contain' || frameState.fitMode === 'cover') {
-          const sX = fw / imgW;
-          const sY = fh / imgH;
+          const sX = fw / effW;
+          const sY = fh / effH;
           const baseScale = frameState.fitMode === 'contain' ? Math.min(sX, sY) : Math.max(sX, sY);
           scale = baseScale * frameState.scale;
         }
         (img as any).__clipRect = { fx, fy, fw, fh };
-        const imgX = fx + (fw - imgW * scale) / 2 + frameState.offset.x;
-        const imgY = fy + (fh - imgH * scale) / 2 + frameState.offset.y;
+        const w = effW * scale;
+        const h = effH * scale;
+        const imgX = fx + (fw - w) / 2 + frameState.offset.x;
+        const imgY = fy + (fh - h) / 2 + frameState.offset.y;
 
         // ✅ Add clipPath to images in editor for robust circular/rounded layout support
         const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
@@ -715,9 +724,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         });
 
         img.set({
-          left: imgX + (imgW * scale) / 2, top: imgY + (imgH * scale) / 2,
+          left: imgX + w / 2, top: imgY + h / 2,
           originX: 'center', originY: 'center',
-          scaleX: scale, scaleY: scale, angle: frameState.rotation,
+          scaleX: scale, scaleY: scale, angle: rot,
           selectable: true, hasControls: true,
           cornerColor: '#6366f1', cornerSize: 12, cornerStyle: 'circle',
           transparentCorners: false, borderColor: '#6366f1',

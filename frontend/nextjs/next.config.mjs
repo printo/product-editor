@@ -4,7 +4,7 @@ const nextConfig = {
   images: {
     unoptimized: true, // next/image not used — disable optimizer to mitigate GHSA-3x4c-7xq6-9pq8
   },
-  transpilePackages: ['lucide-react'],
+  transpilePackages: ['lucide-react', 'pica', 'smartcrop'],
   allowedDevOrigins: ['product-editor.printo.in'],
   turbopack: {}, // ✅ Required in Next 16 if 'webpack' block is present
   async rewrites() {

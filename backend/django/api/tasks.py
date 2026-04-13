@@ -315,6 +315,7 @@ def garbage_collector_task():
     deleted_count = 0
     deleted_bytes = 0
     skipped_count = 0
+    export_dirs_to_clean: set = set()
 
     for export in expired_exports:
         # Skip files whose path contains a manual-review order_id segment.
@@ -332,12 +333,21 @@ def garbage_collector_task():
                 os.remove(export.export_file_path)
                 deleted_bytes += file_size
                 deleted_count += 1
+                export_dirs_to_clean.add(os.path.dirname(export.export_file_path))
 
             export.is_deleted = True
             export.save(update_fields=['is_deleted'])
             logger.info("GC: deleted expired file %s", export.export_file_path)
         except Exception as exc:
             logger.error("GC: failed to delete %s: %s", export.export_file_path, exc)
+
+    # Remove per-request export subdirectories that are now empty (sync renders).
+    for export_dir in export_dirs_to_clean:
+        try:
+            if export_dir and os.path.isdir(export_dir):
+                os.rmdir(export_dir)  # only succeeds if the directory is empty
+        except OSError:
+            pass
 
     # ── Upload file cleanup ─────────────────────────────────────────────────
     # Delete uploaded images older than retention period (same as exports).
@@ -401,6 +411,7 @@ def garbage_collector_task():
             .select_related('canvas_data')
         )
         for rjob in expired_jobs:
+            dirs_to_clean: set = set()
             for fpath in (rjob.output_paths or []):
                 try:
                     if os.path.exists(fpath):
@@ -408,8 +419,18 @@ def garbage_collector_task():
                         os.remove(fpath)
                         async_bytes_deleted += fsize
                         async_files_deleted += 1
+                        dirs_to_clean.add(os.path.dirname(fpath))
                 except Exception as exc:
                     logger.error("GC: failed to delete async render file %s: %s", fpath, exc)
+            # Remove the per-job subdirectory if it is now empty.
+            # os.rmdir raises OSError if the directory is non-empty, which
+            # we silently ignore to avoid breaking jobs with partially-deleted files.
+            for job_dir in dirs_to_clean:
+                try:
+                    if job_dir and os.path.isdir(job_dir):
+                        os.rmdir(job_dir)  # no-op if not empty
+                except OSError:
+                    pass
     except Exception as exc:
         logger.error("GC: async render file cleanup failed: %s", exc)
 

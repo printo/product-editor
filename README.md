@@ -90,6 +90,7 @@ LETSENCRYPT_EMAIL=devops@printo.in
 POSTGRES_PASSWORD=<strong password>
 DIRECT_API_KEY=<ops team key>
 EXTERNAL_API_KEY=<embed partner key>
+INTERNAL_API_KEY=<same value as DIRECT_API_KEY — server-only, never NEXT_PUBLIC_>
 REDIS_URL=redis://redis:6379/0
 OMS_PRODUCTION_ESTIMATOR_URL=http://oms-service:8080/api/production/estimate
 ```
@@ -123,7 +124,14 @@ docker-compose up -d --scale celery-worker-standard=4
 
 ## API Reference
 
-All endpoints (except `/api/health`) require `Authorization: Bearer YOUR_API_KEY`.
+All backend endpoints (except `/api/health`) require `Authorization: Bearer YOUR_API_KEY`.
+
+The Next.js frontend uses two server-side proxies — neither exposes an API key to the browser:
+
+| Proxy | Path | Used by |
+|---|---|---|
+| Embed proxy | `/api/embed/proxy/[...path]` | Customer-facing iframe embed (X-Embed-Token auth) |
+| Internal proxy | `/api/internal/proxy/[...path]` | Dashboard + editor (NextAuth session cookie auth) |
 
 ### Core endpoints
 
@@ -236,13 +244,11 @@ Current migrations:
 
 | Migration | Change |
 |---|---|
-| 0001 | Initial schema |
-| 0002 | `APIKey.is_ops_team` |
-| 0003 | `EmbedSession` |
-| 0004 | Renamed indexes |
-| 0005 | `CanvasData` + `RenderJob` models |
-| 0006 | `celery_task_id` nullable |
-| 0007 | `CanvasData.callback_url` |
+| 0001 | Initial schema — `APIKey`, `RenderJob`, `ExportedResult`, `EmbedSession`, `UploadedFile`, `CanvasData` |
+| 0002 | `CanvasData.callback_url` — per-request webhook URL for OMS push |
+| 0003 | `CanvasData.editor_state` JSON field + `UploadedFile.upload_session` — canvas persistence and chunked-upload session tracking |
+| 0004 | `CanvasData.updated_at` (`auto_now`) + `canvas_data_expires_idx` index — GC age queries |
+| 0005 | `CanvasData` uniqueness changed from global `order_id` to composite `(order_id, api_key)` — tenant isolation fix |
 
 ---
 
@@ -273,6 +279,8 @@ docker stats product-editor-celery-worker-standard-1
 | Jobs stuck in `queued` | `docker-compose ps celery-worker-*` | Restart workers; verify Redis is reachable |
 | Worker exits immediately | `docker-compose logs celery-worker-*` | Check Redis connection; verify migrations ran |
 | `ClientFetchError` on frontend login | `frontend/nextjs/.env.local` | Set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) |
+| Dashboard shows empty / 500 | Missing `INTERNAL_API_KEY` env var | Add `INTERNAL_API_KEY=<same as DIRECT_API_KEY>` to `.env.local` — the internal proxy refuses to forward without it |
+| Dashboard/editor returns 401 after long idle | Session token expired | `pia-auth.ts` refresh flow kicks in automatically; if PIA is unreachable the user is redirected to `/login` |
 | Frontend not loading | Port | Use `localhost:5004`, not `:3000` |
 | OMS push failing repeatedly | `CanvasData.requires_manual_review` in Admin | Check OMS endpoint; order flagged after 5 failures |
 | High worker memory | `docker stats` | Workers are already at concurrency=2; scale out with `--scale celery-worker-standard=N` |
@@ -282,11 +290,15 @@ docker stats product-editor-celery-worker-standard-1
 ## Security
 
 - Bearer token + per-key permission flags (`can_generate_layouts`, `can_access_exports`, `is_ops_team`)
-- Short-lived embed session tokens — real API key never exposed to the browser
-- Path traversal protection on all file-handling endpoints
-- CORS restriction + security headers (CSP, HSTS, X-Frame-Options)
+- **Embed flow**: short-lived UUID embed tokens exchanged server-side at `/api/embed/proxy` — real API key never touches the browser
+- **Dashboard / editor flow**: all calls proxied through `/api/internal/proxy` (gated by NextAuth session cookie + `INTERNAL_API_KEY` server env var) — no API key in client JS bundle
+- Ops-path guard in internal proxy: `ops/*` routes re-check `session.is_ops_team` before forwarding, preventing privilege escalation through the shared key
+- Path traversal protection: UUID v4 regex validation on all `upload_id` parameters
+- `APIKey.last_used_at` writes throttled to once per 5 minutes to reduce DB write churn
+- CORS restriction + security headers (HSTS, X-Frame-Options, nosniff)
 - File upload validation (type, size, dimensions)
 - Full request audit trail in `api_requests` table
+- `Retry-After` header included in all 429 rate-limit responses
 
 ### Production checklist
 
@@ -294,6 +306,9 @@ docker stats product-editor-celery-worker-standard-1
 - [ ] `DJANGO_SECRET_KEY` — strong random value
 - [ ] `ALLOWED_HOSTS` set to production domain
 - [ ] `POSTGRES_PASSWORD` — strong random value
+- [ ] `INTERNAL_API_KEY` set (server-only, same value as `DIRECT_API_KEY`) — **never** use `NEXT_PUBLIC_DIRECT_API_KEY` in production
+- [ ] `NEXT_PUBLIC_DIRECT_API_KEY` removed from all env files once `INTERNAL_API_KEY` is confirmed working
+- [ ] Rotate `DIRECT_API_KEY` / `INTERNAL_API_KEY` if either was ever deployed as `NEXT_PUBLIC_*`
 - [ ] Firewall: open only 80, 443, 22
 - [ ] `proxy/traefik/acme.json` — `chmod 600`
 - [ ] API keys have minimum necessary permissions
@@ -323,9 +338,10 @@ storage/
 | `LETSENCRYPT_EMAIL` | Yes | Let's Encrypt ACME email |
 | `POSTGRES_PASSWORD` | Yes | Database password |
 | `REDIS_URL` | Yes | Redis connection string |
-| `DIRECT_API_KEY` | Yes | Internal ops team key |
+| `DIRECT_API_KEY` | Yes | Internal ops team API key (seeded into Django DB on first run) |
 | `EXTERNAL_API_KEY` | No | External partner key |
 | `TESTING_API_KEY` | No | Testing key |
+| `INTERNAL_API_KEY` | Yes | Server-only key for the Next.js internal proxy — same value as `DIRECT_API_KEY`. **Must NOT be prefixed `NEXT_PUBLIC_`** |
 | `OMS_PRODUCTION_ESTIMATOR_URL` | Yes | OMS webhook endpoint |
 | `CELERY_CONCURRENCY` | No | Worker slots per container (default: 2) |
 | `CELERY_QUEUE` | No | Queue name(s) for worker (default: `priority,standard`) |

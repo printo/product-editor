@@ -25,6 +25,8 @@ export interface CanvasEditorSidebarProps {
   pushUndo: (canvas: CanvasItem, isMajor?: boolean) => void;
   loadGoogleFont: (name: string) => void;
   selectedFonts: string[];
+  getImageMetadata: (file: File) => Promise<{ width: number; height: number; orientation: number; element: HTMLImageElement }>;
+  calculateSmartCropOffsets: (img: HTMLImageElement | HTMLCanvasElement, frameW: number, frameH: number, rotation: number) => Promise<{ x: number; y: number }>;
 }
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -122,6 +124,8 @@ export function CanvasEditorSidebar({
   pushUndo,
   loadGoogleFont,
   selectedFonts,
+  getImageMetadata,
+  calculateSmartCropOffsets,
 }: CanvasEditorSidebarProps) {
 
   const [activeAddTab, setActiveAddTab] = useState<TabKey>('text');
@@ -182,11 +186,26 @@ export function CanvasEditorSidebar({
                 <div className="flex-1 flex gap-1 p-1 bg-slate-50 rounded-lg border border-slate-100 shadow-inner">
                   {(['contain', 'cover'] as FitMode[]).map(mode => (
                     <button key={mode}
-                      onClick={() => {
+                      onClick={async () => {
                         pushUndo(editingCanvas, true);
-                        const newFrames = editingCanvas.frames.map((f, i) =>
-                          i === fIdx ? { ...f, fitMode: mode, scale: 1, offset: { x: 0, y: 0 } } : f);
-                        debouncedRender({ ...editingCanvas, frames: newFrames });
+                        const updatedFrames = await Promise.all(editingCanvas.frames.map(async (f, i) => {
+                          if (i !== fIdx) return f;
+                          
+                          let newOffset = { x: 0, y: 0 };
+                          if (mode === 'cover' && f.originalFile) {
+                            const { element: imgEl } = await getImageMetadata(f.originalFile);
+                            const canvasW = layout?.canvas?.width || 1200;
+                            const canvasH = layout?.canvas?.height || 1800;
+                            const frameSpec = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
+                            const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+                            const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+                            const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+                            newOffset = await calculateSmartCropOffsets(imgEl, fw, fh, f.rotation);
+                          }
+                          
+                          return { ...f, fitMode: mode, scale: 1, offset: newOffset };
+                        }));
+                        debouncedRender({ ...editingCanvas, frames: updatedFrames });
                       }}
                       className={clsx('flex-1 py-1.5 text-[10px] font-medium rounded-md transition-all uppercase',
                         frame.fitMode === mode 
@@ -504,7 +523,7 @@ export function CanvasEditorSidebar({
                         let updated = { ...editingCanvas };
                         for (const file of files) {
                           const newOverlay: Overlay = {
-                            id: Math.random().toString(36).substr(2, 9),
+                            id: Math.random().toString(36).slice(2, 11),
                             type: 'image', src: getFileUrl(file), originalFile: file,
                             source: 'local', x: 50, y: 50, width: 30, height: 30,
                             rotation: 0, opacity: 1, label: file.name,
@@ -540,11 +559,26 @@ export function CanvasEditorSidebar({
             pushUndo(editingCanvas, true);
             debouncedRender({ ...editingCanvas, overlays: newOverlays });
           }}
-          onClearFrame={fIdx => {
+          onClearFrame={async fIdx => {
             pushUndo(editingCanvas, true);
-            const newFrames = editingCanvas.frames.map((f, i) =>
-              i === fIdx ? { ...f, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f);
-            debouncedRender({ ...editingCanvas, frames: newFrames });
+            const updatedFrames = await Promise.all(editingCanvas.frames.map(async (f, i) => {
+              if (i !== fIdx) return f;
+              
+              let newOffset = { x: 0, y: 0 };
+              if (f.fitMode === 'cover' && f.originalFile) {
+                const { element: imgEl } = await getImageMetadata(f.originalFile);
+                const canvasW = layout?.canvas?.width || 1200;
+                const canvasH = layout?.canvas?.height || 1800;
+                const frameSpec = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
+                const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+                const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+                const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+                newOffset = await calculateSmartCropOffsets(imgEl, fw, fh, 0); // reset rotation to 0
+              }
+              
+              return { ...f, offset: newOffset, scale: 1, rotation: 0 };
+            }));
+            debouncedRender({ ...editingCanvas, frames: updatedFrames });
           }}
           onMoveFrameToOverlay={(fIdx, targetOIdx) => {
             const frame = editingCanvas.frames[fIdx];

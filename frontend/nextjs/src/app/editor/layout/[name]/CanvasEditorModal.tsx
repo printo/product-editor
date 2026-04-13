@@ -6,7 +6,8 @@ import { Upload, CheckCircle2, X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, 
 import { clsx } from 'clsx';
 // FabricImage is used only inside an async callback — imported lazily at call-site below
 import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay, SurfaceState } from './types';
-import { renderCanvas as renderCanvasCore } from './fabric-renderer';
+import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
+import { getImageMetadata } from '@/lib/image-utils';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 // Type-only import: erased at compile time, zero bundle impact
@@ -421,6 +422,8 @@ export function CanvasEditorModal({
         pushUndo={pushUndo}
         loadGoogleFont={loadGoogleFont}
         selectedFonts={selectedFonts}
+        getImageMetadata={getImageMetadata}
+        calculateSmartCropOffsets={calculateSmartCropOffsets}
       />
     </div>
   );
