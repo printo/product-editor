@@ -149,6 +149,12 @@ services:
       - traefik.http.routers.product-editor-nextauth-tls.priority=3
       - traefik.http.routers.product-editor-nextauth-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-nextauth-tls.service=product-editor-frontend
+      # Frontend proxy routes (must come before backend /api rule)
+      - traefik.http.routers.product-editor-frontend-proxy-tls.rule=Host(`${PUBLIC_HOST}`) && (PathPrefix(`/api/internal/proxy`) || PathPrefix(`/api/embed/proxy`))
+      - traefik.http.routers.product-editor-frontend-proxy-tls.entrypoints=websecure
+      - traefik.http.routers.product-editor-frontend-proxy-tls.priority=1
+      - traefik.http.routers.product-editor-frontend-proxy-tls.tls.certresolver=letsencrypt
+      - traefik.http.routers.product-editor-frontend-proxy-tls.service=product-editor-frontend
     networks:
       - web
 
