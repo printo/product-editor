@@ -1806,7 +1806,7 @@ export default function LayoutEditorPage() {
               tabIndex={0}
               onClick={() => uploadInputRef.current?.click()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
                   e.preventDefault();
                   uploadInputRef.current?.click();
                 }
