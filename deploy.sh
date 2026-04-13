@@ -67,9 +67,9 @@ mkdir -p proxy/traefik
 touch proxy/traefik/acme.json
 chmod 600 proxy/traefik/acme.json
 # Ensure .htpasswd is a file, not a directory
-if [ -d proxy/traefik/.htpasswd ]; then
-  print_warning "proxy/traefik/.htpasswd is a directory. Removing it."
-  rmdir proxy/traefik/.htpasswd
+if [ -e proxy/traefik/.htpasswd ]; then # Check if it exists at all
+  print_warning "Removing existing proxy/traefik/.htpasswd (file or directory)."
+  rm -rf proxy/traefik/.htpasswd # Forcefully remove
 fi
 if [ ! -f proxy/traefik/.htpasswd ]; then
   print_action "Creating default admin htpasswd..."
