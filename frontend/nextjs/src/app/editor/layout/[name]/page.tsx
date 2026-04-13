@@ -1308,27 +1308,37 @@ export default function LayoutEditorPage() {
       // zip/print_file/ -> High-quality, print-ready PNGs (no shadow)
 
       const filesToZip: { name: string; blob: Blob }[] = [];
-      const totalSteps = canvases.length;
+      const allCanvases = surfaceStates.length > 1
+        ? surfaceStates.flatMap(s => s.canvases)
+        : canvases;
+      const totalSteps = allCanvases.length;
       let processed = 0;
 
       // Helper to convert dataURL to Blob and free memory
       const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
-        const res = await fetch(dataUrl);
-        return await res.blob();
+        // More robust way to convert dataURL to Blob without using fetch
+        const parts = dataUrl.split(',');
+        const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new Blob([u8arr], { type: mime });
       };
 
       // 1. High-quality Print Files (no shadow)
-      // Process in small batches to keep UI responsive and allow progress updates
-      const BATCH_SIZE = 5;
+      const BATCH_SIZE = 3; // Reduced batch size for high-res rendering
       
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
           for (let i = 0; i < s.canvases.length; i += BATCH_SIZE) {
             const chunk = s.canvases.slice(i, i + BATCH_SIZE);
-            const printDataUrls = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: s.def })));
-            
-            for (let ci = 0; ci < printDataUrls.length; ci++) {
-              const dataUrl = printDataUrls[ci];
+            // Render one by one instead of Promise.all to be safer with memory
+            for (let ci = 0; ci < chunk.length; ci++) {
+              const c = chunk[ci];
+              const dataUrl = await renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: s.def });
               if (dataUrl) {
                 const blob = await dataUrlToBlob(dataUrl);
                 filesToZip.push({
@@ -1336,19 +1346,18 @@ export default function LayoutEditorPage() {
                   blob
                 });
               }
+              processed++;
+              setRenderProgress({ current: processed, total: totalSteps });
+              await new Promise(r => setTimeout(r, 0)); 
             }
-            processed += chunk.length;
-            setRenderProgress({ current: processed, total: totalSteps });
-            await new Promise(r => setTimeout(r, 0)); // Yield to main thread
           }
         }
       } else {
         for (let i = 0; i < canvases.length; i += BATCH_SIZE) {
           const chunk = canvases.slice(i, i + BATCH_SIZE);
-          const printDataUrls = await Promise.all(chunk.map(c => renderCanvas(c, { isExport: true, includeMask: false })));
-          
-          for (let ci = 0; ci < printDataUrls.length; ci++) {
-            const dataUrl = printDataUrls[ci];
+          for (let ci = 0; ci < chunk.length; ci++) {
+            const c = chunk[ci];
+            const dataUrl = await renderCanvas(c, { isExport: true, includeMask: false });
             if (dataUrl) {
               const blob = await dataUrlToBlob(dataUrl);
               filesToZip.push({
@@ -1356,14 +1365,16 @@ export default function LayoutEditorPage() {
                 blob
               });
             }
+            processed++;
+            setRenderProgress({ current: processed, total: totalSteps });
+            await new Promise(r => setTimeout(r, 0));
           }
-          processed += chunk.length;
-          setRenderProgress({ current: processed, total: totalSteps });
-          await new Promise(r => setTimeout(r, 0)); // Yield to main thread
         }
       }
 
       // 2. Low-quality Mockup Files (with shadow) - Use existing dataUrls
+      // These are already rendered so we just convert them to blobs
+      processed = 0; // Reset for zipping progress later or just keep going
       if (surfaceStates.length > 1) {
         for (const s of surfaceStates) {
           for (let ci = 0; ci < s.canvases.length; ci++) {
