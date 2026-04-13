@@ -877,7 +877,7 @@ export default function LayoutEditorPage() {
         const newFitMode: FitMode = f.fitMode === 'contain' ? 'cover' : 'contain';
         let newOffset = { ...f.offset };
 
-        if (newFitMode === 'cover' && f.offset.x === 0 && f.offset.y === 0 && f.scale === 1 && f.originalFile) {
+        if (newFitMode === 'cover' && f.originalFile) {
           const { element: imgEl } = await getImageMetadata(f.originalFile);
           const layoutDef = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.def : layout;
           const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames) || [];
@@ -944,7 +944,9 @@ export default function LayoutEditorPage() {
       const a = document.createElement('a');
       a.href = c.dataUrl;
       a.download = `${layout.id}-${surfaceKey || 'canvas'}-${idx + 1}.png`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
     }
   };
 
