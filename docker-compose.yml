@@ -149,16 +149,16 @@ services:
       - traefik.http.routers.product-editor-nextauth-tls.priority=3
       - traefik.http.routers.product-editor-nextauth-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-nextauth-tls.service=product-editor-frontend
-      # Frontend internal proxy route (must come before backend /api rule)
+      # Frontend internal proxy route (higher priority than backend /api rule at priority=2)
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/internal/proxy`)
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.entrypoints=websecure
-      - traefik.http.routers.product-editor-frontend-internal-proxy-tls.priority=1
+      - traefik.http.routers.product-editor-frontend-internal-proxy-tls.priority=3
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.service=product-editor-frontend
-      # Frontend embed proxy route (must come before backend /api rule)
+      # Frontend embed proxy route (higher priority than backend /api rule at priority=2)
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/embed/proxy`)
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.entrypoints=websecure
-      - traefik.http.routers.product-editor-frontend-embed-proxy-tls.priority=1
+      - traefik.http.routers.product-editor-frontend-embed-proxy-tls.priority=3
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.service=product-editor-frontend
     networks:
