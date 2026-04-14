@@ -2018,34 +2018,23 @@ export default function LayoutEditorPage() {
 
           {showDownloadModal && isAdmin && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={() => setShowDownloadModal(false)} />
-              <div className="relative w-full max-w-sm bg-white rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
-                <div className="p-6 space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Download Job</h3>
-                    <button onClick={() => setShowDownloadModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                      <X className="w-4 h-4 text-slate-400" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex flex-col gap-3">
-                      <button onClick={executeBatchDownload} className="w-full group flex items-center gap-4 p-4 rounded-2xl border border-slate-100 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all text-left bg-slate-50/50">
-                        <div className="w-10 h-10 bg-white rounded-xl border flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform"><Archive className="w-5 h-5 text-indigo-600" /></div>
-                        <div>
-                          <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Download ZIP</p>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">CX + Output Folders</p>
-                        </div>
-                      </button>
-                      <button onClick={() => { setShowDownloadModal(false); setShowImpositionModal(true); }} className="w-full group flex items-center gap-4 p-4 rounded-2xl border border-slate-100 hover:border-emerald-500 hover:bg-emerald-50/30 transition-all text-left bg-slate-50/50">
-                        <div className="w-10 h-10 bg-white rounded-xl border flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform"><FileText className="w-5 h-5 text-emerald-600" /></div>
-                        <div>
-                          <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Print Imposition</p>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Auto-repeat & Sheets</p>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
+              <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setShowDownloadModal(false)} />
+              <div className="relative w-full max-w-xs bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                  <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Download</h3>
+                  <button onClick={() => setShowDownloadModal(false)} className="p-1 hover:bg-slate-100 rounded-full transition-colors">
+                    <X className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </div>
+                <div className="px-3 pb-3 flex gap-2">
+                  <button onClick={executeBatchDownload} className="flex-1 group flex flex-col items-center gap-1.5 p-3 rounded-xl border border-slate-100 hover:border-indigo-400 hover:bg-indigo-50/40 transition-all">
+                    <Archive className="w-5 h-5 text-indigo-600" />
+                    <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">ZIP</span>
+                  </button>
+                  <button onClick={() => { setShowDownloadModal(false); setShowImpositionModal(true); }} className="flex-1 group flex flex-col items-center gap-1.5 p-3 rounded-xl border border-slate-100 hover:border-emerald-400 hover:bg-emerald-50/40 transition-all">
+                    <FileText className="w-5 h-5 text-emerald-600" />
+                    <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">Imposition</span>
+                  </button>
                 </div>
               </div>
             </div>
