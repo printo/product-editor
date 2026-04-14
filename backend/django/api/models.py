@@ -292,6 +292,11 @@ class RenderJob(models.Model):
             # a unique index in Postgres.  An explicit Index here would be a
             # duplicate, so only the composite status/created_at index is needed.
             models.Index(fields=['status', 'created_at']),
+            # Covers the wait-time estimation query in RenderStatusView:
+            #   RenderJob.objects.filter(queue_name=..., status='queued', created_at__lt=...)
+            models.Index(fields=['queue_name', 'status', 'created_at']),
+            # Covers completed_at filters in CeleryMonitoringView aggregation
+            models.Index(fields=['status', 'completed_at']),
         ]
     
     def __str__(self):

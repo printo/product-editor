@@ -6,6 +6,7 @@ import logging
 from functools import wraps
 from typing import Optional, Dict, Any, List
 from django.conf import settings
+from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -735,19 +736,16 @@ class CeleryMonitoringView(APIView):
         worker_count = len(stats)
         active_worker_count = len(active_tasks)
         
-        # Job counts from database
+        # Job counts from database — single aggregated query instead of 4 separate COUNT(*)
         now = timezone.now()
-        queued_count = RenderJob.objects.filter(status='queued').count()
-        processing_count = RenderJob.objects.filter(status='processing').count()
-        completed_24h = RenderJob.objects.filter(
-            status='completed',
-            completed_at__gte=now - timedelta(hours=24)
-        ).count()
-        failed_24h = RenderJob.objects.filter(
-            status='failed',
-            completed_at__gte=now - timedelta(hours=24)
-        ).count()
-        
+        cutoff_24h = now - timedelta(hours=24)
+        job_counts = RenderJob.objects.aggregate(
+            queued=Count('id', filter=Q(status='queued')),
+            processing=Count('id', filter=Q(status='processing')),
+            completed_24h=Count('id', filter=Q(status='completed', completed_at__gte=cutoff_24h)),
+            failed_24h=Count('id', filter=Q(status='failed', completed_at__gte=cutoff_24h)),
+        )
+
         return Response({
             'workers': {
                 'total': worker_count,
@@ -764,10 +762,10 @@ class CeleryMonitoringView(APIView):
                 }
             },
             'jobs': {
-                'queued': queued_count,
-                'processing': processing_count,
-                'completed_24h': completed_24h,
-                'failed_24h': failed_24h,
+                'queued': job_counts['queued'],
+                'processing': job_counts['processing'],
+                'completed_24h': job_counts['completed_24h'],
+                'failed_24h': job_counts['failed_24h'],
             }
         })
 
@@ -802,36 +800,50 @@ class GetLayoutView(APIView):
                     {"detail": "Invalid layout name"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
+
+            from django.core.cache import cache as django_cache
+
             storage = get_storage()
             # Use basename to prevent path traversal
             safe_name = os.path.basename(name)
+
+            # Cache individual layout JSON (same TTL as list endpoint)
+            surfaces_param = request.query_params.get('surfaces', '')
+            cache_key = f"layout_detail:{safe_name}:{surfaces_param}"
+            cached_data = django_cache.get(cache_key)
+
+            if cached_data is not None:
+                response = Response(cached_data)
+                response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'
+                return response
+
             path = os.path.join(storage.layouts_dir(), f"{safe_name}.json")
-            
+
             # Extra security: ensure path is within layouts directory
             if not self._is_path_safe(path, storage.layouts_dir()):
                 return Response(
                     {"detail": "Access denied"},
                     status=status.HTTP_403_FORBIDDEN
                 )
-            
+
             if not os.path.exists(path):
                 return Response(
                     {"detail": "Layout not found"},
                     status=status.HTTP_404_NOT_FOUND
                 )
-            
+
             with open(path, "r") as f:
                 data = json.load(f)
 
             # Filter surfaces if ?surfaces= param is provided (for multi-surface layouts)
-            surfaces_param = request.query_params.get('surfaces')
             if surfaces_param and 'surfaces' in data and isinstance(data['surfaces'], list):
                 requested_keys = [k.strip().lower() for k in surfaces_param.split(',') if k.strip()]
                 data['surfaces'] = [
                     s for s in data['surfaces']
                     if s.get('key', '').lower() in requested_keys
                 ]
+
+            django_cache.set(cache_key, data, 120)  # 2 min TTL, same as list endpoint
 
             response = Response(data)
             response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'

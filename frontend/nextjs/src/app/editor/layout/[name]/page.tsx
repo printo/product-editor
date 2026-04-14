@@ -1342,14 +1342,20 @@ export default function LayoutEditorPage() {
           ? surfaceStates.find(s => s.key === surfaceKey)?.def
           : layout;
 
-        // Render high-res PNG
+        // Render high-res PNG with timeout to prevent hanging on large images
         let dataUrl = '';
         try {
-          dataUrl = await renderCanvas(c, {
-            isExport: true,
-            includeMask: false,
-            layoutOverride: layoutDef
-          });
+          const RENDER_TIMEOUT_MS = 30_000;
+          dataUrl = await Promise.race([
+            renderCanvas(c, {
+              isExport: true,
+              includeMask: false,
+              layoutOverride: layoutDef
+            }),
+            new Promise<string>((_, reject) =>
+              setTimeout(() => reject(new Error(`Canvas ${i + 1} render timed out after ${RENDER_TIMEOUT_MS / 1000}s`)), RENDER_TIMEOUT_MS)
+            ),
+          ]);
         } catch (renderErr) {
           console.error(`[batch-download] Failed to render canvas ${i + 1}:`, renderErr);
         }

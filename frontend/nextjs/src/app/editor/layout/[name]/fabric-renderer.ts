@@ -212,7 +212,8 @@ export async function renderCanvas(
   // ── Paper Overlay Mask (Hole-punching) — matches FabricEditor logic ─────────
   // A white paper layer rendered ABOVE the images, with transparent holes cut out 
   // for each frame using SVG `evenodd` fill rule.
-  let paperPathStr = `M 0 0 L ${canvasW} 0 L ${canvasW} ${canvasH} L 0 ${canvasH} Z`;
+  // Build SVG path with array.join() instead of string += concatenation (O(n) vs O(n²))
+  const pathSegments = [`M 0 0 L ${canvasW} 0 L ${canvasW} ${canvasH} L 0 ${canvasH} Z`];
   frames.forEach((frameSpec: any) => {
     const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
     const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
@@ -223,13 +224,12 @@ export async function renderCanvas(
     const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
 
     if (fr > 0) {
-      // Counter-clockwise rounded rectangular hole (A command for arcs)
-      paperPathStr += ` M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} L ${fx} ${fy + fh - fr} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} L ${fx + fw - fr} ${fy + fh} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} L ${fx + fw} ${fy + fr} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
+      pathSegments.push(`M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} L ${fx} ${fy + fh - fr} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} L ${fx + fw - fr} ${fy + fh} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} L ${fx + fw} ${fy + fr} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`);
     } else {
-      // Counter-clockwise rectangular hole
-      paperPathStr += ` M ${fx} ${fy} L ${fx} ${fy + fh} L ${fx + fw} ${fy + fh} L ${fx + fw} ${fy} Z`;
+      pathSegments.push(`M ${fx} ${fy} L ${fx} ${fy + fh} L ${fx + fw} ${fy + fh} L ${fx + fw} ${fy} Z`);
     }
   });
+  const paperPathStr = pathSegments.join(' ');
 
   const paperOverlay = new Path(paperPathStr, {
     left: 0,
