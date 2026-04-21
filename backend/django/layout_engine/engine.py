@@ -1,8 +1,9 @@
 import json
+import math
 import os
 import tempfile
 import logging
-from typing import List
+from typing import List, Optional
 
 from PIL import Image
 
@@ -53,7 +54,9 @@ class LayoutEngine:
                 if ext == '.tif' or ext == '.tiff':
                     image_data.save(tmp_path, "TIFF", dpi=(300, 300))
                 elif ext == '.png':
-                    image_data.save(tmp_path, "PNG", dpi=(300, 300))
+                    # optimize=True runs zlib at max compression — no quality loss,
+                    # typically 10-30% smaller files, negligible extra CPU.
+                    image_data.save(tmp_path, "PNG", dpi=(300, 300), optimize=True)
                 else:
                     image_data.save(tmp_path)
             else:
@@ -137,16 +140,38 @@ class LayoutEngine:
 
     # ── Core compositing ─────────────────────────────────────────────────────
 
+    @staticmethod
+    def _smart_downscale(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+        """
+        Pre-shrink source image to 2× the frame dimensions before compositing.
+
+        A 12 MP photo (4000×3000) composited into a 400×400 frame has 100× more
+        pixels than needed.  Downscaling to 2× the frame size (800×800) first
+        reduces Pillow's resize work by ~50× with no perceptible quality loss —
+        Lanczos is still applied for the final cover/contain resize.
+        """
+        max_w = target_w * 2
+        max_h = target_h * 2
+        if img.width > max_w or img.height > max_h:
+            img = img.copy()
+            img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+        return img
+
     def _composite_canvas(
         self,
         surface_def: dict,
         batch: List[str],
         fit_mode: str,
         mask_img,
+        frame_transforms: Optional[List[dict]] = None,
     ) -> Image.Image:
         """
         Composite one canvas from a batch of image file paths.
         Returns a flat RGB PIL Image — all transparency resolved, mask applied.
+
+        frame_transforms (optional): per-frame overrides from the editor state.
+        Each entry matches the frontend FrameState shape:
+          { offset_x, offset_y, scale, rotation, fit_mode }
         """
         canvas_w = surface_def["canvas"]["width"]
         canvas_h = surface_def["canvas"]["height"]
@@ -159,22 +184,41 @@ class LayoutEngine:
             target_w = frame["width"]
             target_h = frame["height"]
 
-            if fit_mode == "contain":
-                scale = min(target_w / img.width, target_h / img.height)
-            else:
-                scale = max(target_w / img.width, target_h / img.height)
+            # Per-frame overrides from the editor (offset, scale, rotation, fit_mode).
+            tx = frame_transforms[idx] if frame_transforms and idx < len(frame_transforms) else {}
+            frame_fit = tx.get('fit_mode') or fit_mode
+            extra_scale = float(tx.get('scale') or 1.0)
+            rotation = float(tx.get('rotation') or 0.0)
+            pan_x = float(tx.get('offset_x') or 0.0)
+            pan_y = float(tx.get('offset_y') or 0.0)
 
-            new_w = int(img.width * scale)
-            new_h = int(img.height * scale)
+            # Rotate source image if needed (expand=True preserves all pixels).
+            if rotation:
+                img = img.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
+
+            # Smart pre-downscale: shrink to 2× frame before the cover/contain resize.
+            img = self._smart_downscale(img, target_w, target_h)
+
+            if frame_fit == "contain":
+                base_scale = min(target_w / img.width, target_h / img.height)
+            else:
+                base_scale = max(target_w / img.width, target_h / img.height)
+
+            final_scale = base_scale * extra_scale
+            new_w = max(1, int(img.width * final_scale))
+            new_h = max(1, int(img.height * final_scale))
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-            if fit_mode == "contain":
-                paste_x = frame["x"] + (target_w - new_w) // 2
-                paste_y = frame["y"] + (target_h - new_h) // 2
+            if frame_fit == "contain":
+                paste_x = frame["x"] + (target_w - new_w) // 2 + int(pan_x)
+                paste_y = frame["y"] + (target_h - new_h) // 2 + int(pan_y)
                 canvas.paste(img, (paste_x, paste_y), img)
             else:
-                offset_x = (new_w - target_w) // 2
-                offset_y = (new_h - target_h) // 2
+                # Cover: crop to frame, then shift by editor pan offset.
+                offset_x = max(0, (new_w - target_w) // 2 - int(pan_x))
+                offset_y = max(0, (new_h - target_h) // 2 - int(pan_y))
+                offset_x = min(offset_x, max(0, new_w - target_w))
+                offset_y = min(offset_y, max(0, new_h - target_h))
                 crop_box = (offset_x, offset_y, offset_x + target_w, offset_y + target_h)
                 img = img.crop(crop_box)
                 canvas.paste(img, (frame["x"], frame["y"]), img)
@@ -215,6 +259,7 @@ class LayoutEngine:
         surface_key: str,
         fit_mode: str = "cover",
         export_format: str = "png",
+        frame_transforms: Optional[List[dict]] = None,
     ) -> List[str]:
         """
         Generate export files for a single surface.
@@ -235,8 +280,15 @@ class LayoutEngine:
         suffix = f"_{surface_key}" if surface_key != "default" else ""
         outputs = []
 
-        for batch, n in self._iter_batches(surface_def, image_paths):
-            canvas = self._composite_canvas(surface_def, batch, fit_mode, mask_img)
+        frames_per_canvas = len(surface_def.get("frames", []))
+        for batch_n, (batch, n) in enumerate(self._iter_batches(surface_def, image_paths)):
+            # Slice the per-frame transform list to match this canvas's frames.
+            batch_transforms = None
+            if frame_transforms:
+                start = batch_n * frames_per_canvas
+                batch_transforms = frame_transforms[start: start + frames_per_canvas]
+
+            canvas = self._composite_canvas(surface_def, batch, fit_mode, mask_img, batch_transforms)
 
             if export_format == "tiff_cmyk":
                 out_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}_cmyk.tif")
@@ -259,6 +311,7 @@ class LayoutEngine:
         layout_name: str,
         surface_key: str,
         fit_mode: str = "cover",
+        frame_transforms: Optional[List[dict]] = None,
     ) -> List[dict]:
         """
         Full ICC-calibrated CMYK soft-proof pipeline for one surface.
@@ -287,8 +340,14 @@ class LayoutEngine:
         suffix = f"_{surface_key}" if surface_key != "default" else ""
         results = []
 
-        for batch, n in self._iter_batches(surface_def, image_paths):
-            canvas_rgb = self._composite_canvas(surface_def, batch, fit_mode, mask_img)
+        frames_per_canvas = len(surface_def.get("frames", []))
+        for batch_n, (batch, n) in enumerate(self._iter_batches(surface_def, image_paths)):
+            batch_transforms = None
+            if frame_transforms:
+                start = batch_n * frames_per_canvas
+                batch_transforms = frame_transforms[start: start + frames_per_canvas]
+
+            canvas_rgb = self._composite_canvas(surface_def, batch, fit_mode, mask_img, batch_transforms)
 
             # ① Original RGB PNG — what you see on screen
             png_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}.png")
@@ -325,11 +384,14 @@ class LayoutEngine:
         image_paths: List[str],
         fit_mode: str = "cover",
         export_format: str = "png",
+        frame_transforms: Optional[List[dict]] = None,
     ) -> List[str]:
         """
         Generate layout images. Returns a list of output file paths.
 
         export_format: "png" (default) or "tiff_cmyk".
+        frame_transforms: optional per-frame overrides (offset, scale, rotation, fit_mode)
+          from the editor state — mirrors the Fabric.js FrameState shape.
         For CMYK with soft-proof preview and colour-shift report use generate_soft_proof().
         """
         layout = self._load_layout(layout_name)
@@ -340,7 +402,8 @@ class LayoutEngine:
                 surface_key = surface.get("key", "unknown")
                 all_outputs.extend(
                     self._generate_for_surface(
-                        surface, image_paths, layout_name, surface_key, fit_mode, export_format
+                        surface, image_paths, layout_name, surface_key,
+                        fit_mode, export_format, frame_transforms,
                     )
                 )
             return all_outputs
@@ -352,6 +415,7 @@ class LayoutEngine:
             "default",
             fit_mode,
             export_format,
+            frame_transforms,
         )
 
     def generate_soft_proof(
@@ -359,6 +423,7 @@ class LayoutEngine:
         layout_name: str,
         image_paths: List[str],
         fit_mode: str = "cover",
+        frame_transforms: Optional[List[dict]] = None,
     ) -> List[dict]:
         """
         Generate layout images with full ICC CMYK soft-proof pipeline.
@@ -382,7 +447,7 @@ class LayoutEngine:
                 surface_key = surface.get("key", "unknown")
                 all_results.extend(
                     self._generate_soft_proof_for_surface(
-                        surface, image_paths, layout_name, surface_key, fit_mode
+                        surface, image_paths, layout_name, surface_key, fit_mode, frame_transforms,
                     )
                 )
             return all_results
@@ -393,4 +458,5 @@ class LayoutEngine:
             layout_name,
             "default",
             fit_mode,
+            frame_transforms,
         )

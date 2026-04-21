@@ -6,6 +6,16 @@
  * Modifies a base64 encoded PNG data URL to inject or replace the pHYs chunk
  * to set a specific DPI in the file metadata.
  */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[i] = c;
+  }
+  return t;
+})();
+
 export function changeDpiDataUrl(base64Image: string, dpi: number): string {
   if (!base64Image.startsWith('data:image/png;base64,')) return base64Image;
   
@@ -45,18 +55,9 @@ export function changeDpiDataUrl(base64Image: string, dpi: number): string {
   
   // Calculate CRC for pHYs
   let crc = 0xffffffff;
-  const crcTable = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let j = 0; j < 8; j++) {
-      if (c & 1) c = 0xedb88320 ^ (c >>> 1);
-      else c = c >>> 1;
-    }
-    crcTable[i] = c;
-  }
   
   for (let i = 4; i < 17; i++) {
-    crc = crcTable[(crc ^ physChunk[i]) & 0xff] ^ (crc >>> 8);
+    crc = CRC_TABLE[(crc ^ physChunk[i]) & 0xff] ^ (crc >>> 8);
   }
   crc = crc ^ 0xffffffff;
   

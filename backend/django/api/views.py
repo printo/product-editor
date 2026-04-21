@@ -1493,11 +1493,19 @@ class EmbedSessionView(APIView):
         from datetime import timedelta
         api_key = request.user.api_key
         expires_at = timezone.now() + timedelta(hours=2)
-        session = EmbedSession.objects.create(api_key=api_key, expires_at=expires_at)
+        # Caller's job/order identifier — stored server-side so the proxy can
+        # inject it as X-Order-ID without putting it in the iframe URL.
+        order_id = str(request.data.get('order_id', '') or '').strip()
+        session = EmbedSession.objects.create(
+            api_key=api_key,
+            expires_at=expires_at,
+            order_id=order_id,
+        )
         return Response({
             'token': str(session.token),
             'expires_at': session.expires_at.isoformat(),
             'embed_url_template': '/embed/editor/{layout_name}?token=' + str(session.token),
+            'order_id': order_id or None,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -1561,7 +1569,176 @@ class EmbedSessionValidateView(APIView):
         if not session.is_valid():
             return Response({'detail': 'Token expired or revoked'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        return Response({'api_key': session.api_key.key})
+        return Response({
+            'api_key': session.api_key.key,
+            'order_id': session.order_id or None,
+        })
+
+
+# ─── Editor Render (server-side high-res render from uploaded files) ──────────
+
+class EditorRenderView(APIView):
+    """
+    POST /api/editor/render
+
+    Submit a server-side render job from files already uploaded via the chunked
+    upload API.  Used by the embed editor for batches > 20 canvases so the
+    browser doesn't have to do any heavy rendering.
+
+    The order_id is resolved in priority order:
+      1. X-Order-ID header (injected by the embed proxy from EmbedSession.order_id)
+      2. 'order_id' field in the JSON body (direct / dashboard callers)
+
+    Request body (JSON):
+    {
+      "layout_name": "circle_48mm",
+      "order_id": "EXT-JOB-123",          // required if not via embed proxy
+      "export_format": "png",              // "png" | "tiff_cmyk"
+      "soft_proof": false,
+      "callback_url": "https://...",       // optional webhook
+      "canvases": [
+        {
+          "frames": [
+            {
+              "upload_id": "<uuid from /api/upload/init>",
+              "offset_x": -12.5,           // canvas-space pan (pixels at layout scale)
+              "offset_y": 3.0,
+              "scale": 1.2,                // multiplier on top of cover/contain base
+              "rotation": 0,               // degrees
+              "fit_mode": "cover"          // "cover" | "contain"
+            }
+          ],
+          "bg_color": "#ffffff"
+        }
+      ]
+    }
+
+    Response 202:
+    {
+      "job_id": "<uuid>",
+      "order_id": "EXT-JOB-123",
+      "status_url": "/api/render-status/<uuid>/",
+      "queue": "standard"
+    }
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey, CanGenerateLayouts]
+
+    def post(self, request):
+        from datetime import timedelta
+        from django.db import transaction as db_transaction
+        from api.tasks import render_canvas_task
+
+        # ── Resolve order_id ────────────────────────────────────────────────
+        order_id = (
+            request.headers.get('X-Order-ID', '').strip()
+            or str(request.data.get('order_id', '') or '').strip()
+        )
+        if not order_id:
+            return Response(
+                {'detail': 'order_id is required (send in body or via embed session).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        layout_name = str(request.data.get('layout_name', '') or '').strip()
+        if not layout_name:
+            return Response({'detail': 'layout_name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        canvases_payload = request.data.get('canvases', [])
+        if not canvases_payload:
+            return Response({'detail': 'canvases list is required and must not be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        export_format = str(request.data.get('export_format', 'png') or 'png').strip()
+        soft_proof = bool(request.data.get('soft_proof', False))
+        callback_url = request.data.get('callback_url') or None
+        api_key = request.user.api_key
+
+        # ── Collect + validate all upload_ids ───────────────────────────────
+        all_upload_ids = []
+        for canvas in canvases_payload:
+            for frame in canvas.get('frames', []):
+                uid = str(frame.get('upload_id', '') or '').strip()
+                if uid:
+                    all_upload_ids.append(uid)
+
+        if not all_upload_ids:
+            return Response({'detail': 'No upload_id values found in canvases[].frames.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        uploaded_qs = UploadedFile.objects.filter(
+            upload_session_id__in=all_upload_ids,
+            api_key=api_key,
+            is_deleted=False,
+        )
+        upload_id_to_path = {f.upload_session_id: f.file_path for f in uploaded_qs}
+
+        missing = [uid for uid in all_upload_ids if uid not in upload_id_to_path]
+        if missing:
+            return Response(
+                {'detail': f'upload_id(s) not found or not owned by this key: {missing[:3]}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Build flat image_paths list (canvas0_frame0, canvas0_frame1, …) ─
+        image_paths = []
+        for canvas in canvases_payload:
+            for frame in canvas.get('frames', []):
+                uid = str(frame.get('upload_id', '') or '').strip()
+                if uid in upload_id_to_path:
+                    image_paths.append(upload_id_to_path[uid])
+
+        # ── Persist CanvasData + RenderJob atomically ───────────────────────
+        queue_name = 'priority' if soft_proof else 'standard'
+        expires_at = timezone.now() + timedelta(days=30)
+
+        editor_state = {
+            'canvases': canvases_payload,
+            'format_version': 1,
+        }
+
+        try:
+            with db_transaction.atomic():
+                canvas_obj, _ = CanvasData.objects.update_or_create(
+                    order_id=order_id,
+                    api_key=api_key,
+                    defaults={
+                        'layout_name': layout_name,
+                        'image_paths': image_paths,
+                        'fit_mode': 'cover',
+                        'export_format': export_format,
+                        'soft_proof': soft_proof,
+                        'editor_state': editor_state,
+                        'callback_url': callback_url,
+                        'expires_at': expires_at,
+                    },
+                )
+                job = RenderJob.objects.create(
+                    canvas_data=canvas_obj,
+                    status='queued',
+                    queue_name=queue_name,
+                )
+                # on_commit inside atomic() so it fires only after the
+                # transaction commits — task is guaranteed to find the DB rows.
+                _canvas_id = str(canvas_obj.id)
+                _job_id = str(job.id)
+                _queue = queue_name
+                db_transaction.on_commit(
+                    lambda: render_canvas_task.apply_async(
+                        args=[_canvas_id, _job_id],
+                        queue=_queue,
+                    )
+                )
+
+        except Exception as exc:
+            logger.error("EditorRenderView: failed to create render job for order_id=%s: %s", order_id, exc)
+            return Response({'detail': 'Failed to submit render job.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        logger.info("Editor render job %s queued: order_id=%s, layout=%s, queue=%s", _job_id, order_id, layout_name, queue_name)
+
+        return Response({
+            'job_id': _job_id,
+            'order_id': order_id,
+            'status_url': f'/api/render-status/{_job_id}/',
+            'queue': queue_name,
+        }, status=status.HTTP_202_ACCEPTED)
 
 
 # ─── Fonts management ─────────────────────────────────────────────────────────

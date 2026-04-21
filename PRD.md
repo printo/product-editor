@@ -10,9 +10,9 @@
 | **Business Lead** | Viji |
 | **Production Lead** | Mohan |
 | **Final Approver** | Manish |
-| **Date** | April 5, 2026 |
-| **Status** | *Draft — Awaiting Alignment* |
-| **Version** | v1.5 |
+| **Date** | April 21, 2026 |
+| **Status** | *In Progress — Server-side render live* |
+| **Version** | v1.6 |
 | **Product URL** | product-editor.printo.in |
 
 ---
@@ -27,6 +27,7 @@
 | v1.3 | Apr 4, 2026 | Kanna | Added Inkmonk.com to upload sources; renamed Ops Manager (A2) and Catalog Manager (B3); updated TAT cascading effect wording |
 | **v1.4** | **Apr 5, 2026** | **Kanna** | **Marked B2 Async Queue as ✅ Complete; added quantity enforcement (under/over-upload, auto-fill); documented all 11 implementation fixes; added two new success metrics; updated action item #6 to Done** |
 | **v1.5** | **Apr 11, 2026** | **Kanna** | **Security hardening complete: API key bundle leak closed (internal server-side proxy); session token refresh flow; 18 additional implementation fixes across auth, rendering, GC, and frontend. TypeScript build clean (0 errors). Django system check clean (0 issues).** |
+| **v1.6** | **Apr 21, 2026** | **Kanna** | **Server-side upload + render flow complete: chunked multi-file upload API, per-frame transform pipeline, Celery render at 300 DPI, embed postMessage (`pe:render_job`), direct-path polling + ZIP download. Threshold: ≤ 20 canvases → client-side; > 20 → server-side. Smart downscaling (2× pre-shrink) and PNG optimize added to engine.** |
 
 ---
 
@@ -192,6 +193,54 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 - A product catalogue integration (via Catalog Manager or OMS) that maps SKU → layout is required for zero-touch automation.
 - Priority: P1 — can be worked around with manual configuration initially.
 
+#### B4 — Server-Side Upload + Render for Large Batches ✅ Implemented
+
+- **Status: Complete as of April 21, 2026.**
+- Client-side canvas rendering (Fabric.js → PNG) was prohibitively slow and memory-intensive for orders with > 20 canvases (100–200 photos). The browser had to decode each photo, paint it on a canvas, and export a high-res PNG — sequentially — causing timeouts, blank frames in the ZIP, and browser crashes on low-RAM devices.
+- **What was built:** A server-side render pipeline that kicks in automatically for orders above 20 canvases. The browser uploads files and submits a lightweight render job; Celery workers produce high-DPI PNGs or CMYK TIFFs using Pillow.
+
+**Architecture:**
+
+| Component | Detail |
+|---|---|
+| Threshold | `SERVER_RENDER_THRESHOLD = 20` in `page.tsx` — both download and submit paths check this |
+| Chunked upload | `POST /upload/init` → `PUT /upload/{id}/chunk?index=N` (2 MB chunks) → `POST /upload/{id}/complete`; 4 files in parallel; 50 MB per-file limit; UUID path-traversal guard on chunk + complete |
+| Render submission | `POST /api/editor/render` — accepts layout name, order_id, canvases[] with per-frame upload_id + transform data; returns `{ job_id, status_url }` (HTTP 202) |
+| Per-frame transforms | Every frame stores `offset_x, offset_y` (canvas-space pan), `scale` (zoom multiplier), `rotation` (degrees), `fit_mode` (cover/contain) in `CanvasData.editor_state` JSON; `render_canvas_task` extracts these and passes to the engine |
+| Engine improvements | `_smart_downscale()` pre-shrinks source image to 2× frame target before compositing (12 MP photo → 400 px frame: 12 M → 0.64 M working pixels, ~95% memory reduction); PNG `optimize=True` (10–30% smaller output) |
+| Embed path | After submission, frontend fires `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` — no download UI; parent site polls status independently |
+| Direct/admin path | Frontend polls `GET /api/render-status/{job_id}/` every 4 s; on completion fetches ZIP via `GET /api/jobs/{job_id}/download/` through the proxy |
+| Order ID security | External caller provides `order_id` at session creation (`POST /api/embed/session`); stored in `EmbedSession.order_id`; embed proxy injects as `X-Order-ID` header — never in iframe URL |
+
+**Data model changes (migration 0006):**
+
+| Change | Detail |
+|---|---|
+| `EmbedSession.order_id` | `CharField(max_length=100, blank=True, db_index=True)` — stores caller's job ID |
+| `UploadedFile.upload_session_id` | Already existed from migration 0003; used to map upload UUIDs to server file paths |
+| `CanvasData.editor_state` | Already existed from migration 0003; now populated with full per-frame transform data from the editor |
+
+**postMessage contract:**
+
+| Message type | When | Payload |
+|---|---|---|
+| `pe:render_job` | > 20 canvases, embed, after job submitted | `{ type: 'pe:render_job', jobId: string, orderID: string }` |
+| `PRODUCT_EDITOR_COMPLETE` | ≤ 20 canvases, embed, after client render | `{ type: 'PRODUCT_EDITOR_COMPLETE', canvases: [{index, dataUrl}] }` |
+
+**Files changed:**
+
+| File | Change |
+|---|---|
+| `backend/django/api/models.py` | `EmbedSession.order_id` field added |
+| `backend/django/api/migrations/0006_embedsession_order_id.py` | Migration |
+| `backend/django/api/views.py` | `EmbedSessionView` stores `order_id`; `EmbedSessionValidateView` returns it; new `EditorRenderView` |
+| `backend/django/api/urls.py` | `editor/render` route registered |
+| `backend/django/api/tasks.py` | `_extract_frame_transforms()` helper; `render_canvas_task` passes transforms to engine |
+| `backend/django/layout_engine/engine.py` | `_smart_downscale()`, per-frame transform application, PNG `optimize=True` |
+| `frontend/nextjs/src/lib/upload-utils.ts` | New: chunked upload utilities |
+| `frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts` | Caches `orderId` in session; injects `X-Order-ID` header |
+| `frontend/nextjs/src/app/editor/layout/[name]/page.tsx` | `executeServerRender()`, threshold routing, `serverRenderLabel` progress state |
+
 ---
 
 ## 5. Current vs Automated Flow Comparison
@@ -208,6 +257,8 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 | Order hold risk | High — cx response delay | Eliminated — no post-checkout hold |
 | Cancellation risk | Moderate — frustrated cx cancel | Minimal — cx approved before paying |
 | Peak load handling | Fixed preflight team capacity | Async queue — horizontally scalable worker pool |
+| Large batch (100–200 photos) | N/A — manual | Server-side Celery render at 300 DPI; browser unblocked |
+| Render quality (large batch) | N/A | Consistent 300 DPI Pillow output regardless of device |
 
 ---
 
@@ -226,6 +277,7 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 - Build the post-checkout webhook that pushes the approved canvas directly to the production estimator.
 - ~~Implement Celery + Redis async queue for non-blocking image generation.~~ **✅ Done** — async queue with priority/standard worker isolation is live.
 - ~~Security hardening~~ **✅ Done** — API key bundle leak closed, session token refresh, auth guards, path traversal protection, and 18 additional fixes all complete. TypeScript and Django build both clean.
+- ~~Server-side upload + render for large batches~~ **✅ Done** — Chunked upload API, per-frame transform pipeline, Celery 300 DPI Pillow render, embed `pe:render_job` postMessage, direct admin ZIP download. Threshold: ≤ 20 canvases → client-side; > 20 → server-side. Smart downscaling and PNG optimization included.
 - Target: 100% of orders for enabled SKUs go directly to production with zero preflight involvement.
 
 ### Phase 3 — Full Catalogue Rollout (1–3 months)
@@ -263,6 +315,9 @@ The following approvals are required before implementation proceeds:
 | 8 | Set `INTERNAL_API_KEY` server env var + remove `NEXT_PUBLIC_DIRECT_API_KEY` from all envs + rotate key | DevOps | Apr 14, 2026 | Open |
 | 9 | Consolidate all inputs and schedule CEO alignment meeting | Kanna | May 2, 2026 | Pending |
 | 10 | Manish to review and approve rollout plan | Manish | May 5, 2026 | Pending |
+| 11 | Server-side upload + render for > 20 canvases (chunked upload API, Celery 300 DPI render, embed postMessage, direct download) | Kanna | Apr 21, 2026 | **✅ Done** |
+| 12 | Run `docker-compose exec backend python manage.py migrate` to apply migration 0006 | DevOps | Before next deploy | Open |
+| 13 | Update parent site (printo.in) to listen for `pe:render_job` postMessage type and poll render-status | Frontend (printo.in) | May 5, 2026 | Open |
 
 ---
 
@@ -289,6 +344,8 @@ The following approvals are required before implementation proceeds:
 | Orders meeting 3 PM courier cutoff | TBD | > 98% | Dispatch log |
 | Concurrent orders processed without timeout | ~50 (Gunicorn limit) | 200+ (async queue, scalable) | Render job success rate |
 | Render job success rate (no timeout/failure) | N/A | > 99.5% | RenderJob status log |
+| Large-batch (> 20 canvases) browser memory at render time | 1–4 GB (client render) | < 50 MB (upload only) | Browser DevTools memory snapshot |
+| Large-batch server render time (100 canvases, 300 DPI) | N/A — not supported client-side | < 5 min (Celery, 2 workers) | `RenderJob.started_at` → `completed_at` |
 
 ---
 

@@ -16,6 +16,32 @@ logger = logging.getLogger(__name__)
 WORKER_CONCURRENCY = int(os.getenv('CELERY_CONCURRENCY', '2'))
 
 
+def _extract_frame_transforms(editor_state: dict | None) -> list | None:
+    """
+    Flatten per-frame transforms from CanvasData.editor_state into a list
+    ordered as [canvas0_frame0, canvas0_frame1, canvas1_frame0, ...].
+
+    Returns None if editor_state is absent or has no canvases (engine then
+    falls back to the global fit_mode with no per-frame adjustments).
+    """
+    if not editor_state:
+        return None
+    canvases = editor_state.get('canvases') or []
+    if not canvases:
+        return None
+    transforms = []
+    for canvas in canvases:
+        for frame in canvas.get('frames') or []:
+            transforms.append({
+                'offset_x': float(frame.get('offset_x') or 0),
+                'offset_y': float(frame.get('offset_y') or 0),
+                'scale':    float(frame.get('scale') or 1),
+                'rotation': float(frame.get('rotation') or 0),
+                'fit_mode': frame.get('fit_mode') or None,
+            })
+    return transforms or None
+
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -70,6 +96,10 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
 
         start_time = time.time()
 
+        # Extract per-frame transforms saved by EditorRenderView so the engine
+        # can reproduce the exact pan / zoom / rotation the user set in the editor.
+        frame_transforms = _extract_frame_transforms(canvas.editor_state)
+
         try:
             if canvas.soft_proof:
                 logger.info(
@@ -80,6 +110,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                     canvas.layout_name,
                     canvas.image_paths,
                     fit_mode=canvas.fit_mode,
+                    frame_transforms=frame_transforms,
                 )
                 output_paths = []
                 for result in outputs:
@@ -98,6 +129,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                     canvas.image_paths,
                     fit_mode=canvas.fit_mode,
                     export_format=canvas.export_format,
+                    frame_transforms=frame_transforms,
                 )
                 output_paths = outputs
 

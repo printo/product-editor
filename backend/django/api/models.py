@@ -172,6 +172,9 @@ class EmbedSession(models.Model):
 
     token = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
     api_key = models.ForeignKey(APIKey, on_delete=models.CASCADE, related_name='embed_sessions')
+    # Caller's own job/order identifier — stored here so the proxy can inject it
+    # as X-Order-ID without ever exposing it in the iframe URL.
+    order_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_revoked = models.BooleanField(default=False)

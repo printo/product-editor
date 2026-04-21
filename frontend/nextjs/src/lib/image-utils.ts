@@ -2,52 +2,50 @@
  * Image processing utilities.
  */
 
-// Cache for image metadata to avoid re-reading the same file multiple times
-const metadataCache = new WeakMap<File, { width: number; height: number; orientation: number; element: HTMLImageElement }>();
+// Cache only dimensions and orientation — NOT the HTMLImageElement.
+// A decoded 12 MP photo occupies ~48 MB of pixel data. Caching the element
+// keeps it alive as long as the File is referenced, so 200 files would pin
+// ~9.6 GB in memory for the entire session, crashing any device.
+const metadataCache = new WeakMap<File, { width: number; height: number; orientation: number }>();
 
-/**
- * Gets image metadata including dimensions, orientation (EXIF), and the loaded HTMLImageElement.
- */
-export async function getImageMetadata(file: File): Promise<{ width: number; height: number; orientation: number; element: HTMLImageElement }> {
-  // Check cache first
-  const cached = metadataCache.get(file);
-  if (cached) return cached;
-
+function loadImageElement(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
-
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Failed to decode image'));
-    };
-
-    img.onload = async () => {
-      let orientation = 1;
-      try {
-        // Dynamic import to bypass build-time resolution issues in Next.js Turbopack
-        const { default: ExifReader } = await (import('exifreader') as any);
-        const tags = await ExifReader.load(file);
-        if (tags.Orientation) {
-          orientation = (tags.Orientation.value as number) || 1;
-        }
-      } catch {
-        // Ignore exif errors — orientation defaults to 1 (normal)
-      }
-
-      const width = img.naturalWidth;
-      const height = img.naturalHeight;
-      const result = { width, height, orientation, element: img };
-      
-      // Store in cache
-      metadataCache.set(file, result);
-      
-      URL.revokeObjectURL(url);
-      resolve(result);
-    };
-
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to decode image')); };
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
     img.src = url;
   });
+}
+
+/**
+ * Gets image metadata including dimensions, orientation (EXIF), and a freshly
+ * loaded HTMLImageElement. The element is NOT cached — callers should use it
+ * immediately (e.g. for smart crop) and let it go so the browser can GC it.
+ */
+export async function getImageMetadata(file: File): Promise<{ width: number; height: number; orientation: number; element: HTMLImageElement }> {
+  const cached = metadataCache.get(file);
+
+  // Always load a fresh element — not stored in cache so pixel data can be GC'd after use.
+  const element = await loadImageElement(file);
+
+  if (cached) return { ...cached, element };
+
+  let orientation = 1;
+  try {
+    // Read only the first 64 KB — EXIF data is always at the file head and ExifReader.load(file)
+    // would otherwise read the entire file (potentially 10–20 MB per photo, 200× in a large batch).
+    const { default: ExifReader } = await (import('exifreader') as any);
+    const buf = await file.slice(0, 65536).arrayBuffer();
+    const tags = await ExifReader.load(buf);
+    if (tags.Orientation) orientation = (tags.Orientation.value as number) || 1;
+  } catch {
+    // Ignore EXIF errors — orientation defaults to 1 (normal)
+  }
+
+  const result = { width: element.naturalWidth, height: element.naturalHeight, orientation };
+  metadataCache.set(file, result);
+  return { ...result, element };
 }
 
 /**

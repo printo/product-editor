@@ -6,6 +6,7 @@ from .views import (
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
     CanvasStateView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
+    EditorRenderView,
 )
 
 urlpatterns = [
@@ -36,6 +37,9 @@ urlpatterns = [
 
     # External access (Secured)
     path("external/layouts/<str:name>", ExternalLayoutDetailView.as_view(), name="external-layout-detail"),
+
+    # Editor server-side render (upload_ids → Celery job)
+    path("editor/render", EditorRenderView.as_view(), name="editor-render"),
 
     # Embed session — create short-lived token & internal validation
     path("embed/session", EmbedSessionView.as_view(), name="embed-session-create"),

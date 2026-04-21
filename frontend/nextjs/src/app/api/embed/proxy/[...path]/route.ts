@@ -37,7 +37,7 @@ const INTERNAL_SECRET = process.env.EMBED_INTERNAL_SECRET || '';
 // ── In-process token → API key cache ─────────────────────────────────────────
 // Module-level so it persists across requests within the same Next.js worker
 // process (Node.js keeps module scope alive between hot invocations).
-interface CacheEntry { apiKey: string; exp: number }
+interface CacheEntry { apiKey: string; orderId: string | null; exp: number }
 const tokenCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 110 * 60 * 1000; // 110 minutes (session TTL is 120 min)
 // Hard cap to prevent unbounded growth in pathological scenarios
@@ -63,17 +63,19 @@ function evictExpired(): void {
   }
 }
 
+interface SessionInfo { apiKey: string; orderId: string | null }
+
 /**
- * Exchange an embed token for the real API key.
+ * Exchange an embed token for the real API key and order_id.
  * Returns the cached value if still valid; otherwise hits Django's internal
  * validate endpoint and stores the result.
  */
-async function resolveApiKey(embedToken: string): Promise<string | null> {
+async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
   const now = Date.now();
 
   // Fast path: valid cached entry.
   const cached = tokenCache.get(embedToken);
-  if (cached && cached.exp > now) return cached.apiKey;
+  if (cached && cached.exp > now) return { apiKey: cached.apiKey, orderId: cached.orderId };
 
   // Cache miss — purge stale entries then fetch from Django.
   evictExpired();
@@ -92,9 +94,11 @@ async function resolveApiKey(embedToken: string): Promise<string | null> {
     const data = await res.json();
     const apiKey: string | null = data.api_key ?? null;
     if (apiKey) {
-      tokenCache.set(embedToken, { apiKey, exp: now + CACHE_TTL_MS });
+      const orderId: string | null = data.order_id || null;
+      tokenCache.set(embedToken, { apiKey, orderId, exp: now + CACHE_TTL_MS });
+      return { apiKey, orderId };
     }
-    return apiKey;
+    return null;
   } catch {
     return null;
   }
@@ -109,10 +113,11 @@ async function handler(
     return NextResponse.json({ detail: 'X-Embed-Token header required' }, { status: 401 });
   }
 
-  const apiKey = await resolveApiKey(embedToken);
-  if (!apiKey) {
+  const session = await resolveSession(embedToken);
+  if (!session) {
     return NextResponse.json({ detail: 'Invalid or expired embed token' }, { status: 401 });
   }
+  const { apiKey, orderId } = session;
 
   // Build the upstream URL — join the path segments
   const { path } = await params;
@@ -125,6 +130,8 @@ async function handler(
     Authorization: `Bearer ${apiKey}`,
     Accept: req.headers.get('Accept') || 'application/json',
   };
+  // Inject the caller's order_id for the render endpoint so Django can track the job
+  if (orderId) forwardHeaders['X-Order-ID'] = orderId;
   // Only set Content-Type when we'll actually have a body — for GET/HEAD
   // it's meaningless and some upstreams reject the combination.
   if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {

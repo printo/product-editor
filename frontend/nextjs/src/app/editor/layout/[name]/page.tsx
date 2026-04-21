@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/lib/zip-utils';
+import { uploadFiles } from '@/lib/upload-utils';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import { getImageMetadata, detectJpegColorSpace } from '@/lib/image-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
@@ -110,6 +111,7 @@ export default function LayoutEditorPage() {
   const [activeCanvasIdx, setActiveCanvasIdx] = useState<number | null>(null);
   const [editingCanvas, setEditingCanvas] = useState<CanvasItem | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [serverRenderLabel, setServerRenderLabel] = useState<string | null>(null);
   const [uploadWarning, setUploadWarning] = useState<string | null>(null);
   const [colorWarning, setColorWarning] = useState<string | null>(null);
   // Qty enforcement state
@@ -1311,6 +1313,145 @@ export default function LayoutEditorPage() {
     };
   }, [impositionResult, previewSheetIdx, impositionSettings, canvases, showImpositionModal]);
 
+  // Canvases beyond this threshold are rendered server-side (Celery + Pillow at 300 DPI).
+  // At or below, client-side canvas render is fast enough for direct download.
+  const SERVER_RENDER_THRESHOLD = 20;
+
+  const executeServerRender = async () => {
+    setIsDownloading(true);
+    setServerRenderLabel('Preparing upload…');
+    setRenderProgress({ current: 0, total: 100 });
+    try {
+      // 1. Collect all canvases in order across all surfaces
+      const allCanvases = surfaceStates.length > 1
+        ? surfaceStates.flatMap(s => s.canvases.map(c => ({ ...c, surfaceKey: s.key })))
+        : canvases.map(c => ({ ...c, surfaceKey: 'canvas' }));
+
+      // 2. Collect unique File objects in frame order
+      const allFiles: File[] = [];
+      const seenFiles = new Set<File>();
+      for (const c of allCanvases) {
+        for (const frame of c.frames) {
+          if (frame.originalFile && !seenFiles.has(frame.originalFile)) {
+            seenFiles.add(frame.originalFile);
+            allFiles.push(frame.originalFile);
+          }
+        }
+      }
+
+      if (allFiles.length === 0) {
+        setError('No files to upload for server render.');
+        return;
+      }
+
+      // 3. Upload files — progress 0–60%
+      setServerRenderLabel('Uploading files…');
+      const uploadResults = await uploadFiles(
+        allFiles,
+        apiBase,
+        getAuthHeaders,
+        (completed, total) => {
+          setRenderProgress({ current: Math.round((completed / total) * 60), total: 100 });
+        },
+      );
+
+      // 4. Build render payload: canvases → frames → upload_id + per-frame transforms
+      setServerRenderLabel('Submitting render job…');
+      setRenderProgress({ current: 65, total: 100 });
+
+      const canvasesPayload = allCanvases.map((c, canvasIdx) => ({
+        canvas_index: canvasIdx,
+        surface_key: (c as any).surfaceKey,
+        frames: c.frames.map((frame, frameIdx) => {
+          const up = frame.originalFile ? uploadResults.get(frame.originalFile) : null;
+          return {
+            frame_index: frameIdx,
+            upload_id: up?.uploadId ?? null,
+            offset_x: frame.offset.x,
+            offset_y: frame.offset.y,
+            scale: frame.scale,
+            rotation: frame.rotation,
+            fit_mode: frame.fitMode,
+          };
+        }),
+      }));
+
+      const renderRes = await fetch(`${apiBase}/editor/render`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          layout_name: layoutName,
+          order_id: orderId,
+          canvases: canvasesPayload,
+        }),
+      });
+
+      if (!renderRes.ok) {
+        const err = await renderRes.json().catch(() => ({}));
+        throw new Error(err.detail ?? `Render job submission failed: ${renderRes.status}`);
+      }
+
+      const { job_id, order_id: serverOrderId } = await renderRes.json();
+
+      // 5. Embed path: fire postMessage and exit — no download UI shown
+      if (embedToken) {
+        window.parent.postMessage({
+          type: 'pe:render_job',
+          jobId: job_id,
+          orderID: serverOrderId || orderId,
+        }, '*');
+        setSubmitted(true);
+        return;
+      }
+
+      // 6. Direct/admin path: poll render-status until done
+      setServerRenderLabel('Rendering on server…');
+      setRenderProgress({ current: 70, total: 100 });
+
+      const MAX_POLLS = 150; // 10 minutes at 4 s intervals
+      for (let poll = 0; poll < MAX_POLLS; poll++) {
+        await new Promise(r => setTimeout(r, 4000));
+
+        const statusRes = await fetch(`${apiBase}/render-status/${job_id}/`, {
+          headers: getAuthHeaders(),
+        });
+        if (!statusRes.ok) continue;
+
+        const jobStatus = await statusRes.json();
+
+        if (jobStatus.status === 'completed') {
+          setServerRenderLabel('Downloading…');
+          setRenderProgress({ current: 100, total: 100 });
+
+          const dlRes = await fetch(`${apiBase}/jobs/${job_id}/download/`, {
+            headers: getAuthHeaders(),
+          });
+          if (!dlRes.ok) throw new Error('Failed to fetch render output.');
+          const blob = await dlRes.blob();
+          const zipName = layout?.name || layoutName;
+          downloadBlob(blob, `${zipName}.zip`);
+          return;
+        }
+
+        if (jobStatus.status === 'failed') {
+          throw new Error(jobStatus.error || 'Server render failed');
+        }
+
+        // Ease progress 70 → 99 while rendering
+        setRenderProgress({ current: Math.min(99, 70 + poll * 2), total: 100 });
+      }
+
+      throw new Error('Render job timed out after 10 minutes');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Server render failed.');
+    } finally {
+      setIsDownloading(false);
+      setShowDownloadModal(false);
+      setServerRenderLabel(null);
+      setRenderProgress(null);
+    }
+  };
+
   const executeBatchDownload = async () => {
     setIsDownloading(true);
     try {
@@ -1328,57 +1469,62 @@ export default function LayoutEditorPage() {
         return;
       }
 
+      // Delegate large jobs to the server-side render pipeline
+      if (totalSteps > SERVER_RENDER_THRESHOLD) {
+        setIsDownloading(false);
+        return executeServerRender();
+      }
+
       setRenderProgress({ current: 0, total: totalSteps });
       const items: { name: string; blob: Blob }[] = [];
 
-      // 2. Render each canvas ONE BY ONE to keep RAM usage near zero
-      // We use sequential rendering so we only ever hold ONE high-res image in memory at a time.
-      for (let i = 0; i < totalSteps; i++) {
-        const c = (allCanvases as any)[i];
-        const surfaceKey = c.surfaceKey;
+      // 2. Render canvases in parallel batches.
+      // Larger batches for big jobs — thumbnail renders are cheap, high-res renders are the
+      // bottleneck, so we scale batch size with total count to keep wall time reasonable.
+      // Memory bound: each full-res canvas is ~8–30 MB; 5 concurrent = 40–150 MB peak.
+      const BATCH_SIZE = totalSteps > 50 ? 5 : 3;
+      const RENDER_TIMEOUT_MS = 60_000;
+      for (let batchStart = 0; batchStart < totalSteps; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, totalSteps);
 
-        // Find the correct layout definition for this surface
-        const layoutDef = surfaceStates.length > 1
-          ? surfaceStates.find(s => s.key === surfaceKey)?.def
-          : layout;
+        const batchResults = await Promise.all(
+          Array.from({ length: batchEnd - batchStart }, async (_, j) => {
+            const i = batchStart + j;
+            const c = (allCanvases as any)[i];
+            const surfaceKey = c.surfaceKey;
+            const layoutDef = surfaceStates.length > 1
+              ? surfaceStates.find((s: any) => s.key === surfaceKey)?.def
+              : layout;
 
-        // Render high-res PNG with timeout to prevent hanging on large images
-        let dataUrl = '';
-        try {
-          const RENDER_TIMEOUT_MS = 30_000;
-          dataUrl = await Promise.race([
-            renderCanvas(c, {
-              isExport: true,
-              includeMask: false,
-              layoutOverride: layoutDef
-            }),
-            new Promise<string>((_, reject) =>
-              setTimeout(() => reject(new Error(`Canvas ${i + 1} render timed out after ${RENDER_TIMEOUT_MS / 1000}s`)), RENDER_TIMEOUT_MS)
-            ),
-          ]);
-        } catch (renderErr) {
-          console.error(`[batch-download] Failed to render canvas ${i + 1}:`, renderErr);
+            let dataUrl = '';
+            try {
+              dataUrl = await Promise.race([
+                renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: layoutDef }),
+                new Promise<string>((_, reject) =>
+                  setTimeout(() => reject(new Error(`Canvas ${i + 1} timed out after ${RENDER_TIMEOUT_MS / 1000}s`)), RENDER_TIMEOUT_MS)
+                ),
+              ]);
+            } catch (renderErr) {
+              console.error(`[batch-download] Failed to render canvas ${i + 1}:`, renderErr);
+            }
+            return { i, c, surfaceKey, dataUrl };
+          })
+        );
+
+        // Convert renders to blobs in parallel — fetch(dataUrl) is non-blocking so this is safe
+        const blobEntries = await Promise.all(
+          batchResults.map(async ({ i, c, surfaceKey, dataUrl }) => ({
+            i, surfaceKey,
+            printBlob: dataUrl ? await dataUrlToBlob(dataUrl) : null,
+            mockupBlob: c.dataUrl ? await dataUrlToBlob(c.dataUrl) : null,
+          }))
+        );
+        for (const { i, surfaceKey, printBlob, mockupBlob } of blobEntries) {
+          if (printBlob) items.push({ name: `print_file/${surfaceKey}-${i + 1}.png`, blob: printBlob });
+          if (mockupBlob) items.push({ name: `mockup_file/${surfaceKey}-${i + 1}.png`, blob: mockupBlob });
         }
 
-        if (dataUrl) {
-          const blob = await dataUrlToBlob(dataUrl);
-          items.push({
-            name: `print_file/${surfaceKey}-${i + 1}.png`,
-            blob
-          });
-        }
-
-        // Add reference mockup (already rendered in low-res)
-        if (c.dataUrl) {
-          const mockupBlob = await dataUrlToBlob(c.dataUrl);
-          items.push({
-            name: `mockup_file/${surfaceKey}-${i + 1}.png`,
-            blob: mockupBlob
-          });
-        }
-
-        setRenderProgress({ current: i + 1, total: totalSteps });
-        // Yield to browser to prevent UI freeze and allow garbage collection
+        setRenderProgress({ current: batchEnd, total: totalSteps });
         await new Promise(r => setTimeout(r, 0));
       }
 
@@ -1412,12 +1558,8 @@ export default function LayoutEditorPage() {
   };
 
   const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
-    const parts = dataUrl.split(',');
-    const bstr = atob(parts[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) u8arr[n] = bstr.charCodeAt(n);
-    return new Blob([u8arr], { type: 'image/png' });
+    const res = await fetch(dataUrl);
+    return res.blob();
   };
 
   const executeImposition = async () => {
@@ -1512,6 +1654,11 @@ export default function LayoutEditorPage() {
       ? surfaceStates.flatMap(s => s.canvases)
       : canvases;
     if (allCanvases.length === 0) return;
+
+    // Large jobs are rendered server-side; parent receives a job ID via postMessage
+    if (allCanvases.length > SERVER_RENDER_THRESHOLD) {
+      return executeServerRender();
+    }
 
     setIsDownloading(true);
     setRenderProgress({ current: 0, total: allCanvases.length });
@@ -1834,9 +1981,11 @@ export default function LayoutEditorPage() {
                 <div className="flex items-center justify-center gap-2">
                   <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
                   <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">
-                    {isDownloading 
-                      ? (renderProgress.total === 100 ? `Zipping... ${renderProgress.current}%` : `Rendering File ${renderProgress.current} of ${renderProgress.total}`)
-                      : `Rendering File ${renderProgress.current} of ${renderProgress.total}`
+                    {serverRenderLabel
+                      ? serverRenderLabel
+                      : isDownloading
+                        ? (renderProgress.total === 100 ? `Zipping... ${renderProgress.current}%` : `Rendering File ${renderProgress.current} of ${renderProgress.total}`)
+                        : `Rendering File ${renderProgress.current} of ${renderProgress.total}`
                     }
                   </p>
                 </div>

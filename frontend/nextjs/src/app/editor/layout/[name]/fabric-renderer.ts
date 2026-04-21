@@ -119,20 +119,25 @@ export async function renderCanvas(
   });
 
   try {
+  // Pre-compute frame rects once — reused by the image loop, paper mask, outline loop, and label loop
+  const pxPerMm = (canvasW / multiplier) / (usedLayout.canvas?.widthMm || 1);
+  const frameRects = frames.map((frameSpec: any) => {
+    const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+    const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
+    const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
+    const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
+    const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
+    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
+    return { fx, fy, fw, fh, fr };
+  });
+
   // ── Frame images ────────────────────────────────────────────────────────────
   for (let frameIdx = 0; frameIdx < frames.length; frameIdx++) {
     if (excludeFrameIdx !== null && frameIdx === excludeFrameIdx) continue;
-    const frameSpec = frames[frameIdx];
     const frameState = canvasItem.frames[frameIdx];
     if (!frameState) continue;
 
-    const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-      const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
-      const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
-      const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
-      const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
-      const pxPerMm = (canvasW / multiplier) / (usedLayout.canvas?.widthMm || 1);
-      const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
+      const { fx, fy, fw, fh, fr } = frameRects[frameIdx];
 
       const file = frameState.originalFile;
       if (!file) continue;
@@ -161,15 +166,19 @@ export async function renderCanvas(
           const targetH = imgH * finalScale;
           // Only resize if it's a significant downscale
           if (targetW > 10 && targetH > 10) {
-            const picaCanvas = await resizeImageWithPica(fabricImg.getElement() as HTMLImageElement, targetW, targetH);
-            fabricImg.setElement(picaCanvas);
-            imgW = picaCanvas.width;
-            imgH = picaCanvas.height;
-            fabricImg.set({ width: imgW, height: imgH });
-            // Since we've resized to final size, the new scale is 1.0
-            finalScale = 1.0;
-            effW = imgW * cosA + imgH * sinA;
-            effH = imgW * sinA + imgH * cosA;
+            try {
+              const picaCanvas = await resizeImageWithPica(fabricImg.getElement() as HTMLImageElement, targetW, targetH);
+              fabricImg.setElement(picaCanvas);
+              imgW = picaCanvas.width;
+              imgH = picaCanvas.height;
+              fabricImg.set({ width: imgW, height: imgH });
+              // Since we've resized to final size, the new scale is 1.0
+              finalScale = 1.0;
+              effW = imgW * cosA + imgH * sinA;
+              effH = imgW * sinA + imgH * cosA;
+            } catch {
+              // Pica failed — fall back to native canvas scaling so the image still renders
+            }
           }
         }
 
@@ -214,14 +223,7 @@ export async function renderCanvas(
   // for each frame using SVG `evenodd` fill rule.
   // Build SVG path with array.join() instead of string += concatenation (O(n) vs O(n²))
   const pathSegments = [`M 0 0 L ${canvasW} 0 L ${canvasW} ${canvasH} L 0 ${canvasH} Z`];
-  frames.forEach((frameSpec: any) => {
-    const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-    const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
-    const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
-    const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
-    const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
-    const pxPerMm = (canvasW / multiplier) / (usedLayout.canvas?.widthMm || 1);
-    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
+  frameRects.forEach(({ fx, fy, fw, fh, fr }) => {
 
     if (fr > 0) {
       pathSegments.push(`M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr} L ${fx} ${fy + fh - fr} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh} L ${fx + fw - fr} ${fy + fh} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr} L ${fx + fw} ${fy + fr} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`);
@@ -248,14 +250,7 @@ export async function renderCanvas(
   // the exact shape (circle, rounded rect, etc.) of the final product.
   if (!isExport) {
   const outlineStrokeW = Math.max(2, Math.round(canvasW * 0.0025));
-  for (const frameSpec of frames) {
-    const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-    const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
-    const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
-    const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
-    const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
-    const pxPerMm = (canvasW / multiplier) / (usedLayout.canvas?.widthMm || 1);
-    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
+  for (const { fx, fy, fw, fh, fr } of frameRects) {
     const outlineRect = new Rect({
       left: fx,
       top: fy,
@@ -279,12 +274,7 @@ export async function renderCanvas(
   if (!isExport && frames.length > 1) {
     for (let frameIdx = 0; frameIdx < frames.length; frameIdx++) {
       if (excludeFrameIdx !== null && frameIdx === excludeFrameIdx) continue;
-      const frameSpec = frames[frameIdx];
-      const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-      const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
-      const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
-      const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
-      const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
+      const { fx, fy, fw, fh } = frameRects[frameIdx];
       const labelSize = Math.max(14, Math.min(fw, fh) * 0.08);
 
       const label = new FabricText(`Frame ${frameIdx + 1}`, {
