@@ -1877,7 +1877,9 @@ class RenderJobDownloadView(APIView):
         # Build the ZIP in memory.
         # Typical output: 1-3 files at 1-5 MB each → well within a 512 MB worker.
         buf = io.BytesIO()
-        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        # PNG files are already DEFLATE-compressed — re-compressing with DEFLATE wastes
+        # CPU for negligible size savings.  ZIP_STORED skips the redundant pass entirely.
+        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_STORED) as zf:
             for path in safe_paths:
                 # Archive name is the path relative to EXPORTS_DIR so the ZIP
                 # retains a meaningful folder structure (e.g. <order_id>/out.png).
