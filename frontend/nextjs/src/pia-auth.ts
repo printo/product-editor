@@ -108,6 +108,8 @@ const nextAuth = NextAuth({
     async session({ session, token }) {
         if (token) {
             session.user.id = token.id as string
+            session.user.name = (token.name as string) || ''
+            session.user.email = (token.email as string) || ''
             session.user.role = token.role as string | undefined
             session.accessToken = token.accessToken as string | undefined
             session.is_ops_team = token.is_ops_team as boolean | undefined
