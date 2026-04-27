@@ -1439,6 +1439,12 @@ class EmbedSessionView(APIView):
     """
     permission_classes = [IsAuthenticatedWithAPIKey]
 
+    # order_id charset — caller-controlled identifier that flows into Django
+    # logs, the X-Order-ID header, and CanvasData.order_id. Allow the
+    # conservative set used by typical OMS systems: alphanumerics + _ . -
+    # up to 64 chars. Anything else is rejected with 400.
+    ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
+
     @extend_schema(
         tags=["embed"],
         summary="Create embed session token",
@@ -1496,6 +1502,11 @@ class EmbedSessionView(APIView):
         # Caller's job/order identifier — stored server-side so the proxy can
         # inject it as X-Order-ID without putting it in the iframe URL.
         order_id = str(request.data.get('order_id', '') or '').strip()
+        if order_id and not self.ORDER_ID_RE.match(order_id):
+            return Response(
+                {'detail': 'order_id must be 1-64 chars; allowed: A-Z a-z 0-9 _ . -'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         session = EmbedSession.objects.create(
             api_key=api_key,
             expires_at=expires_at,
@@ -1569,9 +1580,21 @@ class EmbedSessionValidateView(APIView):
         if not session.is_valid():
             return Response({'detail': 'Token expired or revoked'}, status=status.HTTP_401_UNAUTHORIZED)
 
+        # Sliding TTL — keep long-lived editing sessions alive without a hard
+        # cutoff at the original 2-hour mark. Only extend when the session is
+        # already in its second half so we don't write on every request when
+        # the proxy cache (110-min TTL) is hammering us at the start.
+        from datetime import timedelta
+        now = timezone.now()
+        # original lifetime is 2h; extend by 1h when remaining < 30 min
+        if (session.expires_at - now) < timedelta(minutes=30):
+            session.expires_at = now + timedelta(hours=1)
+            session.save(update_fields=['expires_at'])
+
         return Response({
             'api_key': session.api_key.key,
             'order_id': session.order_id or None,
+            'expires_at': session.expires_at.isoformat(),
         })
 
 

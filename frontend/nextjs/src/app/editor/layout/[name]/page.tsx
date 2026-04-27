@@ -43,6 +43,22 @@ export default function LayoutEditorPage() {
     return new URLSearchParams(window.location.search).get('token');
   }, []);
 
+  // Resolve the parent window's origin for postMessage. Strict targetOrigin
+  // prevents an unrelated outer page from eavesdropping on completion payloads
+  // (which include order_id, job_id, and dataUrls for client-rendered jobs).
+  // Resolution order: ancestorOrigins (Chromium/Safari) → document.referrer
+  // → NEXT_PUBLIC_EMBED_PARENT_ORIGIN env. Falls back to a defaulted printo.in
+  // host so production never silently leaks via '*'.
+  const parentOrigin = useMemo<string>(() => {
+    if (typeof window === 'undefined') return 'https://printo.in';
+    const ancestors = (window.location as unknown as { ancestorOrigins?: { length: number; [i: number]: string } }).ancestorOrigins;
+    if (ancestors && ancestors.length > 0 && ancestors[0]) return ancestors[0];
+    if (document.referrer) {
+      try { return new URL(document.referrer).origin; } catch { /* fall through */ }
+    }
+    return process.env.NEXT_PUBLIC_EMBED_PARENT_ORIGIN || 'https://printo.in';
+  }, []);
+
   // Quantity enforcement — optional ?qty=N URL param (single-surface only)
   const orderQty = useMemo<number | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -478,7 +494,11 @@ export default function LayoutEditorPage() {
             overlays: c.overlays.map(o => {
               if (o.type !== 'image' || !o.fileId) return o;
               const file = fileMap.get(o.fileId);
-              return file ? { ...o, originalFile: file } : o;
+              if (!file) return o;
+              // Re-create the blob URL since the saved one was revoked when
+              // the previous browser session ended. getFileUrl caches by File
+              // reference so revocation hooks elsewhere still work.
+              return { ...o, originalFile: file, src: getFileUrl(file) };
             }),
           }));
 
@@ -1485,7 +1505,7 @@ export default function LayoutEditorPage() {
           type: 'pe:render_job',
           jobId: job_id,
           orderID: serverOrderId || orderId,
-        }, '*');
+        }, parentOrigin);
         setSubmitted(true);
         return;
       }
@@ -1777,7 +1797,7 @@ export default function LayoutEditorPage() {
         layoutName: layout?.id,
         ...(surfaceStates.length > 1 ? { surfaces: surfacesPayload } : {}),
         canvases: rendered.map((dataUrl, i) => ({ index: i, dataUrl })),
-      }, '*');
+      }, parentOrigin);
       setSubmitted(true);
     } catch { 
       setError('Failed to prepare design.'); 

@@ -104,6 +104,30 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
   }
 }
 
+// ── Path allowlist ───────────────────────────────────────────────────────────
+// Embed sessions are scoped to customer-facing endpoints only. This guards
+// against a stolen / replayed embed token being used to call ops or admin
+// surfaces with the upstream API key.
+const ALLOWED_PATH_PREFIXES = [
+  'layouts',           // GET layout details (no list/manage)
+  'canvas-state',      // editor auto-save / restore
+  'editor/render',     // server-side render submission
+  'render-status',     // poll render status
+  'jobs',              // download completed render
+  'upload',            // chunked file upload
+  'fonts',             // GET only — list fonts (PUT requires ops auth at backend)
+  'sku-layouts',       // GET only — resolve SKU → layout
+  'embed/session',     // self-validate (rare; mostly internal)
+] as const;
+
+function isPathAllowed(p: string): boolean {
+  if (!p) return false;
+  // Exact match or prefix match with a `/` boundary
+  return ALLOWED_PATH_PREFIXES.some(allowed =>
+    p === allowed || p.startsWith(`${allowed}/`)
+  );
+}
+
 async function handler(
   req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -113,15 +137,25 @@ async function handler(
     return NextResponse.json({ detail: 'X-Embed-Token header required' }, { status: 401 });
   }
 
+  // Build the upstream URL — join the path segments
+  const { path } = await params;
+  const upstreamPath = (path || []).join('/');
+
+  // Path allowlist — reject ops/admin/anything not customer-facing BEFORE
+  // we even validate the token, so attackers can't probe Django auth surfaces.
+  if (!isPathAllowed(upstreamPath)) {
+    return NextResponse.json(
+      { detail: 'Path not permitted via embed proxy' },
+      { status: 403 },
+    );
+  }
+
   const session = await resolveSession(embedToken);
   if (!session) {
     return NextResponse.json({ detail: 'Invalid or expired embed token' }, { status: 401 });
   }
   const { apiKey, orderId } = session;
 
-  // Build the upstream URL — join the path segments
-  const { path } = await params;
-  const upstreamPath = (path || []).join('/');
   const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${req.nextUrl.search}`;
 
   // Forward only safe, non-hop-by-hop headers
