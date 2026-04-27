@@ -34,10 +34,11 @@ docker-compose logs -f <service>
 
 ### Utilities
 ```bash
-./deploy.sh          # Production deployment
-./fresh-install.sh   # Fresh environment setup
-./reset-db.sh        # Reset database
-./benchmark.sh       # Performance benchmarking
+./deploy.sh                                                    # Production deployment
+./fresh-install.sh                                             # Fresh environment setup
+./reset-db.sh                                                  # Reset database
+./benchmark.sh                                                 # Performance benchmarking
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # 10-step embed-flow smoke test
 ```
 
 ## Architecture
@@ -188,7 +189,8 @@ Caller (printo.in)  →  POST /api/embed/session { order_id: "EXT-JOB-123" }
 iframe loads with  ?token=<uuid>
 
 Every iframe request → embed proxy resolveSession(token)
-                    → caches { apiKey, orderId, exp }
+                    → checks path allowlist (rejects /ops, /admin, etc. with 403)
+                    → caches { apiKey, orderId, exp } for 110 min
                     → injects X-Order-ID: EXT-JOB-123 on every upstream request
 
 EditorRenderView reads X-Order-ID header (priority over body order_id)
@@ -196,12 +198,29 @@ EditorRenderView reads X-Order-ID header (priority over body order_id)
 
 `order_id` never appears in the iframe URL — it flows: caller → session DB → proxy in-process cache → `X-Order-ID` header → Django.
 
+`order_id` is validated server-side at session creation: `^[A-Za-z0-9_.\-]{1,64}$`. Anything else is rejected with 400.
+
+**Embed proxy path allowlist** ([route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts:124)) — only these prefixes pass through:
+
+```
+layouts, canvas-state, editor/render, render-status, jobs,
+upload, fonts, sku-layouts, embed/session
+```
+
+Anything else returns 403 *before* token resolution, so an attacker can't probe Django auth surfaces with a stolen embed token.
+
+**Sliding session TTL** — sessions are created with a 2-hour expiry, but `EmbedSessionValidateView` extends by 1 hour whenever the remaining lifetime drops below 30 min. Active editing sessions stay alive without a hard cutoff; idle sessions still expire on schedule. One DB write per hour of activity in the worst case.
+
+**iframe `frame-ancestors`** ([next.config.mjs](frontend/nextjs/next.config.mjs)) — `/layout/*`, `/editor/layout/*`, and `/embed/layout/*` get a CSP `frame-ancestors` header allowing `'self'`, `https://printo.in`, and `https://*.printo.in`. Override per-environment via `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS`.
+
 ### postMessage Contract
 
 | Type | Sender | When | Payload |
 |---|---|---|---|
 | `pe:render_job` | Product Editor iframe | Server-side render submitted (embed, > 20 canvases) | `{ type, jobId, orderID }` |
 | `PRODUCT_EDITOR_COMPLETE` | Product Editor iframe | Client-side render complete (embed, ≤ 20 canvases) | `{ type, layoutName, canvases: [{index, dataUrl}] }` |
+
+**targetOrigin is locked, never `'*'`.** Resolution chain in [editor page](frontend/nextjs/src/app/editor/layout/[name]/page.tsx) `parentOrigin`: `window.location.ancestorOrigins[0]` (Chromium/Safari) → `document.referrer` origin → `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` env → `https://printo.in` default. So an unrelated outer page can't eavesdrop on completion payloads (which include order_id, job_id, and dataUrls for client-rendered jobs).
 
 ### Engine Improvements
 
@@ -370,6 +389,8 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 | `CELERY_CONCURRENCY` | unset | Celery auto-detects from CPU count; set to cap on shared servers |
 | `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | Set to `False` if Traefik is doing the redirect |
 | `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | Only honored when `DEBUG=1` |
+| `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` | `https://printo.in` | Last-resort fallback for `postMessage` targetOrigin if `ancestorOrigins` and `referrer` are both unavailable |
+| `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS` | `'self' https://printo.in https://*.printo.in` | CSP `frame-ancestors` directive applied to iframe entry pages. Override for staging / partner hosts |
 
 ## Security Rules
 
@@ -380,6 +401,9 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 - `DEBUG` defaults to off (`os.getenv("DEBUG", "0") == "1"`) — production-safe even if the env var is missing. Don't flip the default back.
 - django-csp ships in **report-only** mode (`CSP_REPORT_ONLY=True`). Watch DevTools and the violation reports; flip to `False` only after the policy has been validated against the editor (Fabric.js needs `'unsafe-eval'`) and the embed iframe (`frame-ancestors` allows `https://printo.in` and `https://*.printo.in`).
 - `redirect` callback in `pia-auth.ts` clamps `callbackUrl` — relative paths join to `baseUrl`, absolute URLs only allowed on same origin. Don't loosen this without thinking through open-redirect attacks.
+- **Embed proxy is allowlist-only** — `ALLOWED_PATH_PREFIXES` in `src/app/api/embed/proxy/[...path]/route.ts`. New customer-facing endpoints must be added there explicitly; ops/admin paths must NEVER be added. The check runs *before* token resolution so attackers can't probe Django auth.
+- **postMessage `targetOrigin` must never be `'*'`** — use the `parentOrigin` resolver in the editor page. Eavesdropping risk: completion payloads include order_id, job_id, and dataUrls.
+- **`order_id` is regex-validated** server-side (`^[A-Za-z0-9_.\-]{1,64}$`). Don't relax to allow spaces / unicode — it flows into headers, logs, file paths, and CanvasData lookup.
 
 ## Known Issues
 
@@ -392,7 +416,7 @@ No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped �
 
 ### Fixed
 
-- **B1 — Canvas state file persistence.** `src/lib/file-store.ts` is an IndexedDB store keyed by `(orderId, fileId)`. Each frame and image overlay carries an optional `fileId` (UUID) on `FrameState` / `ImageOverlay`. A self-stabilising effect in `editor/layout/[name]/page.tsx` walks `surfaceStates` after every change, persists any `originalFile` that lacks a `fileId`, and patches the new id back into state. The auto-restore effect calls `getFilesForOrder(orderId)` and rehydrates `originalFile` for any frame/overlay whose `fileId` is in the IndexedDB map. Net effect: refreshing the page restores not just dataUrl previews but the original Files needed to re-render.
+- **B1 — Canvas state file persistence.** `src/lib/file-store.ts` is an IndexedDB store keyed by `(orderId, fileId)`. Each frame and image overlay carries an optional `fileId` (UUID) on `FrameState` / `ImageOverlay`. A self-stabilising effect in `editor/layout/[name]/page.tsx` walks `surfaceStates` after every change, persists any `originalFile` that lacks a `fileId`, and patches the new id back into state. The auto-restore effect calls `getFilesForOrder(orderId)` and rehydrates `originalFile` for any frame/overlay whose `fileId` is in the IndexedDB map. **For image overlays**, restore also re-creates `src` via `getFileUrl(file)` because the previous session's blob URL is revoked — without this fix overlays appear broken in the modal. Net effect: refreshing the page restores not just dataUrl previews but the original Files (and live blob URLs) needed to re-render.
 - **B3 — SKU → layout resolution.** `storage/sku_layouts.json` holds a `{ sku → layout_name }` mapping. `GET /api/sku-layouts/` returns the full mapping; `GET /api/sku-layouts/<sku>/` returns a single resolution (404 if unmapped, 410 if mapped to a deleted layout). `PUT /api/sku-layouts/` replaces the mapping (ops-team only). Public-read so printo.in can resolve the layout before creating an embed session. Cache headers: `public, max-age=300, stale-while-revalidate=600`.
 - **B4 — ESLint flat config.** Replaced `.eslintrc.json` with `eslint.config.mjs`. `pnpm lint` now runs `eslint src` directly (Next.js 16 removed the `next lint` subcommand). The strict TypeScript preset is intentionally not loaded — see watch list above.
 - **B5 — Stale `.next/` cache.** Added `pnpm clean` (deletes `.next/`) and `pnpm dev:clean` (clean + start dev). If you ever see Next.js routes 404 in local dev, run `pnpm dev:clean` instead of `pnpm dev`.
