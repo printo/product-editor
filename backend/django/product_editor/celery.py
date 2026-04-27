@@ -29,7 +29,7 @@ app.conf.task_routes = {
 
 # ── Worker behaviour ─────────────────────────────────────────────────────────
 app.conf.worker_prefetch_multiplier = 1   # fetch one task at a time per worker slot
-app.conf.worker_max_tasks_per_child = 10  # recycle workers to prevent memory leaks
+app.conf.worker_max_tasks_per_child = 50  # recycle workers to amortise startup; engine.py closes Pillow images + gc.collect per canvas
 app.conf.task_acks_late = True            # ack only after task completes
 app.conf.task_reject_on_worker_lost = True  # requeue if worker process dies
 

@@ -35,8 +35,8 @@ def timeout_handler(signum, frame):
     raise TimeoutError("Operation timed out")
 
 
-def with_timeout(seconds=300):
-    """Decorator to add timeout to operations. (300 seconds = 5 minutes default)"""
+def with_timeout(seconds=600):
+    """Decorator to add timeout to operations. (600 seconds = 10 minutes default — matches Celery render_canvas_task hard limit)"""
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -406,7 +406,7 @@ class GenerateLayoutView(APIView):
         concurrency = max(1, WORKER_CONCURRENCY)
         return max(0, int((queued_count / concurrency) * avg_time_per_job))
 
-    @with_timeout(seconds=300)
+    @with_timeout(seconds=600)
     def _handle_sync(self, request):
         """Handle synchronous generation request - backward compatible."""
         try:
@@ -1805,6 +1805,128 @@ class FontsView(APIView):
         return Response({'fonts': fonts})
 
 
+SKU_LAYOUTS_JSON_PATH = os.path.join(settings.STORAGE_ROOT, 'sku_layouts.json')
+
+
+def _read_sku_layouts():
+    """Read the SKU → layout mapping. Returns dict of {sku: layout_name}."""
+    try:
+        with open(SKU_LAYOUTS_JSON_PATH, 'r') as f:
+            data = json.load(f)
+            mappings = data.get('mappings') if isinstance(data, dict) else data
+            return mappings if isinstance(mappings, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _write_sku_layouts(mappings):
+    """Persist the SKU → layout mapping atomically."""
+    payload = {
+        '_meta': {
+            'description': 'Maps Printo SKU codes to layout names from storage/layouts/.',
+            'version': 1,
+        },
+        'mappings': mappings,
+    }
+    tmp_path = SKU_LAYOUTS_JSON_PATH + '.tmp'
+    with open(tmp_path, 'w') as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+    os.replace(tmp_path, SKU_LAYOUTS_JSON_PATH)
+
+
+class SKULayoutView(APIView):
+    """
+    SKU → layout resolution. Public read so printo.in can call it before
+    creating the embed session; ops-team write to update the mapping.
+
+    GET  /api/sku-layouts/             → { "mappings": { sku: layout_name, ... } }
+    GET  /api/sku-layouts/<sku>/       → { "sku": ..., "layout_name": ... } or 404
+    PUT  /api/sku-layouts/             → { "mappings": {...} }, ops-team only
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["sku-layouts"],
+        summary="Get SKU → layout mapping",
+        description="Returns the full mapping (no `sku` arg) or a single resolution.",
+    )
+    def get(self, request, sku=None):
+        mappings = _read_sku_layouts()
+        if sku is None:
+            response = Response({'mappings': mappings})
+            response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
+            return response
+
+        layout_name = mappings.get(sku)
+        if not layout_name:
+            return Response(
+                {'detail': f'No layout mapped for SKU "{sku}"'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Verify the mapped layout actually exists on disk so callers don't
+        # get a stale pointer to a deleted layout.
+        layout_path = os.path.join(settings.LAYOUTS_DIR, f'{layout_name}.json')
+        if not os.path.exists(layout_path):
+            logger.warning(
+                "SKU '%s' maps to missing layout '%s'", sku, layout_name
+            )
+            return Response(
+                {'detail': f'SKU "{sku}" is mapped to layout "{layout_name}" which no longer exists'},
+                status=status.HTTP_410_GONE,
+            )
+
+        response = Response({'sku': sku, 'layout_name': layout_name})
+        response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
+        return response
+
+    @extend_schema(
+        tags=["sku-layouts"],
+        summary="Replace SKU → layout mapping (ops only)",
+    )
+    def put(self, request):
+        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        user = None
+        for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
+            try:
+                result = auth_cls.authenticate(request)
+                if result:
+                    user = result[0]
+                    break
+            except Exception:
+                continue
+
+        if not user:
+            return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        is_ops = getattr(user, 'is_ops_team', False) or getattr(user, 'is_staff', False)
+        if not is_ops:
+            return Response({'detail': 'Only ops team can modify SKU mappings'}, status=status.HTTP_403_FORBIDDEN)
+
+        mappings = request.data.get('mappings')
+        if not isinstance(mappings, dict):
+            return Response({'detail': 'mappings must be an object {sku: layout_name}'}, status=status.HTTP_400_BAD_REQUEST)
+        if not all(isinstance(k, str) and isinstance(v, str) for k, v in mappings.items()):
+            return Response({'detail': 'mappings keys and values must all be strings'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Reject mappings to nonexistent layouts so we never persist a broken pointer.
+        missing = [
+            (sku, layout) for sku, layout in mappings.items()
+            if not os.path.exists(os.path.join(settings.LAYOUTS_DIR, f'{layout}.json'))
+        ]
+        if missing:
+            return Response(
+                {
+                    'detail': 'Some mappings reference layouts that do not exist',
+                    'missing': [{'sku': s, 'layout_name': l} for s, l in missing],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        _write_sku_layouts(mappings)
+        return Response({'mappings': mappings})
+
+
 class RenderJobDownloadView(APIView):
     """
     Stream all output files of a completed render job as a single ZIP archive.
@@ -2068,8 +2190,11 @@ class ChunkedUploadInitView(APIView):
         except (TypeError, ValueError):
             return Response({'detail': 'file_size and total_chunks must be integers'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if file_size > 50 * 1024 * 1024:
-            return Response({'detail': 'File exceeds 50 MB limit'}, status=status.HTTP_400_BAD_REQUEST)
+        if file_size > settings.MAX_UPLOAD_FILE_SIZE:
+            return Response(
+                {'detail': f'File exceeds {settings.MAX_UPLOAD_FILE_SIZE_MB} MB limit'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         upload_id = str(_uuid.uuid4())
 

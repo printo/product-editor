@@ -5,12 +5,13 @@ Validates file size, type, and content for JPEG, PNG, WebP, TIFF formats.
 import mimetypes
 import logging
 from PIL import Image
+from django.conf import settings
 from django.core.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
-# Configuration
-MAX_FILE_SIZE_MB = 50
+# Configuration — single source via settings.MAX_UPLOAD_FILE_SIZE_MB (env-driven)
+MAX_FILE_SIZE_MB = settings.MAX_UPLOAD_FILE_SIZE_MB
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 # Comprehensive format support

@@ -75,7 +75,7 @@ export default function Dashboard() {
   // Auth gate — without this, /dashboard renders for unauthenticated visitors
   // and only fails (silently) when the layouts fetch comes back empty/401.
   useEffect(() => {
-    if (status === 'unauthenticated' || (session as any)?.error === 'RefreshAccessTokenError') {
+    if (status === 'unauthenticated' || session?.error === 'RefreshAccessTokenError') {
       router.push('/login');
     }
   }, [status, session, router]);

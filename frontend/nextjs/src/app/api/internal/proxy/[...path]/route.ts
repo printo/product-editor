@@ -64,7 +64,7 @@ async function handler(
     );
   }
   // Surface refresh failures to the client so it can re-authenticate.
-  if ((session as any).error === 'RefreshAccessTokenError') {
+  if (session.error === 'RefreshAccessTokenError') {
     return NextResponse.json(
       { detail: 'Session expired — please log in again' },
       { status: 401 }
@@ -100,7 +100,7 @@ async function handler(
   // We replicate the IsOpsTeam check in the proxy itself: only sessions
   // flagged is_ops_team may proxy to /ops/* paths.
   if (upstreamPath.startsWith('ops/') || upstreamPath === 'ops') {
-    if (!(session as any).is_ops_team) {
+    if (!session.is_ops_team) {
       return NextResponse.json(
         { detail: 'Operations team membership required' },
         { status: 403 }

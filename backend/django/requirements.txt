@@ -13,3 +13,4 @@ redis==4.6.0
 celery[redis]==5.3.4
 django-celery-beat==2.7.0
 django-celery-results==2.5.1
+django-csp==3.8

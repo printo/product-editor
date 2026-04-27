@@ -4,7 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret-key")
-DEBUG = os.getenv("DEBUG", "1") == "1"  # ⚠️  MUST be False in production
+DEBUG = os.getenv("DEBUG", "0") == "1"  # default off so production-safe by absence
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 if "backend" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("backend")
@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "corsheaders",
+    "csp",
     "django_celery_beat",
     "django_celery_results",
     "api",
@@ -30,6 +31,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "csp.middleware.CSPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -71,7 +73,7 @@ DATABASES = {
         "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
         "HOST": os.getenv("POSTGRES_HOST", "localhost"),
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
-        "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),  # Persistent connections (tunable)
+        "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "600")),  # 10-min persistent connections — keep low only if PgBouncer is in front
         "OPTIONS": {
             "connect_timeout": 10,
         },
@@ -180,11 +182,9 @@ os.makedirs(EXPORTS_DIR, exist_ok=True)
 
 
 
-# File Upload Configuration
-# NOTE: MAX_UPLOAD_FILE_SIZE is NOT the enforced limit — api/validators.py
-# controls the actual rejection threshold (currently 50 MB via MAX_FILE_SIZE_MB).
-# This value is informational only and is not read by any application code.
-MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024  # 10 MB — informational, not enforced here
+# File Upload Configuration — single source of truth, driven by env var
+MAX_UPLOAD_FILE_SIZE_MB = int(os.getenv("MAX_UPLOAD_FILE_SIZE_MB", "50"))
+MAX_UPLOAD_FILE_SIZE = MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
 # Django spools files to disk when they exceed FILE_UPLOAD_MAX_MEMORY_SIZE;
 # it does NOT reject uploads at this size (files just move from memory to disk).
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — non-file request body limit
@@ -192,18 +192,19 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — spool-to-disk thresh
 
 # Security Headers
 SECURE_BROWSER_XSS_FILTER = True
-# SECURE_CONTENT_SECURITY_POLICY is NOT a native Django setting and has no effect.
-# Django's SecurityMiddleware does not read it.  To add real CSP headers either:
-#   1. Install django-csp (pip install django-csp) and add
-#      "csp.middleware.CSPMiddleware" to MIDDLEWARE, then configure CSP_* settings.
-#   2. Set CSP headers in Traefik / nginx upstream instead.
-# The dict below is left as documentation of the intended policy only.
-SECURE_CONTENT_SECURITY_POLICY = {
-    "default-src": ("'self'",),
-    "script-src": ("'self'", "'unsafe-inline'"),
-    "style-src": ("'self'", "'unsafe-inline'"),
-    "img-src": ("'self'", "data:", "https:"),
-}
+
+# Content Security Policy via django-csp.
+# Starts in report-only mode — headers are emitted but nothing is blocked, so we
+# can monitor violations before enforcing. Flip CSP_REPORT_ONLY=False in env once
+# the policy has been validated against the editor (Fabric.js, embed iframes).
+CSP_DEFAULT_SRC = ("'self'",)
+CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'")  # 'unsafe-eval' for Fabric.js
+CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
+CSP_IMG_SRC = ("'self'", "data:", "blob:", "https:")
+CSP_FONT_SRC = ("'self'", "data:")
+CSP_CONNECT_SRC = ("'self'", "https:")
+CSP_FRAME_ANCESTORS = ("'self'", "https://printo.in", "https://*.printo.in")
+CSP_REPORT_ONLY = os.getenv("CSP_REPORT_ONLY", "True").lower() not in ("false", "0", "no")
 
 # X-Frame-Options
 X_FRAME_OPTIONS = "SAMEORIGIN"

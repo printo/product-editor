@@ -1,3 +1,4 @@
+import gc
 import json
 import math
 import os
@@ -209,7 +210,8 @@ class LayoutEngine:
         canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
 
         for idx, frame in enumerate(frames):
-            img = Image.open(batch[idx]).convert("RGBA")
+            with Image.open(batch[idx]) as _src:
+                img = _src.convert("RGBA")
             target_w = frame["width"]
             target_h = frame["height"]
 
@@ -251,14 +253,23 @@ class LayoutEngine:
                 crop_box = (offset_x, offset_y, offset_x + target_w, offset_y + target_h)
                 img = img.crop(crop_box)
                 canvas.paste(img, (frame["x"], frame["y"]), img)
+            img.close()
+            del img
 
         if mask_img:
             resized_mask = mask_img
+            mask_was_resized = False
             if mask_img.size != (canvas_w, canvas_h):
                 resized_mask = mask_img.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
+                mask_was_resized = True
             canvas_rgba = canvas.convert("RGBA")
             canvas_rgba.alpha_composite(resized_mask)
-            canvas = canvas_rgba.convert("RGB")
+            new_canvas = canvas_rgba.convert("RGB")
+            canvas.close()
+            canvas_rgba.close()
+            if mask_was_resized:
+                resized_mask.close()
+            canvas = new_canvas
 
         return canvas
 
@@ -323,11 +334,18 @@ class LayoutEngine:
                 out_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}_cmyk.tif")
                 canvas_cmyk = canvas.convert("CMYK")
                 self._write_output_atomic(canvas_cmyk, out_path)
+                canvas_cmyk.close()
             else:
                 out_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}.png")
                 self._write_output_atomic(canvas, out_path)
 
             outputs.append(out_path)
+            canvas.close()
+            del canvas
+            gc.collect()
+
+        if mask_img is not None:
+            mask_img.close()
 
         return outputs
 
@@ -402,6 +420,15 @@ class LayoutEngine:
                 "cmyk_preview": prev_path,
                 "color_shift": shift,
             })
+
+            canvas_rgb.close()
+            canvas_cmyk.close()
+            preview_rgb.close()
+            del canvas_rgb, canvas_cmyk, preview_rgb
+            gc.collect()
+
+        if mask_img is not None:
+            mask_img.close()
 
         return results
 

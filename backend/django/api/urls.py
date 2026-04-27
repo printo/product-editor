@@ -4,7 +4,7 @@ from .views import (
     LayoutManagementView, ExternalLayoutDetailView, MaskDownloadView,
     EmbedSessionView, EmbedSessionValidateView, FontsView,
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
-    CanvasStateView,
+    CanvasStateView, SKULayoutView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
     EditorRenderView,
 )
@@ -47,4 +47,8 @@ urlpatterns = [
 
     # Fonts management
     path("fonts", FontsView.as_view(), name="fonts"),
+
+    # SKU → layout resolution (B3 — auto-mapping for embed callers)
+    path("sku-layouts/", SKULayoutView.as_view(), name="sku-layouts-list"),
+    path("sku-layouts/<str:sku>/", SKULayoutView.as_view(), name="sku-layouts-detail"),
 ]

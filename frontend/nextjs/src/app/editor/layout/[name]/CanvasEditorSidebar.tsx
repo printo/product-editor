@@ -20,7 +20,7 @@ export interface CanvasEditorSidebarProps {
   handleOverlayAlign: (oIdx: number, alignment: 'center' | 'middle') => void;
   handleUpdateTransform: (fIdx: number, updates: Partial<{ scale: number; x: number; y: number; rotation: number }>) => void;
   handleSaveChanges: () => void;
-  getFileUrl: (file: File | string | null) => string;
+  getFileUrl: (file: File) => string;
   debouncedRender: (updated: CanvasItem) => void;
   pushUndo: (canvas: CanvasItem, isMajor?: boolean) => void;
   loadGoogleFont: (name: string) => void;

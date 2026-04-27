@@ -344,7 +344,7 @@ export default function LayoutCreatorPage() {
   }, [layoutType, activeSurfaceIdx]);
 
   useEffect(() => {
-    if (status === 'unauthenticated' || (session as any)?.error === 'RefreshAccessTokenError') {
+    if (status === 'unauthenticated' || session?.error === 'RefreshAccessTokenError') {
       router.push('/login');
     } else if (status === 'authenticated' && !session?.is_ops_team) {
       router.push('/dashboard');

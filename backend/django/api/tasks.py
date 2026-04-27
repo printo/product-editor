@@ -296,7 +296,10 @@ def push_to_production_estimator_task(self, canvas_data_id: str, output_paths: l
             raise self.retry(exc=exc, countdown=delay)
 
 
-@shared_task
+@shared_task(
+    soft_time_limit=3300,  # 55 min — give the task room to do its work
+    time_limit=3600,       # 60 min — hard kill so a hung GC never blocks a worker slot
+)
 def garbage_collector_task():
     """
     Periodic task to clean up expired export files.

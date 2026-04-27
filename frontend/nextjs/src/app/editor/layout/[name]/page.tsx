@@ -18,6 +18,7 @@ import {
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/lib/zip-utils';
 import { uploadFiles } from '@/lib/upload-utils';
+import { saveFile, getFilesForOrder } from '@/lib/file-store';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import { getImageMetadata, detectJpegColorSpace } from '@/lib/image-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
@@ -93,7 +94,7 @@ export default function LayoutEditorPage() {
   const apiBase = embedToken ? '/api/embed/proxy' : '/api/internal/proxy';
 
   const isAdmin = !embedToken &&
-    (session?.user?.role === 'admin' || (session as any)?.is_ops_team === true);
+    (session?.user?.role === 'admin' || session?.is_ops_team === true);
 
   const [layout, setLayout] = useState<any | null>(null);
   const [layoutLoading, setLayoutLoading] = useState(true);
@@ -195,7 +196,7 @@ export default function LayoutEditorPage() {
   }, [embedToken, router, setTitle, setDescription, setCenterActions, setRightActions]);
 
   useEffect(() => {
-    if ((status === 'unauthenticated' || (session as any)?.error === 'RefreshAccessTokenError') && !embedToken) {
+    if ((status === 'unauthenticated' || session?.error === 'RefreshAccessTokenError') && !embedToken) {
       router.push('/login');
     }
   }, [status, session, embedToken, router]);
@@ -462,16 +463,33 @@ export default function LayoutEditorPage() {
           window.history.replaceState(null, '', sp.toString() ? `?${sp.toString()}` : window.location.pathname);
         }
 
+        // Hydrate Files from IndexedDB (B1 fix). We strip `originalFile` on
+        // serialise but persist the raw blob client-side keyed by `fileId`,
+        // so refreshing the page recovers everything needed to re-render.
+        const fileMap = await getFilesForOrder(orderId).catch(() => new Map<string, File>());
+        const hydrate = (canvases: CanvasItem[]): CanvasItem[] =>
+          canvases.map(c => ({
+            ...c,
+            frames: c.frames.map(f => {
+              if (!f.fileId) return f;
+              const file = fileMap.get(f.fileId);
+              return file ? { ...f, originalFile: file } : f;
+            }),
+            overlays: c.overlays.map(o => {
+              if (o.type !== 'image' || !o.fileId) return o;
+              const file = fileMap.get(o.fileId);
+              return file ? { ...o, originalFile: file } : o;
+            }),
+          }));
+
         // Merge saved canvas data into the surface states that were just
         // initialised from the layout definition.
         setSurfaceStates(prev => prev.map(s => {
           const saved = savedSurfaces.find(ss => ss.key === s.key);
           if (!saved || !saved.canvases?.length) return s;
-          // Each restored canvas has originalFile=null (Files can't be
-          // serialised).  The dataUrl is enough for the preview grid.
           return {
             ...s,
-            canvases: saved.canvases,
+            canvases: hydrate(saved.canvases),
             globalFitMode: saved.globalFitMode ?? s.globalFitMode,
           };
         }));
@@ -486,7 +504,7 @@ export default function LayoutEditorPage() {
         );
         if (activeSaved?.canvases?.length) {
           skipNextGenerateRef.current = true; // suppress generateCanvases trigger
-          setCanvases(activeSaved.canvases);
+          setCanvases(hydrate(activeSaved.canvases));
           setGlobalFitMode(activeSaved.globalFitMode ?? 'contain');
         }
       } catch {
@@ -501,6 +519,74 @@ export default function LayoutEditorPage() {
   useEffect(() => {
     canvasesRef.current = canvases;
   }, [canvases]);
+
+  // ── Persist Files to IndexedDB on add (B1: survives page refresh) ────────
+  // Watches surfaceStates for any frame/overlay that has an originalFile but
+  // no fileId, persists the blob, then patches the fileId back into state.
+  // Self-stabilising: once every File has a fileId the effect no-ops.
+  useEffect(() => {
+    if (!orderId) return;
+    type Pending = { surfaceKey: string; canvasIdx: number; kind: 'frame' | 'overlay'; idx: number; file: File };
+    const pending: Pending[] = [];
+
+    surfaceStates.forEach(s => {
+      s.canvases.forEach((c, ci) => {
+        c.frames.forEach((f, fi) => {
+          if (f.originalFile && !f.fileId) {
+            pending.push({ surfaceKey: s.key, canvasIdx: ci, kind: 'frame', idx: fi, file: f.originalFile });
+          }
+        });
+        c.overlays.forEach((o, oi) => {
+          if (o.type === 'image' && o.source === 'local' && o.originalFile && !o.fileId) {
+            pending.push({ surfaceKey: s.key, canvasIdx: ci, kind: 'overlay', idx: oi, file: o.originalFile });
+          }
+        });
+      });
+    });
+
+    if (!pending.length) return;
+
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(pending.map(async (p) => {
+        try {
+          const fileId = await saveFile(orderId, p.file);
+          return { ...p, fileId };
+        } catch {
+          return null;
+        }
+      }));
+      if (cancelled) return;
+      const ok = results.filter((r): r is Pending & { fileId: string } => r !== null);
+      if (!ok.length) return;
+
+      setSurfaceStates(prev => prev.map(s => {
+        const sIds = ok.filter(i => i.surfaceKey === s.key);
+        if (!sIds.length) return s;
+        return {
+          ...s,
+          canvases: s.canvases.map((c, ci) => {
+            const cIds = sIds.filter(i => i.canvasIdx === ci);
+            if (!cIds.length) return c;
+            return {
+              ...c,
+              frames: c.frames.map((f, fi) => {
+                const m = cIds.find(i => i.kind === 'frame' && i.idx === fi);
+                return m ? { ...f, fileId: m.fileId } : f;
+              }),
+              overlays: c.overlays.map((o, oi) => {
+                const m = cIds.find(i => i.kind === 'overlay' && i.idx === oi);
+                if (!m || o.type !== 'image') return o;
+                return { ...o, fileId: m.fileId };
+              }),
+            };
+          }),
+        };
+      }));
+    })();
+
+    return () => { cancelled = true; };
+  }, [surfaceStates, orderId]);
 
   const generateCanvasesForLayout = useCallback(async (
     layoutDef: any, surfaceFiles: File[], fitMode: FitMode,

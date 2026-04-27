@@ -5,6 +5,9 @@ export type FitMode = 'contain' | 'cover';
 export interface FrameState {
   id: number;
   originalFile: File | null;
+  /** UUID assigned when the File is first persisted to IndexedDB so the blob
+   *  can be recovered after a page refresh. Persists in canvas_state JSON. */
+  fileId?: string;
   offset: { x: number; y: number };
   scale: number;
   rotation: number; // 0, 90, 180, 270
@@ -42,6 +45,8 @@ export interface ImageOverlay {
   id: string | number;
   src: string;
   originalFile?: File;
+  /** UUID for IndexedDB blob recovery (only set for `source === 'local'`). */
+  fileId?: string;
   source: 'clipart' | 'icon' | 'local';
   label: string;
   x: number;

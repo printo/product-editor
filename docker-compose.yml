@@ -104,6 +104,13 @@ services:
       - traefik.http.routers.product-editor-admin.service=product-editor-backend
     networks:
       - web
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   frontend:
     build:
@@ -125,7 +132,8 @@ services:
       - AUTH_SECRET=${AUTH_SECRET:-change-me-at-least-32-chars}
       - NEXTAUTH_SECRET=${AUTH_SECRET:-change-me-at-least-32-chars}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     labels:
       - traefik.enable=true
       - traefik.project=product-editor
@@ -161,6 +169,13 @@ services:
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.service=product-editor-frontend
     networks:
       - web
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # ── Priority worker — soft-proof / express / store-pickup orders ─────────────
   # Listens ONLY to the 'priority' queue so standard-queue backlog never delays

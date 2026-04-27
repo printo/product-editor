@@ -1,0 +1,7 @@
+{
+  "_meta": {
+    "description": "Maps Printo SKU codes to layout names from storage/layouts/. Edit via PUT /api/sku-layouts (ops team only) or by hand. Values must match a JSON filename in storage/layouts/ (without .json).",
+    "version": 1
+  },
+  "mappings": {}
+}

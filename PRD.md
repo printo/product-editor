@@ -10,9 +10,9 @@
 | **Business Lead** | Viji |
 | **Production Lead** | Mohan |
 | **Final Approver** | Manish |
-| **Date** | April 21, 2026 |
-| **Status** | *In Progress — Server-side render live* |
-| **Version** | v1.6 |
+| **Date** | April 27, 2026 |
+| **Status** | *In Progress — All known P0/P1 issues resolved; security & ops hardening pass complete* |
+| **Version** | v1.7 |
 | **Product URL** | product-editor.printo.in |
 
 ---
@@ -28,6 +28,7 @@
 | **v1.4** | **Apr 5, 2026** | **Kanna** | **Marked B2 Async Queue as ✅ Complete; added quantity enforcement (under/over-upload, auto-fill); documented all 11 implementation fixes; added two new success metrics; updated action item #6 to Done** |
 | **v1.5** | **Apr 11, 2026** | **Kanna** | **Security hardening complete: API key bundle leak closed (internal server-side proxy); session token refresh flow; 18 additional implementation fixes across auth, rendering, GC, and frontend. TypeScript build clean (0 errors). Django system check clean (0 issues).** |
 | **v1.6** | **Apr 21, 2026** | **Kanna** | **Server-side upload + render flow complete: chunked multi-file upload API, per-frame transform pipeline, Celery render at 300 DPI, embed postMessage (`pe:render_job`), direct-path polling + ZIP download. Threshold: ≤ 20 canvases → client-side; > 20 → server-side. Smart downscaling (2× pre-shrink) and PNG optimize added to engine.** |
+| **v1.7** | **Apr 27, 2026** | **Kanna** | **All known P0/P1 backlog items shipped: B1 canvas-state file persistence (IndexedDB), B3 SKU→layout endpoint, B4 ESLint flat-config migration, B5 stale `.next/` cache scripts. Operations hardening: backend/frontend healthchecks, multi-stage backend Dockerfile (~250 MB smaller), Pillow memory hygiene + `worker_max_tasks_per_child=50`, DB CONN_MAX_AGE 60→600s, garbage-collector time limits, `DEBUG` default flipped off, single-source upload size, django-csp in report-only mode. Login flow hardening: PIA outage vs bad-credential separation, 10s timeout, server-side `proxy.ts` auth gate, per-IP rate limiter (5/60s), explicit `redirect` callback, all `(session as any)` casts removed.** |
 
 ---
 
@@ -128,10 +129,22 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 
 ### 4.2 Solution Track B — Remaining Gaps for Full Automation
 
-#### B1 — Canvas State Persistence
+#### B1 — Canvas State Persistence ✅ Implemented
 
-- Currently the editor state is lost on page refresh. For the end-to-end flow to work, the customer's canvas must be persisted (either localStorage or backend JSON) so the approved design survives the checkout transition.
-- Priority: P0 — blocks the direct-to-production push for any session that navigates away before checkout.
+- **Status: Complete as of April 27, 2026.**
+- **What was built:** Two-layer persistence — server-side `editor_state` JSON for transforms/overlays/layout metadata (auto-save debounced 2 s, auto-restore on layout ready), and client-side IndexedDB store keyed by `(orderId, fileId)` for the original File blobs.
+- The frontend strips `originalFile` from the JSON payload (Files don't serialise) but assigns each File a UUID `fileId` and persists the raw blob to IndexedDB. On page reload, the auto-restore effect rehydrates `originalFile` from IndexedDB using the `fileId` carried in the canvas state.
+- Net effect: refreshing the page restores the full editing context — previews, transforms, AND the original Files needed to re-render at full resolution.
+- Quota note: IndexedDB is per-origin (~50–60% of free disk on desktop). At 200 photos × 5 MB the customer needs ~1 GB of free space; we don't shard or compress. Browser eviction under quota pressure means very large jobs are best submitted in one session.
+- Priority: P0 — **resolved.**
+
+**Files:**
+
+| File | Role |
+|---|---|
+| `frontend/nextjs/src/lib/file-store.ts` | IndexedDB helpers (`saveFile`, `getFile`, `getFilesForOrder`, `deleteOrder`) |
+| `frontend/nextjs/src/app/editor/layout/[name]/types.ts` | Added `fileId?: string` to `FrameState` and `ImageOverlay` |
+| `frontend/nextjs/src/app/editor/layout/[name]/page.tsx` | Self-stabilising effect persists Files; auto-restore rehydrates from IDB |
 
 #### B2 — Async Image Generation Queue ✅ Implemented
 
@@ -187,11 +200,22 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 | Upload proxy JSON parse crash | `res.json()` threw on non-JSON gateway errors (502 HTML, 504 empty) | Switched to `res.text()` + guarded JSON parse with envelope fallback |
 | Dead imports | `SecureExportDownloadView` in `urls.py`, `User` in `create_api_key.py` | Removed |
 
-#### B3 — SKU-to-Layout Mapping
+#### B3 — SKU-to-Layout Mapping ✅ Implemented
 
-- For the embed flow to work seamlessly on printo.in, each product SKU must auto-resolve to the correct layout template. Currently this mapping is manual.
-- A product catalogue integration (via Catalog Manager or OMS) that maps SKU → layout is required for zero-touch automation.
-- Priority: P1 — can be worked around with manual configuration initially.
+- **Status: Infrastructure complete as of April 27, 2026. Mapping data still needs to be populated by Catalog/Ops team.**
+- **What was built:** A JSON-on-disk mapping at `storage/sku_layouts.json` plus three endpoints. Public read (so printo.in can resolve SKU before creating an embed session); ops-team-only write.
+- Cache headers: `public, max-age=300, stale-while-revalidate=600` so the storefront can hammer the resolution endpoint without backend load.
+- Validation: PUT rejects mappings to non-existent layouts before persisting, so the file never holds a broken pointer. GET returns 410 Gone if a previously-mapped layout has been deleted from disk.
+- Remaining work: Viji / Ops team to fill in real Printo SKU codes via `PUT /api/sku-layouts/`. The file ships empty (`{ "mappings": {} }`).
+- Priority: P1 — **resolved (infra); awaiting data population.**
+
+**Endpoints:**
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/sku-layouts/` | Public | Returns full `{ sku → layout_name }` mapping |
+| GET | `/api/sku-layouts/<sku>/` | Public | Returns `{ sku, layout_name }` or 404 / 410 |
+| PUT | `/api/sku-layouts/` | PIA + `is_ops_team` | Replaces the mapping (validated against layouts on disk) |
 
 #### B4 — Server-Side Upload + Render for Large Batches ✅ Implemented
 
@@ -240,6 +264,56 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 | `frontend/nextjs/src/lib/upload-utils.ts` | New: chunked upload utilities |
 | `frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts` | Caches `orderId` in session; injects `X-Order-ID` header |
 | `frontend/nextjs/src/app/editor/layout/[name]/page.tsx` | `executeServerRender()`, threshold routing, `serverRenderLabel` progress state |
+
+#### B5 — Operations & Reliability Hardening ✅ Complete
+
+- **Status: Complete as of April 27, 2026.**
+- Pass over the running stack focused on production reliability, deploy hygiene, memory behaviour, and the `Known Issues` backlog (B4, B5 resolved).
+
+**What was fixed:**
+
+| Area | Issue | Fix |
+|---|---|---|
+| `DEBUG` default | `DEBUG = os.getenv("DEBUG", "1") == "1"` defaulted to ON; missing env var would expose stack traces in prod | Flipped to default `"0"` — production-safe even when env var absent |
+| Pillow memory leak | `_generate_for_surface` / `_generate_soft_proof_for_surface` kept canvas / CMYK / preview Image objects alive across iterations; PIL file handles never released | Added `import gc`; switched source loads to `with Image.open(...) as src`; explicit `.close()` + `del` + `gc.collect()` after each canvas; mask + intermediate `canvas_rgba` also closed |
+| Worker churn | `worker_max_tasks_per_child = 10` recycled workers too aggressively given new memory hygiene | Bumped to 50; documented dependency on engine.py cleanup |
+| GC task hang | `garbage_collector_task` had no time limit — a hung sweep could block a worker indefinitely | Added `soft_time_limit=3300`, `time_limit=3600` |
+| DB CONN_MAX_AGE | Default 60 s caused constant reconnects under Gunicorn + Celery fan-out | Raised to 600 s; documented `0` if PgBouncer fronts |
+| Multi-source upload size | `MAX_UPLOAD_FILE_SIZE` (settings, 10 MB), `MAX_FILE_SIZE_MB` (validators, 50 MB), and a hardcoded `50 * 1024 * 1024` in `ChunkedUploadInitView` were three different sources | Single env-driven source `MAX_UPLOAD_FILE_SIZE_MB` (default 50); `validators.py` and `views.py` both read from `settings` |
+| Backend Dockerfile bloat | `build-essential` + `libpq-dev` shipped in final image (~250 MB unnecessary) | Multi-stage: builder compiles wheels into a venv, runner copies venv + `libpq5` only |
+| No healthchecks | Backend + frontend services had no `healthcheck` directive; `frontend depends_on backend` couldn't wait for actual readiness | Added `python -c urlopen('/api/health')` healthcheck to backend; `wget --spider /` on frontend; frontend now `depends_on: backend: { condition: service_healthy }` |
+| `LETSENCRYPT_EMAIL` undocumented | Referenced in `docker-compose.yml` but missing from `.env.example` | Added to `.env.example` |
+| Dead `production_config.py` | Self-documented as dead; conflicting size limits and missing middleware vs active settings.py | Deleted (zero references in tree) |
+| CSP misconfigured | `SECURE_CONTENT_SECURITY_POLICY` dict was set in settings but Django doesn't read it — comment acknowledged it had no effect | Installed `django-csp==3.8`; added `csp` to INSTALLED_APPS, `csp.middleware.CSPMiddleware` after SecurityMiddleware; CSP_DEFAULT_SRC + script/style/img/font/connect/frame-ancestors configured; ships in **report-only** via `CSP_REPORT_ONLY=True` env so violations are logged before enforcing |
+| Sync render timeout | `with_timeout(seconds=300)` on `_handle_sync` was 5 min — large jobs that fit in async (10 min) failed on legacy sync path | Bumped to 600 s to match Celery `render_canvas_task` hard limit |
+| TS strictness | `strict: false` with only `strictNullChecks` on; `noImplicitAny` would surface ~200 casts so flipping `strict: true` is too disruptive in one shot | Enabled progressive flags: `strictFunctionTypes`, `strictBindCallApply`, `alwaysStrict`, `noImplicitThis`, `useUnknownInCatchVariables`, `noFallthroughCasesInSwitch`, `forceConsistentCasingInFileNames`. One real bug surfaced + fixed in `CanvasEditorSidebar.tsx` (`getFileUrl` prop contravariance) |
+| `pnpm lint` broken | Next.js 16 removed `next lint`; legacy `.eslintrc.json` + ESLint 9 + eslint-config-next 16 incompatible | Migrated to `eslint.config.mjs` flat config; `pnpm lint` runs `eslint src` directly; new react-hooks v7 strict rules surfaced as warnings (18 pre-existing — to be triaged) |
+| Stale `.next/` cache footgun | If routes 404 in dev, the fix is `rm -rf .next` and restart — no scripted way | Added `pnpm clean` and `pnpm dev:clean` scripts |
+
+#### B6 — Login Flow Hardening ✅ Complete
+
+- **Status: Complete as of April 27, 2026.**
+- Pass focused on the `/login` → PIA → session round-trip after the recent v1.5/v1.6 auth work; closed several UX and defence-in-depth gaps.
+
+**What was fixed:**
+
+| Area | Issue | Fix |
+|---|---|---|
+| PIA outage looked like bad creds | `authorize()` swallowed all errors and returned `null` → user saw "Invalid credentials. Please try again." during a PIA 5xx or network outage | Distinguished outcomes: 4xx → `null` (bad creds); 5xx → `PiaServiceUnavailableError`; timeout/network → `PiaTimeoutError`. `loginAction` switches on `error.code` and renders distinct messages |
+| No PIA fetch timeout | `fetch(${piaUrl}/auth/)` had no `AbortSignal` — a hanging PIA blocks login indefinitely | Added `AbortSignal.timeout(10_000)` on both `/auth/` and `/auth/token/refresh/` |
+| Auth gate at page-level only | Every protected page reimplemented `useEffect → router.push('/login')`; brief flash of protected UI before redirect | New `src/proxy.ts` (Next.js 16 successor to `middleware.ts`) wraps NextAuth's `auth()` to gate `/dashboard/*` and `/editor/layouts/*` server-side; bounces logged-in users away from `/login`. `/editor/layout/[name]` deliberately excluded — handles dual session/embed-token mode itself |
+| `(session as any)` casts | 5+ sites cast away the augmented type to read `.error` and `.is_ops_team` | Removed all casts; relies on the type augmentation in `src/types/next-auth.d.ts` |
+| Implicit `redirect` callback | NextAuth's default open-redirect protection works but isn't visible in code | Explicit `redirect` callback in `pia-auth.ts`: relative paths join to baseUrl, absolute URLs only allowed on same origin, malformed → baseUrl |
+| No login rate limit | Reliant entirely on PIA's upstream limiter | Per-IP fixed-window limiter in `loginAction`: 5 attempts / 60 s, in-memory `Map`, IP from `X-Forwarded-For`. Single-process — swap to Redis if frontend scales horizontally |
+
+**Files:**
+
+| File | Role |
+|---|---|
+| `frontend/nextjs/src/pia-auth.ts` | `CredentialsSignin` subclasses, timeouts, explicit `redirect` callback |
+| `frontend/nextjs/src/proxy.ts` | New — server-side auth gate via NextAuth `auth()` wrapper |
+| `frontend/nextjs/src/app/actions/auth.ts` | Per-IP rate limiter, error-code-aware messaging |
+| `frontend/nextjs/src/app/dashboard/page.tsx`, `editor/layouts/page.tsx`, `editor/layout/[name]/page.tsx`, `api/internal/proxy/[...path]/route.ts` | `(session as any)` casts removed |
 
 ---
 
@@ -306,9 +380,9 @@ The following approvals are required before implementation proceeds:
 | # | Action | Owner | Due By | Status |
 |---|---|---|---|---|
 | 1 | Validate embed integration on printo.in staging for top 5 SKUs | Kanna | Apr 11, 2026 | Open |
-| 2 | Confirm SKU-to-layout mapping for fridge magnets, photo prints, canvas prints, coasters, mugs | Viji / Kanna | Apr 11, 2026 | Open |
+| 2 | Confirm SKU-to-layout mapping for fridge magnets, photo prints, canvas prints, coasters, mugs (data — endpoint is live) | Viji / Kanna | May 5, 2026 | Open |
 | 3 | Production team readiness assessment — can they accept automated output without preflight? | Mohan | Apr 14, 2026 | Open |
-| 4 | Implement canvas state persistence (backend JSON save) | Kanna | Apr 18, 2026 | Open |
+| 4 | Implement canvas state persistence (backend JSON save + IndexedDB file persistence) | Kanna | Apr 18, 2026 | **✅ Done (Apr 27)** |
 | 5 | Build post-checkout → production estimator webhook | Kanna | Apr 25, 2026 | Pending |
 | 6 | Celery + Redis async queue deployment | Kanna / DevOps | Apr 30, 2026 | **✅ Done** |
 | 7 | Security hardening — API key leak, auth refresh, path traversal, 18 additional fixes | Kanna | Apr 11, 2026 | **✅ Done** |
@@ -318,6 +392,30 @@ The following approvals are required before implementation proceeds:
 | 11 | Server-side upload + render for > 20 canvases (chunked upload API, Celery 300 DPI render, embed postMessage, direct download) | Kanna | Apr 21, 2026 | **✅ Done** |
 | 12 | Run `docker-compose exec backend python manage.py migrate` to apply migration 0006 | DevOps | Before next deploy | Open |
 | 13 | Update parent site (printo.in) to listen for `pe:render_job` postMessage type and poll render-status | Frontend (printo.in) | May 5, 2026 | Open |
+| 14 | Operations & reliability hardening (B5) — healthchecks, multi-stage Dockerfile, Pillow GC, CSP, ESLint flat config, `.next` clean scripts, single-source upload size, DEBUG default | Kanna | Apr 27, 2026 | **✅ Done** |
+| 15 | Login flow hardening (B6) — PIA outage detection, fetch timeouts, server-side auth gate, rate limiter, explicit redirect callback, type-cast cleanup | Kanna | Apr 27, 2026 | **✅ Done** |
+| 16 | SKU-to-layout mapping endpoint + `storage/sku_layouts.json` (B3 infra) | Kanna | Apr 27, 2026 | **✅ Done** |
+| 17 | Populate `storage/sku_layouts.json` with real Printo SKU codes via `PUT /api/sku-layouts/` | Viji / Catalog Ops | May 12, 2026 | Open |
+| 18 | Monitor CSP report-only violations in DevTools / logs, then flip `CSP_REPORT_ONLY=False` to enforce | Kanna | May 15, 2026 | Open |
+| 19 | Triage 18 react-hooks v7 lint warnings (`react-hooks/{exhaustive-deps,purity,set-state-in-effect,refs,immutability}`); promote rules to `error` once clean | Kanna | TBD | Open |
+| 20 | Replace per-IP login rate limiter (in-memory) with Redis-backed limiter if frontend scales horizontally | Kanna / DevOps | Before HA scale-out | Open |
+
+### 8.1 v1.7 Deployment Checklist
+
+Required steps when running `./deploy.sh` for the v1.7 release. None require code changes from the operator — just env-var hygiene and a clean rebuild.
+
+| Step | Action | Why |
+|---|---|---|
+| 1 | Pull `main` or the v1.7 tag on the server | Picks up the multi-stage Dockerfile and `requirements.txt` change |
+| 2 | Add `LETSENCRYPT_EMAIL=<real address>` to `.env` | Already referenced by `docker-compose.yml`; previously undocumented in `.env.example`. Traefik fails ACME issuance if missing or fake |
+| 3 | (Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50` to `.env` | New single-source env var. Default is 50 if absent — only set if you want a different ceiling |
+| 4 | (Optional) Add `CSP_REPORT_ONLY=True` to `.env` | Default is `True` (report-only). Leave it — flip to `False` only after monitoring violations |
+| 5 | (Optional) Add `DB_CONN_MAX_AGE=600` to `.env` | New default — the setting raised it from 60 to 600 s. Override only if PgBouncer is in front (then set `0`) |
+| 6 | Rebuild backend image | Picks up `django-csp==3.8` install and the new multi-stage Dockerfile (final image ~250 MB smaller). `deploy.sh` already does `docker-compose build` |
+| 7 | Run `docker-compose exec backend python manage.py migrate` | Migration **0006_embedsession_order_id** is the latest — already applied if you ran v1.6, otherwise apply now. **No new migrations in v1.7.** |
+| 8 | Verify healthchecks come up green | `docker-compose ps` should show `(healthy)` next to `backend` and `frontend`. Backend probe hits `/api/health`; frontend probe hits `/` via wget |
+| 9 | Smoke-test login on prod | Try a bad password (should still say "Invalid credentials"); try with PIA reachable (should succeed). The new error-code distinction is visible only when PIA is actually down |
+| 10 | (No action) `proxy.ts` replaces `middleware.ts` automatically | Build output shows `ƒ Proxy (Middleware)` — same runtime behavior |
 
 ---
 
@@ -346,6 +444,11 @@ The following approvals are required before implementation proceeds:
 | Render job success rate (no timeout/failure) | N/A | > 99.5% | RenderJob status log |
 | Large-batch (> 20 canvases) browser memory at render time | 1–4 GB (client render) | < 50 MB (upload only) | Browser DevTools memory snapshot |
 | Large-batch server render time (100 canvases, 300 DPI) | N/A — not supported client-side | < 5 min (Celery, 2 workers) | `RenderJob.started_at` → `completed_at` |
+| Canvas state recovery after page refresh | 0% (Files lost; user re-uploads) | 100% within IDB quota | Manual QA: load order, refresh, submit |
+| Login attempts allowed per IP per minute | Unlimited (PIA-side only) | 5 (Next.js limiter) | `loginAction` log + manual probe |
+| Failed login due to PIA outage shown as "Invalid credentials" | Always (silent catch) | Never — distinct PiaServiceUnavailable / PiaTimeout messages | Synthetic outage probe |
+| Backend image size (post-build) | ~750 MB (single-stage) | ~500 MB (multi-stage) | `docker images` |
+| Pillow worker memory drift after 50 tasks | Unbounded (workers OOM) | Stable (gc.collect + Image.close) | `docker stats` over render burst |
 
 ---
 
