@@ -16,10 +16,14 @@ if [ "$1" = "celery-worker" ]; then
         CONCURRENCY_ARG=""
         echo "Starting Celery worker (concurrency=auto [CPU count], queue=${CELERY_QUEUE:-priority,standard})..."
     fi
+    # NOTE: --max-tasks-per-child is intentionally NOT passed here so that
+    # `worker_max_tasks_per_child = 50` in product_editor/celery.py wins.
+    # CLI flags override Python settings, so duplicating the value here
+    # silently masked the v1.7 bump from 10 → 50 that pairs with the Pillow
+    # memory hygiene in layout_engine/engine.py. Tune via celery.py only.
     exec /opt/venv/bin/celery -A product_editor worker \
         --loglevel=info \
         ${CONCURRENCY_ARG} \
-        --max-tasks-per-child=10 \
         -Q "${CELERY_QUEUE:-priority,standard}"
 fi
 
@@ -101,15 +105,21 @@ for k in APIKey.objects.filter(is_active=True):
 PY
 
 # ── Launch Gunicorn ───────────────────────────────────────────────────────────
-# workers = nproc * 2 + 1  (gthread: sync + OS thread pool)
-WORKERS=$(( $(nproc) * 2 + 1 ))
+# workers = (nproc * 2) + 1  per Gunicorn's recommendation for I/O-bound apps.
+# Override via GUNICORN_WORKERS env if you want to cap on a shared box.
+# Threads: gthread worker class with N OS threads per worker — multiplies the
+# request-handling capacity to (workers × threads) without spawning processes.
+WORKERS="${GUNICORN_WORKERS:-$(( $(nproc) * 2 + 1 ))}"
+# Timeout matches the sync-render hard limit in api/views.py (600 s) so a long
+# legacy sync request isn't killed by Gunicorn before the SIGALRM-based timeout
+# inside the view fires. Modern callers go through Celery and don't hit this.
 echo "Starting gunicorn: ${WORKERS} workers × ${GUNICORN_THREADS:-4} threads on port ${PORT:-8000}"
 exec gunicorn product_editor.wsgi:application \
     --bind "0.0.0.0:${PORT:-8000}" \
     --worker-class gthread \
     --workers "${WORKERS}" \
     --threads "${GUNICORN_THREADS:-4}" \
-    --timeout "${GUNICORN_TIMEOUT:-300}" \
+    --timeout "${GUNICORN_TIMEOUT:-600}" \
     --graceful-timeout 60 \
     --keep-alive 5 \
     --max-requests "${GUNICORN_MAX_REQUESTS:-500}" \

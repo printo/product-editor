@@ -104,6 +104,15 @@ services:
       - traefik.http.routers.product-editor-admin.service=product-editor-backend
     networks:
       - web
+    deploy:
+      resources:
+        # Gunicorn (2*nproc+1) workers × 4 threads + persistent DB connections;
+        # bound at 2 GB so a leak in one worker can't OOM the whole container.
+        # Reservation lets the orchestrator schedule with comfortable headroom.
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status == 200 else 1)"]
