@@ -26,7 +26,7 @@ export interface CanvasEditorSidebarProps {
   loadGoogleFont: (name: string) => void;
   selectedFonts: string[];
   getImageMetadata: (file: File) => Promise<{ width: number; height: number; orientation: number; element: HTMLImageElement }>;
-  calculateSmartCropOffsets: (img: HTMLImageElement | HTMLCanvasElement, frameW: number, frameH: number, rotation: number) => Promise<{ x: number; y: number }>;
+  calculateSmartCropOffsets: (img: HTMLImageElement | HTMLCanvasElement, frameW: number, frameH: number, rotation: number, cacheKey?: string) => Promise<{ x: number; y: number }>;
 }
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -200,7 +200,8 @@ export function CanvasEditorSidebar({
                             const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
                             const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
                             const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-                            newOffset = await calculateSmartCropOffsets(imgEl, fw, fh, f.rotation);
+                            const ck = f.fileId ? `${f.fileId}:${fw}x${fh}:${f.rotation}` : undefined;
+                            newOffset = await calculateSmartCropOffsets(imgEl, fw, fh, f.rotation, ck);
                           }
                           
                           return { ...f, fitMode: mode, scale: 1, offset: newOffset };
@@ -573,7 +574,8 @@ export function CanvasEditorSidebar({
                 const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
                 const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
                 const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-                newOffset = await calculateSmartCropOffsets(imgEl, fw, fh, 0); // reset rotation to 0
+                const ck = f.fileId ? `${f.fileId}:${fw}x${fh}:0` : undefined;
+                newOffset = await calculateSmartCropOffsets(imgEl, fw, fh, 0, ck); // reset rotation to 0
               }
               
               return { ...f, offset: newOffset, scale: 1, rotation: 0 };

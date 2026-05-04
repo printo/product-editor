@@ -17,8 +17,13 @@
  */
 
 const DB_NAME = "product-editor-files";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "files";
+// Smartcrop results — keyed by `${fileId}:${w}x${h}:${rotation}`. Computing a
+// crop scans every pixel of the source image (~50–200 ms per 12 MP photo), so
+// re-running on the same input is wasted work. Tiny JSON values; safe to keep
+// across sessions until the file is removed.
+const CROP_STORE = "crop_cache";
 
 interface FileRecord {
   fileId: string;
@@ -45,11 +50,52 @@ function openDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore(STORE, { keyPath: "fileId" });
         store.createIndex("orderId", "orderId", { unique: false });
       }
+      if (!db.objectStoreNames.contains(CROP_STORE)) {
+        // Keyed by composite string; value is { x, y, width, height }.
+        db.createObjectStore(CROP_STORE);
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
   return dbPromise;
+}
+
+// In-memory fast-path so repeat lookups within a session don't pay an IDB
+// round-trip. Cleared when the page reloads — IDB is the durable layer.
+const cropMemo = new Map<string, { x: number; y: number; width: number; height: number }>();
+
+export type CropResult = { x: number; y: number; width: number; height: number };
+
+export async function getCachedCrop(key: string): Promise<CropResult | null> {
+  const memo = cropMemo.get(key);
+  if (memo) return memo;
+  try {
+    const db = await openDb();
+    const value: CropResult | undefined = await new Promise((resolve, reject) => {
+      const req = db.transaction(CROP_STORE, "readonly").objectStore(CROP_STORE).get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    if (value) cropMemo.set(key, value);
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setCachedCrop(key: string, value: CropResult): Promise<void> {
+  cropMemo.set(key, value);
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const req = db.transaction(CROP_STORE, "readwrite").objectStore(CROP_STORE).put(value, key);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    // IDB write failed (quota? blocked?) — memo cache still serves the session.
+  }
 }
 
 function tx(mode: IDBTransactionMode): Promise<IDBObjectStore> {

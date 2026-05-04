@@ -22,6 +22,15 @@ services:
       - ./proxy/traefik/.htpasswd:/etc/traefik/.htpasswd:ro
     networks:
       - web
+    labels:
+      # Traefik-level gzip middleware. Enabled per-router on backend / frontend
+      # routes below via traefik.http.routers.<name>.middlewares=traefik-gzip@docker.
+      # Compresses any non-already-encoded response > ~1 KB. Defence-in-depth on
+      # top of Django's GZipMiddleware (covers Traefik error pages and any
+      # streaming responses Django opts out of compressing).
+      - traefik.enable=true
+      - traefik.project=product-editor
+      - traefik.http.middlewares.traefik-gzip.compress=true
 
   redis:
     image: redis:7-alpine
@@ -43,6 +52,23 @@ services:
 
   db:
     image: postgres:16-alpine
+    # Postgres tuning chosen for the 256 MB reservation. Raise shared_buffers
+    # to ~25% of dedicated RAM and effective_cache_size to ~75% if you bump
+    # the reservation. work_mem was 4 MB by default — too small for any
+    # JOIN/sort heavier than a smoke test. log_min_duration_statement=1000
+    # gives slow-query observability for free; logs go to docker compose logs.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - effective_cache_size=384MB
+      - -c
+      - max_connections=100
+      - -c
+      - log_min_duration_statement=1000
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     env_file:
@@ -95,12 +121,13 @@ services:
       - traefik.http.routers.product-editor-backend-tls.priority=2
       - traefik.http.routers.product-editor-backend-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-backend-tls.service=product-editor-backend
+      - traefik.http.routers.product-editor-backend-tls.middlewares=traefik-gzip@docker
       - traefik.http.services.product-editor-backend.loadbalancer.server.port=8000
       # Django Admin (websecure)
       - traefik.http.routers.product-editor-admin.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/admin/django-admin`)
       - traefik.http.routers.product-editor-admin.entrypoints=websecure
       - traefik.http.routers.product-editor-admin.tls.certresolver=letsencrypt
-      - traefik.http.routers.product-editor-admin.middlewares=admin-basicauth
+      - traefik.http.routers.product-editor-admin.middlewares=admin-basicauth,traefik-gzip@docker
       - traefik.http.routers.product-editor-admin.service=product-editor-backend
     networks:
       - web
@@ -149,33 +176,39 @@ services:
       - traefik.http.routers.product-editor-frontend.rule=PathPrefix(`/`)
       - traefik.http.routers.product-editor-frontend.entrypoints=web
       - traefik.http.routers.product-editor-frontend.priority=1
+      - traefik.http.routers.product-editor-frontend.middlewares=traefik-gzip@docker
       - traefik.http.services.product-editor-frontend.loadbalancer.server.port=3000
       - traefik.docker.network=product-editor_web
       - traefik.http.routers.product-editor-nextauth.rule=PathPrefix(`/api/auth`)
       - traefik.http.routers.product-editor-nextauth.entrypoints=web
       - traefik.http.routers.product-editor-nextauth.priority=3
       - traefik.http.routers.product-editor-nextauth.service=product-editor-frontend
+      - traefik.http.routers.product-editor-nextauth.middlewares=traefik-gzip@docker
       - traefik.http.routers.product-editor-frontend-tls.rule=Host(`${PUBLIC_HOST}`)
       - traefik.http.routers.product-editor-frontend-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-frontend-tls.priority=1
       - traefik.http.routers.product-editor-frontend-tls.tls.certresolver=letsencrypt
+      - traefik.http.routers.product-editor-frontend-tls.middlewares=traefik-gzip@docker
       - traefik.http.routers.product-editor-nextauth-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/auth`)
       - traefik.http.routers.product-editor-nextauth-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-nextauth-tls.priority=3
       - traefik.http.routers.product-editor-nextauth-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-nextauth-tls.service=product-editor-frontend
+      - traefik.http.routers.product-editor-nextauth-tls.middlewares=traefik-gzip@docker
       # Frontend internal proxy route (higher priority than backend /api rule at priority=2)
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/internal/proxy`)
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.priority=3
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-frontend-internal-proxy-tls.service=product-editor-frontend
+      - traefik.http.routers.product-editor-frontend-internal-proxy-tls.middlewares=traefik-gzip@docker
       # Frontend embed proxy route (higher priority than backend /api rule at priority=2)
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/embed/proxy`)
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.entrypoints=websecure
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.priority=3
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.tls.certresolver=letsencrypt
       - traefik.http.routers.product-editor-frontend-embed-proxy-tls.service=product-editor-frontend
+      - traefik.http.routers.product-editor-frontend-embed-proxy-tls.middlewares=traefik-gzip@docker
     networks:
       - web
     restart: unless-stopped

@@ -1770,21 +1770,37 @@ FONTS_JSON_PATH = os.path.join(settings.STORAGE_ROOT, 'fonts.json')
 
 DEFAULT_FONTS = ['sans-serif', 'serif', 'monospace']
 
+# Shared Redis cache for the on-disk JSON config files. Keys are namespaced so
+# `cache.delete()` from the corresponding _write_* function invalidates exactly
+# one entry without touching the rest of the cache. TTL is 5 min — matches the
+# Cache-Control max-age served to clients, so callers and our cache stay in sync.
+_FONTS_CACHE_KEY = 'storage:fonts'
+_SKU_LAYOUTS_CACHE_KEY = 'storage:sku_layouts'
+_STORAGE_CACHE_TTL = 300
+
 
 def _read_fonts():
-    """Read the fonts config from disk."""
+    """Read the fonts config from disk, with a 5-minute Redis cache."""
+    from django.core.cache import cache
+    cached = cache.get(_FONTS_CACHE_KEY)
+    if cached is not None:
+        return cached
     try:
         with open(FONTS_JSON_PATH, 'r') as f:
             data = json.load(f)
-            return data if isinstance(data, list) else DEFAULT_FONTS
+            value = data if isinstance(data, list) else DEFAULT_FONTS
     except (FileNotFoundError, json.JSONDecodeError):
-        return DEFAULT_FONTS
+        value = DEFAULT_FONTS
+    cache.set(_FONTS_CACHE_KEY, value, _STORAGE_CACHE_TTL)
+    return value
 
 
 def _write_fonts(fonts):
-    """Write fonts config to disk."""
+    """Write fonts config to disk and invalidate the cache."""
+    from django.core.cache import cache
     with open(FONTS_JSON_PATH, 'w') as f:
         json.dump(fonts, f, indent=2)
+    cache.delete(_FONTS_CACHE_KEY)
 
 
 class FontsView(APIView):
@@ -1832,18 +1848,25 @@ SKU_LAYOUTS_JSON_PATH = os.path.join(settings.STORAGE_ROOT, 'sku_layouts.json')
 
 
 def _read_sku_layouts():
-    """Read the SKU → layout mapping. Returns dict of {sku: layout_name}."""
+    """Read the SKU → layout mapping with a 5-minute Redis cache."""
+    from django.core.cache import cache
+    cached = cache.get(_SKU_LAYOUTS_CACHE_KEY)
+    if cached is not None:
+        return cached
     try:
         with open(SKU_LAYOUTS_JSON_PATH, 'r') as f:
             data = json.load(f)
             mappings = data.get('mappings') if isinstance(data, dict) else data
-            return mappings if isinstance(mappings, dict) else {}
+            value = mappings if isinstance(mappings, dict) else {}
     except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+        value = {}
+    cache.set(_SKU_LAYOUTS_CACHE_KEY, value, _STORAGE_CACHE_TTL)
+    return value
 
 
 def _write_sku_layouts(mappings):
-    """Persist the SKU → layout mapping atomically."""
+    """Persist the SKU → layout mapping atomically and invalidate the cache."""
+    from django.core.cache import cache
     payload = {
         '_meta': {
             'description': 'Maps Printo SKU codes to layout names from storage/layouts/.',
@@ -1855,6 +1878,7 @@ def _write_sku_layouts(mappings):
     with open(tmp_path, 'w') as f:
         json.dump(payload, f, indent=2, sort_keys=True)
     os.replace(tmp_path, SKU_LAYOUTS_JSON_PATH)
+    cache.delete(_SKU_LAYOUTS_CACHE_KEY)
 
 
 class SKULayoutView(APIView):
@@ -1977,8 +2001,8 @@ class RenderJobDownloadView(APIView):
     )
     def get(self, request, job_id):
         import zipfile
-        import io
-        from django.http import StreamingHttpResponse
+        import tempfile
+        from django.http import FileResponse
         from api.models import RenderJob
 
         try:
@@ -2019,31 +2043,58 @@ class RenderJobDownloadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Build the ZIP in memory.
-        # Typical output: 1-3 files at 1-5 MB each → well within a 512 MB worker.
-        buf = io.BytesIO()
-        # PNG files are already DEFLATE-compressed — re-compressing with DEFLATE wastes
-        # CPU for negligible size savings.  ZIP_STORED skips the redundant pass entirely.
-        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_STORED) as zf:
-            for path in safe_paths:
-                # Archive name is the path relative to EXPORTS_DIR so the ZIP
-                # retains a meaningful folder structure (e.g. <order_id>/out.png).
-                arcname = os.path.relpath(path, exports_root)
-                zf.write(path, arcname)
-
-        zip_bytes = buf.getvalue()
+        # Build the ZIP on disk in a temp file living under EXPORTS_DIR (same
+        # filesystem as the source files; lets the OS use sendfile for the read
+        # back). This replaces the previous io.BytesIO buffer that pinned the
+        # entire archive in worker memory — a 200-PNG render could push 500 MB
+        # per concurrent download. Streaming from disk via FileResponse keeps
+        # worker RAM flat regardless of archive size.
+        # PNG files are already DEFLATE-compressed — ZIP_STORED skips the
+        # redundant pass and saves CPU for marginal size savings.
         zip_name = f"job-{job_id}.zip"
+        tmp = tempfile.NamedTemporaryFile(
+            mode='w+b', suffix='.zip', delete=False, dir=exports_root,
+        )
+        try:
+            with zipfile.ZipFile(tmp, mode='w', compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+                for path in safe_paths:
+                    arcname = os.path.relpath(path, exports_root)
+                    zf.write(path, arcname)
+            tmp.flush()
+            zip_size = os.fstat(tmp.fileno()).st_size
+            tmp.seek(0)
+        except Exception:
+            tmp.close()
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            raise
 
         api_key = request.user.api_key if isinstance(request.user, APIKeyUser) else None
         if api_key:
-            logger.info("Job ZIP downloaded: job=%s files=%d by %s", job_id, len(safe_paths), api_key.name)
+            logger.info("Job ZIP downloaded: job=%s files=%d size=%d by %s",
+                        job_id, len(safe_paths), zip_size, api_key.name)
 
-        response = StreamingHttpResponse(
-            iter([zip_bytes]),
-            content_type='application/zip',
+        # FileResponse streams in chunks (8 KB by default) and closes the file
+        # when the response ends. Wire a close hook to unlink the temp file so
+        # the disk doesn't fill up with stale archives.
+        response = FileResponse(
+            tmp, as_attachment=True, filename=zip_name, content_type='application/zip',
         )
-        response['Content-Disposition'] = f'attachment; filename="{zip_name}"'
-        response['Content-Length'] = len(zip_bytes)
+        response['Content-Length'] = zip_size
+
+        _tmp_path = tmp.name
+        original_close = response.close
+        def _cleanup_close():
+            try:
+                original_close()
+            finally:
+                try:
+                    os.unlink(_tmp_path)
+                except OSError:
+                    pass
+        response.close = _cleanup_close
         return response
 
 

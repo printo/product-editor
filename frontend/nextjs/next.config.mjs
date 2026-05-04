@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Standalone build: ships only the modules the app actually imports + a
+  // minimal Node server, instead of the full node_modules tree. Cuts the
+  // runner image by ~200 MB and starts faster (no pnpm dispatch).
+  output: 'standalone',
   reactStrictMode: true,
   images: {
     unoptimized: true, // next/image not used — disable optimizer to mitigate GHSA-3x4c-7xq6-9pq8

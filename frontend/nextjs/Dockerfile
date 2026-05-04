@@ -31,18 +31,21 @@ ENV NEXT_PUBLIC_DIRECT_API_KEY=$NEXT_PUBLIC_DIRECT_API_KEY
 RUN pnpm build
 
 # ── Stage 3: Minimal production runner ───────────────────────────────────────
+# Uses Next.js `output: 'standalone'` — copies only the deps the app actually
+# imports, plus a tiny Node server (server.js). Drops ~200 MB vs shipping the
+# full node_modules; no pnpm in this stage.
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
+# Standalone output: server.js + minimal node_modules at /app/.next/standalone/
+COPY --from=builder /app/.next/standalone ./
+# Static assets live outside the standalone bundle
+COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/next.config.mjs ./next.config.mjs
 
 EXPOSE 3000
-CMD ["pnpm", "start"]
+CMD ["node", "server.js"]

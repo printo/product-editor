@@ -345,17 +345,27 @@ def garbage_collector_task():
     expired_exports = ExportedResult.objects.filter(
         created_at__lt=cutoff_date,
         is_deleted=False,
-    )
+    ).only('id', 'export_file_path')
 
     deleted_count = 0
     deleted_bytes = 0
     skipped_count = 0
     export_dirs_to_clean: set = set()
+    deleted_export_ids: list = []
+
+    def _is_manual_review_path(path_str: str, review_ids: set) -> bool:
+        # Match an order_id only when it sits between path separators (or at
+        # the start / end of the path). The previous `oid in path_str` check
+        # would treat 'EXT-1' as a hit inside 'EXT-12', skipping unrelated GC.
+        if not review_ids:
+            return False
+        parts = set(path_str.split(os.sep))
+        return bool(parts & review_ids)
 
     for export in expired_exports:
         # Skip files whose path contains a manual-review order_id segment.
         path_str = export.export_file_path or ''
-        if any(oid in path_str for oid in manual_review_order_ids):
+        if _is_manual_review_path(path_str, manual_review_order_ids):
             skipped_count += 1
             logger.debug(
                 "GC: skipping manual-review file %s", export.export_file_path
@@ -370,11 +380,15 @@ def garbage_collector_task():
                 deleted_count += 1
                 export_dirs_to_clean.add(os.path.dirname(export.export_file_path))
 
-            export.is_deleted = True
-            export.save(update_fields=['is_deleted'])
+            deleted_export_ids.append(export.id)
             logger.info("GC: deleted expired file %s", export.export_file_path)
         except Exception as exc:
             logger.error("GC: failed to delete %s: %s", export.export_file_path, exc)
+
+    # Bulk-flag rows as deleted in one UPDATE round-trip rather than per-row
+    # .save(). For 1000+ expired rows this collapses 1000 UPDATEs into 1.
+    if deleted_export_ids:
+        ExportedResult.objects.filter(id__in=deleted_export_ids).update(is_deleted=True)
 
     # Remove per-request export subdirectories that are now empty (sync renders).
     for export_dir in export_dirs_to_clean:
@@ -391,9 +405,10 @@ def garbage_collector_task():
     expired_uploads = UploadedFile.objects.filter(
         created_at__lt=upload_cutoff,
         is_deleted=False,
-    )
+    ).only('id', 'file_path')
     upload_deleted = 0
     upload_deleted_bytes = 0
+    deleted_upload_ids: list = []
     for upload in expired_uploads:
         try:
             if os.path.exists(upload.file_path):
@@ -401,10 +416,11 @@ def garbage_collector_task():
                 os.remove(upload.file_path)
                 upload_deleted_bytes += fsize
                 upload_deleted += 1
-            upload.is_deleted = True
-            upload.save(update_fields=['is_deleted'])
+            deleted_upload_ids.append(upload.id)
         except Exception as exc:
             logger.error("GC: failed to delete upload %s: %s", upload.file_path, exc)
+    if deleted_upload_ids:
+        UploadedFile.objects.filter(id__in=deleted_upload_ids).update(is_deleted=True)
 
     # ── Stale chunked-upload staging cleanup ──────────────────────────────
     # Abandon sessions older than 24 hours — the user gave up or the network

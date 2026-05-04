@@ -19,6 +19,7 @@ import { clsx } from 'clsx';
 import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/lib/zip-utils';
 import { uploadFiles } from '@/lib/upload-utils';
 import { saveFile, getFilesForOrder } from '@/lib/file-store';
+import { LazyImg } from '@/components/LazyImg';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import { getImageMetadata, detectJpegColorSpace } from '@/lib/image-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
@@ -144,7 +145,12 @@ export default function LayoutEditorPage() {
     preset: 'a4', widthIn: 8.27, heightIn: 11.69, marginMm: 7, gutterMm: 5, orientation: 'portrait',
   });
 
-  const fileUrlCache = useRef<Map<File, string>>(new Map());
+  // WeakMap allows the File entry to be GC'd when the user removes a frame —
+  // a Map would pin every File ever inserted for the lifetime of the page.
+  // The parallel Set tracks created URL strings so unmount/cleanup can revoke
+  // them (WeakMap isn't iterable).
+  const fileUrlCache = useRef<WeakMap<File, string>>(new WeakMap());
+  const createdObjectURLs = useRef<Set<string>>(new Set());
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impositionPreviewRef = useRef<HTMLCanvasElement>(null);
@@ -304,15 +310,20 @@ export default function LayoutEditorPage() {
 
   const getFileUrl = useCallback((file: File): string => {
     let url = fileUrlCache.current.get(file);
-    if (!url) { url = URL.createObjectURL(file); fileUrlCache.current.set(file, url); }
+    if (!url) {
+      url = URL.createObjectURL(file);
+      fileUrlCache.current.set(file, url);
+      createdObjectURLs.current.add(url);
+    }
     return url;
   }, []);
 
   useEffect(() => {
-    const cache = fileUrlCache.current;
+    const urls = createdObjectURLs.current;
     const timeout = renderTimeoutRef.current;
     return () => {
-      cache.forEach(url => URL.revokeObjectURL(url));
+      urls.forEach(url => URL.revokeObjectURL(url));
+      urls.clear();
       if (timeout) clearTimeout(timeout);
       // Cancel pending save / idle-reset timers so they don't call setState
       // on an unmounted component.
@@ -1215,8 +1226,10 @@ export default function LayoutEditorPage() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
-    fileUrlCache.current.forEach(url => URL.revokeObjectURL(url));
-    fileUrlCache.current.clear();
+    // Revoke any URLs from the previous batch — start the new selection clean.
+    createdObjectURLs.current.forEach(url => URL.revokeObjectURL(url));
+    createdObjectURLs.current.clear();
+    fileUrlCache.current = new WeakMap();
     const allFiles = Array.from(e.target.files);
 
     // ── CMYK color space detection ──────────────────────────────────────────
@@ -1510,13 +1523,21 @@ export default function LayoutEditorPage() {
         return;
       }
 
-      // 6. Direct/admin path: poll render-status until done
+      // 6. Direct/admin path: poll render-status until done.
+      // Exponential backoff: starts at 2 s, doubles to 10 s cap, with ±20%
+      // jitter so concurrent jobs don't synchronise their polls. A 10-min
+      // render now triggers ~50 requests instead of the previous 150.
       setServerRenderLabel('Rendering on server…');
       setRenderProgress({ current: 70, total: 100 });
 
-      const MAX_POLLS = 150; // 10 minutes at 4 s intervals
-      for (let poll = 0; poll < MAX_POLLS; poll++) {
-        await new Promise(r => setTimeout(r, 4000));
+      const POLL_DEADLINE = Date.now() + 10 * 60 * 1000; // 10 minutes
+      let pollDelay = 2000;
+      let pollCount = 0;
+      while (Date.now() < POLL_DEADLINE) {
+        const jitter = 0.8 + Math.random() * 0.4; // 0.8x - 1.2x
+        await new Promise(r => setTimeout(r, Math.round(pollDelay * jitter)));
+        pollDelay = Math.min(pollDelay * 1.5, 10000);
+        pollCount += 1;
 
         const statusRes = await fetch(`${apiBase}/render-status/${job_id}/`, {
           headers: getAuthHeaders(),
@@ -1543,8 +1564,9 @@ export default function LayoutEditorPage() {
           throw new Error(jobStatus.error || 'Server render failed');
         }
 
-        // Ease progress 70 → 99 while rendering
-        setRenderProgress({ current: Math.min(99, 70 + poll * 2), total: 100 });
+        // Ease progress 70 → 99 while rendering (cap at poll #15 so the bar
+        // doesn't stall when polls slow down due to backoff).
+        setRenderProgress({ current: Math.min(99, 70 + Math.min(pollCount, 15) * 2), total: 100 });
       }
 
       throw new Error('Render job timed out after 10 minutes');
@@ -1898,7 +1920,9 @@ export default function LayoutEditorPage() {
             </p>
             <div className="grid grid-cols-3 gap-2 mb-4 max-h-56 overflow-y-auto custom-scrollbar">
               {files.map((f, i) => {
-                const url = fileUrlCache.current.get(f) || URL.createObjectURL(f);
+                // Use the helper so the URL is tracked for cleanup; the bare
+                // URL.createObjectURL fallback used to leak in the qty-picker.
+                const url = getFileUrl(f);
                 const isSelected = pickerSelected.has(i);
                 return (
                   <button
@@ -2229,7 +2253,7 @@ export default function LayoutEditorPage() {
                       onDrop={(e) => handleDrop(e, idx)}
                     >
                       <div className="relative rounded-t-2xl overflow-hidden bg-slate-100" style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}>
-                        {canvas.dataUrl && <img src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+                        {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
 
                         <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
                           <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-xl hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">

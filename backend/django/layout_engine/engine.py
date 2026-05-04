@@ -316,6 +316,15 @@ class LayoutEngine:
         mask_img = None
         if surface_def.get("maskUrl") and surface_def.get("maskOnExport", False):
             mask_img = self._load_mask(surface_def["maskUrl"])
+            # Pre-resize the mask once to canvas size so _composite_canvas
+            # doesn't rerun LANCZOS for every batch in the surface. A 200-canvas
+            # render previously did 200 mask resizes; now it does 1.
+            canvas_w = surface_def["canvas"]["width"]
+            canvas_h = surface_def["canvas"]["height"]
+            if mask_img.size != (canvas_w, canvas_h):
+                resized = mask_img.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
+                mask_img.close()
+                mask_img = resized
 
         suffix = f"_{surface_key}" if surface_key != "default" else ""
         outputs = []
@@ -383,6 +392,13 @@ class LayoutEngine:
         mask_img = None
         if surface_def.get("maskUrl") and surface_def.get("maskOnExport", False):
             mask_img = self._load_mask(surface_def["maskUrl"])
+            # Pre-resize once — see _generate_for_surface for rationale.
+            canvas_w = surface_def["canvas"]["width"]
+            canvas_h = surface_def["canvas"]["height"]
+            if mask_img.size != (canvas_w, canvas_h):
+                resized = mask_img.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
+                mask_img.close()
+                mask_img = resized
 
         suffix = f"_{surface_key}" if surface_key != "default" else ""
         results = []

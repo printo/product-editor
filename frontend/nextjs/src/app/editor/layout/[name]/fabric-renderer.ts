@@ -25,8 +25,31 @@ async function resizeImageWithPica(img: HTMLImageElement, width: number, height:
 
 /**
  * Gets the best crop for an image using smartcrop.js.
+ *
+ * @param cacheKey  Optional stable identifier (e.g. `${fileId}:${w}x${h}:${rotation}`).
+ *                  When provided, results are stored in IndexedDB + an in-memory
+ *                  memo so repeat calls on the same image at the same params
+ *                  skip the (50–200 ms per 12 MP) pixel scan.
  */
-export async function getSmartCrop(img: HTMLImageElement | HTMLCanvasElement, width: number, height: number) {
+export async function getSmartCrop(
+  img: HTMLImageElement | HTMLCanvasElement,
+  width: number,
+  height: number,
+  cacheKey?: string,
+) {
+  if (cacheKey) {
+    const { getCachedCrop, setCachedCrop } = await import('@/lib/file-store');
+    const hit = await getCachedCrop(cacheKey);
+    if (hit) return hit;
+    try {
+      const smartcrop = (await import('smartcrop')).default;
+      const result = await smartcrop.crop(img, { width, height });
+      await setCachedCrop(cacheKey, result.topCrop);
+      return result.topCrop;
+    } catch {
+      return null;
+    }
+  }
   try {
     const smartcrop = (await import('smartcrop')).default;
     const result = await smartcrop.crop(img, { width, height });
@@ -38,17 +61,21 @@ export async function getSmartCrop(img: HTMLImageElement | HTMLCanvasElement, wi
 
 /**
  * Calculates the offset required to center the best crop area in the frame.
+ *
+ * @param cacheKey  Forwarded to `getSmartCrop`; supply when the caller has a
+ *                  stable file identifier (FrameState.fileId works well).
  */
 export async function calculateSmartCropOffsets(
   img: HTMLImageElement | HTMLCanvasElement,
   frameW: number,
   frameH: number,
   rotation: number = 0,
+  cacheKey?: string,
 ): Promise<{ x: number; y: number }> {
   const imgW = img instanceof HTMLImageElement ? img.naturalWidth : img.width;
   const imgH = img instanceof HTMLImageElement ? img.naturalHeight : img.height;
 
-  const crop = await getSmartCrop(img, frameW, frameH);
+  const crop = await getSmartCrop(img, frameW, frameH, cacheKey);
   if (!crop) return { x: 0, y: 0 };
 
   const cropCenterX = crop.x + crop.width / 2;

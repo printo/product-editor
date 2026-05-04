@@ -32,6 +32,11 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "csp.middleware.CSPMiddleware",
+    # GZipMiddleware compresses application/json + text responses (skipped for
+    # already-encoded bodies and responses < 200 B). 70-80% bandwidth saving on
+    # JSON-heavy endpoints (layouts, render-status, canvas-state). BREACH risk
+    # is N/A here — no per-user secrets are reflected in JSON responses.
+    "django.middleware.gzip.GZipMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
