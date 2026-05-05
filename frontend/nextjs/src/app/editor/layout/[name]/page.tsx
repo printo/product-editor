@@ -1568,13 +1568,26 @@ export default function LayoutEditorPage() {
           setServerRenderLabel('Downloading…');
           setRenderProgress({ current: 100, total: 100 });
 
-          const dlRes = await fetch(`${apiBase}/jobs/${job_id}/download/`, {
-            headers: getAuthHeaders(),
-          });
-          if (!dlRes.ok) throw new Error('Failed to fetch render output.');
-          const blob = await dlRes.blob();
-          const zipName = layout?.name || layoutName;
-          downloadBlob(blob, `${zipName}.zip`);
+          // Trigger a native browser download instead of fetch+blob.
+          // For 200-photo jobs the ZIP is 500–700 MB — buffering that into
+          // a JS Blob via `await dlRes.blob()` pushes the browser tab past
+          // its heap budget AND fights Cloudflare's 100 s time-to-first-
+          // byte limit. A `<a download>` navigation streams chunks
+          // straight to disk via the browser's native download manager
+          // (its own progress UI included). The internal proxy already
+          // forwards Content-Disposition from Django so the saved
+          // filename is correct without us having to set the `download`
+          // attribute. Cookie auth flows through navigation just like fetch.
+          const downloadUrl = `${apiBase}/jobs/${job_id}/download/`;
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.rel = 'noopener';
+          // download attr is a hint — Content-Disposition from upstream wins
+          // when present (it's `attachment; filename="job-<uuid>.zip"`).
+          a.download = `${layout?.name || layoutName}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
           return;
         }
 
