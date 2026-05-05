@@ -137,21 +137,35 @@ async function handler(
       cache: 'no-store',
     });
 
-    const responseContentType =
-      upstream.headers.get('Content-Type') || 'application/json';
-    
-    // Read body as arrayBuffer. If 204/304, it will be empty.
-    let responseBody: ArrayBuffer | null = null;
-    if (upstream.status !== 204 && upstream.status !== 304) {
-      responseBody = await upstream.arrayBuffer();
-    }
+    // Stream the upstream body straight through instead of buffering it
+    // with `await upstream.arrayBuffer()`. A 200-photo render produces a
+    // ~500 MB ZIP (uploads + mocks + prints); buffering pinned that much
+    // memory in the Next.js worker on every download. Streaming keeps
+    // worker RAM flat regardless of archive size — Node's WebStream
+    // pipeline backpressures naturally against the client's read rate.
+    //
+    // Forward content-relevant response headers verbatim so the browser
+    // sees the right filename (Content-Disposition) and progress
+    // indicator (Content-Length). Cache-Control is overridden — every
+    // proxy hit is request-scoped and never cacheable.
+    const passthroughHeaders = new Headers();
+    const upstreamCT = upstream.headers.get('Content-Type');
+    if (upstreamCT) passthroughHeaders.set('Content-Type', upstreamCT);
+    const upstreamCL = upstream.headers.get('Content-Length');
+    if (upstreamCL) passthroughHeaders.set('Content-Length', upstreamCL);
+    const upstreamCD = upstream.headers.get('Content-Disposition');
+    if (upstreamCD) passthroughHeaders.set('Content-Disposition', upstreamCD);
+    passthroughHeaders.set('Cache-Control', 'no-store, max-age=0');
 
-    return new NextResponse(responseBody, {
+    // 204/304 responses have no body — explicitly null so Next doesn't try
+    // to read an empty stream.
+    const responseStream = upstream.status === 204 || upstream.status === 304
+      ? null
+      : upstream.body;
+
+    return new NextResponse(responseStream, {
       status: upstream.status,
-      headers: { 
-        'Content-Type': responseContentType,
-        'Cache-Control': 'no-store, max-age=0',
-      },
+      headers: passthroughHeaders,
     });
   } catch (err: any) {
     console.error('[internal-proxy] upstream error:', err);

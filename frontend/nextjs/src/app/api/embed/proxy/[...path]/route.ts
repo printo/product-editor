@@ -203,12 +203,27 @@ async function handler(
       body,
     });
 
-    const responseContentType = upstream.headers.get('Content-Type') || 'application/json';
-    const responseBody = await upstream.arrayBuffer();
+    // Stream the response body through unbuffered. The previous
+    // `await upstream.arrayBuffer()` pinned the entire ZIP (up to ~500 MB
+    // for a 200-photo render) in the Next.js worker on every download.
+    // Forward content-relevant response headers verbatim so the browser
+    // sees the right filename (Content-Disposition) and progress
+    // indicator (Content-Length).
+    const passthroughHeaders = new Headers();
+    const upstreamCT = upstream.headers.get('Content-Type');
+    passthroughHeaders.set('Content-Type', upstreamCT || 'application/json');
+    const upstreamCL = upstream.headers.get('Content-Length');
+    if (upstreamCL) passthroughHeaders.set('Content-Length', upstreamCL);
+    const upstreamCD = upstream.headers.get('Content-Disposition');
+    if (upstreamCD) passthroughHeaders.set('Content-Disposition', upstreamCD);
 
-    return new NextResponse(responseBody, {
+    const responseStream = upstream.status === 204 || upstream.status === 304
+      ? null
+      : upstream.body;
+
+    return new NextResponse(responseStream, {
       status: upstream.status,
-      headers: { 'Content-Type': responseContentType },
+      headers: passthroughHeaders,
     });
   } catch (err: any) {
     console.error('[embed-proxy] upstream error:', err);
