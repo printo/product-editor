@@ -15,7 +15,8 @@ const attempts = new Map<string, { count: number; windowStart: number }>();
 
 async function clientIp(): Promise<string> {
   const h = await headers();
-  // Traefik / Cloudflare set X-Forwarded-For; first hop is the real client.
+  // nginx populates X-Forwarded-For from CF-Connecting-IP (see proxy/nginx/nginx.conf);
+  // first hop is the real client.
   const fwd = h.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0].trim();
   return h.get("x-real-ip") || "unknown";

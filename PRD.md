@@ -357,7 +357,7 @@ flowchart LR
 | Multi-source upload size | `MAX_UPLOAD_FILE_SIZE` (settings, 10 MB), `MAX_FILE_SIZE_MB` (validators, 50 MB), and a hardcoded `50 * 1024 * 1024` in `ChunkedUploadInitView` were three different sources | Single env-driven source `MAX_UPLOAD_FILE_SIZE_MB` (default 50); `validators.py` and `views.py` both read from `settings` |
 | Backend Dockerfile bloat | `build-essential` + `libpq-dev` shipped in final image (~250 MB unnecessary) | Multi-stage: builder compiles wheels into a venv, runner copies venv + `libpq5` only |
 | No healthchecks | Backend + frontend services had no `healthcheck` directive; `frontend depends_on backend` couldn't wait for actual readiness | Added `python -c urlopen('/api/health')` healthcheck to backend; `wget --spider /` on frontend; frontend now `depends_on: backend: { condition: service_healthy }` |
-| `LETSENCRYPT_EMAIL` undocumented | Referenced in `docker-compose.yml` but missing from `.env.example` | Added to `.env.example` |
+| `LETSENCRYPT_EMAIL` undocumented | Referenced by the Traefik resolver but missing from `.env.example` | Added to `.env.example`. *Superseded in v1.9 by the nginx + Cloudflare Origin Certificate migration — the var is no longer used.* |
 | Dead `production_config.py` | Self-documented as dead; conflicting size limits and missing middleware vs active settings.py | Deleted (zero references in tree) |
 | CSP misconfigured | `SECURE_CONTENT_SECURITY_POLICY` dict was set in settings but Django doesn't read it — comment acknowledged it had no effect | Installed `django-csp==3.8`; added `csp` to INSTALLED_APPS, `csp.middleware.CSPMiddleware` after SecurityMiddleware; CSP_DEFAULT_SRC + script/style/img/font/connect/frame-ancestors configured; ships in **report-only** via `CSP_REPORT_ONLY=True` env so violations are logged before enforcing |
 | Sync render timeout | `with_timeout(seconds=300)` on `_handle_sync` was 5 min — large jobs that fit in async (10 min) failed on legacy sync path | Bumped to 600 s to match Celery `render_canvas_task` hard limit |
@@ -482,7 +482,7 @@ Required steps when running `./deploy.sh` for the v1.7 release. None require cod
 | Step | Action | Why |
 |---|---|---|
 | 1 | Pull `main` or the v1.7 tag on the server | Picks up the multi-stage Dockerfile and `requirements.txt` change |
-| 2 | Add `LETSENCRYPT_EMAIL=<real address>` to `.env` | Already referenced by `docker-compose.yml`; previously undocumented in `.env.example`. Traefik fails ACME issuance if missing or fake |
+| 2 | Generate / paste Cloudflare Origin Certificate | CF dashboard → SSL/TLS → Origin Server → Create Certificate. Paste body into `proxy/nginx/certs/origin.crt` and key into `proxy/nginx/certs/origin.key` (chmod 600). Set CF SSL/TLS mode to "Full (strict)". Skip → `deploy.sh` generates a self-signed bootstrap cert that requires CF "Full" (not strict). |
 | 3 | (Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50` to `.env` | New single-source env var. Default is 50 if absent — only set if you want a different ceiling |
 | 4 | (Optional) Add `CSP_REPORT_ONLY=True` to `.env` | Default is `True` (report-only). Leave it — flip to `False` only after monitoring violations |
 | 5 | (Optional) Add `DB_CONN_MAX_AGE=600` to `.env` | New default — the setting raised it from 60 to 600 s. Override only if PgBouncer is in front (then set `0`) |

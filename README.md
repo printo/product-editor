@@ -23,7 +23,7 @@ A production-ready full-stack application for generating photo layouts for perso
 
 **Infrastructure**
 - Docker Compose
-- Traefik v3 — reverse proxy with automatic Let's Encrypt TLS
+- nginx 1.27 — edge proxy; TLS terminates at the origin using a Cloudflare Origin Certificate
 - Redis 7 — Celery broker, result backend, and status-polling cache
 - PostgreSQL 16
 
@@ -40,7 +40,7 @@ A production-ready full-stack application for generating photo layouts for perso
 | `celery-beat` | Periodic task scheduler (daily GC at 02:00 UTC) |
 | `redis` | Broker, result backend, status cache |
 | `db` | PostgreSQL database |
-| `proxy` | Traefik reverse proxy + TLS |
+| `proxy` | nginx edge proxy + TLS termination (Cloudflare Origin Certificate) |
 
 ---
 
@@ -87,7 +87,6 @@ Required production values:
 DJANGO_SECRET_KEY=<50-char random string>
 DEBUG=0
 PUBLIC_HOST=product-editor.printo.in
-LETSENCRYPT_EMAIL=devops@printo.in
 POSTGRES_PASSWORD=<strong password>
 DIRECT_API_KEY=<ops team key>
 EXTERNAL_API_KEY=<embed partner key>
@@ -343,8 +342,7 @@ storage/
 |---|---|---|
 | `DJANGO_SECRET_KEY` | Yes | Django secret key |
 | `DEBUG` | Yes | `0` for production |
-| `PUBLIC_HOST` | Yes | Production domain |
-| `LETSENCRYPT_EMAIL` | Yes | Let's Encrypt ACME email |
+| `PUBLIC_HOST` | Yes | Production domain (also baked into the bootstrap self-signed cert's CN) |
 | `POSTGRES_PASSWORD` | Yes | Database password |
 | `REDIS_URL` | Yes | Redis connection string |
 | `DIRECT_API_KEY` | Yes | Internal ops team API key (seeded into Django DB on first run) |

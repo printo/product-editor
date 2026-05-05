@@ -22,7 +22,6 @@ Required in `.env` at the project root:
 DJANGO_SECRET_KEY=<50-char random string>
 DEBUG=0
 PUBLIC_HOST=product-editor.printo.in
-LETSENCRYPT_EMAIL=devops@printo.in
 ALLOWED_HOSTS=product-editor.printo.in
 
 # Database
@@ -71,7 +70,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(50))"
 | `celery-beat` | Periodic scheduler (daily GC at 02:00 UTC) | No |
 | `redis` | Broker, result backend, status cache | No |
 | `db` | PostgreSQL 16 | No |
-| `proxy` | Traefik v3 + Let's Encrypt TLS | No |
+| `proxy` | nginx 1.27 + TLS termination (Cloudflare Origin Certificate) | No |
 
 **Important**: Only the `backend` container runs `python manage.py migrate`. The worker and beat containers exit before the migration block in `entrypoint.sh`.
 

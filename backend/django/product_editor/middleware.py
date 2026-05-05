@@ -5,8 +5,10 @@ from django.utils.deprecation import MiddlewareMixin
 
 class ProxyAuthenticationMiddleware(MiddlewareMixin):
     """
-    Middleware to ensure admin access only comes through the Traefik proxy.
-    Blocks direct localhost access attempts to /admin/django-admin/
+    Ensure /admin/* is reached only via the edge proxy (nginx), never via a
+    direct hit on backend:8000. nginx sets X-Forwarded-Proto and
+    X-Forwarded-Host on every upstream request; their absence in production
+    means someone is bypassing the proxy.
     """
 
     def process_request(self, request):
