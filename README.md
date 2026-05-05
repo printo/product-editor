@@ -1,6 +1,6 @@
 # Product Editor — Printo.in Photo Layout Generator
 
-A production-ready full-stack application for generating photo layouts for personalised print products. Customers upload images, compose them on an interactive canvas, and post-checkout the system renders high-resolution print files and pushes them directly to the production estimator — zero manual preflight required.
+A production-ready full-stack application for generating photo layouts for personalised print products. Customers upload images, compose them on an interactive canvas, and the system renders high-resolution print files. Files are delivered either by direct download (dashboard) or by a signed HMAC webhook to the embed caller's `callback_url` (printo.in's storefront pulls the ZIP from its backend). The app is a **standalone print-file generator** — no internal OMS push.
 
 ---
 
@@ -92,7 +92,6 @@ DIRECT_API_KEY=<ops team key>
 EXTERNAL_API_KEY=<embed partner key>
 INTERNAL_API_KEY=<same value as DIRECT_API_KEY — server-only, never NEXT_PUBLIC_>
 REDIS_URL=redis://redis:6379/0
-OMS_PRODUCTION_ESTIMATOR_URL=http://oms-service:8080/api/production/estimate
 ```
 
 Generate secret key:
@@ -175,7 +174,7 @@ curl -X POST https://product-editor.printo.in/api/layout/generate \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -F "layout=CIRCLE_48MM" \
   -F "order_id=ORD-20260405-001" \
-  -F "callback_url=https://oms.printo.in/webhooks/render" \
+  -F "callback_url=https://your-backend.example.com/webhooks/render" \
   -F "fit_mode=cover" \
   -F "images=@photo.jpg"
 ```
@@ -219,10 +218,14 @@ POST /api/layout/generate (with order_id)
                                               │
                                       render complete
                                               │
-                                  ┌───────────▼────────────┐
-                                  │  push_to_production_   │──▶ OMS API + callback_url
-                                  │  estimator_task        │    (separate Celery task)
-                                  └────────────────────────┘
+                  ┌───────────────────────────┴───────────────────────────┐
+                  │                                                       │
+       has callback_url?                                       no callback_url
+                  │                                                       │
+       ┌──────────▼──────────────┐                              dashboard polls
+       │ notify_caller_webhook_  │──▶ HMAC-signed POST to        /api/render-status,
+       │ task (separate task)    │    EmbedSession.callback_url  fetches ZIP from
+       └─────────────────────────┘    (printo.in storefront)     /api/jobs/<id>/download
 ```
 
 Key behaviours:
@@ -231,7 +234,7 @@ Key behaviours:
 - **MemoryError / soft time limit** — skips retries, fails immediately
 - **Order resubmit** — `update_or_create` on `order_id`; resubmissions never crash
 - **Dispatch safety** — Redis failure in `on_commit` marks job `failed` with error; never silently stuck in `queued`
-- **OMS push** — separate Celery task, retries 5× independently; sets `requires_manual_review=True` on final failure
+- **Caller webhook** — separate Celery task, only dispatched when `canvas.callback_url` is set; retries 5× independently; sets `requires_manual_review=True` on final failure
 
 ---
 
@@ -253,7 +256,7 @@ Current migrations:
 | Migration | Change |
 |---|---|
 | 0001 | Initial schema — `APIKey`, `RenderJob`, `ExportedResult`, `EmbedSession`, `UploadedFile`, `CanvasData` |
-| 0002 | `CanvasData.callback_url` — per-request webhook URL for OMS push |
+| 0002 | `CanvasData.callback_url` — per-request webhook URL for caller (embed) webhook |
 | 0003 | `CanvasData.editor_state` JSON field + `UploadedFile.upload_session` — canvas persistence and chunked-upload session tracking |
 | 0004 | `CanvasData.updated_at` (`auto_now`) + `canvas_data_expires_idx` index — GC age queries |
 | 0005 | `CanvasData` uniqueness changed from global `order_id` to composite `(order_id, api_key)` — tenant isolation fix |
@@ -290,7 +293,7 @@ docker stats product-editor-celery-worker-standard-1
 | Dashboard shows empty / 500 | Missing `INTERNAL_API_KEY` env var | Add `INTERNAL_API_KEY=<same as DIRECT_API_KEY>` to `.env.local` — the internal proxy refuses to forward without it |
 | Dashboard/editor returns 401 after long idle | Session token expired | `pia-auth.ts` refresh flow kicks in automatically; if PIA is unreachable the user is redirected to `/login` |
 | Frontend not loading | Port | Use `localhost:5004`, not `:3000` |
-| OMS push failing repeatedly | `CanvasData.requires_manual_review` in Admin | Check OMS endpoint; order flagged after 5 failures |
+| Webhook push failing repeatedly | `CanvasData.requires_manual_review` in Admin | Check the caller's `callback_url` is reachable + accepts POST; order flagged after 5 failures |
 | High worker memory | `docker stats` | Workers are already at concurrency=2; scale out with `--scale celery-worker-standard=N` |
 
 ---
@@ -349,7 +352,6 @@ storage/
 | `EXTERNAL_API_KEY` | No | External partner key |
 | `TESTING_API_KEY` | No | Testing key |
 | `INTERNAL_API_KEY` | Yes | Server-only key for the Next.js internal proxy — same value as `DIRECT_API_KEY`. **Must NOT be prefixed `NEXT_PUBLIC_`** |
-| `OMS_PRODUCTION_ESTIMATOR_URL` | Yes | OMS webhook endpoint |
 | `CELERY_CONCURRENCY` | No | Worker slots per container (default: 2) |
 | `CELERY_QUEUE` | No | Queue name(s) for worker (default: `priority,standard`) |
 | `FRONTEND_HOST_PORT` | No | Host port for frontend (default: 5004) |

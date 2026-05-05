@@ -24,13 +24,13 @@ Development rules and safety guidelines for AI agents working on this project.
 - **`SoftTimeLimitExceeded` must skip retries** — handle it the same way as `MemoryError`: mark the job failed immediately, do not call `self.retry()`.
 - **`MemoryError` must skip retries** — the worker process is out of memory; retrying would immediately OOM again.
 - **Retry delays use exponential backoff**: `delay = (2 ** retry_number) * 2` → 2 s, 4 s, 8 s. `retry_number = self.request.retries` (0-based).
-- **OMS push is a separate task** (`push_to_production_estimator_task`). Never call the OMS API inside `render_canvas_task` — it must not block the render worker slot and must retry independently (up to 5×).
-- **`callback_url` is stored on `CanvasData`** at submission time, not passed through the task chain. The push task reads it from the DB.
+- **Caller webhook is a separate task** (`notify_caller_webhook_task`). Never call the caller's `callback_url` inside `render_canvas_task` — it must not block the render worker slot and must retry independently (up to 5×). Only dispatched when `canvas.callback_url` is set; direct/dashboard callers don't enqueue it at all.
+- **`callback_url` is stored on `CanvasData`** at submission time (propagated from `EmbedSession` via `X-Callback-URL` header), not passed through the task chain. The webhook task reads it from the DB.
 - **`on_commit` dispatch** — task dispatch is always inside `transaction.on_commit()` in `views.py`. Never dispatch a Celery task directly within a DB transaction.
 - **Redis failure on dispatch must fail the job immediately** — the `on_commit` handler catches the dispatch exception, sets `RenderJob.status = 'failed'`, and records the error. The job must never be left silently in `queued`.
 - **`celery.py` must not hardcode broker or result-backend URLs** — they come exclusively from `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` Django settings.
 - **`celery-beat` must not run DB migrations** — the entrypoint branches for worker/beat exit before the migration block. Only the Gunicorn/backend container runs `migrate --noinput`.
-- **Task routing** — `render_canvas_task` routes to `priority` for soft-proof, `standard` otherwise. `push_to_production_estimator_task` always routes to `priority`. `garbage_collector_task` routes to `standard`. Never route tasks implicitly — keep explicit routes in `celery.py`.
+- **Task routing** — `render_canvas_task` routes to `standard`. `notify_caller_webhook_task` routes to `standard`. `garbage_collector_task` routes to `standard`. The `priority` queue exists in `celery.py` for future express workloads but is currently dormant. Never route tasks implicitly — keep explicit routes.
 - **GC skips manual-review orders** — `garbage_collector_task` must check `if any(oid in path_str for oid in manual_review_order_ids)` before deleting any file. Files tied to a `requires_manual_review=True` order must never be auto-deleted.
 
 ### Data Integrity

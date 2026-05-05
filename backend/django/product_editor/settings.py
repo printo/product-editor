@@ -9,9 +9,9 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 if "backend" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("backend")
 
-# PUBLIC_HOST is the customer-facing hostname (no scheme). Used by callback
-# payloads to construct absolute download URLs the caller can fetch over the
-# public internet — `download_url` in push_to_production_estimator_task.
+# PUBLIC_HOST is the customer-facing hostname (no scheme). Used by webhook
+# payloads to construct absolute `download_url` values the caller can fetch
+# over the public internet — see `notify_caller_webhook_task` in api/tasks.py.
 PUBLIC_HOST = os.getenv("PUBLIC_HOST", "")
 
 # Static files (CSS, JavaScript, Images)
@@ -287,11 +287,9 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 
-# OMS Integration
-OMS_PRODUCTION_ESTIMATOR_URL = os.getenv(
-    'OMS_PRODUCTION_ESTIMATOR_URL',
-    'http://oms-service:8080/api/production/estimate'
-)
+# This app is a standalone print-file generator. Files are delivered either by
+# direct download (dashboard) or by the embed webhook (EmbedSession.callback_url).
+# There is no internal OMS push.
 
 # Cache TTL Configuration (seconds)
 # Dynamic TTL based on job status for optimal caching performance

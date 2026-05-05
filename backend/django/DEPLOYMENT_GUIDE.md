@@ -36,9 +36,6 @@ REDIS_URL=redis://redis:6379/0
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
 
-# OMS Integration
-OMS_PRODUCTION_ESTIMATOR_URL=http://oms-service:8080/api/production/estimate
-
 # API Keys
 DIRECT_API_KEY=<ops team key>
 EXTERNAL_API_KEY=<embed partner key>
@@ -246,7 +243,7 @@ curl -s https://product-editor.printo.in/api/celery/monitor/ \
 | Jobs stuck in `queued` | `docker-compose ps celery-worker-*` | Restart workers; verify Redis is reachable |
 | Worker exits immediately | `docker-compose logs celery-worker-*` | Check Redis connection; verify migrations ran on backend |
 | `priority` jobs not moving | `celery-worker-priority` running? | It only listens to `priority` queue — check `CELERY_QUEUE=priority` env var |
-| OMS push failing repeatedly | `CanvasData.requires_manual_review` in Admin | Check OMS endpoint; order flagged after 5 failures |
+| Webhook push failing repeatedly | `CanvasData.requires_manual_review` in Admin | Check the caller's `callback_url` accepts POSTs; order flagged after 5 failures |
 | High worker memory | `docker stats` | Workers are at concurrency=2; scale out with `--scale celery-worker-standard=N` |
 | `ClientFetchError` on frontend | `.env.local` in `frontend/nextjs/` | Set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) |
 | Frontend not loading | Port | Use `localhost:5004`, not `:3000` |

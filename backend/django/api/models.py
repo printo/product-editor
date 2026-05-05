@@ -182,7 +182,7 @@ class EmbedSession(models.Model):
     # Webhook URL the caller wants notified when the render completes. Single
     # source of truth for embed-flow callbacks; the embed proxy injects it as
     # X-Callback-URL on every forwarded request, EditorRenderView captures it
-    # onto CanvasData, and push_to_production_estimator_task POSTs the result.
+    # onto CanvasData, and notify_caller_webhook_task POSTs the result.
     callback_url = models.URLField(max_length=2000, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()

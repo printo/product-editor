@@ -20,10 +20,11 @@ from api import tasks  # noqa
 # ── Queue routing ────────────────────────────────────────────────────────────
 # render_canvas_task default route is 'standard'; callers that need priority
 # override via apply_async(queue='priority').
-# push_to_production_estimator_task always uses 'standard' (not time-critical).
+# notify_caller_webhook_task always uses 'standard' (not time-critical;
+# only fires when canvas.callback_url is set, i.e. embed flow).
 app.conf.task_routes = {
     'api.tasks.render_canvas_task': {'queue': 'standard'},
-    'api.tasks.push_to_production_estimator_task': {'queue': 'standard'},
+    'api.tasks.notify_caller_webhook_task': {'queue': 'standard'},
     'api.tasks.garbage_collector_task': {'queue': 'standard'},
 }
 

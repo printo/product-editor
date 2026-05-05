@@ -22,8 +22,8 @@ The async render queue is fully implemented and all known issues have been resol
 | Retry logic (`self.retry()` only) | ✅ Done | `autoretry_for` removed; retry counter stays in sync |
 | `SoftTimeLimitExceeded` handling | ✅ Done | Skips retries, fails immediately |
 | `MemoryError` handling | ✅ Done | Skips retries, fails immediately |
-| OMS push as separate task | ✅ Done | `push_to_production_estimator_task` never blocks render slot |
-| `callback_url` webhook | ✅ Done | Stored on `CanvasData`, fired on OMS push success |
+| Caller webhook as separate task | ✅ Done | `notify_caller_webhook_task` never blocks render slot; only dispatched when `canvas.callback_url` is set |
+| `callback_url` webhook | ✅ Done | Stored on `CanvasData` (propagated from `EmbedSession` via `X-Callback-URL` header); HMAC-SHA256 signed POST after render completes |
 | `order_id` upsert (resubmit safety) | ✅ Done | `update_or_create` — no unique-constraint crash on retry |
 | `celery_task_id` nullable | ✅ Done | Set to `None` at creation; populated after dispatch |
 | Redis failure → job `failed` | ✅ Done | `on_commit` handler catches dispatch exception |
@@ -88,7 +88,7 @@ Key log patterns to watch:
 - `INFO: Async job enqueued: order_id=..., job_id=..., queue=...` — healthy dispatch
 - `INFO: Render job ... completed` — healthy render
 - `ERROR: Render job ... failed after 3 retries` — investigate `RenderJob.error_message`
-- `ERROR: Failed to push order ... to Production_Estimator` — OMS connectivity issue
+- `ERROR: Webhook to ... failed for order ... after 6 attempts` — caller's `callback_url` is unreachable or rejecting POSTs; check the URL and HMAC verification on their side
 
 ---
 
