@@ -61,36 +61,80 @@ if [[ "$MODE" != "frontend" && "$MODE" != "backend" && "$MODE" != "both" ]]; the
   usage
 fi
 
-# ── Prepare Traefik config ──────────────────────────────────────────────────
+# ── Prepare nginx config ────────────────────────────────────────────────────
 print_header "Preparing Proxy Configuration"
-mkdir -p proxy/traefik
-# Ensure acme.json is a file, not a directory. Docker bind-mounts auto-create
-# missing host paths AS DIRECTORIES, which silently breaks the Let's Encrypt
-# resolver ("read /letsencrypt/acme.json: is a directory" → no certificate
-# resolver registered → all *-tls@docker routers rejected → blanket 404 on
-# the websecure entrypoint). `touch` won't fix a directory; we have to rm -rf.
-if [ -d proxy/traefik/acme.json ]; then
-  print_warning "Removing existing proxy/traefik/acme.json directory (Docker bind-mount auto-create)."
-  rm -rf proxy/traefik/acme.json
+mkdir -p proxy/nginx/certs
+
+# Ensure .htpasswd is a file, not a directory. Docker bind-mounts auto-create
+# missing host paths AS DIRECTORIES, which silently breaks any container
+# expecting a file at that path. (This was the same footgun that nuked the
+# previous Traefik acme.json — keep the defensive rm.)
+if [ -d proxy/nginx/.htpasswd ]; then
+  print_warning "Removing existing proxy/nginx/.htpasswd directory (Docker bind-mount auto-create)."
+  rm -rf proxy/nginx/.htpasswd
 fi
-touch proxy/traefik/acme.json
-chmod 600 proxy/traefik/acme.json
-# Ensure .htpasswd is a file, not a directory
-if [ -e proxy/traefik/.htpasswd ]; then # Check if it exists at all
-  print_warning "Removing existing proxy/traefik/.htpasswd (file or directory)."
-  rm -rf proxy/traefik/.htpasswd # Forcefully remove
-fi
-if [ ! -f proxy/traefik/.htpasswd ]; then
+if [ ! -f proxy/nginx/.htpasswd ]; then
   print_action "Creating default admin htpasswd..."
-  # default: admin / admin
-  echo "admin:\$apr1\$1mi1zF/0\$xS99PzABcMUa4qvh9b7aQ." > proxy/traefik/.htpasswd
+  # default: admin / admin (same hash as the old Traefik file)
+  echo "admin:\$apr1\$1mi1zF/0\$xS99PzABcMUa4qvh9b7aQ." > proxy/nginx/.htpasswd
   print_status "Default .htpasswd created"
 fi
 
+# ── Origin TLS cert ─────────────────────────────────────────────────────────
+# Production: paste a Cloudflare Origin Certificate (CF dashboard → SSL/TLS →
+# Origin Server → Create Certificate) into proxy/nginx/certs/origin.crt and
+# origin.key. CF accepts it under "Full (strict)".
+# Bootstrap / dev: if no cert exists, generate a self-signed one. With CF in
+# "Full" mode (not strict) this works; CF won't validate against a public CA.
+if [ -d proxy/nginx/certs/origin.crt ]; then
+  print_warning "Removing proxy/nginx/certs/origin.crt directory (Docker bind-mount auto-create)."
+  rm -rf proxy/nginx/certs/origin.crt
+fi
+if [ -d proxy/nginx/certs/origin.key ]; then
+  print_warning "Removing proxy/nginx/certs/origin.key directory (Docker bind-mount auto-create)."
+  rm -rf proxy/nginx/certs/origin.key
+fi
+if [ ! -f proxy/nginx/certs/origin.crt ] || [ ! -f proxy/nginx/certs/origin.key ]; then
+  print_warning "No origin TLS cert found. Generating a self-signed cert for bootstrap."
+  print_warning "For production: paste the Cloudflare Origin Certificate into:"
+  print_warning "  proxy/nginx/certs/origin.crt   (the certificate body)"
+  print_warning "  proxy/nginx/certs/origin.key   (the private key)"
+  print_warning "Then set Cloudflare SSL/TLS mode to 'Full (strict)'."
+  CN_HOST="${PUBLIC_HOST:-product-editor.local}"
+  openssl req -x509 -nodes -days 3650 \
+    -newkey rsa:2048 \
+    -keyout proxy/nginx/certs/origin.key \
+    -out proxy/nginx/certs/origin.crt \
+    -subj "/CN=${CN_HOST}/O=product-editor self-signed" \
+    -addext "subjectAltName=DNS:${CN_HOST},DNS:*.${CN_HOST#*.}" 2>/dev/null
+  chmod 600 proxy/nginx/certs/origin.key
+  chmod 644 proxy/nginx/certs/origin.crt
+  print_status "Self-signed origin cert generated for ${CN_HOST}"
+fi
+
+# ── nginx config syntax check ───────────────────────────────────────────────
+# Catches typos before we restart the proxy and 502 the world.
+print_action "Validating proxy/nginx/nginx.conf syntax..."
+if docker run --rm \
+  -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
+  -v "$(pwd)/proxy/nginx/.htpasswd:/etc/nginx/.htpasswd:ro" \
+  nginx:1.27-alpine nginx -t >/dev/null 2>&1; then
+  print_status "nginx.conf is valid"
+else
+  print_error "nginx.conf failed validation — running nginx -t for details:"
+  docker run --rm \
+    -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+    -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
+    -v "$(pwd)/proxy/nginx/.htpasswd:/etc/nginx/.htpasswd:ro" \
+    nginx:1.27-alpine nginx -t || true
+  exit 1
+fi
+
 # ── Use ONLY docker-compose.yml (never merge the dev override) ──────────────
-# docker-compose.override.yml disables Traefik labels, remaps ports, and runs
-# in dev mode — all of which break production.  By exporting COMPOSE_FILE we
-# guarantee that every docker-compose call in this script ignores the override.
+# docker-compose.override.yml (when present) remaps ports and runs services in
+# dev mode — all of which break production. Exporting COMPOSE_FILE guarantees
+# every docker-compose call in this script ignores the override.
 export COMPOSE_FILE=docker-compose.yml
 
 # ── Pull latest code from GitHub before deploying ───────────────────────────

@@ -293,10 +293,16 @@ docker-compose exec backend python manage.py migrate
 
 ---
 
-## SSL Preparation (first deploy only)
+## TLS Preparation (first deploy only)
+
+The edge proxy is nginx; TLS terminates at the origin. Paste the Cloudflare
+Origin Certificate, or let `deploy.sh` generate a self-signed bootstrap.
+See `proxy/nginx/README.md` for the full workflow.
 
 ```bash
-touch proxy/traefik/acme.json && chmod 600 proxy/traefik/acme.json
+mkdir -p proxy/nginx/certs
+# Paste cert + key here, then:
+chmod 600 proxy/nginx/certs/origin.key
 ```
 
 ---
@@ -308,7 +314,7 @@ touch proxy/traefik/acme.json && chmod 600 proxy/traefik/acme.json
 - [ ] `ALLOWED_HOSTS` set to production domain
 - [ ] `POSTGRES_PASSWORD` — strong random value
 - [ ] Firewall: open only 80, 443, 22
-- [ ] `proxy/traefik/acme.json` — `chmod 600`
+- [ ] `proxy/nginx/certs/origin.key` — `chmod 600` (Cloudflare Origin Certificate, or self-signed bootstrap)
 - [ ] API keys have minimum necessary permissions
 - [ ] Regular DB backups scheduled
 - [ ] Migration 0007 applied (`CanvasData.callback_url`)

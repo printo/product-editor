@@ -101,10 +101,18 @@ Generate secret key:
 python3 -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
-### 3. SSL preparation
+### 3. TLS preparation (nginx + Cloudflare Origin Certificate)
 
 ```bash
-touch proxy/traefik/acme.json && chmod 600 proxy/traefik/acme.json
+# Production: paste the Cloudflare Origin Certificate into these files.
+# See proxy/nginx/README.md for the full workflow.
+mkdir -p proxy/nginx/certs
+echo "<paste cert body>"  > proxy/nginx/certs/origin.crt
+echo "<paste private key>" > proxy/nginx/certs/origin.key
+chmod 600 proxy/nginx/certs/origin.key
+
+# OR: skip this step — `./deploy.sh` will generate a self-signed cert as a
+# bootstrap. Works only with Cloudflare SSL/TLS mode set to "Full" (not strict).
 ```
 
 ### 4. Deploy
@@ -311,7 +319,7 @@ docker stats product-editor-celery-worker-standard-1
 - [ ] `NEXT_PUBLIC_DIRECT_API_KEY` removed from all env files once `INTERNAL_API_KEY` is confirmed working
 - [ ] Rotate `DIRECT_API_KEY` / `INTERNAL_API_KEY` if either was ever deployed as `NEXT_PUBLIC_*`
 - [ ] Firewall: open only 80, 443, 22
-- [ ] `proxy/traefik/acme.json` — `chmod 600`
+- [ ] `proxy/nginx/certs/origin.key` — `chmod 600` (Cloudflare Origin Certificate, or self-signed bootstrap)
 - [ ] API keys have minimum necessary permissions
 - [ ] Regular DB backups scheduled
 

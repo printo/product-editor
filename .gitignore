@@ -72,9 +72,13 @@ storage/uploads/*
 storage/exports/*
 !storage/exports/.gitkeep
 
-# Traefik
-proxy/traefik/acme.json
-proxy/traefik/.htpasswd
+# nginx (origin TLS material + basic-auth users — never commit)
+proxy/nginx/certs/*
+!proxy/nginx/certs/.gitkeep
+proxy/nginx/.htpasswd
+
+# Traefik (legacy — kept ignored in case any old deploy still has these files)
+proxy/traefik/
 
 # Logs
 logs/

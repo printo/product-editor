@@ -46,7 +46,7 @@ API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # 10-step embed-f
 ### Stack
 - **Frontend**: Next.js 16 (App Router), React 19, TypeScript, Fabric.js 7.2, Tailwind CSS
 - **Backend**: Django 5 + DRF, Celery 5.3.4, Pillow 10.3.0
-- **Infrastructure**: PostgreSQL 16, Redis 7, Traefik v3, Docker Compose
+- **Infrastructure**: PostgreSQL 16, Redis 7, nginx 1.27 (edge proxy), Docker Compose
 
 ### Key Data Flow
 
@@ -280,7 +280,7 @@ The dashboard side is auth-gated; the embed iframe is **not** (it uses an embed 
 
 `src/app/actions/auth.ts` is the entry point from the login form. Responsibilities:
 
-1. **Per-IP rate limit** — 5 attempts per 60 s, fixed window, in-memory `Map`. Single-process; if you scale the frontend container horizontally, swap to Redis. IP is read from `X-Forwarded-For` (Traefik / Cloudflare set it).
+1. **Per-IP rate limit** — 5 attempts per 60 s, fixed window, in-memory `Map`. Single-process; if you scale the frontend container horizontally, swap to Redis. IP is read from `X-Forwarded-For` (nginx sets it from CF's `CF-Connecting-IP`; see `proxy/nginx/nginx.conf`).
 2. **`signIn("credentials", { username, password, redirectTo })`** — dispatches to NextAuth.
 3. **Error mapping** — distinguishes failure modes via the `code` field on `CredentialsSignin` subclasses thrown from `authorize()`:
    - `PiaTimeout` → "Login is taking too long…"
@@ -397,8 +397,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 
 | Var | Purpose |
 |---|---|
-| `PUBLIC_HOST` / `DOMAIN_NAME` | Hostname Traefik routes for (e.g. `product-editor.printo.in`) |
-| `LETSENCRYPT_EMAIL` | Real address Traefik uses for ACME cert issuance |
+| `PUBLIC_HOST` / `DOMAIN_NAME` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
 | `AUTH_SECRET` | NextAuth JWT signing secret (≥ 32 chars) |
 | `INTERNAL_API_KEY` | API key the internal proxy sends to Django |
 | `PIA_API_BASE_URL` | Upstream auth (default `https://pia.printo.in/api/v1`) |
@@ -414,7 +413,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 | `DB_CONN_MAX_AGE` | `600` | Persistent DB connection age in seconds; raise / set to `0` if PgBouncer is in front |
 | `CSP_REPORT_ONLY` | `True` | django-csp emits headers but enforces nothing — flip to `False` once policy is validated |
 | `CELERY_CONCURRENCY` | unset | Celery auto-detects from CPU count; set to cap on shared servers |
-| `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | Set to `False` if Traefik is doing the redirect |
+| `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | Set to `False` if nginx already redirects HTTP→HTTPS (which it does by default; this var is redundant in the current setup) |
 | `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | Only honored when `DEBUG=1` |
 | `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` | `https://printo.in` | Last-resort fallback for `postMessage` targetOrigin if `ancestorOrigins` and `referrer` are both unavailable |
 | `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS` | `'self' https://printo.in https://*.printo.in` | CSP `frame-ancestors` directive applied to iframe entry pages. Override for staging / partner hosts |
@@ -454,13 +453,24 @@ The full prioritised list is in [PRD.md](PRD.md) §8 — these are the items tha
 
 ### Before / during the next `./deploy.sh`
 
-1. **Add `LETSENCRYPT_EMAIL=<real address>` to prod `.env`** — Traefik ACME issuance fails silently without it; previously undocumented.
+1. **Generate a Cloudflare Origin Certificate** — CF dashboard → SSL/TLS → Origin Server → **Create Certificate**. Defaults are fine (RSA 2048, 15-year). Hostnames: `product-editor.printo.in` (and / or `*.printo.in`). Paste the cert body into `proxy/nginx/certs/origin.crt` and the private key into `proxy/nginx/certs/origin.key`. `chmod 600 origin.key`. Then in CF set SSL/TLS mode to **Full (strict)**. If you skip this step, `deploy.sh` will generate a self-signed cert as a bootstrap — works only with CF "Full" (not "Full (strict)").
 2. **(Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50`** to prod `.env` if you want a non-default ceiling. Default 50 if absent.
 3. **(Optional) Add `CSP_REPORT_ONLY=True`** — already the default; only set explicitly if you want to flip it later.
 4. **Rebuild the backend image.** `requirements.txt` gained `django-csp==3.8` and the Dockerfile is now multi-stage. `deploy.sh` already runs `docker-compose build`, so this happens automatically.
 5. **One new migration: `0007_exportedresult_gc_partial_index`.** Bundles four operations (see Migrations table). Drops `CanvasData.soft_proof`, constrains `export_format` choices, adds GC partial index, adds `EmbedSession.callback_url`. Run `docker-compose exec backend python manage.py migrate` after deploy.
-6. **Verify healthchecks come up green** — `docker-compose ps` should show `(healthy)` next to `backend` and `frontend`. The backend probe hits `/api/health`; the frontend probe hits `/`. Frontend now `depends_on: backend: { condition: service_healthy }`, so a slow backend will block frontend startup until ready.
+6. **Verify healthchecks come up green** — `docker-compose ps` should show `(healthy)` next to `proxy`, `backend`, and `frontend`. The proxy probe hits `/nginx-health` on localhost:80; the backend probe hits `/api/health`; the frontend probe hits `/`. `proxy` `depends_on: backend: { condition: service_healthy }` so a slow backend blocks proxy startup until ready.
 7. **Smoke-test login on prod** — bad password should still say "Invalid credentials"; if PIA is reachable, login should succeed. The new error-code distinction (PiaTimeout / PiaServiceUnavailable) only surfaces during actual outages.
+
+### Edge proxy (nginx)
+
+Routing, TLS, and tunables live in `proxy/nginx/nginx.conf` (single source — no per-service labels). Detailed cert workflow + troubleshooting in `proxy/nginx/README.md`. Notable behaviour:
+
+- `^~ /api/auth/`, `^~ /api/internal/proxy/`, `^~ /api/embed/proxy/` → frontend:3000
+- `^~ /admin/django-admin/` → backend:8000 with basic auth (file at `proxy/nginx/.htpasswd`, default `admin/admin`)
+- `^~ /api/` → backend:8000 (`proxy_buffering off`, `proxy_read_timeout 600s` for streaming ZIPs + sync renders)
+- `/` (catch-all) → frontend:3000
+- HTTP→HTTPS redirect on port 80
+- Real client IP via Cloudflare's `CF-Connecting-IP` header (CF IP allowlist hard-coded; refresh annually from <https://www.cloudflare.com/ips/>)
 
 ### Open follow-ups (not blocking)
 
