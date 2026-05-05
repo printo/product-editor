@@ -2053,10 +2053,12 @@ class RenderJobDownloadView(APIView):
         },
     )
     def get(self, request, job_id):
+        import io
         import zipfile
         import tempfile
         from django.http import FileResponse
-        from api.models import RenderJob
+        from PIL import Image
+        from api.models import RenderJob, UploadedFile
 
         try:
             job = RenderJob.objects.select_related('canvas_data').get(id=job_id)
@@ -2080,21 +2082,79 @@ class RenderJobDownloadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # ── 3_print/ — high-res 300 DPI render output ──────────────────────
         # Path-traversal guard: every path must resolve inside EXPORTS_DIR.
         exports_root = os.path.realpath(settings.EXPORTS_DIR)
-        safe_paths = []
+        safe_print_paths = []
         for raw_path in job.output_paths:
             resolved = os.path.realpath(raw_path)
             if resolved.startswith(exports_root + os.sep) and os.path.isfile(resolved):
-                safe_paths.append(resolved)
+                safe_print_paths.append(resolved)
             else:
-                logger.warning("RenderJobDownloadView: blocked path %s for job %s", raw_path, job_id)
+                logger.warning("RenderJobDownloadView: blocked print path %s for job %s", raw_path, job_id)
 
-        if not safe_paths:
+        if not safe_print_paths:
             return Response(
                 {'detail': 'No accessible output files found on disk'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        # ── 1_customer_uploads/ — original images the customer uploaded ────
+        # `CanvasData.image_paths` is the JSON list of file paths recorded at
+        # submission time (UploadedFile.file_path entries). Restore the
+        # human-readable filename from UploadedFile.original_filename when
+        # available — file_path uses a sanitised hash-prefixed name on disk.
+        canvas = job.canvas_data
+        uploads_root = os.path.realpath(settings.UPLOADS_DIR)
+        upload_records = {
+            uf.file_path: uf.original_filename
+            for uf in UploadedFile.objects.filter(
+                file_path__in=(canvas.image_paths or []),
+                is_deleted=False,
+            )
+        }
+        safe_upload_entries: list[tuple[str, str]] = []  # (resolved_path, arcname_basename)
+        for raw_path in (canvas.image_paths or []):
+            resolved = os.path.realpath(raw_path)
+            if not resolved.startswith(uploads_root + os.sep):
+                logger.warning("RenderJobDownloadView: blocked upload path %s for job %s", raw_path, job_id)
+                continue
+            if not os.path.isfile(resolved):
+                # File may have been GC'd or deleted; skip gracefully.
+                logger.info("Upload missing on disk for job %s: %s", job_id, raw_path)
+                continue
+            arcname_basename = upload_records.get(raw_path) or os.path.basename(resolved)
+            safe_upload_entries.append((resolved, arcname_basename))
+
+        # ── 2_mock/ — downscaled web-friendly previews of the print files ──
+        # Generated on the fly during ZIP build. Roughly 800px on the longest
+        # edge, JPEG q=80 — gives the ops team a quick visual proof of every
+        # canvas without unzipping the heavy print files. PDF print files
+        # (rare) are skipped — generating a PDF first-page raster needs
+        # extra deps; print file in 3_print/ is sufficient.
+        MOCK_LONG_EDGE = 800
+
+        def _build_mock_jpeg_bytes(print_path: str) -> bytes | None:
+            try:
+                with Image.open(print_path) as im:
+                    im.load()
+                    # Only raster formats — PIL can't open PDFs.
+                    if im.format not in ('PNG', 'JPEG', 'JPG', 'TIFF', 'WEBP'):
+                        return None
+                    rgb = im.convert('RGB')
+                    rgb.thumbnail(
+                        (MOCK_LONG_EDGE, MOCK_LONG_EDGE),
+                        Image.Resampling.LANCZOS,
+                    )
+                    buf = io.BytesIO()
+                    rgb.save(buf, format='JPEG', quality=80, optimize=True)
+                    return buf.getvalue()
+            except Exception as exc:
+                logger.warning(
+                    "RenderJobDownloadView: mock generation failed for %s: %s",
+                    print_path, exc,
+                )
+                return None
 
         # Build the ZIP on disk in a temp file living under EXPORTS_DIR (same
         # filesystem as the source files; lets the OS use sendfile for the read
@@ -2108,11 +2168,28 @@ class RenderJobDownloadView(APIView):
         tmp = tempfile.NamedTemporaryFile(
             mode='w+b', suffix='.zip', delete=False, dir=exports_root,
         )
+        mock_count = 0
         try:
             with zipfile.ZipFile(tmp, mode='w', compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
-                for path in safe_paths:
-                    arcname = os.path.relpath(path, exports_root)
-                    zf.write(path, arcname)
+                # 1_customer_uploads/ — original photos as customer named them
+                for path, original_name in safe_upload_entries:
+                    zf.write(path, arcname=f'1_customer_uploads/{original_name}')
+
+                # 2_mock/ + 3_print/ — paired by index from the print list
+                for idx, print_path in enumerate(safe_print_paths, start=1):
+                    print_basename = os.path.basename(print_path)
+                    zf.write(print_path, arcname=f'3_print/{print_basename}')
+
+                    mock_bytes = _build_mock_jpeg_bytes(print_path)
+                    if mock_bytes is not None:
+                        # Strip extension off print_basename, replace with .jpg
+                        stem = os.path.splitext(print_basename)[0]
+                        zf.writestr(
+                            f'2_mock/{stem}_preview.jpg',
+                            mock_bytes,
+                            compress_type=zipfile.ZIP_STORED,
+                        )
+                        mock_count += 1
             tmp.flush()
             zip_size = os.fstat(tmp.fileno()).st_size
             tmp.seek(0)
@@ -2126,8 +2203,11 @@ class RenderJobDownloadView(APIView):
 
         api_key = request.user.api_key if isinstance(request.user, APIKeyUser) else None
         if api_key:
-            logger.info("Job ZIP downloaded: job=%s files=%d size=%d by %s",
-                        job_id, len(safe_paths), zip_size, api_key.name)
+            logger.info(
+                "Job ZIP downloaded: job=%s uploads=%d mocks=%d prints=%d size=%d by %s",
+                job_id, len(safe_upload_entries), mock_count,
+                len(safe_print_paths), zip_size, api_key.name,
+            )
 
         # FileResponse streams in chunks (8 KB by default) and closes the file
         # when the response ends. Wire a close hook to unlink the temp file so
