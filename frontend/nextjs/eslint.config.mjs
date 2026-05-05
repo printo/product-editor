@@ -14,14 +14,16 @@ export default [
     rules: {
       "@next/next/no-img-element": "off",
       // The react-hooks plugin v7 (pulled in by eslint-config-next 16) ships
-      // several new strict rules that surface real-but-noncritical patterns
-      // throughout the editor. Demoted to warnings so lint passes; promote each
-      // to "error" once existing offenders have been triaged per-case.
-      "react-hooks/exhaustive-deps": "warn",
-      "react-hooks/purity": "warn",
-      "react-hooks/set-state-in-effect": "warn",
-      "react-hooks/refs": "warn",
-      "react-hooks/immutability": "warn",
+      // several new strict rules. All 18 pre-existing offenders have been
+      // triaged: real bugs fixed (refs-in-render, set-state-in-effect,
+      // variable-before-declared, Date.now during render); intentional
+      // dep-array exclusions kept with per-line eslint-disable + a comment
+      // explaining why. Promoted to "error" so the next regression breaks CI.
+      "react-hooks/exhaustive-deps": "error",
+      "react-hooks/purity": "error",
+      "react-hooks/set-state-in-effect": "error",
+      "react-hooks/refs": "error",
+      "react-hooks/immutability": "error",
     },
   },
 ];

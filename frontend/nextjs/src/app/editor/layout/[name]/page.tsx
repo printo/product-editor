@@ -336,6 +336,10 @@ export default function LayoutEditorPage() {
     setFiles(activeSurface.files);
     setCanvases(activeSurface.canvases);
     setGlobalFitMode(activeSurface.globalFitMode);
+    // Keyed on activeSurfaceKey only — we want this to fire on surface
+    // SWITCH, not on every surfaceStates mutation (which would clobber
+    // in-progress edits with the stored snapshot).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSurfaceKey]);
 
   useEffect(() => {
@@ -352,13 +356,18 @@ export default function LayoutEditorPage() {
         if (sIdx === -1) return prev;
         const s = prev[sIdx];
         if (s.files === files && s.canvases === canvases) return prev;
-        
+
         const next = [...prev];
         next[sIdx] = { ...s, files, canvases };
         return next;
       });
     }
-  }, [files, canvases, activeSurfaceKey]); // Removed surfaceStates from dependencies
+    // surfaceStates deliberately excluded — we read it inside via a
+    // functional updater (`prev => ...`) and via the `currentSurface`
+    // lookup, both of which see the latest value at call time.
+    // Including it would cause an infinite loop because the setter mutates it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, canvases, activeSurfaceKey]);
 
   useEffect(() => {
     if (!activeSurface?.def || !normalizedLayoutState) return;
@@ -828,7 +837,13 @@ export default function LayoutEditorPage() {
       setIsProcessing(false);
       setRenderProgress(null);
     }
-  }, [layout, files, renderCanvas]); // Removed globalFitMode from dependencies
+    // isProcessing is read as a re-entry GUARD, not a trigger — including it
+    // in deps would cause generateCanvases to re-create on every flip,
+    // re-firing the (layout, files, generateCanvases) effect below in a
+    // tight loop. globalFitMode similarly excluded — passed through into
+    // renderCanvas, which captures the latest value via its own closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, files, renderCanvas]);
 
   useEffect(() => {
     if (skipNextGenerateRef.current) { skipNextGenerateRef.current = false; return; }
@@ -895,7 +910,12 @@ export default function LayoutEditorPage() {
       setRenderProgress(null);
     })();
     return () => { cancelled = true; };
-  }, [globalFitMode, renderCanvas]); // removed surfaceStates from deps to avoid loop, using internal surfaceStates
+    // surfaceStates + activeSurfaceKey deliberately excluded — including
+    // them creates a self-feeding loop because the effect calls
+    // setSurfaceStates inside. The latest values are read via a stable
+    // setSurfaceStates updater pattern in nearby effects.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalFitMode, renderCanvas]);
 
   const openEditor = (idx: number, surfaceKey?: string) => {
     let targetCanvases = canvases;
@@ -1427,7 +1447,7 @@ export default function LayoutEditorPage() {
         impositionFabricRef.current = null;
       }
     };
-  }, [impositionResult, previewSheetIdx, impositionSettings, canvases, showImpositionModal]);
+  }, [impositionResult, previewSheetIdx, impositionSettings, canvases, showImpositionModal, surfaceStates]);
 
   // All exports go through the server-side pipeline (Celery + Pillow at 300 DPI).
   // The previous "≤20 canvases → render in browser, JSZip" optimisation was

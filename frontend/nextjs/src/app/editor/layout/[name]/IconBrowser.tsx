@@ -76,14 +76,11 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Load initial icons on mount or when expanded
-  React.useEffect(() => {
-    if (expanded && results.length === 0) {
-      doSearch('');
-    }
-  }, [expanded]);
-
+  // Tracks whether we've already kicked off the default-icon load on expand.
+  // Without this, running `doSearch('')` inside the effect would either need
+  // results.length in the dep array (re-fires on every result change) or a
+  // suppression directive — a flag is the cleanest way to express "once".
+  const didInitialLoadRef = useRef(false);
 
   const doSearch = useCallback(async (q: string) => {
     setLoading(true);
@@ -93,6 +90,14 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
     setLoading(false);
   }, []);
 
+  // Load default icons the first time the picker expands.
+  React.useEffect(() => {
+    if (expanded && !didInitialLoadRef.current) {
+      didInitialLoadRef.current = true;
+      doSearch('');
+    }
+  }, [expanded, doSearch]);
+
   const handleInput = (val: string) => {
     setQuery(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -101,7 +106,7 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
 
   const handleAdd = (item: IconResult) => {
     const overlay: ImageOverlay = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       src: item.svgUrl,
       source: 'icon',
       label: item.isLocal ? item.name : `${item.prefix}:${item.name}`,

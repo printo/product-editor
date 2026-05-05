@@ -1,0 +1,397 @@
+# printo.in storefront — `pe-callback` integration guide
+
+**Audience:** the team owning [printo.in](https://printo.in)'s backend / storefront. **Scope:** receive the signed webhook fired by the product-editor when a customer's render completes, then fetch the rendered ZIP and attach it to the customer's order.
+
+This document is a complete drop-in implementation. Pick the handler that matches your stack (Node/TypeScript or Python/Django shown), wire the route, set the env vars, and you're done.
+
+---
+
+## Why this exists
+
+The product-editor is a **standalone print-file generator** — it does not push files into Printo's OMS or any other backend. When a customer in printo.in's storefront finishes designing in the embed iframe and hits **Save & Continue**:
+
+1. product-editor renders 300-DPI PNGs (or PDFs) on Celery workers.
+2. When done, product-editor POSTs a **signed webhook** to whatever URL printo.in passed in `EmbedSession.callback_url` at session creation.
+3. printo.in's handler verifies the signature, fetches the ZIP from `download_url`, and attaches it to the order.
+
+This handler is what completes step 3.
+
+---
+
+## Contract
+
+### Webhook request — `POST <your callback_url>`
+
+**Headers:**
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+| `X-Signature` | `sha256=<hex>` — HMAC-SHA256 of the **raw request body** with the api_key as the secret |
+
+**Body — success:**
+
+```json
+{
+  "order_id":      "PE-F5D6D769",
+  "job_id":        "0c612ca1-465e-401f-9586-409f571580cd",
+  "status":        "completed",
+  "download_url":  "https://product-editor.printo.in/api/jobs/0c612ca1-465e-401f-9586-409f571580cd/download/",
+  "expires_at":    "2026-06-04T14:39:11.123456+00:00",
+  "file_count":    15,
+  "layout_name":   "classic_4x6",
+  "export_format": "png"
+}
+```
+
+**Body — failure:** (sent best-effort if delivery fails after 6 retries)
+
+```json
+{
+  "order_id":    "PE-F5D6D769",
+  "job_id":      "0c612ca1-465e-401f-9586-409f571580cd",
+  "status":      "failed",
+  "error":       "Webhook delivery failed after retries",
+  "layout_name": "classic_4x6"
+}
+```
+
+**Expected response from your handler:** `200 OK` (or any 2xx). Anything else is treated as a delivery failure — product-editor retries up to 6 times with exponential backoff (1, 2, 4, 8, 16 s).
+
+### ZIP fetch — `GET <download_url>`
+
+**Headers:**
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <YOUR_PRINTO_API_KEY>` — same key your storefront uses to create embed sessions |
+
+**Response:** `200 OK` with `Content-Type: application/zip`, body = the ZIP archive containing all rendered files. Typical size 30–500 MB depending on canvas count.
+
+---
+
+## Drop-in handler — Node.js / TypeScript (Express, NestJS, etc.)
+
+```ts
+// printo-in/src/routes/pe-callback.ts
+import crypto from 'node:crypto';
+import { Router, type Request, type Response } from 'express';
+import { Readable } from 'node:stream';
+import { writeFile } from 'node:fs/promises';
+
+const PRINTO_API_KEY = process.env.PRODUCT_EDITOR_API_KEY!; // shared secret + bearer for download
+
+const router = Router();
+
+// Use a body parser that gives you the RAW bytes — Express's default
+// `express.json()` consumes the stream and you can't recompute the HMAC.
+// Mount this route BEFORE express.json() with `express.raw()`:
+//   app.use('/api/internal/pe-callback', express.raw({ type: 'application/json' }))
+
+router.post('/api/internal/pe-callback', async (req: Request, res: Response) => {
+  // 1. Verify the HMAC signature on the raw body
+  const sigHeader = req.header('X-Signature') ?? '';
+  const expected = sigHeader.startsWith('sha256=') ? sigHeader.slice(7) : '';
+  const actual = crypto
+    .createHmac('sha256', PRINTO_API_KEY)
+    .update(req.body) // req.body is a Buffer when express.raw() is used
+    .digest('hex');
+
+  if (
+    expected.length !== actual.length ||
+    !crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(actual, 'hex'))
+  ) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  // 2. Parse + validate the payload
+  let payload: {
+    order_id: string;
+    job_id: string;
+    status: 'completed' | 'failed';
+    download_url?: string;
+    expires_at?: string;
+    file_count?: number;
+    layout_name?: string;
+    export_format?: 'png' | 'pdf';
+    error?: string;
+  };
+  try {
+    payload = JSON.parse(req.body.toString('utf-8'));
+  } catch {
+    return res.status(400).json({ error: 'Malformed JSON' });
+  }
+
+  // 3. Branch on status
+  if (payload.status === 'failed') {
+    // Surface the failure to the order — operator review.
+    await markOrderRenderFailed(payload.order_id, payload.error ?? 'unknown');
+    return res.status(200).json({ ok: true });
+  }
+
+  if (payload.status === 'completed' && payload.download_url) {
+    // 4. Fetch the ZIP. Do this OUT-OF-BAND so this handler returns fast —
+    //    product-editor has a 10s timeout and will retry on slow responses.
+    queueDownloadJob({
+      orderId: payload.order_id,
+      jobId: payload.job_id,
+      downloadUrl: payload.download_url,
+      expiresAt: payload.expires_at,
+      fileCount: payload.file_count,
+      layoutName: payload.layout_name,
+      exportFormat: payload.export_format,
+    });
+    return res.status(200).json({ ok: true, queued: true });
+  }
+
+  return res.status(400).json({ error: 'Unknown status' });
+});
+
+// Background fetcher (run via your existing job queue: BullMQ, Sidekiq-equivalent, etc.)
+export async function fetchAndAttachRenderedFiles(args: {
+  orderId: string;
+  jobId: string;
+  downloadUrl: string;
+}): Promise<void> {
+  const res = await fetch(args.downloadUrl, {
+    headers: { Authorization: `Bearer ${PRINTO_API_KEY}` },
+  });
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+
+  // Stream to disk / S3 — don't buffer in memory; ZIP can be 500 MB+.
+  const tempPath = `/tmp/pe-${args.jobId}.zip`;
+  const file = Readable.fromWeb(res.body as any);
+  // ... pipe to S3 via your existing uploader, OR:
+  await writeFile(tempPath, file as any);
+
+  await attachZipToOrder(args.orderId, tempPath);
+}
+
+// Stubs you'll wire to your storefront's order model:
+async function markOrderRenderFailed(orderId: string, reason: string) { /* ... */ }
+async function queueDownloadJob(payload: any) { /* enqueue to BullMQ etc. */ }
+async function attachZipToOrder(orderId: string, zipPath: string) { /* ... */ }
+
+export default router;
+```
+
+---
+
+## Drop-in handler — Python / Django (DRF)
+
+```python
+# printo_in/api/views.py
+import hmac
+import hashlib
+import json
+import logging
+import os
+
+import requests
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+
+logger = logging.getLogger(__name__)
+PRINTO_API_KEY = os.environ['PRODUCT_EDITOR_API_KEY']  # shared secret + bearer
+
+
+@csrf_exempt
+@require_POST
+def pe_callback(request):
+    # 1. Verify HMAC against the RAW body (request.body, not request.data)
+    sig_header = request.headers.get('X-Signature', '')
+    expected = sig_header.removeprefix('sha256=') if sig_header.startswith('sha256=') else ''
+    actual = hmac.new(
+        PRINTO_API_KEY.encode('utf-8'),
+        request.body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, actual):
+        return JsonResponse({'error': 'Invalid signature'}, status=401)
+
+    # 2. Parse payload
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Malformed JSON'}, status=400)
+
+    status = payload.get('status')
+    order_id = payload.get('order_id')
+
+    # 3. Branch on status
+    if status == 'failed':
+        mark_order_render_failed.delay(order_id, payload.get('error', 'unknown'))
+        return JsonResponse({'ok': True}, status=200)
+
+    if status == 'completed' and payload.get('download_url'):
+        # Fetch out-of-band — product-editor has a 10s webhook timeout.
+        fetch_and_attach_rendered_files.delay(
+            order_id=order_id,
+            job_id=payload['job_id'],
+            download_url=payload['download_url'],
+            expires_at=payload.get('expires_at'),
+            file_count=payload.get('file_count'),
+            layout_name=payload.get('layout_name'),
+            export_format=payload.get('export_format'),
+        )
+        return JsonResponse({'ok': True, 'queued': True}, status=200)
+
+    return JsonResponse({'error': 'Unknown status'}, status=400)
+
+
+# Celery task — fire-and-forget, retries via Celery's own machinery.
+from celery import shared_task
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def fetch_and_attach_rendered_files(
+    self,
+    order_id: str,
+    job_id: str,
+    download_url: str,
+    **kwargs,
+):
+    try:
+        with requests.get(
+            download_url,
+            headers={'Authorization': f'Bearer {PRINTO_API_KEY}'},
+            stream=True,
+            timeout=600,
+        ) as resp:
+            resp.raise_for_status()
+            tmp_path = f'/tmp/pe-{job_id}.zip'
+            with open(tmp_path, 'wb') as out:
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):  # 1 MB
+                    out.write(chunk)
+
+        attach_zip_to_order(order_id, tmp_path)
+    except requests.RequestException as exc:
+        raise self.retry(exc=exc)
+
+
+@shared_task
+def mark_order_render_failed(order_id: str, reason: str):
+    # ... your storefront's order model update ...
+    pass
+
+
+def attach_zip_to_order(order_id: str, zip_path: str):
+    # ... your storefront's order model update ...
+    pass
+```
+
+---
+
+## Wiring
+
+### 1. Env vars
+
+Add to your storefront's `.env`:
+
+```bash
+# Same api_key your storefront already uses to create EmbedSessions on
+# product-editor. Used for two things:
+#   (a) HMAC-SHA256 verification of incoming webhooks (shared secret)
+#   (b) Bearer auth when fetching the ZIP from download_url
+PRODUCT_EDITOR_API_KEY=<the api_key from your existing embed setup>
+```
+
+The api_key is the **same value** you POST to product-editor at `POST /api/embed/session` in the `Authorization: Bearer …` header. You already have this — no new key needed.
+
+### 2. Route registration
+
+```ts
+// Express:
+import peCallback from './routes/pe-callback';
+app.use(peCallback);
+
+// or NestJS:
+@Module({ controllers: [PECallbackController] })
+```
+
+```python
+# Django urls.py:
+from .views import pe_callback
+
+urlpatterns = [
+    path('api/internal/pe-callback', pe_callback),
+    # ...
+]
+```
+
+### 3. Tell product-editor where to call you
+
+When your storefront creates an embed session, include `callback_url`:
+
+```bash
+curl -X POST https://product-editor.printo.in/api/embed/session \
+  -H "Authorization: Bearer $PRODUCT_EDITOR_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "order_id": "PE-F5D6D769",
+    "callback_url": "https://printo.in/api/internal/pe-callback"
+  }'
+```
+
+The `callback_url` flows through the embed proxy to the backend, gets stamped onto `CanvasData`, and is the exact URL the webhook task POSTs to when render completes. No domain allowlist on product-editor's side — auth is enforced by the api_key + HMAC.
+
+### 4. Firewall
+
+Allow inbound HTTPS from product-editor's PUBLIC_HOST egress IP range to your `/api/internal/pe-callback` endpoint. Confirm the IP set with infra; add to allowlist.
+
+---
+
+## Testing locally
+
+While developing the handler, point `callback_url` at a local tunnel (e.g. `https://<subdomain>.ngrok-free.app/api/internal/pe-callback`) and trigger an embed session + Save & Continue from your storefront. Watch your logs for the HMAC verification result.
+
+For unit-testing the handler without product-editor in the loop:
+
+```ts
+// Generate a valid signed payload for tests
+import crypto from 'node:crypto';
+const body = JSON.stringify({
+  order_id: 'TEST-1',
+  job_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  status: 'completed',
+  download_url: 'https://product-editor.printo.in/api/jobs/aaaaaaaa-.../download/',
+  expires_at: '2026-06-04T14:39:11.123456+00:00',
+  file_count: 1,
+  layout_name: 'classic_4x6',
+  export_format: 'png',
+});
+const sig = crypto
+  .createHmac('sha256', process.env.PRODUCT_EDITOR_API_KEY!)
+  .update(body)
+  .digest('hex');
+
+await fetch('http://localhost:3000/api/internal/pe-callback', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Signature': `sha256=${sig}`,
+  },
+  body,
+});
+```
+
+---
+
+## Common mistakes to avoid
+
+| Mistake | Symptom | Fix |
+|---|---|---|
+| Letting `express.json()` parse the body before verification | HMAC always fails — the parsed body's stringification differs from the original bytes | Use `express.raw({ type: 'application/json' })` and verify against the raw `Buffer`, then `JSON.parse(buf.toString())` for the payload |
+| Comparing HMAC with `===` instead of constant-time | Timing-attack vulnerable | Use `crypto.timingSafeEqual` (Node) / `hmac.compare_digest` (Python) |
+| Using a hard-coded secret in the verification | Secret rotation breaks the integration silently | Read from env; rotate api_key on both sides simultaneously |
+| Downloading the ZIP synchronously inside the webhook handler | Webhook timeouts (product-editor's limit is 10 s); product-editor retries 6×; each retry creates duplicate downstream work | Enqueue a job and return 200 immediately; download in the worker |
+| Storing the ZIP in memory before persisting | OOM at 500 MB renders | Stream with `iter_content` (Python) or `Readable.fromWeb` (Node) directly to S3/disk |
+| Skipping the HMAC check entirely | Anyone who knows the URL can forge order completions | Don't |
+
+---
+
+## Reference: product-editor side of the contract
+
+The webhook is fired by `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](../backend/django/api/tasks.py) and the payload is constructed in the same file. Source-of-truth for any future contract changes — keep this doc in sync.

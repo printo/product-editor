@@ -112,6 +112,38 @@ const AVAILABLE_TAGS = [
   'Vintage', 'Modern', 'Grid', 'Strip', 'Business Card', 'Postcard'
 ];
 
+// Pure mm/px helpers — hoisted to module scope so they're stable references
+// across renders. Required so `_mapFrames` below can be added to the
+// debouncedLayout effect's dep array without re-firing on every render.
+const mmToPx = (mm: number, dpiVal: number) => Math.round((mm / 25.4) * dpiVal);
+const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
+const pxToMm = (px: number, dpiVal: number) => round2((px / dpiVal) * 25.4);
+
+const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dpiVal: number) => {
+  const canvasW = mmToPx(wMmVal, dpiVal);
+  const canvasH = mmToPx(hMmVal, dpiVal);
+  return frameList.map(f => {
+    const bleed = round2(Number(f.bleedMm || 0));
+    const xMm = round2(Number(f.xMm || 0));
+    const yMm = round2(Number(f.yMm || 0));
+    const wMm = round2(Number(f.widthMm || 0));
+    const hMm = round2(Number(f.heightMm || 0));
+    const radiusMm = round2(Number(f.borderRadiusMm || 0));
+    const pxX = mmToPx(xMm - bleed, dpiVal);
+    const pxY = mmToPx(yMm - bleed, dpiVal);
+    const pxW = mmToPx(wMm + (bleed * 2), dpiVal);
+    const pxH = mmToPx(hMm + (bleed * 2), dpiVal);
+    return {
+      ...f,
+      xMm, yMm, widthMm: wMm, heightMm: hMm, bleedMm: bleed, borderRadiusMm: radiusMm,
+      x: pxX / canvasW,
+      y: pxY / canvasH,
+      width: pxW / canvasW,
+      height: pxH / canvasH,
+    };
+  });
+};
+
 export default function LayoutCreatorPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -193,6 +225,8 @@ export default function LayoutCreatorPage() {
       setDebouncedLayout(layoutData);
     }, 400);
     return () => clearTimeout(timer);
+    // _mapFrames is now module-scope (stable reference) so doesn't need to
+    // be listed; mmToPx/round2/pxToMm are module-scope helpers it uses.
   }, [widthMm, heightMm, dpi, frames, surfaces, layoutType, borderRadiusMm, layoutName]);
 
   const [snapGrid, setSnapGrid] = useState(true);
@@ -396,9 +430,6 @@ export default function LayoutCreatorPage() {
   }, [status, fetchLayouts]);
 
   const internalId = layoutName.toLowerCase().replace(/\s+/g, '_');
-  const mmToPx = (mm: number, dpiVal: number) => Math.round((mm / 25.4) * dpiVal);
-  const pxToMm = (px: number, dpiVal: number) => round2((px / dpiVal) * 25.4);
-  const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
 
   const handleGenerateGrid = () => {
     const newFrames: LayoutFrame[] = [];
@@ -423,30 +454,6 @@ export default function LayoutCreatorPage() {
     setShowGridGen(false);
   };
 
-  const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dpiVal: number) => {
-    const canvasW = mmToPx(wMmVal, dpiVal);
-    const canvasH = mmToPx(hMmVal, dpiVal);
-    return frameList.map(f => {
-      const bleed = round2(Number(f.bleedMm || 0));
-      const xMm = round2(Number(f.xMm || 0));
-      const yMm = round2(Number(f.yMm || 0));
-      const wMm = round2(Number(f.widthMm || 0));
-      const hMm = round2(Number(f.heightMm || 0));
-      const radiusMm = round2(Number(f.borderRadiusMm || 0));
-      const pxX = mmToPx(xMm - bleed, dpiVal);
-      const pxY = mmToPx(yMm - bleed, dpiVal);
-      const pxW = mmToPx(wMm + (bleed * 2), dpiVal);
-      const pxH = mmToPx(hMm + (bleed * 2), dpiVal);
-      return {
-        ...f,
-        xMm, yMm, widthMm: wMm, heightMm: hMm, bleedMm: bleed, borderRadiusMm: radiusMm,
-        x: pxX / canvasW,
-        y: pxY / canvasH,
-        width: pxW / canvasW,
-        height: pxH / canvasH,
-      };
-    });
-  };
 
   const handleCreateLayout = async (e: React.FormEvent) => {
     e.preventDefault();

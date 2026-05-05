@@ -286,7 +286,6 @@ export function LayoutFabricPreview({
     return () => {
       if (maskFile && src) URL.revokeObjectURL(src);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maskUrl, maskFile, widthMm, heightMm, getScale]);
 
   // ── Fabric events → parent state ─────────────────────────────────────────
@@ -427,7 +426,6 @@ export function LayoutFabricPreview({
       fc.off('object:scaling', handleScaling);
       // selection events are handled in initialization effect
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widthMm, heightMm, snapGrid, onFramesChange, getScale]);
 
   return (

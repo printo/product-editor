@@ -4,12 +4,10 @@
 // In production builds these are no-ops so the browser console stays clean and
 // no internal layout geometry is exposed to end users.
 const _DEV = process.env.NODE_ENV !== 'production';
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const log              = _DEV ? (...a: any[]) => console.log(...a)             : (..._: any[]) => {};
-const logGroup         = _DEV ? (...a: any[]) => console.group(...a)           : (..._: any[]) => {};
-const logGroupCollapsed = _DEV ? (...a: any[]) => console.groupCollapsed(...a) : (..._: any[]) => {};
+const log              = _DEV ? (...a: unknown[]) => console.log(...a)             : (..._: unknown[]) => {};
+const logGroup         = _DEV ? (...a: unknown[]) => console.group(...a)           : (..._: unknown[]) => {};
+const logGroupCollapsed = _DEV ? (...a: unknown[]) => console.groupCollapsed(...a) : (..._: unknown[]) => {};
 const logGroupEnd      = _DEV ? () => console.groupEnd()                       : () => {};
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
@@ -174,7 +172,14 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const [isTransforming, setIsTransforming] = React.useState(false);
   const fabricRef = useRef<Canvas | null>(null);
   const editingCanvasRef = useRef(editingCanvas);
-  editingCanvasRef.current = editingCanvas;
+  // Refs must be written from an effect, not synchronously during render
+  // (React 19 / concurrent rendering can call render twice — the second pass
+  // would see a ref value pulled from the first pass before commit). Effects
+  // run before any event handler, so `editingCanvasRef.current` is always
+  // current by the time a Fabric event callback fires.
+  useEffect(() => {
+    editingCanvasRef.current = editingCanvas;
+  });
 
   // Guards to prevent rebuild loops
   const interactingRef = useRef(false);
@@ -394,7 +399,11 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       fc.dispose();
       fabricRef.current = null;
     };
-  }, []); // Empty dependency array: runs once on mount
+    // Mount-once init: canvasW/canvasH/viewZoom are read at init time only.
+    // Adding them to deps would tear down + rebuild the Fabric.js canvas
+    // every time the user pans/zooms — exactly the behaviour we don't want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Smart rebuild or in-place update ──────────────────────────────────────
 
@@ -891,6 +900,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (targetObj) fc.setActiveObject(targetObj);
       fc.renderAll();
     });
+    // The smart-rebuild effect is keyed on canvas CONTENT (editingCanvas /
+    // layout / dimensions / containerSize / isTransforming). Selection
+    // (selectedLayer/onLayerSelect) and viewport (viewZoom/getPaperPath)
+    // are intentionally NOT in the dep array — selection changes shouldn't
+    // re-build the canvas, and viewport changes are handled by the
+    // dedicated effect below (line ~905).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingCanvas, layout, canvasW, canvasH, getFileUrl, containerSize, isTransforming]);
 
   useEffect(() => {
@@ -996,6 +1012,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       fc.off('mouse:up'); fc.off('selection:created'); fc.off('selection:updated'); fc.off('selection:cleared');
       fc.off('text:changed'); fc.off('text:editing:entered'); fc.off('text:editing:exited');
     };
+    // Event-handler binding effect — re-runs only on canvas size change.
+    // The handlers close over `isTransforming` + `onLayerSelect` deliberately:
+    // re-binding on every state flip would cause Fabric to lose mid-drag
+    // state. The latest values are captured via refs (editingCanvasRef etc.)
+    // for cases where a handler genuinely needs a fresh closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canvasW, canvasH]);
 
     useImperativeHandle(ref, () => ({

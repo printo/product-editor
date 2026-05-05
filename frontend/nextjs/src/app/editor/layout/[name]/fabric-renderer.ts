@@ -148,13 +148,14 @@ export async function renderCanvas(
   try {
   // Pre-compute frame rects once — reused by the image loop, paper mask, outline loop, and label loop
   const pxPerMm = (canvasW / multiplier) / (usedLayout.canvas?.widthMm || 1);
-  const frameRects = frames.map((frameSpec: any) => {
+  type FrameRect = { fx: number; fy: number; fw: number; fh: number; fr: number };
+  const frameRects: FrameRect[] = frames.map((frameSpec: any) => {
     const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-    const fx = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
-    const fy = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
-    const fw = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
-    const fh = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
-    const fr = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
+    const fx: number = (isPercent ? frameSpec.x * (canvasW / multiplier) : frameSpec.x) * multiplier;
+    const fy: number = (isPercent ? frameSpec.y * (canvasH / multiplier) : frameSpec.y) * multiplier;
+    const fw: number = (isPercent ? frameSpec.width * (canvasW / multiplier) : frameSpec.width) * multiplier;
+    const fh: number = (isPercent ? frameSpec.height * (canvasH / multiplier) : frameSpec.height) * multiplier;
+    const fr: number = Math.min(fw / 2, fh / 2, Number(frameSpec.borderRadiusMm || 0) * pxPerMm * multiplier);
     return { fx, fy, fw, fh, fr };
   });
 

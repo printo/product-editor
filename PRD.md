@@ -30,6 +30,7 @@
 | **v1.6** | **Apr 21, 2026** | **Kanna** | **Server-side upload + render flow complete: chunked multi-file upload API, per-frame transform pipeline, Celery render at 300 DPI, embed postMessage (`pe:render_job`), direct-path polling + ZIP download. Threshold: ≤ 20 canvases → client-side; > 20 → server-side. Smart downscaling (2× pre-shrink) and PNG optimize added to engine.** |
 | **v1.7** | **Apr 27, 2026** | **Kanna** | **All known P0/P1 backlog items shipped: B1 canvas-state file persistence (IndexedDB), B3 SKU→layout endpoint, B4 ESLint flat-config migration, B5 stale `.next/` cache scripts. Operations hardening: backend/frontend healthchecks, multi-stage backend Dockerfile (~250 MB smaller), Pillow memory hygiene + `worker_max_tasks_per_child=50`, DB CONN_MAX_AGE 60→600s, garbage-collector time limits, `DEBUG` default flipped off, single-source upload size, django-csp in report-only mode. Login flow hardening: PIA outage vs bad-credential separation, 10s timeout, server-side `proxy.ts` auth gate, per-IP rate limiter (5/60s), explicit `redirect` callback, all `(session as any)` casts removed.** |
 | **v1.8** | **May 5, 2026** | **Kanna** | **Phase A+B+C runtime efficiency pass shipped (12+10 items): Django GZipMiddleware, Traefik gzip + HTTP/2, polling backoff, mask-resize hoist, fileUrlCache → WeakMap, Next.js standalone output, IDB-backed smartcrop cache, Postgres tuning (shared_buffers/work_mem/slow-query log), streaming ZIP downloads, IntersectionObserver lazy `<img>` for the canvas grid, Pillow render fast-paths (BOX downscale, transpose for 90/180/270°, no-op crop skip, MAX_IMAGE_PIXELS guard), partial GC index, lazy-loaded Fabric.js previews, dropped `fabric-guideline-plugin` dep, font preconnect, BuildKit cache mounts, explicit Celery `visibility_timeout`, batched `/api/editor/init` endpoint. **Removed CMYK + soft-proof + ICC pipeline entirely** — output is now PNG (default) or PDF; deleted `layout_engine/cmyk.py`, `icc_profiles/`, `_generate_soft_proof_for_surface`, `engine.generate_soft_proof()`; dropped `CanvasData.soft_proof` field via migration `0007`; `export_format` choices constrained to `('png', 'pdf')`. PDF support is API-level for now; UI toggle is a future change. **Embed callback flow** — `EmbedSession.callback_url` is now the single source of truth; embed proxy injects `X-Callback-URL` header; `push_to_production_estimator_task` POSTs HMAC-signed webhook payload with `download_url` + `expires_at` to the caller. Body-level `callback_url` removed from both `GenerateLayoutView` and `EditorRenderView`. **Threshold removed** — every Submit/Download goes through `executeServerRender`; client-side ZIP path retired. **Download modal exposed to all roles** (was ops-only). Embed Submit button renamed "Save & Continue".** |
+| **v1.9** | **May 5, 2026** | **Kanna** | **Standalone-generator scope confirmed: removed internal OMS push.** `push_to_production_estimator_task` deleted; replaced with `notify_caller_webhook_task` that ONLY fires the HMAC-signed embed webhook (and only when `canvas.callback_url` is set — dashboard renders enqueue zero downstream tasks). `OMS_PRODUCTION_ESTIMATOR_URL` removed from settings, env, and all docs. **Edge proxy migrated from Traefik → nginx 1.27** (proxy.bind-mount footgun on `acme.json` was producing prod 404; nginx config is single-source-of-truth at `proxy/nginx/nginx.conf`; CF Origin Cert workflow documented). **Three production-blocking bugs fixed** during the migration: `EditorRenderView` missing `CanvasData/RenderJob` import (500 on every embed render); `ChunkedUploadChunkView` rejected real browser uploads with 415 because no parser accepted `image/png` Content-Type; embed proxy's canvas-state PUT/POST returned 502 because Node fetch detached the ArrayBuffer body across redirects (fixed with Blob). **All 18 react-hooks warnings cleared and rules promoted to `error`** — real bugs fixed (refs-during-render, set-state-in-effect, variable-before-declared, Date.now during render); intentional dep-array exclusions kept with per-line eslint-disable + reasoning. **`./deploy.sh backend` now rebuilds workers + beat too** (they share the Dockerfile but get tagged separately, so the previous `backend` mode left workers on stale code). New `workers` mode for memory-leak recovery. |
 
 ---
 
@@ -121,9 +122,12 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 - CMYK colour-space detection warns customers when uploaded files use RGB instead of CMYK before checkout, giving them the opportunity to re-export correctly.
 - No preflight operator is involved. The customer self-validates the output by approving the visual preview before proceeding to checkout.
 
-#### A2 — Direct-to-Production Push (Post-Checkout)
+#### A2 — Direct-to-Production File Delivery (Post-Checkout)
 
-- Once the customer completes checkout, the approved canvas data (images + layout + overlays) is pushed directly to the production estimator via the existing OMS integration API (Ops Manager).
+- Once the customer completes checkout, the approved canvas data (images + layout + overlays) is rendered server-side at 300 DPI and the rendered files are delivered to printo.in's storefront via two complementary channels:
+  1. **Embed webhook (primary):** the storefront sets `EmbedSession.callback_url` at session creation; on render completion the Product Editor POSTs an HMAC-SHA256-signed payload (`order_id`, `job_id`, `status`, `download_url`, `expires_at`, `file_count`, …) to that URL. The storefront verifies the signature and fetches the ZIP from `download_url` using the same api_key as Bearer auth. Implementation guide for the storefront team: [`docs/printo-in-callback-integration.md`](docs/printo-in-callback-integration.md).
+  2. **Direct download (fallback):** dashboard / direct-API callers poll `GET /api/render-status/<job_id>/` and fetch the ZIP from `GET /api/jobs/<job_id>/download/` themselves.
+- **No internal OMS push.** The Product Editor is a standalone print-file generator. The previous `push_to_production_estimator_task` (POST to `OMS_PRODUCTION_ESTIMATOR_URL`) was retired in v1.9 — the embed webhook gives the storefront everything it needs to attach files to the order, and the storefront talks to OMS via its own existing integration.
 - No manual handoff step. The production team receives a print-ready file that has already been validated by the customer's own preview approval.
 - Output is 300 DPI PNG by default, with PDF as an alternate format selected per render request via `export_format`. (The earlier ICC-calibrated CMYK soft-proof pipeline was retired in v1.8 — RGB→CMYK→RGB roundtrip is no longer part of the product.)
 - The target latency from checkout to production-ready is under 5 minutes for a single order — down from the current 1–3 hours.
@@ -139,7 +143,6 @@ sequenceDiagram
   participant Printo as printo.in (storefront)
   participant Editor as Product Editor (us)
   participant Worker as Celery worker
-  participant OMS
 
   Customer->>Printo: Visit product SKU page
   Printo->>Editor: POST /api/embed/session<br/>Authorization: Bearer api_key<br/>{order_id, callback_url}
@@ -151,7 +154,6 @@ sequenceDiagram
   Editor-->>Customer: postMessage pe:render_job<br/>(parent shows "preparing your design")
 
   Worker->>Worker: Pillow render at 300 DPI<br/>(PNG default, PDF if requested)
-  Worker->>OMS: POST OMS_PRODUCTION_ESTIMATOR_URL<br/>(legacy payload)
   Worker->>Printo: POST callback_url<br/>X-Signature: sha256=...<br/>{order_id, job_id, status,<br/>download_url, expires_at, ...}
 
   Printo->>Printo: Verify HMAC<br/>(api_key as shared secret)
@@ -194,8 +196,8 @@ sequenceDiagram
 | Standard worker | Dedicated worker listening only to the `standard` queue — serves regular PNG/TIFF exports; horizontally scalable |
 | Worker concurrency | 2 slots per worker container (512 MB limit → ~256 MB per task slot; safe for large-image renders) |
 | Retry logic | Up to 3 retries with exponential backoff (2s, 4s, 8s); `MemoryError` and soft time limit exhaustion skip retries immediately |
-| OMS notification | `push_to_production_estimator_task` runs as a separate Celery task after render completion — never blocks the render worker slot; retries up to 5× with exponential backoff |
-| Callback URL | Per-request `callback_url` stored at submission time and fired on OMS push success, enabling caller-side webhook integration |
+| Caller webhook | `notify_caller_webhook_task` runs as a separate Celery task after render completion (only when `canvas.callback_url` is set — the embed flow). Never blocks the render worker slot; HMAC-SHA256 signed POST; retries up to 5× with exponential backoff. |
+| Callback URL | `EmbedSession.callback_url` is the single source of truth (set at session creation, propagated via `X-Callback-URL` header through the embed proxy). Direct/dashboard callers don't enqueue the webhook task at all — they poll `/api/render-status/<job_id>/` and fetch the ZIP themselves. |
 | Order resubmit | `order_id` upsert (`update_or_create`) — operator retries and customer re-uploads no longer crash with a unique-constraint error |
 | Queue isolation | `celery-beat` container no longer runs DB migrations on startup (only the web/Gunicorn container does), eliminating concurrent migration race conditions |
 | Status polling | `GET /api/render-status/{job_id}/` with Redis cache (3s TTL for queued, 300s for completed/failed); returns estimated wait time corrected for worker concurrency |
@@ -275,12 +277,11 @@ flowchart LR
     DB[(PostgreSQL)]
     REDIS[(Redis<br/>broker + cache)]
     WORKER["Celery worker<br/>render_canvas_task"]
-    PUSH["push_to_production<br/>_estimator_task"]
+    NOTIFY["notify_caller<br/>_webhook_task<br/>(only if callback_url set)"]
   end
 
-  subgraph storage ["Storage + downstream"]
+  subgraph storage ["Storage"]
     DISK[(./storage/exports)]
-    OMS["OMS<br/>Production Estimator"]
   end
 
   STR -->|"POST /api/embed/session<br/>Bearer api_key<br/>{order_id, callback_url}"| API
@@ -291,9 +292,8 @@ flowchart LR
   API -->|"transaction.on_commit"| WORKER
   WORKER <--> REDIS
   WORKER --> DISK
-  WORKER --> PUSH
-  PUSH -->|"legacy payload"| OMS
-  PUSH -.->|"webhook<br/>X-Signature: sha256=..."| BCK
+  WORKER --> NOTIFY
+  NOTIFY -.->|"HMAC-signed webhook<br/>X-Signature: sha256=..."| BCK
   BCK -->|"GET download_url<br/>Bearer api_key"| API
   API -->|"streamed ZIP"| BCK
 ```
@@ -421,9 +421,8 @@ flowchart LR
 
 ### Phase 2 — Direct-to-Production (2–6 weeks)
 
-- Implement canvas state persistence (backend JSON save) so approved designs survive the checkout flow.
-- Implement canvas state persistence (backend JSON save) so approved designs survive the checkout flow.
-- Build the post-checkout webhook that pushes the approved canvas directly to the production estimator.
+- ~~Implement canvas state persistence~~ **✅ Done** (B1 — IndexedDB blob store + `editor_state` JSON; survives page refresh).
+- Build the post-checkout integration: printo.in storefront receives the HMAC-signed embed webhook (Product Editor side **✅ done** — `notify_caller_webhook_task`; storefront side pending — implementation guide at [`docs/printo-in-callback-integration.md`](docs/printo-in-callback-integration.md)).
 - ~~Implement Celery + Redis async queue for non-blocking image generation.~~ **✅ Done** — async queue with priority/standard worker isolation is live.
 - ~~Security hardening~~ **✅ Done** — API key bundle leak closed, session token refresh, auth guards, path traversal protection, and 18 additional fixes all complete. TypeScript and Django build both clean.
 - ~~Server-side upload + render for large batches~~ **✅ Done** — Chunked upload API, per-frame transform pipeline, Celery 300 DPI Pillow render, embed `pe:render_job` postMessage, direct admin ZIP download. Threshold: ≤ 20 canvases → client-side; > 20 → server-side. Smart downscaling and PNG optimization included.
@@ -458,7 +457,7 @@ The following approvals are required before implementation proceeds:
 | 2 | Confirm SKU-to-layout mapping for fridge magnets, photo prints, canvas prints, coasters, mugs (data — endpoint is live) | Viji / Kanna | May 5, 2026 | Open |
 | 3 | Production team readiness assessment — can they accept automated output without preflight? | Mohan | Apr 14, 2026 | Open |
 | 4 | Implement canvas state persistence (backend JSON save + IndexedDB file persistence) | Kanna | Apr 18, 2026 | **✅ Done (Apr 27)** |
-| 5 | Build post-checkout → production estimator webhook | Kanna | Apr 25, 2026 | Pending |
+| 5 | Build post-checkout → printo.in storefront webhook (HMAC-signed) | Kanna (✅ Product Editor side) / printo.in storefront team (pending — see [docs/printo-in-callback-integration.md](docs/printo-in-callback-integration.md)) | Apr 25, 2026 | Product Editor side **✅ Done (May 5)**; storefront side **pending** |
 | 6 | Celery + Redis async queue deployment | Kanna / DevOps | Apr 30, 2026 | **✅ Done** |
 | 7 | Security hardening — API key leak, auth refresh, path traversal, 18 additional fixes | Kanna | Apr 11, 2026 | **✅ Done** |
 | 8 | Set `INTERNAL_API_KEY` server env var + remove `NEXT_PUBLIC_DIRECT_API_KEY` from all envs + rotate key | DevOps | Apr 14, 2026 | Open |
@@ -472,7 +471,7 @@ The following approvals are required before implementation proceeds:
 | 16 | SKU-to-layout mapping endpoint + `storage/sku_layouts.json` (B3 infra) | Kanna | Apr 27, 2026 | **✅ Done** |
 | 17 | Populate `storage/sku_layouts.json` with real Printo SKU codes via `PUT /api/sku-layouts/` | Viji / Catalog Ops | May 12, 2026 | Open |
 | 18 | Monitor CSP report-only violations in DevTools / logs, then flip `CSP_REPORT_ONLY=False` to enforce | Kanna | May 15, 2026 | Open |
-| 19 | Triage 18 react-hooks v7 lint warnings (`react-hooks/{exhaustive-deps,purity,set-state-in-effect,refs,immutability}`); promote rules to `error` once clean | Kanna | TBD | Open |
+| 19 | Triage 18 react-hooks v7 lint warnings (`react-hooks/{exhaustive-deps,purity,set-state-in-effect,refs,immutability}`); promote rules to `error` once clean | Kanna | May 5, 2026 | **✅ Done (May 5)** |
 | 20 | Replace per-IP login rate limiter (in-memory) with Redis-backed limiter if frontend scales horizontally | Kanna / DevOps | Before HA scale-out | Open |
 
 ### 8.1 v1.7 Deployment Checklist
@@ -499,7 +498,7 @@ Required steps when running `./deploy.sh` for the v1.7 release. None require cod
 - Should the Product Editor embed completely replace the existing file upload flow on printo.in, or run in parallel (A/B test)?
 - What is the fallback process if the automated output has a print-quality issue that preflight would have caught? Does production reject and notify, or does a post-print QC catch it?
 - For products with variable quantity (e.g., customer orders 50 business cards but uploads 1 design), how should the editor handle the 1-to-many mapping?
-- Is the production estimator API ready to accept the postMessage payload format that the Product Editor emits, or does an adapter need to be built?
+- ~~Is the production estimator API ready to accept the postMessage payload format that the Product Editor emits, or does an adapter need to be built?~~ — **Resolved (v1.9):** Product Editor no longer pushes to OMS directly. It POSTs an HMAC-signed webhook to the printo.in storefront's `callback_url`; the storefront then talks to OMS via its own existing integration. Implementation guide for the storefront in [`docs/printo-in-callback-integration.md`](docs/printo-in-callback-integration.md).
 - What SLA does production commit to for orders received via the automated pipeline vs the manual pipeline? Should they be identical?
 - Can the Catalog Manager be extended to store the SKU-to-layout mapping, or does this need a new system?
 
@@ -509,10 +508,10 @@ Required steps when running `./deploy.sh` for the v1.7 release. None require cod
 
 | Metric | Baseline (Current) | Target (Post-Fix) | How to Measure |
 |---|---|---|---|
-| Upload-to-production TAT (store pickup/express) | ~1 hour | < 5 min | OMS timestamp diff |
-| Upload-to-production TAT (standard delivery) | 2–3 hours | < 5 min | OMS timestamp diff |
-| Orders held due to file mismatch | TBD (estimate 10–15%) | < 1% | OMS hold report |
-| Order cancellation rate (preflight-related) | TBD | < 0.5% | Zoho Desk + OMS |
+| Upload-to-production TAT (store pickup/express) | ~1 hour | < 5 min | `RenderJob.completed_at - RenderJob.created_at` + storefront-side OMS attach timestamp |
+| Upload-to-production TAT (standard delivery) | 2–3 hours | < 5 min | Same as above |
+| Orders held due to file mismatch | TBD (estimate 10–15%) | < 1% | Storefront-side hold report (the Product Editor doesn't see "holds" — it just delivers files; storefront flags issues) |
+| Order cancellation rate (preflight-related) | TBD | < 0.5% | Zoho Desk + storefront cancellation logs |
 | Preflight team hours per day on personalised products | TBD (full-time) | 0 hours (spot-check only) | Team capacity tracker |
 | Orders meeting 3 PM courier cutoff | TBD | > 98% | Dispatch log |
 | Concurrent orders processed without timeout | ~50 (Gunicorn limit) | 200+ (async queue, scalable) | Render job success rate |

@@ -28,7 +28,7 @@ export function ShapesPicker({ onAddShape }: ShapesPickerProps) {
 
   const handleAdd = (shape: ShapeDef) => {
     const overlay: ShapeOverlay = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       shapeType: shape.key,
       svgPath: shape.svgPath,
       x: 35,

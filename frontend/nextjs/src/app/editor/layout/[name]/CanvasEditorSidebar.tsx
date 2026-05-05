@@ -131,14 +131,22 @@ export function CanvasEditorSidebar({
   const [activeAddTab, setActiveAddTab] = useState<TabKey>('text');
 
   // ── Auto-switch tab when overlay is selected on canvas ───────────────────
-  useEffect(() => {
-    if (selectedLayer.type === 'text')  setActiveAddTab('text');
-    if (selectedLayer.type === 'image') {
+  // React docs' "adjust state when a prop changes" pattern — guard a
+  // render-phase setState with a stable identity check on the dependency.
+  // Avoids the cascading-render hazard of doing this inside useEffect
+  // (https://react.dev/learn/you-might-not-need-an-effect).
+  const selectionKey = `${selectedLayer.type}:${selectedLayer.index}`;
+  const [lastSelectionKey, setLastSelectionKey] = useState(selectionKey);
+  if (selectionKey !== lastSelectionKey) {
+    setLastSelectionKey(selectionKey);
+    if (selectedLayer.type === 'text') {
+      setActiveAddTab('text');
+    } else if (selectedLayer.type === 'image') {
       const ov = editingCanvas?.overlays[selectedLayer.index];
       const src = (ov as any)?.source;
       setActiveAddTab(src === 'local' ? 'image' : 'icon');
     }
-  }, [selectedLayer.type, selectedLayer.index, editingCanvas?.overlays]);
+  }
 
   if (!editingCanvas) return null;
 
