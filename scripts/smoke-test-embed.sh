@@ -117,8 +117,13 @@ status=$(curl -s -o /dev/null -w '%{http_code}' \
 [ "$status" = "401" ] && ok "invalid token → 401" || bad "Got $status (expected 401)"
 
 # ── 9. Canvas state round-trip via embed proxy --------------------------------
+# Use -L to follow redirects: Next.js's default trailingSlash=false issues a
+# 308 redirect from /api/embed/proxy/canvas-state/<id>/ → without trailing
+# slash. Real browsers follow this automatically; curl needs -L to match.
+# The proxy then re-adds the slash internally to hit Django's
+# `path("canvas-state/<order_id>/", ...)`.
 step "9. Canvas-state PUT/GET round-trip via embed proxy"
-status=$(curl -s -o /dev/null -w '%{http_code}' \
+status=$(curl -s -L -o /dev/null -w '%{http_code}' \
   -X PUT \
   -H "X-Embed-Token: $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -129,7 +134,7 @@ case "$status" in
   *)       bad "PUT canvas-state → $status" ;;
 esac
 
-status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
+status=$(curl -s -L -o /tmp/se.body -w '%{http_code}' \
   -H "X-Embed-Token: $TOKEN" \
   "$BASE/api/embed/proxy/canvas-state/$ORDER_ID/")
 [ "$status" = "200" ] && ok "GET canvas-state → 200" || bad "GET canvas-state → $status"

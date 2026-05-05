@@ -184,7 +184,16 @@ async function handler(
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     // For multipart/form-data (file uploads) stream the raw body bytes so the
     // multipart boundary is preserved exactly as the browser sent it.
-    body = await req.arrayBuffer();
+    //
+    // Wrap in a Blob (re-readable) instead of using the ArrayBuffer directly:
+    // Node's undici-based fetch DETACHES an ArrayBuffer when it's transferred
+    // to the network layer, so any 3xx redirect from the upstream (e.g.
+    // Django's 301 to add a trailing slash on /api/canvas-state/<id>/) fails
+    // the body re-send with "Cannot perform ArrayBuffer.prototype.slice on a
+    // detached ArrayBuffer". A Blob owns its bytes and can be read again on
+    // each retry, so redirects flow through transparently.
+    const arrayBuf = await req.arrayBuffer();
+    body = arrayBuf.byteLength > 0 ? new Blob([arrayBuf]) : null;
   }
 
   try {
