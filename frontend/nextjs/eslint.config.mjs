@@ -1,29 +1,29 @@
 import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
+import nextTypescript from "eslint-config-next/typescript";
 
-// Flat config replacing legacy .eslintrc.json. The eslint-config-next/typescript
-// preset is intentionally NOT included — it forbids `any`, but the codebase
-// still has ~200 `as any` casts (mostly Fabric.js custom properties) that
-// haven't been typed yet. tsconfig.json keeps `noImplicitAny: false` for the
-// same reason. Re-enable the typescript preset once those casts are typed.
 export default [
   {
     ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
   },
   ...nextCoreWebVitals,
+  ...nextTypescript,
   {
     rules: {
       "@next/next/no-img-element": "off",
-      // The react-hooks plugin v7 (pulled in by eslint-config-next 16) ships
-      // several new strict rules. All 18 pre-existing offenders have been
-      // triaged: real bugs fixed (refs-in-render, set-state-in-effect,
-      // variable-before-declared, Date.now during render); intentional
-      // dep-array exclusions kept with per-line eslint-disable + a comment
-      // explaining why. Promoted to "error" so the next regression breaks CI.
+      // react-hooks v7 strict rules — all pre-existing offenders triaged;
+      // promoted from "warn" so regressions break CI.
       "react-hooks/exhaustive-deps": "error",
       "react-hooks/purity": "error",
       "react-hooks/set-state-in-effect": "error",
       "react-hooks/refs": "error",
       "react-hooks/immutability": "error",
+      // The 31 remaining `as any` casts are all Fabric.js / library-API arg
+      // coercion or LayoutDef shape narrowing — covered by typecheck plus
+      // module augmentation in src/types/fabric-augmentation.d.ts. The
+      // typescript preset enables @typescript-eslint/no-explicit-any as
+      // "warn" by default; demote to "off" so CI passes while these are
+      // tracked separately.
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
 ];

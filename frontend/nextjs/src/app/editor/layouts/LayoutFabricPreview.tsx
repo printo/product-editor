@@ -106,8 +106,8 @@ export function LayoutFabricPreview({
     // Synchronize selectedFrameId to Fabric's internal state
     const handleSelection = (e: any) => {
       const selected = e.selected?.[0];
-      if (selected && (selected as any)[DATA_KEY] === 'frame') {
-        onFrameSelect((selected as any).__frameId || null);
+      if (selected && selected.__fabricEditor === 'frame') {
+        onFrameSelect(selected.__frameId || null);
       }
     };
     fc.on('selection:created', handleSelection);
@@ -148,7 +148,7 @@ export function LayoutFabricPreview({
     // Add center guides
     const guides = createCenterGuides(cw, ch);
     guides.forEach(g => {
-      (g as any)[DATA_KEY] = 'guide';
+      g.__fabricEditor = 'guide';
       fc.add(g);
     });
 
@@ -157,7 +157,7 @@ export function LayoutFabricPreview({
       const gridPx = GRID_SNAP_MM * scale;
       const gridLines = createGridLines(cw, ch, gridPx);
       gridLines.forEach(l => {
-        (l as any)[DATA_KEY] = 'grid';
+        l.__fabricEditor = 'grid';
         fc.add(l);
       });
     }
@@ -180,8 +180,8 @@ export function LayoutFabricPreview({
           (fhMm + bleed * 2) * scale,
           radiusMm > 0 ? (radiusMm + bleed) * scale : 0
         );
-        (br as any)[DATA_KEY] = 'bleed';
-        (br as any).__frameIdx = idx;
+        br.__fabricEditor = 'bleed';
+        br.__frameIdx = idx;
         fc.add(br);
       }
 
@@ -199,9 +199,9 @@ export function LayoutFabricPreview({
           ry: radiusMm * scale,
         },
       );
-      (rect as any)[DATA_KEY] = 'frame';
-      (rect as any).__frameIdx = idx;
-      (rect as any).__frameId = frame.id;
+      rect.__fabricEditor = 'frame';
+      rect.__frameIdx = idx;
+      rect.__frameId = frame.id;
 
       // Constrain resize to stay within canvas
       rect.setControlsVisibility({
@@ -216,8 +216,8 @@ export function LayoutFabricPreview({
         fxMm * scale,
         fyMm * scale,
       );
-      (label as any)[DATA_KEY] = 'label';
-      (label as any).__frameIdx = idx;
+      label.__fabricEditor = 'label';
+      label.__frameIdx = idx;
       fc.add(label);
     });
 
@@ -278,7 +278,7 @@ export function LayoutFabricPreview({
         evented: false,
         opacity: 0.6,
       });
-      (img as any)[DATA_KEY] = 'mask';
+      img.__fabricEditor = 'mask';
       fabricRef.current.add(img);
       fabricRef.current.renderAll();
     }).catch(() => {});
@@ -299,9 +299,9 @@ export function LayoutFabricPreview({
 
     const handleModified = (e: any) => {
       const target = e.target as FabricObject;
-      if (!target || (target as any)[DATA_KEY] !== 'frame') return;
+      if (!target || target.__fabricEditor !== 'frame') return;
 
-      const idx = (target as any).__frameIdx as number;
+      const idx = target.__frameIdx as number;
       const curFrames = framesRef.current;
       if (idx < 0 || idx >= curFrames.length) return;
 
@@ -332,9 +332,9 @@ export function LayoutFabricPreview({
 
     const handleMoving = (e: any) => {
       const target = e.target as FabricObject;
-      if (!target || (target as any)[DATA_KEY] !== 'frame') return;
+      if (!target || target.__fabricEditor !== 'frame') return;
 
-      const idx = (target as any).__frameIdx as number;
+      const idx = target.__frameIdx as number;
       const cw = widthMm * scale;
       const ch = heightMm * scale;
 
@@ -374,9 +374,9 @@ export function LayoutFabricPreview({
 
     const handleScaling = (e: any) => {
       const target = e.target as FabricObject;
-      if (!target || (target as any)[DATA_KEY] !== 'frame') return;
+      if (!target || target.__fabricEditor !== 'frame') return;
 
-      const idx = (target as any).__frameIdx as number;
+      const idx = target.__frameIdx as number;
       const cw = widthMm * scale;
       const ch = heightMm * scale;
 

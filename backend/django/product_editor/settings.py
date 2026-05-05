@@ -105,6 +105,23 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# WhiteNoise serves /static/* in production (Django admin, DRF browsable
+# API, Scalar API docs). Compressed-manifest storage adds a content hash
+# to every filename — `base.css` becomes `base.a1b2c3d4.css` — so changing
+# the file changes its URL. Combined with the 1-year max-age below, the
+# browser caches assets indefinitely without ever serving stale content.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+WHITENOISE_MAX_AGE = 60 * 60 * 24 * 365  # 1 year for hashed filenames
+# `MANIFEST_STRICT = False`: a stale runtime reference to a no-longer-hashed
+# asset returns the un-hashed file rather than 500-ing. Tolerant during
+# upgrades when admin templates briefly mismatch the manifest.
+WHITENOISE_MANIFEST_STRICT = False
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {

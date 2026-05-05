@@ -334,9 +334,9 @@ Fabric.js uses pixels; layouts specify mm. Confirm DPI-based conversion is appli
 
 Use comments sparingly. Only comment complex or non-obvious logic.
 
-**TypeScript:** `tsconfig.json` is in **full strict mode** as of v1.9 (`strict: true`). All implicit-any checks pass. The remaining 87 *explicit* `as any` casts (mostly Fabric.js custom properties on `frontend/nextjs/src/app/editor/layout/[name]/FabricEditor.tsx`) are still permitted because strict mode doesn't ban explicit casts. Eliminating them would require a Fabric.js module augmentation in a `.d.ts` file — separate cleanup, not blocking. Run `pnpm typecheck` (`tsc --noEmit`) before pushing.
+**TypeScript:** `tsconfig.json` is in **full strict mode** as of v1.9 (`strict: true`). All implicit-any checks pass. Fabric.js custom properties (`__frameIdx`, `__paper`, `__fabricEditor` discriminator, etc.) are typed via module augmentation in `src/types/fabric-augmentation.d.ts` — direct property access is type-checked, no `as any` needed. The 31 remaining explicit `as any` casts are all Fabric API arg coercion (`obj.set(... as any)`, `setViewportTransform(... as any)`), Fabric internals (`._element`), or LayoutDef/OverlayState shape narrowing — none are about untyped custom props. Run `pnpm typecheck` (`tsc --noEmit`) before pushing.
 
-**Lint:** `eslint.config.mjs` is the active config (flat); `pnpm lint` runs `eslint src`. `pnpm lint:fix` auto-fixes the easy ones. The `eslint-config-next/typescript` preset is intentionally not loaded; the new react-hooks v7 strict rules are demoted to `warn` so existing offenders don't break the build — promote to `error` per-rule once they're triaged.
+**Lint:** `eslint.config.mjs` is the active flat config; `pnpm lint` runs `eslint src`. `pnpm lint:fix` auto-fixes the easy ones. Both `eslint-config-next/core-web-vitals` and `eslint-config-next/typescript` presets are loaded. `@typescript-eslint/no-explicit-any` is demoted to `off` because the 31 remaining `as any` casts are tracked separately (see TypeScript section). The react-hooks v7 strict rules are all promoted to `error` (offenders fixed in v1.10) so regressions break CI.
 
 **Scripts:** `pnpm dev`, `pnpm dev:clean` (rm `.next` first — use if routes 404 in dev), `pnpm build`, `pnpm start`, `pnpm clean`, `pnpm lint`, `pnpm lint:fix`, `pnpm typecheck`.
 
@@ -435,8 +435,8 @@ No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped �
 
 **Watch list (not blocking):**
 - NextAuth 5 is still in beta. The `(session as any)` casts have been removed, but if you bump the version, recheck `next-auth.d.ts` against the upstream `Session` / `JWT` shapes.
-- ESLint surfaces 18 dependency-array / purity warnings from the new react-hooks v7 rules. Triage and promote to errors once cleaned (`react-hooks/exhaustive-deps`, `react-hooks/purity`, `react-hooks/set-state-in-effect`, `react-hooks/refs`, `react-hooks/immutability` are all `warn` in `eslint.config.mjs`).
-- `tsconfig.json` is `strict: true` (v1.9). The remaining 87 *explicit* `as any` casts (most in `FabricEditor.tsx` for Fabric.js custom properties like `__frameIdx`) are tolerated because strict mode permits them. The `eslint-config-next/typescript` preset is intentionally NOT loaded in `eslint.config.mjs` because it forbids `any` outright (including explicit casts) — load it only after a Fabric.js module augmentation eliminates those casts.
+- ESLint surfaces ~56 `no-unused-vars` warnings (dead imports, unused state setters, unused destructured params). Non-blocking; mostly easy local cleanups. Errors all fixed in v1.10.
+- 31 explicit `as any` casts remain (down from 98). All are Fabric API arg coercion, Fabric internals, or LayoutDef/OverlayState shape narrowing — none are about untyped Fabric custom props (those are typed via `src/types/fabric-augmentation.d.ts`). `@typescript-eslint/no-explicit-any` is set to `off` in eslint.config.mjs because of these — re-enable only after the LayoutDef shape is unified.
 
 ### Fixed
 
@@ -476,7 +476,7 @@ Routing, TLS, and tunables live in `proxy/nginx/nginx.conf` (single source — n
 |---|---|---|
 | Populate SKU mapping | `PUT /api/sku-layouts/` with real Printo SKU codes (top 5 SKUs from PRD: fridge magnets, photo prints, canvas prints, coasters, photo mugs). The endpoint exists; the data is empty. | Viji / Catalog Ops |
 | Monitor CSP violations | Watch DevTools / browser console / future report endpoint while CSP is in report-only. Flip `CSP_REPORT_ONLY=False` once the policy is validated against the editor (Fabric.js `'unsafe-eval'`) and embed iframe (`frame-ancestors`). | Kanna |
-| Triage 18 react-hooks warnings | `pnpm lint` lists them. Mostly `react-hooks/exhaustive-deps` and the new v7 `purity` / `set-state-in-effect` / `refs` / `immutability` rules. Promote each to `error` once the existing offenders are fixed. | Kanna |
+| Clean up 56 lint warnings | `pnpm lint` lists them — all `no-unused-vars` (dead imports, unused state setters, unused destructured params). Easy local cleanups; non-blocking. | Kanna |
 | printo.in webhook endpoint | Their backend needs to: (1) accept `POST /api/internal/pe-callback` with the v1.8 webhook payload, (2) verify `X-Signature` HMAC against the api_key, (3) fetch `download_url` with the api_key as Bearer auth, (4) attach the ZIP to the order. Their frontend can also listen for `pe:render_job` postMessage for "preparing your design" UX. | printo.in backend + frontend |
 | Rate limiter → Redis | If the frontend container is ever scaled horizontally, swap the in-memory `Map` in `src/app/actions/auth.ts` for a Redis-backed limiter. Current single-process limiter is fine for the current single-replica deploy. | Kanna / DevOps |
-| Type Fabric.js custom properties via `.d.ts` augmentation | Eliminates the remaining 87 explicit `as any` casts; lets us load `eslint-config-next/typescript` for full type safety. Not blocking — strict mode is already on. | Kanna |
+| Unify LayoutDef shape | The 10 `(layoutDef as any)?.surfaces?.[0]` casts in `editor/layout/[name]/page.tsx` are about a discriminated layout shape (canvas-on-root vs surfaces-array). Pick one canonical shape and migrate. Once done, re-enable `@typescript-eslint/no-explicit-any` to `error`. | Kanna |

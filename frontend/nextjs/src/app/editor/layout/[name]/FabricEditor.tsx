@@ -345,14 +345,14 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const isMod = opt.e.altKey || opt.e.metaKey; // Alt/Option or Cmd/Ctrl
       // ✅ Allow panning if Alt/Cmd/Space is held OR clicking background (no target)
       if (isSpace || isMod || (!opt.target && !opt.e.shiftKey)) {
-        (fc as any).__isPanning = true;
+        fc.__isPanning = true;
         fc.selection = false; // Disable selection box while panning
         fc.defaultCursor = 'grabbing';
         fc.setCursor('grabbing');
       }
     });
     fc.on('mouse:move', (opt) => {
-      if ((fc as any).__isPanning) {
+      if (fc.__isPanning) {
         const me = opt.e as MouseEvent;
         // ✅ Use Fabric's built-in relativePan instead of manual viewportTransform mutation
         fc.relativePan(new Point(me.movementX ?? 0, me.movementY ?? 0));
@@ -362,8 +362,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     });
     fc.on('mouse:up', () => {
       interactingRef.current = false;
-      if ((fc as any).__isPanning) {
-        (fc as any).__isPanning = false;
+      if (fc.__isPanning) {
+        fc.__isPanning = false;
         fc.selection = true; // Re-enable selection
         const newCursor = spacePressedRef.current ? 'grab' : 'default';
         fc.defaultCursor = newCursor;
@@ -517,14 +517,14 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (bgObj) bgObj.set({ fill: editingCanvas.bgColor || '#ffffff' });
 
       const frameObjs = objs
-        .filter((o: any) => (o as any)[DATA_KEY] === 'frame')
-        .sort((a: any, b: any) => (a as any).__frameIdx - (b as any).__frameIdx);
+        .filter((o: any) => o.__fabricEditor === 'frame')
+        .sort((a: any, b: any) => a.__frameIdx - b.__frameIdx);
 
       editingCanvas.frames.forEach((frameState, idx) => {
-        const img = frameObjs.find((o: any) => (o as any).__frameIdx === idx) as FabricImage;
+        const img = frameObjs.find((o: any) => o.__frameIdx === idx) as FabricImage;
         if (!img) return;
 
-        const clip = (img as any).__clipRect as { fx: number; fy: number; fw: number; fh: number };
+        const clip = img.__clipRect as { fx: number; fy: number; fw: number; fh: number };
         if (!clip) return;
 
         const imgW = img.width!;
@@ -589,7 +589,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       fill: editingCanvas.bgColor || '#ffffff',
       selectable: false, evented: false,
     });
-    (bgRect as any)[BG_KEY] = true;
+    bgRect.__bgLayer = true;
     fc.add(bgRect);
     fc.moveObjectTo(bgRect, zIndex++); 
 
@@ -633,8 +633,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
             selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7, rx: fr, ry: fr,
             strokeUniform: true,
           });
-      (sr as any)[SAFE_KEY] = true;
-      (sr as any).__frameIdx = frameIdx;
+      sr.__safeLayer = true;
+      sr.__frameIdx = frameIdx;
       fc.add(sr);
     });
 
@@ -682,8 +682,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
             rx: fr > 0 ? fr + bleedPx : 0, ry: fr > 0 ? fr + bleedPx : 0,
             strokeUniform: true,
           });
-      (br as any)[BLEED_KEY] = true;
-      (br as any).__frameIdx = frameIdx;
+      br.__bleedLayer = true;
+      br.__frameIdx = frameIdx;
       fc.add(br);
     });
 
@@ -716,7 +716,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           const baseScale = frameState.fitMode === 'contain' ? Math.min(sX, sY) : Math.max(sX, sY);
           scale = baseScale * frameState.scale;
         }
-        (img as any).__clipRect = { fx, fy, fw, fh };
+        img.__clipRect = { fx, fy, fw, fh };
         const w = effW * scale;
         const h = effH * scale;
         const imgX = fx + (fw - w) / 2 + frameState.offset.x;
@@ -742,8 +742,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           clipPath: clipRect,
         });
         updateRelativeClipPath(img, fx, fy, fw, fh);
-        (img as any)[DATA_KEY] = 'frame';
-        (img as any).__frameIdx = frameIdx;
+        img.__fabricEditor = 'frame';
+        img.__frameIdx = frameIdx;
         fc.add(img);
         fc.moveObjectTo(img, frameZStart + frameIdx);
       } catch (err) { console.error(err); }
@@ -752,12 +752,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     // ── Center Guides & Grid ──
     const centerGuides = createCenterGuides(canvasW, canvasH);
     centerGuides.forEach((g, i) => {
-      (g as any)[GUIDE_KEY] = true; g.visible = false; fc.add(g);
+      g.__guideLayer = true; g.visible = false; fc.add(g);
       fc.moveObjectTo(g, 1 + frames.length + i);
     });
     const gridLines = createGridLines(canvasW, canvasH, 50); 
     gridLines.forEach((l, i) => {
-      (l as any)[GRID_KEY] = true; l.visible = false; fc.add(l);
+      l.__gridLayer = true; l.visible = false; fc.add(l);
       fc.moveObjectTo(l, 1 + frames.length + centerGuides.length + i);
     });
     const guidesCount = centerGuides.length + gridLines.length;
@@ -775,7 +775,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         ? new Shadow({ color: 'rgba(0,0,0,0.15)', blur: 25, offsetX: 0, offsetY: 0 }) 
         : undefined
     });
-    (paperOverlay as any)[PAPER_KEY] = true;
+    paperOverlay.__paper = true;
     fc.add(paperOverlay);
     log(`  [Paper Overlay] added to canvas | path commands: ${(paperOverlay.path as any[])?.length ?? 'n/a'}`);
     const paperOverlayZ = 1 + frames.length + guidesCount + (frames.length * 2);
@@ -808,7 +808,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         selectable: false,
         evented: false,
       });
-      (outlineRect as any)[OUTLINE_KEY] = true;
+      outlineRect.__outlineLayer = true;
       fc.add(outlineRect);
       fc.moveObjectTo(outlineRect, paperOverlayZ + 1);
     });
@@ -830,12 +830,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#f97316',
           angle: overlay.rotation || 0,
         });
-        (fabricObj as any)[DATA_KEY] = 'text';
+        fabricObj.__fabricEditor = 'text';
       } else if (overlay.type === 'shape') {
         fabricObj = makeShapeObject(overlay as any, canvasW, canvasH);
         if (fabricObj) {
           log('Shape Overlay Calculation (Full Rebuild):', { overlay, fabricObj });
-          (fabricObj as any)[DATA_KEY] = 'shape';
+          fabricObj.__fabricEditor = 'shape';
         }
       } else if (overlay.type === 'image') {
         try {
@@ -850,13 +850,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
             angle: overlay.rotation || 0, opacity: overlay.opacity ?? 1,
             cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#10b981',
           });
-          (img as any)[DATA_KEY] = 'image'; (img as any).__overlayIdx = oIdx;
+          img.__fabricEditor = 'image'; img.__overlayIdx = oIdx;
           fc.add(img); fc.moveObjectTo(img, overlayZStart + oIdx);
           return;
         } catch (err) { console.error(err); return; }
       }
       if (fabricObj) {
-        (fabricObj as any).__overlayIdx = oIdx; fc.add(fabricObj); fc.moveObjectTo(fabricObj, overlayZStart + oIdx);
+        fabricObj.__overlayIdx = oIdx; fc.add(fabricObj); fc.moveObjectTo(fabricObj, overlayZStart + oIdx);
       }
     });
 
@@ -876,7 +876,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           left: 0, top: 0, originX: 'left', originY: 'top', scaleX, scaleY,
           selectable: false, evented: false, opacity: 1,
         });
-        (maskImg as any)[DATA_KEY] = 'mask'; fc.add(maskImg); fc.bringObjectToFront(maskImg);
+        maskImg.__fabricEditor = 'mask'; fc.add(maskImg); fc.bringObjectToFront(maskImg);
       });
     } else {
       log('  [Mask] No maskUrl — skipping mask overlay');
@@ -922,21 +922,21 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     const handleModified = (e: any) => {
       const target = e.target as FabricObject;
-      if (!target || !(target as any)[DATA_KEY]) return;
-      const type = (target as any)[DATA_KEY] as string;
+      if (!target || !target.__fabricEditor) return;
+      const type = target.__fabricEditor as string;
       const current = editingCanvasRef.current;
       setIsTransforming(false);
 
       if (type === 'frame') {
-        const idx = (target as any).__frameIdx as number;
-        const clip = (target as any).__clipRect;
+        const idx = target.__frameIdx as number;
+        const clip = target.__clipRect;
         if (!clip) return;
         const newOffsetX = (target.left ?? 0) - (clip.fx + clip.fw / 2);
         const newOffsetY = (target.top ?? 0) - (clip.fy + clip.fh / 2);
         const newFrames = current.frames.map((f, i) => i !== idx ? f : { ...f, offset: { x: Math.abs(newOffsetX) < 8 ? 0 : newOffsetX, y: Math.abs(newOffsetY) < 8 ? 0 : newOffsetY }, rotation: Math.round(target.angle ?? f.rotation) });
         onCanvasChangeRef.current({ ...current, frames: newFrames });
       } else {
-        const idx = (target as any).__overlayIdx as number;
+        const idx = target.__overlayIdx as number;
         const newOverlays = current.overlays.map((o, i) => {
           if (i !== idx) return o;
           const common = { x: Math.round(((target.left ?? 0) / canvasW) * 1000) / 10, y: Math.round(((target.top ?? 0) / canvasH) * 1000) / 10, rotation: Math.round(target.angle ?? o.rotation) };
@@ -951,34 +951,34 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     const handleSelection = (e: any) => {
       const selected = e.selected?.[0];
-      if (!selected || !(selected as any)[DATA_KEY]) {
+      if (!selected || !selected.__fabricEditor) {
         if (suppressSelectionEventsRef.current) return;
         onLayerSelect({ type: 'canvas', index: -1 }); return;
       }
-      const type = (selected as any)[DATA_KEY];
-      if (type === 'frame') onLayerSelectRef.current({ type: 'frame', index: (selected as any).__frameIdx });
-      else if (['text', 'shape', 'image'].includes(type)) onLayerSelectRef.current({ type, index: (selected as any).__overlayIdx });
+      const type = selected.__fabricEditor;
+      if (type === 'frame') onLayerSelectRef.current({ type: 'frame', index: selected.__frameIdx });
+      else if (['text', 'shape', 'image'].includes(type)) onLayerSelectRef.current({ type, index: selected.__overlayIdx });
     };
 
     const handleTextChanged = (e: any) => {
       const target = e.target as Textbox;
-      if (!target || (target as any).__overlayIdx === undefined || isEditingRef.current) return;
+      if (!target || target.__overlayIdx === undefined || isEditingRef.current) return;
       const current = editingCanvasRef.current;
-      const newOverlays = current.overlays.map((o, i) => (i !== (target as any).__overlayIdx || o.type !== 'text') ? o : { ...o, text: target.text || o.text });
+      const newOverlays = current.overlays.map((o, i) => (i !== target.__overlayIdx || o.type !== 'text') ? o : { ...o, text: target.text || o.text });
       onCanvasChangeRef.current({ ...current, overlays: newOverlays });
     };
 
     const hideGuides = () => {
       const objs = fc.getObjects();
       let changed = false;
-      objs.forEach(obj => { if (((obj as any)[GUIDE_KEY] || (obj as any)[GRID_KEY]) && obj.visible) { obj.set({ visible: false }); changed = true; } });
+      objs.forEach(obj => { if ((obj.__guideLayer || obj.__gridLayer) && obj.visible) { obj.set({ visible: false }); changed = true; } });
       if (changed) fc.requestRenderAll();
     };
 
     const handleMoving = () => {
       const objs = fc.getObjects();
       let changed = false;
-      objs.forEach(obj => { if (((obj as any)[GUIDE_KEY] || (obj as any)[GRID_KEY]) && !obj.visible) { obj.set({ visible: true }); changed = true; } });
+      objs.forEach(obj => { if ((obj.__guideLayer || obj.__gridLayer) && !obj.visible) { obj.set({ visible: true }); changed = true; } });
       if (!isTransforming) setIsTransforming(true);
       if (changed) fc.requestRenderAll();
     };
@@ -987,8 +987,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       interactingRef.current = false;
       setIsTransforming(false);
       hideGuides();
-      if ((fc as any).__isPanning) {
-        (fc as any).__isPanning = false; fc.selection = true;
+      if (fc.__isPanning) {
+        fc.__isPanning = false; fc.selection = true;
         const newCursor = spacePressedRef.current ? 'grab' : 'default';
         fc.defaultCursor = newCursor; fc.setCursor(newCursor);
         fc.setViewportTransform(fc.viewportTransform!); fc.renderAll();

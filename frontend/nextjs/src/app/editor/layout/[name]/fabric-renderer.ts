@@ -176,14 +176,14 @@ export async function renderCanvas(
         let imgW = fabricImg.width!;
         let imgH = fabricImg.height!;
 
-        let rot = frameState.rotation || 0;
-        let rad = (rot * Math.PI) / 180;
-        let sinA = Math.abs(Math.sin(rad));
-        let cosA = Math.abs(Math.cos(rad));
+        const rot = frameState.rotation || 0;
+        const rad = (rot * Math.PI) / 180;
+        const sinA = Math.abs(Math.sin(rad));
+        const cosA = Math.abs(Math.cos(rad));
         let effW = imgW * cosA + imgH * sinA;
         let effH = imgW * sinA + imgH * cosA;
 
-        let baseScale = frameState.fitMode === 'cover'
+        const baseScale = frameState.fitMode === 'cover'
           ? Math.max(fw / (effW * multiplier), fh / (effH * multiplier))
           : Math.min(fw / (effW * multiplier), fh / (effH * multiplier));
         let finalScale = baseScale * frameState.scale * multiplier;

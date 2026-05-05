@@ -2133,7 +2133,9 @@ class RenderJobDownloadView(APIView):
         # on-the-fly fallback below covers older jobs rendered before the
         # render-time mock generation landed; can be removed once those
         # have aged out via GC.
-        MOCK_LONG_EDGE = 800
+        # Settings mirror engine.py — keep in sync.
+        MOCK_LONG_EDGE = 600
+        MOCK_QUALITY = 70
 
         def _build_mock_jpeg_bytes(print_path: str) -> bytes | None:
             """Fallback for older jobs that don't have a mock sibling on disk."""
@@ -2148,7 +2150,7 @@ class RenderJobDownloadView(APIView):
                         Image.Resampling.LANCZOS,
                     )
                     buf = io.BytesIO()
-                    rgb.save(buf, format='JPEG', quality=80)
+                    rgb.save(buf, format='JPEG', quality=MOCK_QUALITY)
                     return buf.getvalue()
             except Exception as exc:
                 logger.warning(
