@@ -10,9 +10,9 @@
 | **Business Lead** | Viji |
 | **Production Lead** | Mohan |
 | **Final Approver** | Manish |
-| **Date** | April 27, 2026 |
-| **Status** | *In Progress — All known P0/P1 issues resolved; security & ops hardening pass complete* |
-| **Version** | v1.7 |
+| **Date** | May 5, 2026 |
+| **Status** | *In Progress — runtime efficiency pass complete; CMYK/soft-proof retired; output now PNG (default) or PDF* |
+| **Version** | v1.8 |
 | **Product URL** | product-editor.printo.in |
 
 ---
@@ -29,6 +29,7 @@
 | **v1.5** | **Apr 11, 2026** | **Kanna** | **Security hardening complete: API key bundle leak closed (internal server-side proxy); session token refresh flow; 18 additional implementation fixes across auth, rendering, GC, and frontend. TypeScript build clean (0 errors). Django system check clean (0 issues).** |
 | **v1.6** | **Apr 21, 2026** | **Kanna** | **Server-side upload + render flow complete: chunked multi-file upload API, per-frame transform pipeline, Celery render at 300 DPI, embed postMessage (`pe:render_job`), direct-path polling + ZIP download. Threshold: ≤ 20 canvases → client-side; > 20 → server-side. Smart downscaling (2× pre-shrink) and PNG optimize added to engine.** |
 | **v1.7** | **Apr 27, 2026** | **Kanna** | **All known P0/P1 backlog items shipped: B1 canvas-state file persistence (IndexedDB), B3 SKU→layout endpoint, B4 ESLint flat-config migration, B5 stale `.next/` cache scripts. Operations hardening: backend/frontend healthchecks, multi-stage backend Dockerfile (~250 MB smaller), Pillow memory hygiene + `worker_max_tasks_per_child=50`, DB CONN_MAX_AGE 60→600s, garbage-collector time limits, `DEBUG` default flipped off, single-source upload size, django-csp in report-only mode. Login flow hardening: PIA outage vs bad-credential separation, 10s timeout, server-side `proxy.ts` auth gate, per-IP rate limiter (5/60s), explicit `redirect` callback, all `(session as any)` casts removed.** |
+| **v1.8** | **May 5, 2026** | **Kanna** | **Phase A+B+C runtime efficiency pass shipped (12+10 items): Django GZipMiddleware, Traefik gzip + HTTP/2, polling backoff, mask-resize hoist, fileUrlCache → WeakMap, Next.js standalone output, IDB-backed smartcrop cache, Postgres tuning (shared_buffers/work_mem/slow-query log), streaming ZIP downloads, IntersectionObserver lazy `<img>` for the canvas grid, Pillow render fast-paths (BOX downscale, transpose for 90/180/270°, no-op crop skip, MAX_IMAGE_PIXELS guard), partial GC index, lazy-loaded Fabric.js previews, dropped `fabric-guideline-plugin` dep, font preconnect, BuildKit cache mounts, explicit Celery `visibility_timeout`, batched `/api/editor/init` endpoint. **Removed CMYK + soft-proof + ICC pipeline entirely** — output is now PNG (default) or PDF; deleted `layout_engine/cmyk.py`, `icc_profiles/`, `_generate_soft_proof_for_surface`, `engine.generate_soft_proof()`; dropped `CanvasData.soft_proof` field via migration `0007`; `export_format` choices constrained to `('png', 'pdf')`. PDF support is API-level for now; UI toggle is a future change. **Embed callback flow** — `EmbedSession.callback_url` is now the single source of truth; embed proxy injects `X-Callback-URL` header; `push_to_production_estimator_task` POSTs HMAC-signed webhook payload with `download_url` + `expires_at` to the caller. Body-level `callback_url` removed from both `GenerateLayoutView` and `EditorRenderView`. **Threshold removed** — every Submit/Download goes through `executeServerRender`; client-side ZIP path retired. **Download modal exposed to all roles** (was ops-only). Embed Submit button renamed "Save & Continue".** |
 
 ---
 
@@ -124,8 +125,40 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 
 - Once the customer completes checkout, the approved canvas data (images + layout + overlays) is pushed directly to the production estimator via the existing OMS integration API (Ops Manager).
 - No manual handoff step. The production team receives a print-ready file that has already been validated by the customer's own preview approval.
-- CMYK soft-proof export with ISOcoated_v2 ICC profile is available for products that require colour-accurate press output, eliminating a separate colour validation step.
+- Output is 300 DPI PNG by default, with PDF as an alternate format selected per render request via `export_format`. (The earlier ICC-calibrated CMYK soft-proof pipeline was retired in v1.8 — RGB→CMYK→RGB roundtrip is no longer part of the product.)
 - The target latency from checkout to production-ready is under 5 minutes for a single order — down from the current 1–3 hours.
+
+##### A2.1 — Embed Integration Architecture (v1.8)
+
+The diagram below shows the complete end-to-end flow when printo.in's storefront embeds the Product Editor. All communication between systems is documented; the customer's browser only ever talks to the editor iframe.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Customer
+  participant Printo as printo.in (storefront)
+  participant Editor as Product Editor (us)
+  participant Worker as Celery worker
+  participant OMS
+
+  Customer->>Printo: Visit product SKU page
+  Printo->>Editor: POST /api/embed/session<br/>Authorization: Bearer api_key<br/>{order_id, callback_url}
+  Editor-->>Printo: 201 {token, expires_at}
+  Printo-->>Customer: <iframe src="...?token=..." />
+
+  Customer->>Editor: Upload + edit + Save & Continue
+  Editor->>Editor: Create RenderJob,<br/>dispatch render_canvas_task
+  Editor-->>Customer: postMessage pe:render_job<br/>(parent shows "preparing your design")
+
+  Worker->>Worker: Pillow render at 300 DPI<br/>(PNG default, PDF if requested)
+  Worker->>OMS: POST OMS_PRODUCTION_ESTIMATOR_URL<br/>(legacy payload)
+  Worker->>Printo: POST callback_url<br/>X-Signature: sha256=...<br/>{order_id, job_id, status,<br/>download_url, expires_at, ...}
+
+  Printo->>Printo: Verify HMAC<br/>(api_key as shared secret)
+  Printo->>Editor: GET download_url<br/>Authorization: Bearer api_key
+  Editor-->>Printo: ZIP (streamed)
+  Printo->>Customer: Continue checkout flow
+```
 
 ### 4.2 Solution Track B — Remaining Gaps for Full Automation
 
@@ -157,7 +190,7 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 | Component | Detail |
 |---|---|
 | Task queue | Celery with Redis broker (`redis://redis:6379/0`) |
-| Priority worker | Dedicated worker listening only to the `priority` queue — serves store pickup and express delivery (soft-proof) orders |
+| Priority worker | Dedicated worker listening only to the `priority` queue. Currently dormant since soft-proof was retired in v1.8 — kept for future express-render workloads |
 | Standard worker | Dedicated worker listening only to the `standard` queue — serves regular PNG/TIFF exports; horizontally scalable |
 | Worker concurrency | 2 slots per worker container (512 MB limit → ~256 MB per task slot; safe for large-image renders) |
 | Retry logic | Up to 3 retries with exponential backoff (2s, 4s, 8s); `MemoryError` and soft time limit exhaustion skip retries immediately |
@@ -219,15 +252,57 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 
 #### B4 — Server-Side Upload + Render for Large Batches ✅ Implemented
 
-- **Status: Complete as of April 21, 2026.**
+- **Status: Complete as of April 21, 2026; threshold removed in v1.8 (May 5, 2026).**
 - Client-side canvas rendering (Fabric.js → PNG) was prohibitively slow and memory-intensive for orders with > 20 canvases (100–200 photos). The browser had to decode each photo, paint it on a canvas, and export a high-res PNG — sequentially — causing timeouts, blank frames in the ZIP, and browser crashes on low-RAM devices.
-- **What was built:** A server-side render pipeline that kicks in automatically for orders above 20 canvases. The browser uploads files and submits a lightweight render job; Celery workers produce high-DPI PNGs or CMYK TIFFs using Pillow.
+- **What was built:** A server-side render pipeline. As of v1.8 it runs for **every** Submit/Download regardless of canvas count — the previous "≤ 20 canvases → render in browser" optimisation was removed in favour of a single unified contract. The browser uploads files (chunked) and submits a render job; Celery workers produce 300 DPI PNGs (default) or PDFs using Pillow.
+
+##### B4.1 — System component view
+
+```mermaid
+flowchart LR
+  subgraph parent ["printo.in (parent)"]
+    STR[Storefront]
+    BCK["Backend webhook<br/>/api/internal/pe-callback"]
+  end
+
+  subgraph nextjs ["Product Editor (Next.js)"]
+    IFR["Editor iframe<br/>/editor/layout/..."]
+    PXY["Embed proxy<br/>/api/embed/proxy/..."]
+  end
+
+  subgraph backend ["Backend (Django + Celery)"]
+    API["REST API<br/>EditorRenderView, EmbedSession*"]
+    DB[(PostgreSQL)]
+    REDIS[(Redis<br/>broker + cache)]
+    WORKER["Celery worker<br/>render_canvas_task"]
+    PUSH["push_to_production<br/>_estimator_task"]
+  end
+
+  subgraph storage ["Storage + downstream"]
+    DISK[(./storage/exports)]
+    OMS["OMS<br/>Production Estimator"]
+  end
+
+  STR -->|"POST /api/embed/session<br/>Bearer api_key<br/>{order_id, callback_url}"| API
+  STR -.->|render iframe| IFR
+  IFR -->|"X-Embed-Token"| PXY
+  PXY -->|"X-Order-ID + X-Callback-URL"| API
+  API <--> DB
+  API -->|"transaction.on_commit"| WORKER
+  WORKER <--> REDIS
+  WORKER --> DISK
+  WORKER --> PUSH
+  PUSH -->|"legacy payload"| OMS
+  PUSH -.->|"webhook<br/>X-Signature: sha256=..."| BCK
+  BCK -->|"GET download_url<br/>Bearer api_key"| API
+  API -->|"streamed ZIP"| BCK
+```
 
 **Architecture:**
 
 | Component | Detail |
 |---|---|
-| Threshold | `SERVER_RENDER_THRESHOLD = 20` in `page.tsx` — both download and submit paths check this |
+| Render threshold | **Removed in v1.8.** Every Submit/Download in either dashboard or embed mode goes through `executeServerRender()` and the Celery pipeline. |
 | Chunked upload | `POST /upload/init` → `PUT /upload/{id}/chunk?index=N` (2 MB chunks) → `POST /upload/{id}/complete`; 4 files in parallel; 50 MB per-file limit; UUID path-traversal guard on chunk + complete |
 | Render submission | `POST /api/editor/render` — accepts layout name, order_id, canvases[] with per-frame upload_id + transform data; returns `{ job_id, status_url }` (HTTP 202) |
 | Per-frame transforms | Every frame stores `offset_x, offset_y` (canvas-space pan), `scale` (zoom multiplier), `rotation` (degrees), `fit_mode` (cover/contain) in `CanvasData.editor_state` JSON; `render_canvas_task` extracts these and passes to the engine |
@@ -275,7 +350,7 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 | Area | Issue | Fix |
 |---|---|---|
 | `DEBUG` default | `DEBUG = os.getenv("DEBUG", "1") == "1"` defaulted to ON; missing env var would expose stack traces in prod | Flipped to default `"0"` — production-safe even when env var absent |
-| Pillow memory leak | `_generate_for_surface` / `_generate_soft_proof_for_surface` kept canvas / CMYK / preview Image objects alive across iterations; PIL file handles never released | Added `import gc`; switched source loads to `with Image.open(...) as src`; explicit `.close()` + `del` + `gc.collect()` after each canvas; mask + intermediate `canvas_rgba` also closed |
+| Pillow memory leak | `_generate_for_surface` kept canvas / intermediate Image objects alive across iterations; PIL file handles never released | Added `import gc`; switched source loads to `with Image.open(...) as src`; explicit `.close()` + `del` + `gc.collect()` after each canvas; mask images also closed |
 | Worker churn | `worker_max_tasks_per_child = 10` recycled workers too aggressively given new memory hygiene | Bumped to 50; documented dependency on engine.py cleanup |
 | GC task hang | `garbage_collector_task` had no time limit — a hung sweep could block a worker indefinitely | Added `soft_time_limit=3300`, `time_limit=3600` |
 | DB CONN_MAX_AGE | Default 60 s caused constant reconnects under Gunicorn + Celery fan-out | Raised to 600 s; documented `0` if PgBouncer fronts |
@@ -327,7 +402,7 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 | Scalability | Linear with headcount | Scales with server capacity (horizontal) |
 | Error rate | Inconsistent across operators | Deterministic — same input always produces same output |
 | Customer experience | No preview; blind trust | Full preview before payment |
-| Colour accuracy | No pre-checkout colour check | CMYK soft-proof with gamut warnings |
+| Colour accuracy | No pre-checkout colour check | RGB-space CMYK detection warns customers before checkout |
 | Order hold risk | High — cx response delay | Eliminated — no post-checkout hold |
 | Cancellation risk | Moderate — frustrated cx cancel | Minimal — cx approved before paying |
 | Peak load handling | Fixed preflight team capacity | Async queue — horizontally scalable worker pool |

@@ -246,14 +246,13 @@ export function applySnapToGrid(
   });
 }
 
-// ─── Aligning Guidelines (via fabric-guideline-plugin) ──────────────────────
+// ─── Aligning Guidelines ────────────────────────────────────────────────────
 //
-// Uses the community-maintained plugin for visual snap guides (like Canva/Figma).
-// Handles edge alignment, center alignment, and visual feedback lines.
-// See: https://github.com/caijinyc/fabric-guideline-plugin
-
-// @ts-ignore - plugin lacks type definitions
-// import { AlignGuidelines } from 'fabric-guideline-plugin';
+// `fabric-guideline-plugin` was previously listed as a dep but is incompatible
+// with Fabric v7 and was never actually wired in. Dependency removed; this stub
+// stays so callers (FabricEditor) compile, and is a placeholder if/when we add
+// a v7-compatible alignment system. Use `createCenterGuides()` below for the
+// static centre lines we actually render today.
 
 export interface AligningGuidelinesOptions {
   lineColor?: string;
@@ -263,18 +262,14 @@ export interface AligningGuidelinesOptions {
 }
 
 /**
- * Initialize aligning guidelines on a Fabric canvas.
- * Call once after canvas creation. Returns the AlignGuidelines instance
- * (currently the plugin has no destroy method, but the instance is returned
- * in case a future version adds one).
+ * No-op stub. Returns null; callers tolerate that. Args prefixed with `_` so
+ * the linter doesn't flag them as unused while the signature stays a drop-in
+ * for the future v7-compatible implementation.
  */
 export function initAligningGuidelines(
-  canvas: Canvas,
-  options: AligningGuidelinesOptions = {},
-): any {
-  // Plugin is incompatible with Fabric v7
-  // const guideline = new AlignGuidelines({ ... });
-  // guideline.init();
+  _canvas: Canvas,
+  _options: AligningGuidelinesOptions = {},
+): null {
   return null;
 }
 

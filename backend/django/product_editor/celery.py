@@ -31,6 +31,12 @@ app.conf.task_routes = {
 app.conf.worker_prefetch_multiplier = 1   # fetch one task at a time per worker slot
 app.conf.worker_max_tasks_per_child = 50  # recycle workers to amortise startup; engine.py closes Pillow images + gc.collect per canvas
 app.conf.task_acks_late = True            # ack only after task completes
+# Visibility timeout for the Redis broker — how long an in-flight task stays
+# "invisible" to other workers before being re-delivered. Default is 1 hour;
+# tighten to 20 min so a worker crash mid-render gets retried within ~20 min
+# instead of stalling for an hour. 20 min > render_canvas_task hard limit
+# (10 min) so a healthy long-running task is never re-queued behind itself.
+app.conf.broker_transport_options = {'visibility_timeout': 1200}
 app.conf.task_reject_on_worker_lost = True  # requeue if worker process dies
 
 # ── Result expiry ────────────────────────────────────────────────────────────

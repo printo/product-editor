@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-Product Editor is a full-stack print-automation platform for Printo.in. Customers upload and compose photos on an interactive canvas editor; post-checkout, the system asynchronously renders high-resolution print files (PNG or CMYK TIFF) and pushes them to the production estimator (OMS), replacing manual preflight.
+Product Editor is a full-stack print-automation platform for Printo.in. Customers upload and compose photos on an interactive canvas editor; post-checkout, the system asynchronously renders 300-DPI print files (PNG, with PDF as an alternate format) and pushes them to the production estimator (OMS), replacing manual preflight.
 
 ## Commands
 
@@ -50,30 +50,32 @@ API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # 10-step embed-f
 
 ### Key Data Flow
 
-**Client-side path (≤ 20 canvases):**
-1. Customer interacts with Fabric.js canvas editor (`frontend/nextjs/src/app/editor/`)
-2. On download/submit, `executeBatchDownload` or `handleSubmitDesign` renders canvases client-side via `fabric-renderer.ts`
-3. For embed: `window.parent.postMessage({ type: 'PRODUCT_EDITOR_COMPLETE', canvases: [...dataUrls] })` fires and the parent caller handles the data URLs directly
-4. For dashboard: a ZIP of rendered PNGs is assembled in-browser and downloaded
+All exports go through one unified server-side pipeline. The previous client-side "≤ 20 canvases → render in browser" shortcut was removed in v1.8 — every Submit/Download triggers a Celery render job, regardless of canvas count. Trade-off: small jobs pay an extra ~10–20 s of upload + poll latency; gains a single contract that handles webhooks, large batches, and resumable uploads identically.
 
-**Server-side path (> 20 canvases — embed or dashboard):**
-1. `executeServerRender()` in `page.tsx` kicks in above the `SERVER_RENDER_THRESHOLD = 20`
-2. All uploaded `File` objects are sent to Django via the chunked upload API (2 MB chunks, 4 parallel files) using `src/lib/upload-utils.ts`
-3. Frontend POSTs to `POST /api/editor/render` with the layout name, `order_id`, and full `canvases[]` payload containing per-frame `upload_id` + transform data
-4. Backend creates `CanvasData` + `RenderJob` and dispatches `render_canvas_task` to Celery
-5. For **embed**: frontend fires `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` — parent polls status independently; no download UI shown
-6. For **dashboard**: frontend polls `GET /api/render-status/{job_id}/` every 4 s, then fetches the completed ZIP via `GET /api/jobs/{job_id}/download/`
-7. Celery worker: `render_canvas_task` calls `LayoutEngine` with per-frame transforms extracted from `CanvasData.editor_state` → Pillow renders at 300 DPI → `push_to_production_estimator_task` → OMS
+**Editor → render → OMS push:**
 
-**OMS (legacy flow):**
-- `GenerateLayoutView` still exists for the direct OMS POST flow (non-embed); routes to sync or async Celery path
+1. Customer interacts with Fabric.js canvas editor (`frontend/nextjs/src/app/editor/`).
+2. On Save & Continue (embed) or Download (dashboard), `executeServerRender()` in `page.tsx`:
+   - Uploads every `File` via the chunked upload API (2 MB chunks, 4 parallel) using `src/lib/upload-utils.ts`
+   - POSTs to `/api/editor/render` with `{ layout_name, order_id, canvases[] }` (per-frame `upload_id` + transform data)
+3. Backend creates `CanvasData` + `RenderJob`, dispatches `render_canvas_task` to Celery.
+4. Celery worker: `LayoutEngine` consumes per-frame transforms from `CanvasData.editor_state` → Pillow renders at 300 DPI (PNG by default; PDF when `export_format='pdf'`) → `push_to_production_estimator_task`.
+5. **OMS push** — POSTs to `OMS_PRODUCTION_ESTIMATOR_URL` with the legacy payload.
+6. **Customer webhook** (if `EmbedSession.callback_url` was set at session creation) — POSTs to that URL with `{ order_id, job_id, status, download_url, expires_at, file_count, layout_name, export_format }` plus an `X-Signature: sha256=<hmac>` header signed with the api_key. The caller fetches the ZIP from `download_url` using their api_key as Bearer auth.
+7. Frontend behaviour after submit:
+   - **Embed**: fires `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` so the parent's UI can show "your design is being prepared". The actual file delivery happens via the webhook (above), not via postMessage.
+   - **Dashboard**: polls `/api/render-status/{job_id}/` with exponential backoff, then fetches the ZIP from `/api/jobs/{job_id}/download/`.
+
+**OMS (legacy direct POST flow):**
+- `GenerateLayoutView` still exists for direct OMS callers that bypass the embed flow.
+- Same output contract: `export_format` is `'png'` (default) or `'pdf'`. The legacy `soft_proof` / `tiff_cmyk` / `callback_url` body params were all removed in v1.8 — direct callers should poll `/api/render-status/<job_id>/`. Webhooks are configured exclusively via `EmbedSession.callback_url`.
 
 ### Frontend Structure
 - `src/pia-auth.ts` — NextAuth v5 config; Credentials provider hits PIA; `jwt`/`session`/`redirect` callbacks; custom `CredentialsSignin` subclasses for outage vs. timeout; PIA fetches use `AbortSignal.timeout(10_000)`
 - `src/proxy.ts` — Next.js 16 proxy file (formerly `middleware.ts`). Server-side auth gate for `/dashboard/*` and `/editor/layouts/*`; bounces logged-in users away from `/login`. Excludes `/editor/layout/[name]` because that route serves both dashboard and embed flows.
 - `src/app/login/page.tsx` + `src/app/actions/auth.ts` — login form + server action; per-IP rate limit (5/min, in-memory); maps `PiaTimeout` / `PiaServiceUnavailable` codes to user-facing messages
 - `src/types/next-auth.d.ts` — type augmentation for `Session` (`error`, `is_ops_team`, `accessToken`, `user.role`) and `JWT` — never use `(session as any)`
-- `src/app/editor/layout/[name]/page.tsx` — Main editor page; contains `executeServerRender`, `executeBatchDownload`, `handleSubmitDesign`; threshold constant `SERVER_RENDER_THRESHOLD = 20`; dual-mode (dashboard session vs. embed token)
+- `src/app/editor/layout/[name]/page.tsx` — Main editor page. Single render path via `executeServerRender()` regardless of canvas count. `handleSubmitDesign` (embed "Save & Continue") and `executeBatchDownload` (dashboard "Download") are thin wrappers that both call it. Dual-mode (dashboard session vs. embed token).
 - `src/components/` — React components (FabricEditor.tsx is the canvas core)
 - `src/lib/fabric-renderer.ts` — Off-screen canvas renderer for previews and exports; uses pre-computed `frameRects[]` array to avoid repeated coordinate recalculation
 - `src/lib/image-utils.ts` — Image metadata extraction; WeakMap caches only `{width, height, orientation}` (not the HTMLImageElement — would OOM at 200 files)
@@ -86,9 +88,9 @@ API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # 10-step embed-f
 ### Backend Structure
 - `api/views.py` — `GenerateLayoutView`, `RenderStatusView`, `EditorRenderView` (chunked-upload render submission), `ChunkedUploadInitView/ChunkView/CompleteView`, `EmbedSessionView/ValidateView`, `RenderJobDownloadView`, `HealthView` (`GET /api/health`, public, used by Docker healthchecks), `SKULayoutView` (`GET/PUT /api/sku-layouts/[<sku>/]` — see Storage Files below)
 - `api/tasks.py` — `render_canvas_task` (calls `_extract_frame_transforms` → `LayoutEngine`), `push_to_production_estimator_task`, `garbage_collector_task` (has `soft_time_limit=3300` / `time_limit=3600`)
-- `api/models.py` — `APIKey`, `EmbedSession` (+ `order_id` field), `CanvasData` (+ `editor_state` JSON), `RenderJob`, `UploadedFile` (+ `upload_session_id`), `ExportedResult`
+- `api/models.py` — `APIKey`, `EmbedSession` (+ `order_id` + `callback_url` fields), `CanvasData` (+ `editor_state` JSON, + `callback_url` propagated from EmbedSession), `RenderJob`, `UploadedFile` (+ `upload_session_id`), `ExportedResult`
 - `api/validators.py` — `MAX_FILE_SIZE_MB` reads from `settings.MAX_UPLOAD_FILE_SIZE_MB` (single source via env)
-- `layout_engine/engine.py` — Pillow-based high-res PNG/CMYK TIFF renderer; `_smart_downscale()` pre-shrinks source images to 2× frame target; per-frame pan/zoom/rotation from `frame_transforms`; explicit `Image.close()` + `gc.collect()` between canvases
+- `layout_engine/engine.py` — Pillow-based high-res PNG/PDF renderer at 300 DPI; `_smart_downscale()` pre-shrinks source images to 2× frame target (BOX resample); 90/180/270° rotation fast-path via `Image.transpose`; per-frame pan/zoom/rotation from `frame_transforms`; explicit `Image.close()` + `gc.collect()` between canvases. CMYK/soft-proof pipeline removed in v1.8.
 - `product_editor/celery.py` — Queue routing (priority vs. standard), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
 - `product_editor/settings.py` — `csp.middleware.CSPMiddleware` is wired in after `SecurityMiddleware`; CSP starts in report-only mode via `CSP_REPORT_ONLY`
 - **Backend Dockerfile** is multi-stage — builder installs `build-essential` + `libpq-dev` to compile wheels; runner ships only `libpq5` + the venv. Drops ~250 MB from the final image.
@@ -115,7 +117,7 @@ Always call `transaction.on_commit(lambda: task.apply_async(...))` **inside** th
 
 ### When It Triggers
 
-`SERVER_RENDER_THRESHOLD = 20` in `page.tsx`. Both the embed Submit button (`handleSubmitDesign`) and the dashboard Download button (`executeBatchDownload`) check this threshold before deciding which path to take.
+Always. The embed "Save & Continue" button (`handleSubmitDesign`) and the dashboard ZIP download button (`executeBatchDownload`) both call `executeServerRender()` unconditionally. The previous threshold-based split was removed in v1.8.
 
 ### Frontend Steps (`executeServerRender`)
 
@@ -152,7 +154,6 @@ POST /upload/{upload_id}/complete
   "layout_name": "circle_48mm",
   "order_id": "EXT-JOB-123",
   "export_format": "png",
-  "soft_proof": false,
   "canvases": [
     {
       "canvas_index": 0,
@@ -183,22 +184,48 @@ Response `202`:
 ### Embed Session & Order ID Flow
 
 ```
-Caller (printo.in)  →  POST /api/embed/session { order_id: "EXT-JOB-123" }
-                    ←  { token: "<uuid>", order_id: "EXT-JOB-123" }
+Caller (printo.in)  →  POST /api/embed/session
+                       { order_id: "EXT-JOB-123",
+                         callback_url: "https://printo.in/api/internal/pe-callback" }
+                    ←  { token: "<uuid>", order_id, callback_url, expires_at }
 
 iframe loads with  ?token=<uuid>
 
 Every iframe request → embed proxy resolveSession(token)
                     → checks path allowlist (rejects /ops, /admin, etc. with 403)
-                    → caches { apiKey, orderId, exp } for 110 min
-                    → injects X-Order-ID: EXT-JOB-123 on every upstream request
+                    → caches { apiKey, orderId, callbackUrl, exp } for 110 min
+                    → injects X-Order-ID + X-Callback-URL on every upstream request
 
-EditorRenderView reads X-Order-ID header (priority over body order_id)
+EditorRenderView reads X-Order-ID + X-Callback-URL headers, persists onto CanvasData
+
+After Celery render completes:
+push_to_production_estimator_task → POSTs OMS payload to OMS_PRODUCTION_ESTIMATOR_URL
+                                  → POSTs webhook payload to canvas.callback_url
+                                  → HMAC-SHA256(api_key.key, raw_body) in X-Signature header
 ```
 
-`order_id` never appears in the iframe URL — it flows: caller → session DB → proxy in-process cache → `X-Order-ID` header → Django.
+Neither `order_id` nor `callback_url` ever appears in the iframe URL — they flow: caller → session DB → proxy in-process cache → `X-Order-ID` / `X-Callback-URL` headers → Django.
 
 `order_id` is validated server-side at session creation: `^[A-Za-z0-9_.\-]{1,64}$`. Anything else is rejected with 400.
+
+`callback_url` (optional) is validated at session creation: must be `https://`, max 2000 chars. No domain allowlist — auth is enforced by the api_key the caller already holds, and the HMAC signature lets them verify the request actually came from us.
+
+**Webhook payload (sent to `EmbedSession.callback_url` on completion):**
+
+```json
+{
+  "order_id":      "EXT-JOB-123",
+  "job_id":        "<RenderJob uuid>",
+  "status":        "completed" | "failed",
+  "download_url":  "https://product-editor.printo.in/api/jobs/<uuid>/download/",
+  "expires_at":    "<ISO 8601>",
+  "file_count":    12,
+  "layout_name":   "circle_48mm",
+  "export_format": "png"
+}
+```
+
+Headers: `Content-Type: application/json`, `X-Signature: sha256=<hex>`. Caller verifies with `hmac.compare_digest(hmac.new(api_key, raw_body, sha256).hexdigest(), signature)`. Then fetches `download_url` with their api_key as `Authorization: Bearer <key>` to get the ZIP.
 
 **Embed proxy path allowlist** ([route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts:124)) — only these prefixes pass through:
 
@@ -217,8 +244,7 @@ Anything else returns 403 *before* token resolution, so an attacker can't probe 
 
 | Type | Sender | When | Payload |
 |---|---|---|---|
-| `pe:render_job` | Product Editor iframe | Server-side render submitted (embed, > 20 canvases) | `{ type, jobId, orderID }` |
-| `PRODUCT_EDITOR_COMPLETE` | Product Editor iframe | Client-side render complete (embed, ≤ 20 canvases) | `{ type, layoutName, canvases: [{index, dataUrl}] }` |
+| `pe:render_job` | Product Editor iframe | After every embed submit; parent's frontend uses this for "preparing your design" UX. Actual file delivery is via the webhook (see `EmbedSession.callback_url`). | `{ type, jobId, orderID }` |
 
 **targetOrigin is locked, never `'*'`.** Resolution chain in [editor page](frontend/nextjs/src/app/editor/layout/[name]/page.tsx) `parentOrigin`: `window.location.ancestorOrigins[0]` (Chromium/Safari) → `document.referrer` origin → `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` env → `https://printo.in` default. So an unrelated outer page can't eavesdrop on completion payloads (which include order_id, job_id, and dataUrls for client-rendered jobs).
 
@@ -226,7 +252,7 @@ Anything else returns 403 *before* token resolution, so an attacker can't probe 
 
 - **Smart downscaling** (`_smart_downscale`): pre-shrinks source image to `(frame_target_w × 2, frame_target_h × 2)` before compositing. 12 MP photo → 400 px frame reduces working pixels from 12 M to ~0.64 M (~95% memory reduction per frame).
 - **PNG output**: written without `optimize=True` because the extra DEFLATE pass was a download bottleneck under high concurrency. ZIP archives use `STORED` (no compression) — most images are already PNG-compressed, so DEFLATE on top adds latency without meaningful size reduction.
-- **Memory hygiene**: source images are loaded inside a `with Image.open(...) as src` block so file handles release immediately. After each canvas, `_generate_for_surface` and `_generate_soft_proof_for_surface` call `.close()` on the canvas + intermediate CMYK / preview Images, `del` the references, and run `gc.collect()`. Mask images and resized masks are also closed. Without this, 200-canvas batches accumulated several GB of resident PIL state before the worker recycled.
+- **Memory hygiene**: source images are loaded inside a `with Image.open(...) as src` block so file handles release immediately. After each canvas, `_generate_for_surface` calls `.close()` on the canvas + intermediate Images, `del` the references, and runs `gc.collect()`. Mask images and resized masks are also closed. Without this, 200-canvas batches accumulated several GB of resident PIL state before the worker recycled.
 - **Per-frame transforms** (applied by `_composite_canvas`):
   1. Rotation: `img.rotate(-rotation, expand=True)`
   2. Smart downscale to 2× target
@@ -340,7 +366,7 @@ For SKU mapping: PUT validates that every `layout_name` exists on disk before pe
 
 ## Migrations
 
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0006_embedsession_order_id`.
+Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0007_exportedresult_gc_partial_index`.
 
 | Migration | Change |
 |---|---|
@@ -350,6 +376,7 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 | 0004 | `CanvasData.updated_at` + GC index |
 | 0005 | `CanvasData` uniqueness changed to `(order_id, api_key)` — tenant isolation |
 | 0006 | `EmbedSession.order_id` — stores caller's job ID; injected as `X-Order-ID` by embed proxy |
+| 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` (webhook URL, propagated to CanvasData via `X-Callback-URL` header) |
 
 ## Frontend Proxy Routes
 
@@ -431,7 +458,7 @@ The full prioritised list is in [PRD.md](PRD.md) §8 — these are the items tha
 2. **(Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50`** to prod `.env` if you want a non-default ceiling. Default 50 if absent.
 3. **(Optional) Add `CSP_REPORT_ONLY=True`** — already the default; only set explicitly if you want to flip it later.
 4. **Rebuild the backend image.** `requirements.txt` gained `django-csp==3.8` and the Dockerfile is now multi-stage. `deploy.sh` already runs `docker-compose build`, so this happens automatically.
-5. **No new migrations.** Latest is still `0006_embedsession_order_id`. Keep running `docker-compose exec backend python manage.py migrate` after deploy as the standard step — it'll be a no-op if 0006 is already applied.
+5. **One new migration: `0007_exportedresult_gc_partial_index`.** Bundles four operations (see Migrations table). Drops `CanvasData.soft_proof`, constrains `export_format` choices, adds GC partial index, adds `EmbedSession.callback_url`. Run `docker-compose exec backend python manage.py migrate` after deploy.
 6. **Verify healthchecks come up green** — `docker-compose ps` should show `(healthy)` next to `backend` and `frontend`. The backend probe hits `/api/health`; the frontend probe hits `/`. Frontend now `depends_on: backend: { condition: service_healthy }`, so a slow backend will block frontend startup until ready.
 7. **Smoke-test login on prod** — bad password should still say "Invalid credentials"; if PIA is reachable, login should succeed. The new error-code distinction (PiaTimeout / PiaServiceUnavailable) only surfaces during actual outages.
 
@@ -442,7 +469,7 @@ The full prioritised list is in [PRD.md](PRD.md) §8 — these are the items tha
 | Populate SKU mapping | `PUT /api/sku-layouts/` with real Printo SKU codes (top 5 SKUs from PRD: fridge magnets, photo prints, canvas prints, coasters, photo mugs). The endpoint exists; the data is empty. | Viji / Catalog Ops |
 | Monitor CSP violations | Watch DevTools / browser console / future report endpoint while CSP is in report-only. Flip `CSP_REPORT_ONLY=False` once the policy is validated against the editor (Fabric.js `'unsafe-eval'`) and embed iframe (`frame-ancestors`). | Kanna |
 | Triage 18 react-hooks warnings | `pnpm lint` lists them. Mostly `react-hooks/exhaustive-deps` and the new v7 `purity` / `set-state-in-effect` / `refs` / `immutability` rules. Promote each to `error` once the existing offenders are fixed. | Kanna |
-| printo.in postMessage listener | The parent storefront still needs to listen for `pe:render_job` and poll `/api/render-status` for the embed > 20-canvas flow. | Frontend (printo.in) |
+| printo.in webhook endpoint | Their backend needs to: (1) accept `POST /api/internal/pe-callback` with the v1.8 webhook payload, (2) verify `X-Signature` HMAC against the api_key, (3) fetch `download_url` with the api_key as Bearer auth, (4) attach the ZIP to the order. Their frontend can also listen for `pe:render_job` postMessage for "preparing your design" UX. | printo.in backend + frontend |
 | Direct-to-production webhook | Post-checkout push to OMS for the legacy sync flow. | Kanna |
 | Rate limiter → Redis | If the frontend container is ever scaled horizontally, swap the in-memory `Map` in `src/app/actions/auth.ts` for a Redis-backed limiter. Current single-process limiter is fine for the current single-replica deploy. | Kanna / DevOps |
 | (Eventually) flip `tsconfig.json` `strict: true` | Requires typing the ~200 `as any` Fabric.js casts; not blocking. | Kanna |

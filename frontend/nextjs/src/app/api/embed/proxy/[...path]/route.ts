@@ -37,7 +37,7 @@ const INTERNAL_SECRET = process.env.EMBED_INTERNAL_SECRET || '';
 // ── In-process token → API key cache ─────────────────────────────────────────
 // Module-level so it persists across requests within the same Next.js worker
 // process (Node.js keeps module scope alive between hot invocations).
-interface CacheEntry { apiKey: string; orderId: string | null; exp: number }
+interface CacheEntry { apiKey: string; orderId: string | null; callbackUrl: string | null; exp: number }
 const tokenCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 110 * 60 * 1000; // 110 minutes (session TTL is 120 min)
 // Hard cap to prevent unbounded growth in pathological scenarios
@@ -63,10 +63,10 @@ function evictExpired(): void {
   }
 }
 
-interface SessionInfo { apiKey: string; orderId: string | null }
+interface SessionInfo { apiKey: string; orderId: string | null; callbackUrl: string | null }
 
 /**
- * Exchange an embed token for the real API key and order_id.
+ * Exchange an embed token for the real API key, order_id, and callback_url.
  * Returns the cached value if still valid; otherwise hits Django's internal
  * validate endpoint and stores the result.
  */
@@ -75,7 +75,9 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
 
   // Fast path: valid cached entry.
   const cached = tokenCache.get(embedToken);
-  if (cached && cached.exp > now) return { apiKey: cached.apiKey, orderId: cached.orderId };
+  if (cached && cached.exp > now) {
+    return { apiKey: cached.apiKey, orderId: cached.orderId, callbackUrl: cached.callbackUrl };
+  }
 
   // Cache miss — purge stale entries then fetch from Django.
   evictExpired();
@@ -95,8 +97,9 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
     const apiKey: string | null = data.api_key ?? null;
     if (apiKey) {
       const orderId: string | null = data.order_id || null;
-      tokenCache.set(embedToken, { apiKey, orderId, exp: now + CACHE_TTL_MS });
-      return { apiKey, orderId };
+      const callbackUrl: string | null = data.callback_url || null;
+      tokenCache.set(embedToken, { apiKey, orderId, callbackUrl, exp: now + CACHE_TTL_MS });
+      return { apiKey, orderId, callbackUrl };
     }
     return null;
   } catch {
@@ -112,6 +115,7 @@ const ALLOWED_PATH_PREFIXES = [
   'layouts',           // GET layout details (no list/manage)
   'canvas-state',      // editor auto-save / restore
   'editor/render',     // server-side render submission
+  'editor/init',       // batched layout + fonts on editor mount (C6)
   'render-status',     // poll render status
   'jobs',              // download completed render
   'upload',            // chunked file upload
@@ -154,7 +158,7 @@ async function handler(
   if (!session) {
     return NextResponse.json({ detail: 'Invalid or expired embed token' }, { status: 401 });
   }
-  const { apiKey, orderId } = session;
+  const { apiKey, orderId, callbackUrl } = session;
 
   const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${req.nextUrl.search}`;
 
@@ -166,6 +170,10 @@ async function handler(
   };
   // Inject the caller's order_id for the render endpoint so Django can track the job
   if (orderId) forwardHeaders['X-Order-ID'] = orderId;
+  // Callback URL flows through the same header pattern. EditorRenderView reads
+  // it and stamps onto CanvasData.callback_url; the Celery task POSTs the
+  // completion payload to it. The customer in the iframe never sees this.
+  if (callbackUrl) forwardHeaders['X-Callback-URL'] = callbackUrl;
   // Only set Content-Type when we'll actually have a body — for GET/HEAD
   // it's meaningless and some upstreams reject the combination.
   if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {

@@ -9,6 +9,11 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 if "backend" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("backend")
 
+# PUBLIC_HOST is the customer-facing hostname (no scheme). Used by callback
+# payloads to construct absolute download URLs the caller can fetch over the
+# public internet — `download_url` in push_to_production_estimator_task.
+PUBLIC_HOST = os.getenv("PUBLIC_HOST", "")
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 

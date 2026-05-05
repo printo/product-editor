@@ -101,37 +101,18 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         frame_transforms = _extract_frame_transforms(canvas.editor_state)
 
         try:
-            if canvas.soft_proof:
-                logger.info(
-                    "Job %s: soft-proof rendering for layout '%s'",
-                    job_id, canvas.layout_name,
-                )
-                outputs = engine.generate_soft_proof(
-                    canvas.layout_name,
-                    canvas.image_paths,
-                    fit_mode=canvas.fit_mode,
-                    frame_transforms=frame_transforms,
-                )
-                output_paths = []
-                for result in outputs:
-                    output_paths.extend([
-                        result['png'],
-                        result['tiff_cmyk'],
-                        result['cmyk_preview'],
-                    ])
-            else:
-                logger.info(
-                    "Job %s: standard rendering for layout '%s' format '%s'",
-                    job_id, canvas.layout_name, canvas.export_format,
-                )
-                outputs = engine.generate(
-                    canvas.layout_name,
-                    canvas.image_paths,
-                    fit_mode=canvas.fit_mode,
-                    export_format=canvas.export_format,
-                    frame_transforms=frame_transforms,
-                )
-                output_paths = outputs
+            logger.info(
+                "Job %s: rendering layout '%s' format '%s'",
+                job_id, canvas.layout_name, canvas.export_format,
+            )
+            outputs = engine.generate(
+                canvas.layout_name,
+                canvas.image_paths,
+                fit_mode=canvas.fit_mode,
+                export_format=canvas.export_format,
+                frame_transforms=frame_transforms,
+            )
+            output_paths = outputs
 
         except MemoryError:
             # MemoryError is unrecoverable — skip retries immediately.
@@ -224,7 +205,8 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
 )
 def push_to_production_estimator_task(self, canvas_data_id: str, output_paths: list):
     """
-    Notify Production_Estimator (OMS) that rendering is complete.
+    Notify Production_Estimator (OMS) and the caller's webhook that rendering
+    is complete.
 
     Runs as a separate Celery task so it never blocks a render worker slot.
     Retries up to 5 times with exponential backoff via self.retry().
@@ -232,14 +214,34 @@ def push_to_production_estimator_task(self, canvas_data_id: str, output_paths: l
 
     Args:
         canvas_data_id: UUID string of CanvasData record
-        output_paths:   List of generated file paths
+        output_paths:   List of generated file paths (server-side absolute paths)
+
+    Webhook payload (sent to canvas.callback_url, set via EmbedSession):
+        {
+          "order_id":      "<caller's id>",
+          "job_id":        "<RenderJob uuid>",
+          "status":        "completed",
+          "download_url":  "https://.../api/jobs/<uuid>/download/",
+          "expires_at":    "<ISO 8601 timestamp>",
+          "file_count":    <int>,
+          "layout_name":   "<name>",
+          "export_format": "png" | "pdf"
+        }
+    Signed with HMAC-SHA256(api_key.key, raw_body) sent in `X-Signature` header
+    so the caller can verify the request came from us.
     """
+    import hmac
+    import hashlib
+    import json as _json
+    from datetime import timedelta
     import requests
-    from api.models import CanvasData
+    from api.models import CanvasData, RenderJob
 
-    canvas = CanvasData.objects.get(id=canvas_data_id)
+    canvas = CanvasData.objects.select_related('api_key').get(id=canvas_data_id)
 
-    payload = {
+    # OMS estimator gets the legacy payload — we control both ends, no need to
+    # restructure here. The customer-facing webhook below uses a richer payload.
+    oms_payload = {
         'order_id': canvas.order_id,
         'output_files': output_paths,
         'layout_name': canvas.layout_name,
@@ -249,7 +251,7 @@ def push_to_production_estimator_task(self, canvas_data_id: str, output_paths: l
     try:
         response = requests.post(
             settings.OMS_PRODUCTION_ESTIMATOR_URL,
-            json=payload,
+            json=oms_payload,
             timeout=10,
         )
         response.raise_for_status()
@@ -258,18 +260,80 @@ def push_to_production_estimator_task(self, canvas_data_id: str, output_paths: l
             canvas.order_id, self.request.retries + 1,
         )
 
-        # Fire the per-request callback URL if one was stored at submission time.
+        # Caller webhook — fire if EmbedSession.callback_url propagated through.
         if canvas.callback_url:
             try:
+                # Resolve the most recent completed RenderJob for this canvas
+                # so the caller can fetch its ZIP via the download URL.
+                rjob = (RenderJob.objects
+                        .filter(canvas_data=canvas, status='completed')
+                        .order_by('-completed_at')
+                        .first())
+                job_id = str(rjob.id) if rjob else None
+
+                # Where will the ZIP live? Resolve once so the caller doesn't
+                # have to know the host: prefer PUBLIC_HOST + https; fall back
+                # to OMS_PRODUCTION_ESTIMATOR_URL's origin if missing.
+                public_host = (
+                    getattr(settings, 'PUBLIC_HOST', None)
+                    or os.getenv('PUBLIC_HOST', '')
+                )
+                if public_host and not public_host.startswith('http'):
+                    base = f'https://{public_host}'
+                else:
+                    base = public_host or ''
+                download_url = (
+                    f'{base}/api/jobs/{job_id}/download/'
+                    if (base and job_id) else None
+                )
+
+                # Files are GC'd 30 days after CanvasData creation by default
+                # (see garbage_collector_task retention). Surface that to the
+                # caller so they can plan when to fetch.
+                expires_at = (
+                    canvas.expires_at.isoformat()
+                    if canvas.expires_at
+                    else (canvas.created_at + timedelta(days=30)).isoformat()
+                )
+
+                webhook_payload = {
+                    'order_id':      canvas.order_id,
+                    'job_id':        job_id,
+                    'status':        'completed',
+                    'download_url':  download_url,
+                    'expires_at':    expires_at,
+                    'file_count':    len(output_paths or []),
+                    'layout_name':   canvas.layout_name,
+                    'export_format': canvas.export_format,
+                }
+                # Sign the raw bytes so the caller can verify byte-for-byte.
+                # Uses the api_key.key as the shared secret — same key the
+                # caller used to create the EmbedSession, so they already have it.
+                raw_body = _json.dumps(webhook_payload, separators=(',', ':')).encode('utf-8')
+                signature = hmac.new(
+                    canvas.api_key.key.encode('utf-8'),
+                    raw_body,
+                    hashlib.sha256,
+                ).hexdigest()
+
                 cb_response = requests.post(
                     canvas.callback_url,
-                    json={**payload, 'status': 'completed'},
+                    data=raw_body,
+                    headers={
+                        'Content-Type': 'application/json',
+                        'X-Signature': f'sha256={signature}',
+                    },
                     timeout=10,
                 )
                 cb_response.raise_for_status()
-                logger.info("Callback delivered to %s for order %s", canvas.callback_url, canvas.order_id)
+                logger.info(
+                    "Callback delivered to %s for order %s (job=%s)",
+                    canvas.callback_url, canvas.order_id, job_id,
+                )
             except Exception as cb_exc:
-                # Callback failure is non-fatal — log and continue.
+                # Callback failure is non-fatal — log and continue. The OMS
+                # payload above already succeeded; manual review is reserved
+                # for cases where BOTH OMS + callback fail (after retries).
                 logger.warning(
                     "Callback to %s failed for order %s: %s",
                     canvas.callback_url, canvas.order_id, cb_exc,
@@ -287,6 +351,33 @@ def push_to_production_estimator_task(self, canvas_data_id: str, output_paths: l
             )
             canvas.requires_manual_review = True
             canvas.save(update_fields=['requires_manual_review'])
+
+            # Final OMS failure — also notify the caller webhook (if set) with
+            # status=failed so their order flow can react.
+            if canvas.callback_url:
+                try:
+                    fail_payload = {
+                        'order_id': canvas.order_id,
+                        'status': 'failed',
+                        'error': 'Production estimator push failed after retries',
+                        'layout_name': canvas.layout_name,
+                    }
+                    raw_body = _json.dumps(fail_payload, separators=(',', ':')).encode('utf-8')
+                    signature = hmac.new(
+                        canvas.api_key.key.encode('utf-8'),
+                        raw_body, hashlib.sha256,
+                    ).hexdigest()
+                    requests.post(
+                        canvas.callback_url,
+                        data=raw_body,
+                        headers={
+                            'Content-Type': 'application/json',
+                            'X-Signature': f'sha256={signature}',
+                        },
+                        timeout=10,
+                    )
+                except Exception:
+                    pass  # Best-effort; manual review will catch it.
         else:
             delay = 2 ** retry_number  # 1s, 2s, 4s, 8s, 16s
             logger.warning(

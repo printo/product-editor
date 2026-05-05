@@ -45,6 +45,31 @@ else
   cat /tmp/se.body; exit 1
 fi
 
+# ── 2b. Create embed session with callback_url -------------------------------
+step "2b. Create embed session with valid HTTPS callback_url"
+status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
+  -X POST "$BASE/api/embed/session" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d "{\"order_id\":\"$ORDER_ID-cb\",\"callback_url\":\"https://printo.in/webhook/test\"}")
+if [ "$status" = "201" ]; then
+  cb=$(python3 -c 'import json; print(json.load(open("/tmp/se.body"))["callback_url"])')
+  [ "$cb" = "https://printo.in/webhook/test" ] \
+    && ok "callback_url accepted and round-tripped" \
+    || bad "callback_url returned wrong value: $cb"
+else
+  bad "POST /api/embed/session with callback_url → $status (expected 201)"
+fi
+
+# ── 2c. Reject http:// callback_url -------------------------------------------
+step "2c. Reject http:// callback_url"
+status=$(curl -s -o /dev/null -w '%{http_code}' \
+  -X POST "$BASE/api/embed/session" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d "{\"order_id\":\"$ORDER_ID-bad\",\"callback_url\":\"http://printo.in/webhook\"}")
+[ "$status" = "400" ] && ok "http:// callback_url rejected with 400" || bad "Got $status (expected 400)"
+
 # ── 3. Reject invalid order_id ------------------------------------------------
 step "3. Reject malformed order_id"
 status=$(curl -s -o /tmp/se.body -w '%{http_code}' \

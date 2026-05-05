@@ -156,8 +156,12 @@ class ExportedResult(models.Model):
         indexes = [
             models.Index(fields=['api_key', 'created_at']),
             models.Index(fields=['layout_name']),
+            # Hot path for garbage_collector_task — filters on
+            # (is_deleted=False, created_at < cutoff). Leading on is_deleted
+            # so the partial scan avoids touching already-deleted rows.
+            models.Index(fields=['is_deleted', 'created_at']),
         ]
-    
+
     def __str__(self):
         return f"{self.layout_name} - {self.export_file_path} ({self.file_size_bytes} bytes)"
 
@@ -175,6 +179,11 @@ class EmbedSession(models.Model):
     # Caller's own job/order identifier — stored here so the proxy can inject it
     # as X-Order-ID without ever exposing it in the iframe URL.
     order_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    # Webhook URL the caller wants notified when the render completes. Single
+    # source of truth for embed-flow callbacks; the embed proxy injects it as
+    # X-Callback-URL on every forwarded request, EditorRenderView captures it
+    # onto CanvasData, and push_to_production_estimator_task POSTs the result.
+    callback_url = models.URLField(max_length=2000, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_revoked = models.BooleanField(default=False)
@@ -209,8 +218,15 @@ class CanvasData(models.Model):
     layout_name = models.CharField(max_length=255)
     image_paths = models.JSONField(help_text="List of uploaded file paths")
     fit_mode = models.CharField(max_length=20, default='cover')
-    export_format = models.CharField(max_length=20, default='png')
-    soft_proof = models.BooleanField(default=False)
+    # Output format — choices enforced server-side and at the API surface.
+    # Future formats can be added here once the engine + frontend support them.
+    EXPORT_FORMAT_CHOICES = (
+        ('png', 'PNG'),
+        ('pdf', 'PDF'),
+    )
+    export_format = models.CharField(
+        max_length=20, default='png', choices=EXPORT_FORMAT_CHOICES,
+    )
 
     # Full editor state — persisted on every meaningful change so the design
     # survives page refresh / navigation away before checkout.

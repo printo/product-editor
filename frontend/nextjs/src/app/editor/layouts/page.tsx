@@ -23,10 +23,23 @@ import {
   AlignCenter,
   AlignJustify,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { LayoutSVG } from '@/components/LayoutSVG';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { useHeader } from '@/context/HeaderContext';
-import { LayoutFabricPreview } from './LayoutFabricPreview';
+
+// LayoutFabricPreview pulls in Fabric.js (~400 KB gz). Defer its load until
+// the layouts list itself has rendered so the chooser UI paints fast and
+// fabric streams in alongside the row-by-row mounts. ssr:false because Fabric
+// references `window`. The placeholder matches the preview's aspect-ratio
+// container so the grid doesn't reflow when previews finish loading.
+const LayoutFabricPreview = dynamic(
+  () => import('./LayoutFabricPreview').then(m => ({ default: m.LayoutFabricPreview })),
+  {
+    ssr: false,
+    loading: () => <div className="absolute inset-0 bg-slate-100 animate-pulse rounded-md" />,
+  },
+);
 
 interface LayoutFrame {
   id?: string;

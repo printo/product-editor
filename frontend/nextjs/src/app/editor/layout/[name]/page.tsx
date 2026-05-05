@@ -223,18 +223,8 @@ export default function LayoutEditorPage() {
     }
   }, [status, session, embedToken, router]);
 
-  useEffect(() => {
-    const headers: Record<string, string> = { Accept: 'application/json' };
-    if (embedToken) {
-      headers['X-Embed-Token'] = embedToken;
-    }
-    // Internal proxy uses the NextAuth session cookie; no auth header needed.
-    const fontsUrl = embedToken ? '/api/embed/proxy/fonts' : '/api/internal/proxy/fonts';
-    fetch(fontsUrl, { headers })
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data?.fonts) setSelectedFonts(data.fonts); })
-      .catch(() => { });
-  }, [embedToken]);
+  // (Fonts are no longer fetched here — they're batched with the layout JSON
+  //  in the single /editor/init request below.)
 
   const loadGoogleFont = useCallback((fontName: string) => {
     if (fontsLoaded.has(fontName) || ['sans-serif', 'serif', 'monospace', 'cursive'].includes(fontName)) return;
@@ -256,16 +246,23 @@ export default function LayoutEditorPage() {
     const fetchLayout = async () => {
       setLayoutLoading(true);
       try {
-        const res = await fetch(`${apiBase}/layouts/${layoutName}`, {
+        // C6 batched mount: one round trip for layout JSON + fonts list.
+        // /editor/init re-uses GetLayoutView's cache, so no extra disk hit.
+        const surfacesParam = new URLSearchParams(window.location.search).get('surfaces') || '';
+        const initUrl = `${apiBase}/editor/init?layout=${encodeURIComponent(layoutName)}${surfacesParam ? `&surfaces=${encodeURIComponent(surfacesParam)}` : ''}`;
+        const res = await fetch(initUrl, {
           headers: { ...getAuthHeaders(), Accept: 'application/json' },
         });
         if (!res.ok) {
           setError(res.status === 404 ? 'Layout not found.' : 'Failed to load layout.');
           return;
         }
-        const item = await res.json();
+        const payload = await res.json();
+        const item = payload.layout;
+        if (Array.isArray(payload.fonts) && payload.fonts.length) {
+          setSelectedFonts(payload.fonts);
+        }
         let normalized = normalizeLayout(item);
-        const surfacesParam = new URLSearchParams(window.location.search).get('surfaces');
         if (surfacesParam) {
           normalized = filterSurfaces(normalized, surfacesParam.split(',').map(s => s.trim()));
         }
@@ -1432,10 +1429,11 @@ export default function LayoutEditorPage() {
     };
   }, [impositionResult, previewSheetIdx, impositionSettings, canvases, showImpositionModal]);
 
-  // Canvases beyond this threshold are rendered server-side (Celery + Pillow at 300 DPI).
-  // At or below, client-side canvas render is fast enough for direct download.
-  const SERVER_RENDER_THRESHOLD = 20;
-
+  // All exports go through the server-side pipeline (Celery + Pillow at 300 DPI).
+  // The previous "≤20 canvases → render in browser, JSZip" optimisation was
+  // removed in v1.8 — uniform contract, predictable progress UI, and the
+  // server pipeline is faster on big jobs while the small-job overhead
+  // (~10–20 s of upload + poll) is acceptable.
   const executeServerRender = async () => {
     setIsDownloading(true);
     setServerRenderLabel('Preparing upload…');
@@ -1580,114 +1578,23 @@ export default function LayoutEditorPage() {
     }
   };
 
+  // Dashboard ZIP download: always server-render. The previous client-side
+  // path (in-browser canvas-to-blob → JSZip → downloadBlob) was removed in
+  // v1.8 to give all users — regardless of canvas count — the same Celery
+  // pipeline. The server pipeline is faster on large batches, more memory-
+  // friendly on small ones, and produces identical output. Trade-off: small
+  // (≤20 canvas) jobs now incur an upload + poll round-trip (~10–20 s extra
+  // on a fast connection) instead of rendering instantly in the browser.
   const executeBatchDownload = async () => {
-    setIsDownloading(true);
-    try {
-      const zipName = layout.name || layout.id || `job-${Date.now().toString().slice(-6)}`;
-
-      // 1. Prepare the list of all canvases across all surfaces
-      const allCanvases = surfaceStates.length > 1
-        ? surfaceStates.flatMap(s => s.canvases.map(c => ({ ...c, surfaceKey: s.key })))
-        : canvases.map(c => ({ ...c, surfaceKey: 'canvas' }));
-
-      const totalSteps = allCanvases.length;
-      if (totalSteps === 0) {
-        setError('No canvases to download.');
-        setIsDownloading(false);
-        return;
-      }
-
-      // Delegate large jobs to the server-side render pipeline
-      if (totalSteps > SERVER_RENDER_THRESHOLD) {
-        setIsDownloading(false);
-        return executeServerRender();
-      }
-
-      setRenderProgress({ current: 0, total: totalSteps });
-      const items: { name: string; blob: Blob }[] = [];
-
-      // 2. Render canvases in parallel batches.
-      // Larger batches for big jobs — thumbnail renders are cheap, high-res renders are the
-      // bottleneck, so we scale batch size with total count to keep wall time reasonable.
-      // Memory bound: each full-res canvas is ~8–30 MB; 5 concurrent = 40–150 MB peak.
-      const BATCH_SIZE = totalSteps > 50 ? 5 : 3;
-      const RENDER_TIMEOUT_MS = 60_000;
-      for (let batchStart = 0; batchStart < totalSteps; batchStart += BATCH_SIZE) {
-        const batchEnd = Math.min(batchStart + BATCH_SIZE, totalSteps);
-
-        const batchResults = await Promise.all(
-          Array.from({ length: batchEnd - batchStart }, async (_, j) => {
-            const i = batchStart + j;
-            const c = (allCanvases as any)[i];
-            const surfaceKey = c.surfaceKey;
-            const layoutDef = surfaceStates.length > 1
-              ? surfaceStates.find((s: any) => s.key === surfaceKey)?.def
-              : layout;
-
-            let dataUrl = '';
-            try {
-              dataUrl = await Promise.race([
-                renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: layoutDef }),
-                new Promise<string>((_, reject) =>
-                  setTimeout(() => reject(new Error(`Canvas ${i + 1} timed out after ${RENDER_TIMEOUT_MS / 1000}s`)), RENDER_TIMEOUT_MS)
-                ),
-              ]);
-            } catch (renderErr) {
-              console.error(`[batch-download] Failed to render canvas ${i + 1}:`, renderErr);
-            }
-            return { i, c, surfaceKey, dataUrl };
-          })
-        );
-
-        // Convert renders to blobs in parallel — fetch(dataUrl) is non-blocking so this is safe
-        const blobEntries = await Promise.all(
-          batchResults.map(async ({ i, c, surfaceKey, dataUrl }) => ({
-            i, surfaceKey,
-            printBlob: dataUrl ? await dataUrlToBlob(dataUrl) : null,
-            mockupBlob: c.dataUrl ? await dataUrlToBlob(c.dataUrl) : null,
-          }))
-        );
-        for (const { i, surfaceKey, printBlob, mockupBlob } of blobEntries) {
-          if (printBlob) items.push({ name: `print_file/${surfaceKey}-${i + 1}.png`, blob: printBlob });
-          if (mockupBlob) items.push({ name: `mockup_file/${surfaceKey}-${i + 1}.png`, blob: mockupBlob });
-        }
-
-        setRenderProgress({ current: batchEnd, total: totalSteps });
-        await new Promise(r => setTimeout(r, 0));
-      }
-
-      // 3. Add Original Files (CX Files)
-      const allOriginalFiles = surfaceStates.length > 1
-        ? surfaceStates.flatMap(s => s.files)
-        : files;
-
-      for (const file of allOriginalFiles) {
-        items.push({
-          name: `cx_file/${file.name}`,
-          blob: file
-        });
-      }
-
-      // 4. Use optimized zipping
-      const finalZipBlob = await createZipFromDataUrls(
-        items,
-        (p) => setRenderProgress({ current: Math.round(p * 100), total: 100 })
-      );
-      
-      downloadBlob(finalZipBlob, `${zipName}.zip`);
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Download failed.');
-    } finally {
-      setIsDownloading(false);
-      setShowDownloadModal(false);
-      setRenderProgress(null);
+    const allCanvases = surfaceStates.length > 1
+      ? surfaceStates.flatMap(s => s.canvases)
+      : canvases;
+    if (allCanvases.length === 0) {
+      setError('No canvases to download.');
+      return;
     }
-  };
-
-  const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
-    const res = await fetch(dataUrl);
-    return res.blob();
+    setShowDownloadModal(false);
+    return executeServerRender();
   };
 
   const executeImposition = async () => {
@@ -1777,56 +1684,17 @@ export default function LayoutEditorPage() {
     }
   };
 
+  // Embed Save & Continue: always server-render. The Celery render task
+  // produces a downloadable ZIP and (when the parent registered a callback at
+  // session creation) POSTs the download URL + HMAC-signed payload to the
+  // parent's webhook. The iframe additionally fires `pe:render_job` so the
+  // parent's frontend can show "your design is being prepared" UX.
   const handleSubmitDesign = async () => {
     const allCanvases = surfaceStates.length > 1
       ? surfaceStates.flatMap(s => s.canvases)
       : canvases;
     if (allCanvases.length === 0) return;
-
-    // Large jobs are rendered server-side; parent receives a job ID via postMessage
-    if (allCanvases.length > SERVER_RENDER_THRESHOLD) {
-      return executeServerRender();
-    }
-
-    setIsDownloading(true);
-    setRenderProgress({ current: 0, total: allCanvases.length });
-    try {
-      const rendered: string[] = [];
-
-      // Render sequentially to keep UI smooth and memory low
-      for (let i = 0; i < allCanvases.length; i++) {
-        const dataUrl = await renderCanvas(allCanvases[i], { isExport: true, includeMask: false });
-        if (dataUrl) rendered.push(dataUrl);
-        setRenderProgress({ current: i + 1, total: allCanvases.length });
-        await new Promise(r => setTimeout(r, 0));
-      }
-
-      const surfacesPayload: Record<string, { index: number; dataUrl: string }[]> = {};
-      if (surfaceStates.length > 1) {
-        for (const s of surfaceStates) {
-          surfacesPayload[s.key] = s.canvases.map((c, i) => ({ index: i, dataUrl: c.dataUrl || '' }));
-        }
-      }
-
-      // Safeguard for postMessage payload size (e.g., 500MB+ limit)
-      // If the batch is very large, we recommend the user to download the ZIP instead
-      if (rendered.length > 100) {
-        setUploadWarning("Large design batch. Submission might be slow. Consider 'Download ZIP' for high-res production files.");
-      }
-
-      window.parent.postMessage({
-        type: 'PRODUCT_EDITOR_COMPLETE',
-        layoutName: layout?.id,
-        ...(surfaceStates.length > 1 ? { surfaces: surfacesPayload } : {}),
-        canvases: rendered.map((dataUrl, i) => ({ index: i, dataUrl })),
-      }, parentOrigin);
-      setSubmitted(true);
-    } catch { 
-      setError('Failed to prepare design.'); 
-    } finally { 
-      setIsDownloading(false); 
-      setRenderProgress(null);
-    }
+    return executeServerRender();
   };
 
   if (status === 'loading' && !embedToken) return (
@@ -2073,13 +1941,13 @@ export default function LayoutEditorPage() {
               </div>
               {embedToken ? (
                 <button onClick={handleSubmitDesign} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} className="flex items-center gap-2 text-[11px] font-black text-white bg-indigo-600 px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">
-                  {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SendHorizonal className="w-3.5 h-3.5" />} Submit
+                  {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SendHorizonal className="w-3.5 h-3.5" />} Save &amp; Continue
                 </button>
-              ) : isAdmin ? (
+              ) : (
                 <button onClick={() => setShowDownloadModal(true)} disabled={files.length === 0 && !surfaceStates.some(s => s.files.length > 0)} className="flex items-center gap-2 text-[11px] font-black text-white bg-slate-900 px-5 py-2.5 rounded-xl hover:bg-slate-800 transition-all uppercase tracking-widest">
                   <Archive className="w-3.5 h-3.5" /> Download
                 </button>
-              ) : null}
+              )}
             </div>
           </div>
 
@@ -2301,7 +2169,7 @@ export default function LayoutEditorPage() {
             </section>
           )}
 
-          {showDownloadModal && isAdmin && (
+          {showDownloadModal && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setShowDownloadModal(false)} />
               <div className="relative w-full max-w-xs bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -2325,7 +2193,7 @@ export default function LayoutEditorPage() {
             </div>
           )}
 
-          {showImpositionModal && isAdmin && (
+          {showImpositionModal && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={() => setShowImpositionModal(false)} />
               <div className="relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">

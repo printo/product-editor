@@ -157,17 +157,10 @@ class GenerateLayoutView(APIView):
             "| `layout` | string | — | Layout name (e.g. `retro_polaroid_4.2x3.5`) |\n"
             "| `images` | file[] | — | One or more image files |\n"
             "| `fit_mode` | string | `cover` | `contain` or `cover` |\n"
-            "| `export_format` | string | `png` | `png` or `tiff_cmyk` |\n"
-            "| `soft_proof` | boolean | `false` | Run full ICC CMYK soft-proof pipeline |\n\n"
-            "**Soft-proof mode** (`soft_proof=true`):\n\n"
-            "Runs the RGB → CMYK → RGB roundtrip using the ISOcoated_v2 ICC profile "
-            "(industry standard for Indian and European offset print on coated stock).\n\n"
-            "Returns three files per canvas and a per-canvas colour-shift report:\n"
-            "- `png` — original RGB design\n"
-            "- `tiff_cmyk` — press-ready CMYK TIFF (send this to the printer)\n"
-            "- `cmyk_preview` — on-screen simulation of printed colours\n"
-            "- `color_shift.significant=true` — shown to user when avg pixel shift > 8/255 (~3%)\n\n"
-            "When `soft_proof=false`, returns a simple `canvases` list."
+            "| `export_format` | string | `png` | `png` or `pdf` (one file per canvas) |\n\n"
+            "Returns one rendered file per canvas in the requested format.\n\n"
+            "Note: the legacy `soft_proof` and `tiff_cmyk` options were removed; "
+            "all output is now PNG or PDF at 300 DPI."
         ),
         request=inline_serializer(
             name="GenerateLayoutRequest",
@@ -178,16 +171,14 @@ class GenerateLayoutView(APIView):
                     help_text="Image files",
                 ),
                 "fit_mode": drf_serializers.ChoiceField(choices=["contain", "cover"], required=False, default="cover"),
-                "export_format": drf_serializers.ChoiceField(choices=["png", "tiff_cmyk"], required=False, default="png"),
-                "soft_proof": drf_serializers.BooleanField(required=False, default=False),
+                "export_format": drf_serializers.ChoiceField(choices=["png", "pdf"], required=False, default="png"),
             },
         ),
         responses={
             200: inline_serializer(
                 name="GenerateLayoutResponse",
                 fields={
-                    "canvases": drf_serializers.ListField(child=drf_serializers.CharField(), required=False),
-                    "soft_proof_canvases": drf_serializers.ListField(child=drf_serializers.DictField(), required=False),
+                    "canvases": drf_serializers.ListField(child=drf_serializers.CharField()),
                     "layout_name": drf_serializers.CharField(),
                     "export_format": drf_serializers.CharField(),
                     "generation_time_ms": drf_serializers.IntegerField(),
@@ -199,10 +190,11 @@ class GenerateLayoutView(APIView):
     )
     def post(self, request):
         """
-        Always async — order_id is mandatory for both embed and direct UI.
+        Always async — order_id is mandatory.
 
-        callback_url is optional: if provided the backend will POST to it on
-        completion; if absent the caller should poll /api/render-status/<job_id>/.
+        Webhook callbacks are configured per embed-session (see
+        `EmbedSession.callback_url` in `POST /api/embed/session`). Non-embed
+        direct callers should poll `/api/render-status/<job_id>/`.
         """
         order_id = request.data.get('order_id')
         if not order_id:
@@ -216,11 +208,10 @@ class GenerateLayoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        callback_url = request.data.get('callback_url')  # optional
-        logger.info("Async generate: order_id=%s, callback_url=%s", order_id, bool(callback_url))
-        return self._handle_async(request, callback_url)
-    
-    def _handle_async(self, request, callback_url):
+        logger.info("Async generate: order_id=%s", order_id)
+        return self._handle_async(request)
+
+    def _handle_async(self, request):
         """Handle async generation request - enqueue job and return immediately."""
         from api.models import CanvasData, RenderJob
         from django.db import transaction
@@ -244,13 +235,9 @@ class GenerateLayoutView(APIView):
                 fit_mode = "cover"
 
             export_format = request.data.get("export_format", "png")
-            if export_format not in ("png", "tiff_cmyk"):
+            if export_format not in ("png", "pdf"):
                 export_format = "png"
 
-            # soft_proof accepts "true"/"1"/True
-            raw_sp = request.data.get("soft_proof", False)
-            soft_proof = raw_sp in (True, "true", "1", 1)
-            
             order_id = request.data.get("order_id")
 
             # Validate required fields
@@ -297,7 +284,9 @@ class GenerateLayoutView(APIView):
                         file_type='image',
                     )
 
-            queue_name = 'priority' if soft_proof else 'standard'
+            # Soft-proof + CMYK pipelines retired; everything renders to the
+            # standard queue now.
+            queue_name = 'standard'
 
             # Upsert CanvasData — if the same (order_id, api_key) pair is
             # resubmitted (operator retry, customer re-upload) we update in
@@ -311,8 +300,10 @@ class GenerateLayoutView(APIView):
                         image_paths=upload_paths,
                         fit_mode=fit_mode,
                         export_format=export_format,
-                        soft_proof=soft_proof,
-                        callback_url=callback_url or None,
+                        # callback_url is no longer accepted at this endpoint;
+                        # configure it via POST /api/embed/session for the
+                        # embed flow. Direct callers should poll render-status.
+                        callback_url=None,
                         requires_manual_review=False,
                         expires_at=timezone.now() + timedelta(days=30),
                     ),
@@ -425,12 +416,8 @@ class GenerateLayoutView(APIView):
                 fit_mode = "cover"
 
             export_format = request.data.get("export_format", "png")
-            if export_format not in ("png", "tiff_cmyk"):
+            if export_format not in ("png", "pdf"):
                 export_format = "png"
-
-            # soft_proof accepts "true"/"1"/True
-            raw_sp = request.data.get("soft_proof", False)
-            soft_proof = raw_sp in (True, "true", "1", 1)
 
             if not layout_name or not files:
                 return Response(
@@ -481,92 +468,38 @@ class GenerateLayoutView(APIView):
                 engine = LayoutEngine(storage.layouts_dir(), render_exports_dir)
                 generation_time_ms = 0
 
-                if soft_proof:
-                    # ── Full ICC CMYK soft-proof pipeline ───────────────────
-                    proof_results = engine.generate_soft_proof(
-                        layout_name, upload_paths, fit_mode=fit_mode,
-                    )
-                    generation_time_ms = int((time.time() - start_time) * 1000)
+                # ── PNG / PDF export at 300 DPI ──────────────────────────
+                outputs = engine.generate(
+                    layout_name, upload_paths, fit_mode=fit_mode, export_format=export_format,
+                )
+                generation_time_ms = int((time.time() - start_time) * 1000)
 
-                    # Track all output files in ExportedResult
-                    if api_key:
-                        for r in proof_results:
-                            for key in ("png", "tiff_cmyk", "cmyk_preview"):
-                                out_path = r.get(key)
-                                if out_path and os.path.exists(out_path):
-                                    ExportedResult.objects.create(
-                                        api_key=api_key,
-                                        layout_name=layout_name,
-                                        export_file_path=out_path,
-                                        input_files=upload_paths,
-                                        generation_time_ms=generation_time_ms,
-                                        file_size_bytes=os.path.getsize(out_path),
-                                    )
+                if api_key and outputs:
+                    for out_path in outputs:
+                        ExportedResult.objects.create(
+                            api_key=api_key,
+                            layout_name=layout_name,
+                            export_file_path=out_path,
+                            input_files=upload_paths,
+                            generation_time_ms=generation_time_ms,
+                            file_size_bytes=os.path.getsize(out_path),
+                        )
 
-                    # Build response — convert absolute paths to relative
-                    serialized = []
-                    for r in proof_results:
-                        shift = r["color_shift"]
-                        serialized.append({
-                            "png":          os.path.relpath(r["png"],          settings.EXPORTS_DIR),
-                            "tiff_cmyk":    os.path.relpath(r["tiff_cmyk"],    settings.EXPORTS_DIR),
-                            "cmyk_preview": os.path.relpath(r["cmyk_preview"], settings.EXPORTS_DIR),
-                            "color_shift": {
-                                "avg_diff":         shift["avg_diff"],
-                                "max_pixel_diff":   shift["max_pixel_diff"],
-                                "significant":      shift["significant"],
-                                "using_icc_profile": shift["using_icc_profile"],
-                                "profile":          shift["profile"],
-                                "message":          shift["message"],
-                            },
-                        })
-
-                    logger.info(
-                        "Soft-proof generated: %s by %s (%d canvases, %d ms)",
-                        layout_name,
-                        api_key.name if api_key else "unknown",
-                        len(serialized),
-                        generation_time_ms,
-                    )
-                    return Response({
-                        "soft_proof_canvases": serialized,
-                        "layout_name": layout_name,
-                        "export_format": "soft_proof",
-                        "generation_time_ms": generation_time_ms,
-                    })
-
-                else:
-                    # ── Standard RGB PNG / CMYK TIFF export ─────────────────
-                    outputs = engine.generate(
-                        layout_name, upload_paths, fit_mode=fit_mode, export_format=export_format,
-                    )
-                    generation_time_ms = int((time.time() - start_time) * 1000)
-
-                    if api_key and outputs:
-                        for out_path in outputs:
-                            ExportedResult.objects.create(
-                                api_key=api_key,
-                                layout_name=layout_name,
-                                export_file_path=out_path,
-                                input_files=upload_paths,
-                                generation_time_ms=generation_time_ms,
-                                file_size_bytes=os.path.getsize(out_path),
-                            )
-
-                    rel = [os.path.relpath(p, settings.EXPORTS_DIR) for p in outputs]
-                    logger.info(
-                        "Layout generated: %s by %s (%d files, %d ms)",
-                        layout_name,
-                        api_key.name if api_key else "unknown",
-                        len(rel),
-                        generation_time_ms,
-                    )
-                    return Response({
-                        "canvases": rel,
-                        "layout_name": layout_name,
-                        "export_format": export_format,
-                        "generation_time_ms": generation_time_ms,
-                    })
+                rel = [os.path.relpath(p, settings.EXPORTS_DIR) for p in outputs]
+                logger.info(
+                    "Layout generated: %s by %s (%d files, %d ms, format=%s)",
+                    layout_name,
+                    api_key.name if api_key else "unknown",
+                    len(rel),
+                    generation_time_ms,
+                    export_format,
+                )
+                return Response({
+                    "canvases": rel,
+                    "layout_name": layout_name,
+                    "export_format": export_format,
+                    "generation_time_ms": generation_time_ms,
+                })
 
             except TimeoutError:
                 logger.error("Timeout generating layout: %s", layout_name)
@@ -1507,16 +1440,37 @@ class EmbedSessionView(APIView):
                 {'detail': 'order_id must be 1-64 chars; allowed: A-Z a-z 0-9 _ . -'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Optional webhook URL the caller wants notified when render completes.
+        # No domain allowlist — auth is enforced by the api_key the caller
+        # already holds, and the HMAC signature (sent on the callback) lets
+        # them verify the request actually came from us. We do require https
+        # to avoid leaking download_url + signature over plaintext.
+        callback_url = str(request.data.get('callback_url', '') or '').strip()
+        if callback_url:
+            if len(callback_url) > 2000:
+                return Response(
+                    {'detail': 'callback_url exceeds 2000-char limit.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not callback_url.lower().startswith('https://'):
+                return Response(
+                    {'detail': 'callback_url must use https://.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         session = EmbedSession.objects.create(
             api_key=api_key,
             expires_at=expires_at,
             order_id=order_id,
+            callback_url=callback_url,
         )
         return Response({
             'token': str(session.token),
             'expires_at': session.expires_at.isoformat(),
             'embed_url_template': '/embed/editor/{layout_name}?token=' + str(session.token),
             'order_id': order_id or None,
+            'callback_url': callback_url or None,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -1594,8 +1548,97 @@ class EmbedSessionValidateView(APIView):
         return Response({
             'api_key': session.api_key.key,
             'order_id': session.order_id or None,
+            'callback_url': session.callback_url or None,
             'expires_at': session.expires_at.isoformat(),
         })
+
+
+# ─── Editor init (batched fetch of cacheable mount data) ─────────────────────
+
+class EditorInitView(APIView):
+    """
+    GET /api/editor/init?layout=<name>[&surfaces=<csv>]
+
+    Returns the static, cacheable bits the editor needs on mount in one round
+    trip: `{ layout, fonts }`. Replaces two parallel fetches (`/layouts/<name>`
+    + `/fonts`) with a single TLS-friendly request — meaningful on cold-start
+    embed iframes where the connection isn't warm yet.
+
+    Per-order live data (canvas-state) is intentionally NOT included so this
+    response stays cacheable. Frontend keeps `/canvas-state/<order_id>/` as a
+    separate request (no cache, tenant-scoped to the api_key+order_id pair).
+
+    Permission and surface filtering match `GetLayoutView` exactly so the
+    embed proxy and ops admin paths behave identically.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey, CanListLayouts]
+
+    @extend_schema(
+        tags=["editor"],
+        summary="Batched editor mount payload",
+        parameters=[
+            OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True),
+            OpenApiParameter("surfaces", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={
+            200: inline_serializer(
+                name="EditorInitResponse",
+                fields={
+                    "layout": drf_serializers.DictField(),
+                    "fonts": drf_serializers.ListField(child=drf_serializers.CharField()),
+                },
+            ),
+            400: OpenApiResponse(description="Missing or invalid `layout` query param"),
+            404: OpenApiResponse(description="Layout not found"),
+        },
+    )
+    def get(self, request):
+        from django.core.cache import cache as django_cache
+
+        name = (request.query_params.get('layout') or '').strip()
+        if not name:
+            return Response({'detail': '`layout` query param required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not GetLayoutView._is_valid_layout_name(name):
+            return Response({'detail': 'Invalid layout name'}, status=status.HTTP_400_BAD_REQUEST)
+
+        surfaces_param = request.query_params.get('surfaces', '')
+        # Reuse the GetLayoutView cache key so a request to either endpoint
+        # warms both. Cache TTL matches GetLayoutView (2 min).
+        cache_key = f"layout_detail:{name}:{surfaces_param}"
+        layout_data = django_cache.get(cache_key)
+
+        if layout_data is None:
+            storage = get_storage()
+            safe_name = os.path.basename(name)
+            path = os.path.join(storage.layouts_dir(), f"{safe_name}.json")
+            if not GetLayoutView._is_path_safe(path, storage.layouts_dir()):
+                return Response({'detail': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+            if not os.path.exists(path):
+                return Response({'detail': 'Layout not found'}, status=status.HTTP_404_NOT_FOUND)
+            try:
+                with open(path, 'r') as f:
+                    layout_data = json.load(f)
+            except json.JSONDecodeError:
+                logger.error("Invalid JSON in layout file: %s", name)
+                return Response({'detail': 'Corrupted layout file'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            if surfaces_param and 'surfaces' in layout_data and isinstance(layout_data['surfaces'], list):
+                requested_keys = [k.strip().lower() for k in surfaces_param.split(',') if k.strip()]
+                layout_data['surfaces'] = [
+                    s for s in layout_data['surfaces']
+                    if s.get('key', '').lower() in requested_keys
+                ]
+            django_cache.set(cache_key, layout_data, 120)
+
+        # _read_fonts has its own Redis-backed 5 min cache (see _FONTS_CACHE_KEY).
+        response = Response({
+            'layout': layout_data,
+            'fonts': _read_fonts(),
+        })
+        # Cacheable on the proxy edge for short-lived shared cache; private so a
+        # tenant's surfaces= filter doesn't bleed across tenants.
+        response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'
+        return response
 
 
 # ─── Editor Render (server-side high-res render from uploaded files) ──────────
@@ -1612,13 +1655,15 @@ class EditorRenderView(APIView):
       1. X-Order-ID header (injected by the embed proxy from EmbedSession.order_id)
       2. 'order_id' field in the JSON body (direct / dashboard callers)
 
+    Webhook callback URL is sourced ONLY from the embed session (via
+    `X-Callback-URL` header injected by the embed proxy). Direct callers do
+    not get a webhook — they must poll `/api/render-status/<job_id>/`.
+
     Request body (JSON):
     {
       "layout_name": "circle_48mm",
       "order_id": "EXT-JOB-123",          // required if not via embed proxy
-      "export_format": "png",              // "png" | "tiff_cmyk"
-      "soft_proof": false,
-      "callback_url": "https://...",       // optional webhook
+      "export_format": "png",              // "png" (default) | "pdf"
       "canvases": [
         {
           "frames": [
@@ -1671,8 +1716,15 @@ class EditorRenderView(APIView):
             return Response({'detail': 'canvases list is required and must not be empty.'}, status=status.HTTP_400_BAD_REQUEST)
 
         export_format = str(request.data.get('export_format', 'png') or 'png').strip()
-        soft_proof = bool(request.data.get('soft_proof', False))
-        callback_url = request.data.get('callback_url') or None
+        if export_format not in ('png', 'pdf'):
+            return Response(
+                {'detail': "export_format must be 'png' or 'pdf'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Callback URL is sourced from the embed proxy's injected header only —
+        # it originally came from EmbedSession.callback_url at session creation.
+        # Body-level callback_url is no longer accepted (single source of truth).
+        callback_url = (request.headers.get('X-Callback-URL') or '').strip() or None
         api_key = request.user.api_key
 
         # ── Collect + validate all upload_ids ───────────────────────────────
@@ -1709,7 +1761,8 @@ class EditorRenderView(APIView):
                     image_paths.append(upload_id_to_path[uid])
 
         # ── Persist CanvasData + RenderJob atomically ───────────────────────
-        queue_name = 'priority' if soft_proof else 'standard'
+        # Soft-proof + CMYK pipelines retired; everything routes to 'standard'.
+        queue_name = 'standard'
         expires_at = timezone.now() + timedelta(days=30)
 
         editor_state = {
@@ -1727,7 +1780,6 @@ class EditorRenderView(APIView):
                         'image_paths': image_paths,
                         'fit_mode': 'cover',
                         'export_format': export_format,
-                        'soft_proof': soft_proof,
                         'editor_state': editor_state,
                         'callback_url': callback_url,
                         'expires_at': expires_at,
@@ -1989,9 +2041,8 @@ class RenderJobDownloadView(APIView):
         tags=["exports"],
         summary="Download completed job output as ZIP",
         description=(
-            "Streams all output files (PNG, TIFF CMYK, soft-proof preview) for a "
-            "completed render job as a single ZIP archive. "
-            "Returns 409 if the job has not yet completed."
+            "Streams all output files (PNG or PDF) for a completed render job as a "
+            "single ZIP archive. Returns 409 if the job has not yet completed."
         ),
         responses={
             200: OpenApiResponse(description="application/zip binary stream"),

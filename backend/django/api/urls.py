@@ -6,7 +6,7 @@ from .views import (
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
     CanvasStateView, SKULayoutView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
-    EditorRenderView,
+    EditorRenderView, EditorInitView,
 )
 
 urlpatterns = [
@@ -40,6 +40,9 @@ urlpatterns = [
 
     # Editor server-side render (upload_ids → Celery job)
     path("editor/render", EditorRenderView.as_view(), name="editor-render"),
+
+    # Editor mount payload — batched layout + fonts (C6, saves 1 RTT on cold start)
+    path("editor/init", EditorInitView.as_view(), name="editor-init"),
 
     # Embed session — create short-lived token & internal validation
     path("embed/session", EmbedSessionView.as_view(), name="embed-session-create"),
