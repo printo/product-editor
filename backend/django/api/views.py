@@ -1695,6 +1695,7 @@ class EditorRenderView(APIView):
     def post(self, request):
         from datetime import timedelta
         from django.db import transaction as db_transaction
+        from api.models import CanvasData, RenderJob
         from api.tasks import render_canvas_task
 
         # ── Resolve order_id ────────────────────────────────────────────────
