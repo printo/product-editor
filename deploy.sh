@@ -16,12 +16,15 @@ NC='\033[0m' # No Color
 # Usage information
 usage() {
   echo -e "${BLUE}Usage:${NC}"
-  echo "  $0 [frontend|backend|both]"
+  echo "  $0 [frontend|backend|workers|both]"
   echo ""
   echo -e "${BLUE}Examples:${NC}"
   echo "  $0              # Deploy both frontend and backend (default)"
   echo "  $0 frontend     # Deploy only frontend"
-  echo "  $0 backend      # Deploy only backend"
+  echo "  $0 backend      # Deploy backend AND celery workers + beat"
+  echo "                    (they share the same Dockerfile/source)"
+  echo "  $0 workers      # Deploy ONLY celery workers + beat — useful when"
+  echo "                    recovering from a worker memory leak / hang"
   exit 1
 }
 
@@ -56,10 +59,19 @@ print_header() {
 
 # Validate mode
 MODE="${1:-both}"
-if [[ "$MODE" != "frontend" && "$MODE" != "backend" && "$MODE" != "both" ]]; then
+if [[ "$MODE" != "frontend" && "$MODE" != "backend" && "$MODE" != "workers" && "$MODE" != "both" ]]; then
   print_error "Invalid mode: $MODE"
   usage
 fi
+
+# Worker services share backend/django/Dockerfile with the `backend` service
+# but Docker Compose tags each one independently — so a code change in
+# api/tasks.py, api/views.py, models, settings, etc. needs ALL of these
+# images rebuilt for workers to see the new code. The `backend` and
+# `workers` modes both rebuild this set; `both` does it implicitly via
+# `docker-compose build` with no args.
+WORKER_SERVICES="celery-worker-priority celery-worker-standard celery-beat"
+BACKEND_SERVICES="backend $WORKER_SERVICES"
 
 # ── Prepare nginx config ────────────────────────────────────────────────────
 print_header "Preparing Proxy Configuration"
@@ -208,17 +220,27 @@ if [[ "$MODE" == "both" ]]; then
     fi
   done
 elif [[ "$MODE" == "backend" ]]; then
-  print_action "Stopping backend container..."
-  docker-compose stop backend 2>&1 | grep -v "^$" || true
-  print_status "Backend stopped"
-  print_action "Removing backend container..."
-  docker rm -f product-editor-backend-1 2>/dev/null && print_status "Backend container removed" || print_info "No container to remove"
-  
-  # Free port 8000
+  print_action "Stopping backend + celery worker containers..."
+  docker-compose stop $BACKEND_SERVICES 2>&1 | grep -v "^$" || true
+  print_status "Backend + workers stopped"
+  print_action "Removing containers..."
+  for svc in $BACKEND_SERVICES; do
+    docker rm -f "product-editor-${svc}-1" 2>/dev/null && print_status "Removed product-editor-${svc}-1" || print_info "No product-editor-${svc}-1 to remove"
+  done
+
+  # Free port 8000 (only backend exposes a host port; workers are internal)
   pid=$(sudo lsof -ti:8000 2>/dev/null || true)
   if [ ! -z "$pid" ]; then
     sudo kill -9 $pid 2>/dev/null && print_status "Freed port 8000" || print_info "Port 8000 already free"
   fi
+elif [[ "$MODE" == "workers" ]]; then
+  print_action "Stopping celery worker containers..."
+  docker-compose stop $WORKER_SERVICES 2>&1 | grep -v "^$" || true
+  print_status "Workers stopped"
+  print_action "Removing worker containers..."
+  for svc in $WORKER_SERVICES; do
+    docker rm -f "product-editor-${svc}-1" 2>/dev/null && print_status "Removed product-editor-${svc}-1" || print_info "No product-editor-${svc}-1 to remove"
+  done
 elif [[ "$MODE" == "frontend" ]]; then
   print_action "Stopping frontend container..."
   docker-compose stop frontend 2>&1 | grep -v "^$" || true
@@ -247,11 +269,24 @@ fi
 # Build services — stream full output so failures are visible
 print_header "Building New Images"
 if [[ "$MODE" == "backend" ]]; then
-  print_action "Building backend image (output below)..."
-  if docker-compose build backend; then
-    print_status "Backend image built successfully"
+  # Rebuild backend AND all workers together — they share the same Dockerfile
+  # so any code change in api/, models, settings, tasks needs all 4 images
+  # rebuilt or workers will keep running stale code (e.g. registering
+  # a renamed task under its old name and processing in-flight messages
+  # against deleted code paths).
+  print_action "Building backend + worker images (output below)..."
+  if docker-compose build $BACKEND_SERVICES; then
+    print_status "Backend + worker images built successfully"
   else
-    print_error "Backend build FAILED — aborting deployment"
+    print_error "Backend/worker build FAILED — aborting deployment"
+    exit 1
+  fi
+elif [[ "$MODE" == "workers" ]]; then
+  print_action "Building worker images (output below)..."
+  if docker-compose build $WORKER_SERVICES; then
+    print_status "Worker images built successfully"
+  else
+    print_error "Worker build FAILED — aborting deployment"
     exit 1
   fi
 elif [[ "$MODE" == "frontend" ]]; then
@@ -275,12 +310,24 @@ fi
 # Start services
 print_header "Starting Services"
 if [[ "$MODE" == "backend" ]]; then
-  print_action "Creating and starting backend container..."
-  if docker-compose up -d backend; then
-    print_status "Backend started"
+  print_action "Creating and starting backend + worker containers..."
+  # --force-recreate ensures containers pick up the freshly-built image
+  # even when their config hash hasn't changed (Docker's default would
+  # skip recreate and keep running the old image).
+  if docker-compose up -d --force-recreate $BACKEND_SERVICES; then
+    print_status "Backend + workers started"
   else
-    print_error "Failed to start backend"
-    docker-compose logs --tail=30 backend
+    print_error "Failed to start backend/workers"
+    docker-compose logs --tail=30 $BACKEND_SERVICES
+    exit 1
+  fi
+elif [[ "$MODE" == "workers" ]]; then
+  print_action "Creating and starting worker containers..."
+  if docker-compose up -d --force-recreate $WORKER_SERVICES; then
+    print_status "Workers started"
+  else
+    print_error "Failed to start workers"
+    docker-compose logs --tail=30 $WORKER_SERVICES
     exit 1
   fi
 elif [[ "$MODE" == "frontend" ]]; then
@@ -338,6 +385,10 @@ elif [[ "$MODE" == "backend" ]]; then
   print_action "Waiting for backend to initialize..."
   sleep 8
   print_status "Backend initialized"
+elif [[ "$MODE" == "workers" ]]; then
+  print_action "Waiting for workers to initialize..."
+  sleep 5
+  print_status "Workers initialized"
 elif [[ "$MODE" == "frontend" ]]; then
   print_action "Waiting for frontend to initialize..."
   sleep 5
@@ -504,6 +555,9 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
 fi
 
 # Cleanup old backup images (keep last 3)
+# Workers share content with the backend image but get tagged separately; we
+# don't bother backing them up individually (rolling back the backend image
+# and rebuilding workers from the same Dockerfile gets the old code back).
 print_header "Cleanup"
 print_action "Removing old backup images (keeping last 3)..."
 if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
