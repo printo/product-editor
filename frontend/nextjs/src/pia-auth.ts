@@ -152,14 +152,34 @@ const nextAuth = NextAuth({
     },
     // Open-redirect protection: clamp callbackUrl to baseUrl. Relative paths
     // join to baseUrl; absolute URLs only allowed if they share the host.
+    //
+    // Quirk: NextAuth in Next.js standalone mode behind a reverse proxy
+    // sometimes derives `baseUrl` from the server's bind address
+    // (HOSTNAME=0.0.0.0:3000 from the standalone Dockerfile) instead of
+    // the public Host header. Symptom: clicking "Logout" redirected the
+    // browser to https://0.0.0.0:3000/login. We override with PUBLIC_HOST
+    // (an env var we already set in production) when we detect the bug.
+    // Local dev: PUBLIC_HOST is unset / non-public, so baseUrl stays as-is.
     async redirect({ url, baseUrl }) {
-      if (url.startsWith("/")) return `${baseUrl}${url}`
+      let effectiveBase = baseUrl
       try {
-        if (new URL(url).origin === baseUrl) return url
+        const parsed = new URL(baseUrl)
+        if (parsed.hostname === "0.0.0.0" && process.env.PUBLIC_HOST) {
+          effectiveBase = process.env.PUBLIC_HOST.startsWith("http")
+            ? process.env.PUBLIC_HOST
+            : `https://${process.env.PUBLIC_HOST}`
+        }
       } catch {
-        // Malformed URL — fall through to baseUrl.
+        // baseUrl wasn't a valid URL — leave it unchanged
       }
-      return baseUrl
+
+      if (url.startsWith("/")) return `${effectiveBase}${url}`
+      try {
+        if (new URL(url).origin === effectiveBase) return url
+      } catch {
+        // Malformed URL — fall through to effectiveBase.
+      }
+      return effectiveBase
     },
   },
   pages: {

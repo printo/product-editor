@@ -2,8 +2,17 @@ import "./globals.css"
 import { ReactNode } from "react"
 import { AuthProvider } from "@/components/AuthProvider"
 import { AppWrapper } from "@/components/AppWrapper"
+import { auth } from "@/pia-auth"
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // Resolve the NextAuth session server-side and pass it into SessionProvider
+  // as the initial value. Without this the client mounts with no session,
+  // useSession() returns null until /api/auth/session resolves, and components
+  // that key on session.user.name / role show fallback text ("User",
+  // "0 templates") until the network round-trip completes — visible as a
+  // post-login flash that only "hard refresh" appeared to fix.
+  const session = await auth()
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -21,7 +30,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className="min-h-screen bg-white text-slate-900 antialiased" suppressHydrationWarning>
-        <AuthProvider>
+        <AuthProvider session={session}>
           <AppWrapper>
             {children}
           </AppWrapper>
