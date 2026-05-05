@@ -158,7 +158,9 @@ services:
       - web
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      # 127.0.0.1 (not localhost) — alpine wget resolves localhost to ::1
+      # but the standalone Next.js server binds to 0.0.0.0 (IPv4 only).
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
       interval: 30s
       timeout: 5s
       retries: 5

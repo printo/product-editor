@@ -44,6 +44,7 @@ yarn-error.log*
 out/
 build/
 dist/
+*.tsbuildinfo
 
 # Environment
 .env
@@ -106,3 +107,6 @@ backup_*.sql
 # Added by ggshield
 .cache_ggshield
 frontend/nextjs/next-env.d.ts
+
+# Claude Code per-developer state (settings, locks, plans)
+.claude/
