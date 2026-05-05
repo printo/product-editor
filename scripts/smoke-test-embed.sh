@@ -139,6 +139,62 @@ step "10. SKU-layouts endpoint public read"
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/sku-layouts/")
 [ "$status" = "200" ] && ok "/api/sku-layouts/ → 200" || bad "Got $status"
 
+# ── 11. Chunked upload round-trip (raw-body PUT) ------------------------------
+# The chunk PUT endpoint must accept arbitrary Content-Type (browsers send the
+# original File's MIME, e.g. image/png). Regression test for the 415/500 bug
+# fixed when the view switched to a custom *-accepting parser.
+step "11. Chunked upload init → chunk PUT (image/png) → complete"
+
+# Build a real 100×100 PNG (PIL's open-and-verify in /complete needs a valid image).
+PNG_HEX='89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c63600100000005000164b25c80000000049454e44ae426082'
+python3 -c "
+from PIL import Image
+import io
+img = Image.new('RGB', (100, 100), (200, 50, 50))
+img.save('/tmp/se-chunk.png', 'PNG')
+" 2>/dev/null || {
+  bad "Python3 + Pillow required for upload smoke test (skipping)"
+  PASS=$((PASS - 1))
+  FAIL=$((FAIL - 1))
+  goto_summary=1
+}
+
+if [ "${goto_summary:-0}" != "1" ]; then
+  CHUNK_SIZE=$(stat -c%s /tmp/se-chunk.png 2>/dev/null || stat -f%z /tmp/se-chunk.png)
+
+  status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
+    -X POST "$BASE/api/upload/init" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H 'Content-Type: application/json' \
+    -d "{\"filename\":\"se-chunk.png\",\"file_size\":$CHUNK_SIZE,\"total_chunks\":1}")
+  if [ "$status" = "201" ]; then
+    UPLOAD_ID=$(python3 -c 'import json; print(json.load(open("/tmp/se.body"))["upload_id"])')
+    ok "POST /api/upload/init → 201, upload_id=${UPLOAD_ID:0:8}…"
+  else
+    bad "POST /api/upload/init → $status (expected 201)"
+    UPLOAD_ID=""
+  fi
+
+  if [ -n "$UPLOAD_ID" ]; then
+    # PUT with image/png — replicates the browser flow exactly
+    status=$(curl -s -o /dev/null -w '%{http_code}' \
+      -X PUT "$BASE/api/upload/$UPLOAD_ID/chunk?index=0" \
+      -H "Authorization: Bearer $API_KEY" \
+      -H 'Content-Type: image/png' \
+      -H "Content-Range: bytes 0-$((CHUNK_SIZE - 1))/$CHUNK_SIZE" \
+      --data-binary @/tmp/se-chunk.png)
+    [ "$status" = "200" ] && ok "PUT chunk (image/png raw body) → 200" || bad "PUT chunk → $status"
+
+    # Complete
+    status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
+      -X POST "$BASE/api/upload/$UPLOAD_ID/complete" \
+      -H "Authorization: Bearer $API_KEY")
+    [ "$status" = "201" ] && ok "POST /complete → 201" || bad "POST /complete → $status"
+  fi
+
+  rm -f /tmp/se-chunk.png
+fi
+
 # ── Summary -------------------------------------------------------------------
 echo
 echo "─────────────────────────────────────────"

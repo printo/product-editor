@@ -10,6 +10,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
+from rest_framework.parsers import BaseParser
 from rest_framework.response import Response
 from rest_framework import status
 from django.utils.crypto import get_random_string
@@ -2344,13 +2345,46 @@ class ChunkedUploadInitView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+class _AnyContentTypeParser(BaseParser):
+    """
+    DRF parser that matches any Content-Type without consuming the body.
+
+    Returning the request stream untouched lets the view fall back to
+    ``request.body`` (via Django's HttpRequest) for raw-bytes uploads.
+    Crucially we do NOT read ``stream`` here — DRF's ``Request.body``
+    raises RawPostDataException if the parser drained it first.
+    """
+    media_type = '*/*'
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        return None
+
+
 class ChunkedUploadChunkView(APIView):
     """
     PUT /api/upload/<upload_id>/chunk?index=N  — push a single chunk.
 
     The chunk is written to a staging directory as `<index>.part`.
+
+    Accepts two body shapes:
+      • Raw bytes — Content-Type can be anything (browser auto-sets it to
+        the original File's MIME, e.g. image/png, when calling
+        ``fetch(url, { body: blob })``). Read via ``request.body``.
+      • multipart/form-data with a "chunk" file field. Read via
+        ``request.FILES.get('chunk')``.
+
+    Why a custom parser instead of ``parser_classes = []``: DRF performs
+    content negotiation in ``Request.__init__`` and raises
+    ``UnsupportedMediaType (415)`` if no parser matches the request's
+    Content-Type. An empty parser list therefore rejects every body with
+    a non-empty Content-Type before the view even runs. The
+    ``_AnyContentTypeParser`` above declares ``media_type = '*/*'`` so
+    negotiation passes and we keep the raw stream available for
+    ``request.body``. Django's MultiPartParser is still invoked lazily
+    by ``request.FILES`` so the multipart fallback path is unaffected.
     """
     permission_classes = [IsAuthenticatedWithAPIKey]
+    parser_classes = [_AnyContentTypeParser]
 
     @extend_schema(tags=["upload"], summary="Upload a single chunk")
     def put(self, request, upload_id: str):
