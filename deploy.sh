@@ -64,6 +64,15 @@ fi
 # ── Prepare Traefik config ──────────────────────────────────────────────────
 print_header "Preparing Proxy Configuration"
 mkdir -p proxy/traefik
+# Ensure acme.json is a file, not a directory. Docker bind-mounts auto-create
+# missing host paths AS DIRECTORIES, which silently breaks the Let's Encrypt
+# resolver ("read /letsencrypt/acme.json: is a directory" → no certificate
+# resolver registered → all *-tls@docker routers rejected → blanket 404 on
+# the websecure entrypoint). `touch` won't fix a directory; we have to rm -rf.
+if [ -d proxy/traefik/acme.json ]; then
+  print_warning "Removing existing proxy/traefik/acme.json directory (Docker bind-mount auto-create)."
+  rm -rf proxy/traefik/acme.json
+fi
 touch proxy/traefik/acme.json
 chmod 600 proxy/traefik/acme.json
 # Ensure .htpasswd is a file, not a directory
