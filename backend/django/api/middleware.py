@@ -47,16 +47,32 @@ class RateLimitMiddleware(MiddlewareMixin):
     per-process so limits are still per-worker with that backend.
 
     Limits: RATE_LIMIT requests per WINDOW_SECONDS per IP.
+
+    Bursty paths (chunked upload init/chunk/complete, render-status
+    polling) are exempt — they have their own safeguards (auth-gated,
+    UUID-validated, per-file size limits) and a customer uploading a
+    200-photo calendar legitimately fires ~600 API calls in <60 s.
     """
 
-    RATE_LIMIT = 100        # requests allowed per window
+    RATE_LIMIT = 200        # requests allowed per window (general API)
     WINDOW_SECONDS = 60     # rolling window length in seconds
+
+    # Path prefixes that bypass the rate limit. Order matters: longest /
+    # most-specific first so the prefix check is unambiguous.
+    EXEMPT_PREFIXES = (
+        '/api/upload/',          # chunked-upload init/chunk/complete
+        '/api/render-status/',   # polled every few seconds during render
+        '/api/jobs/',            # ZIP download (single hit but large body)
+        '/api/health',           # docker healthcheck (every 30 s)
+    )
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        if request.path.startswith('/api/'):
+        if request.path.startswith('/api/') and not any(
+            request.path.startswith(p) for p in self.EXEMPT_PREFIXES
+        ):
             client_ip = self._get_client_ip(request)
             cache_key = f'ratelimit:{client_ip}'
 
