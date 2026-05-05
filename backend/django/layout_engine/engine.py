@@ -81,9 +81,32 @@ class LayoutEngine:
             
             # Atomic move (same filesystem guaranteed)
             os.replace(tmp_path, output_path)
-            
+
             final_size = os.path.getsize(output_path)
             logger.info(f"Atomic write completed: {output_path} ({final_size} bytes)")
+
+            # ── Mock JPEG sibling — fast download-time bundling ──────────────
+            # The download ZIP packages a `2_mock/` folder with web-friendly
+            # previews of every print file. Generating those at download
+            # time recomputes the same downscale on every click. Doing it
+            # here while the PIL Image is still in memory is essentially
+            # free (~30–80 ms per canvas) and means the download view just
+            # bundles existing files. PDFs skip — PIL can't open them; the
+            # 3_print/ original is the proof for those.
+            if hasattr(image_data, 'save') and ext == '.png':
+                try:
+                    mock_path = os.path.splitext(output_path)[0] + '_preview.jpg'
+                    rgb = image_data.convert('RGB')
+                    # 800px on the longest edge — good for email/web review.
+                    rgb.thumbnail((800, 800), Image.Resampling.LANCZOS)
+                    rgb.save(mock_path, format='JPEG', quality=80)
+                    rgb.close()
+                except Exception as mock_exc:
+                    logger.warning(
+                        "Mock JPEG generation failed for %s: %s",
+                        output_path, mock_exc,
+                    )
+
             return output_path
             
         except Exception as exc:

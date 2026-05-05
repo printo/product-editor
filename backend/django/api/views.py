@@ -2127,18 +2127,19 @@ class RenderJobDownloadView(APIView):
             safe_upload_entries.append((resolved, arcname_basename))
 
         # ── 2_mock/ — downscaled web-friendly previews of the print files ──
-        # Generated on the fly during ZIP build. Roughly 800px on the longest
-        # edge, JPEG q=80 — gives the ops team a quick visual proof of every
-        # canvas without unzipping the heavy print files. PDF print files
-        # (rare) are skipped — generating a PDF first-page raster needs
-        # extra deps; print file in 3_print/ is sufficient.
+        # Mocks are pre-generated at render time as a JPEG sibling next to
+        # each print file (see `_write_output_atomic` in layout_engine).
+        # We just bundle them here — no CPU work at download time. The
+        # on-the-fly fallback below covers older jobs rendered before the
+        # render-time mock generation landed; can be removed once those
+        # have aged out via GC.
         MOCK_LONG_EDGE = 800
 
         def _build_mock_jpeg_bytes(print_path: str) -> bytes | None:
+            """Fallback for older jobs that don't have a mock sibling on disk."""
             try:
                 with Image.open(print_path) as im:
                     im.load()
-                    # Only raster formats — PIL can't open PDFs.
                     if im.format not in ('PNG', 'JPEG', 'JPG', 'TIFF', 'WEBP'):
                         return None
                     rgb = im.convert('RGB')
@@ -2147,11 +2148,11 @@ class RenderJobDownloadView(APIView):
                         Image.Resampling.LANCZOS,
                     )
                     buf = io.BytesIO()
-                    rgb.save(buf, format='JPEG', quality=80, optimize=True)
+                    rgb.save(buf, format='JPEG', quality=80)
                     return buf.getvalue()
             except Exception as exc:
                 logger.warning(
-                    "RenderJobDownloadView: mock generation failed for %s: %s",
+                    "RenderJobDownloadView: fallback mock generation failed for %s: %s",
                     print_path, exc,
                 )
                 return None
@@ -2180,16 +2181,27 @@ class RenderJobDownloadView(APIView):
                     print_basename = os.path.basename(print_path)
                     zf.write(print_path, arcname=f'3_print/{print_basename}')
 
-                    mock_bytes = _build_mock_jpeg_bytes(print_path)
-                    if mock_bytes is not None:
-                        # Strip extension off print_basename, replace with .jpg
-                        stem = os.path.splitext(print_basename)[0]
-                        zf.writestr(
-                            f'2_mock/{stem}_preview.jpg',
-                            mock_bytes,
-                            compress_type=zipfile.ZIP_STORED,
-                        )
+                    # Prefer the pre-generated sibling JPEG (cheap path).
+                    # Falls back to on-the-fly downscaling for legacy jobs
+                    # rendered before the engine started writing siblings.
+                    stem = os.path.splitext(print_basename)[0]
+                    sibling_mock = os.path.splitext(print_path)[0] + '_preview.jpg'
+                    sibling_mock_real = os.path.realpath(sibling_mock)
+                    if (
+                        os.path.isfile(sibling_mock_real)
+                        and sibling_mock_real.startswith(exports_root + os.sep)
+                    ):
+                        zf.write(sibling_mock_real, arcname=f'2_mock/{stem}_preview.jpg')
                         mock_count += 1
+                    else:
+                        mock_bytes = _build_mock_jpeg_bytes(print_path)
+                        if mock_bytes is not None:
+                            zf.writestr(
+                                f'2_mock/{stem}_preview.jpg',
+                                mock_bytes,
+                                compress_type=zipfile.ZIP_STORED,
+                            )
+                            mock_count += 1
             tmp.flush()
             zip_size = os.fstat(tmp.fileno()).st_size
             tmp.seek(0)
