@@ -111,10 +111,20 @@ async function handler(
   const upstreamUrl = `${INTERNAL_API}/${fullUpstreamPath}${req.nextUrl.search}`;
 
   // 3. Build forwarded headers — only safe, non-hop-by-hop ones.
+  //
+  // Accept-Encoding: identity prevents Django's GZipMiddleware from
+  // returning a gzipped body. Node's fetch transparently decompresses
+  // gzip when reading via .body (the streaming path), but the resulting
+  // plain stream + chunked Transfer-Encoding then conflicts with
+  // nginx's own gzip-while-streaming on the browser-facing side, which
+  // truncates the response mid-chunk. Asking for identity end-to-end
+  // means there's exactly one compression layer (nginx → browser),
+  // which is how nginx is designed to work.
   const contentType = req.headers.get('Content-Type');
   const forwardHeaders: Record<string, string> = {
     Authorization: `Bearer ${INTERNAL_API_KEY}`,
     Accept: req.headers.get('Accept') || 'application/json',
+    'Accept-Encoding': 'identity',
   };
   if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {
     // Preserve multipart boundary etc. exactly.

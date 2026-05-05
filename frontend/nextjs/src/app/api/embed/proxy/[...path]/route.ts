@@ -162,11 +162,15 @@ async function handler(
 
   const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${req.nextUrl.search}`;
 
-  // Forward only safe, non-hop-by-hop headers
+  // Forward only safe, non-hop-by-hop headers. Accept-Encoding: identity
+  // — see the matching note in /api/internal/proxy/[...path]/route.ts —
+  // prevents the gzip-on-streaming-chunked truncation when nginx gzips the
+  // browser-facing response.
   const contentType = req.headers.get('Content-Type');
   const forwardHeaders: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
     Accept: req.headers.get('Accept') || 'application/json',
+    'Accept-Encoding': 'identity',
   };
   // Inject the caller's order_id for the render endpoint so Django can track the job
   if (orderId) forwardHeaders['X-Order-ID'] = orderId;
