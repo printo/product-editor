@@ -99,7 +99,24 @@ export async function calculateSmartCropOffsets(
   const effH = imgW * sinA + imgH * cosA;
   const baseScale = Math.max(frameW / effW, frameH / effH); // cover scale
 
-  return { x: -canvasDX * baseScale, y: -canvasDY * baseScale };
+  const rawX = -canvasDX * baseScale;
+  const rawY = -canvasDY * baseScale;
+
+  // Clamp the offset to the frame's actual pan room. In cover mode, only the
+  // dimension that overflows after baseScale has pan room; the other dimension
+  // matches the frame exactly. Smartcrop doesn't know about frame geometry —
+  // it just centers on its detected subject. If the subject sits off-axis on
+  // the dimension that has zero pan room, the raw offset would push the image
+  // past the frame edge and expose white. Clamping leaves the cover invariant
+  // intact: image always fully covers the frame, smartcrop only steers within
+  // whatever overflow exists.
+  const maxOffsetX = Math.max(0, (effW * baseScale - frameW) / 2);
+  const maxOffsetY = Math.max(0, (effH * baseScale - frameH) / 2);
+
+  return {
+    x: Math.max(-maxOffsetX, Math.min(maxOffsetX, rawX)),
+    y: Math.max(-maxOffsetY, Math.min(maxOffsetY, rawY)),
+  };
 }
 
 // ─── Fabric-based canvas rendering ───────────────────────────────────────────
