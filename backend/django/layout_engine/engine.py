@@ -219,11 +219,15 @@ class LayoutEngine:
         max_w = target_w * 2
         max_h = target_h * 2
         if img.width > max_w or img.height > max_h:
-            img = img.copy()
-            # BOX averaging is 5–10× faster than LANCZOS and quality-equivalent
-            # for downscales > 2×. The final cover/contain LANCZOS resize below
-            # still produces high-quality output; this just keeps the
-            # intermediate step cheap.
+            # `img` is a freshly-converted RGBA copy held only by the caller
+            # (`_composite_canvas` reassigns: `img = self._smart_downscale(img, …)`),
+            # so we can mutate it in place. Skipping the prior defensive
+            # `img.copy()` saves a ~50 MB memcpy per 12 MP frame; over a
+            # 200-canvas batch that's tens of GB of memory bandwidth.
+            #
+            # BOX averaging is 5–10× faster than LANCZOS and quality-
+            # equivalent for downscales > 2×; the cover/contain LANCZOS resize
+            # later still produces high-quality output.
             img.thumbnail((max_w, max_h), Image.Resampling.BOX)
         return img
 
