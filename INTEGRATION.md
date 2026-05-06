@@ -1,6 +1,8 @@
 # printo.in storefront — `pe-callback` integration guide
 
-**Audience:** the team owning [printo.in](https://printo.in)'s backend / storefront. **Scope:** receive the signed webhook fired by the product-editor when a customer's render completes, then fetch the rendered ZIP and attach it to the customer's order.
+**Audience:** the team owning [printo.in](https://printo.in)'s backend / storefront. **Scope:** receive the signed webhook fired by the Product Editor when a customer's render completes, then fetch the rendered ZIP and attach it to the customer's order.
+
+**Status:** as of v1.10 (May 6, 2026). Source-of-truth: `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py). If the contract below disagrees with that task, the task wins.
 
 This document is a complete drop-in implementation. Pick the handler that matches your stack (Node/TypeScript or Python/Django shown), wire the route, set the env vars, and you're done.
 
@@ -8,10 +10,10 @@ This document is a complete drop-in implementation. Pick the handler that matche
 
 ## Why this exists
 
-The product-editor is a **standalone print-file generator** — it does not push files into Printo's OMS or any other backend. When a customer in printo.in's storefront finishes designing in the embed iframe and hits **Save & Continue**:
+The Product Editor is a **standalone print-file generator** — it does not push files into Printo's OMS or any other backend. When a customer in printo.in's storefront finishes designing in the embed iframe and hits **Save & Continue**:
 
-1. product-editor renders 300-DPI PNGs (or PDFs) on Celery workers.
-2. When done, product-editor POSTs a **signed webhook** to whatever URL printo.in passed in `EmbedSession.callback_url` at session creation.
+1. Product Editor renders 300-DPI PNGs (or PDFs) on Celery workers.
+2. When done, Product Editor POSTs a **signed webhook** to whatever URL printo.in passed in `EmbedSession.callback_url` at session creation.
 3. printo.in's handler verifies the signature, fetches the ZIP from `download_url`, and attaches it to the order.
 
 This handler is what completes step 3.
@@ -44,7 +46,7 @@ This handler is what completes step 3.
 }
 ```
 
-**Body — failure:** (sent best-effort if delivery fails after 6 retries)
+**Body — failure:** (sent best-effort if delivery fails after all retries are exhausted)
 
 ```json
 {
@@ -56,7 +58,7 @@ This handler is what completes step 3.
 }
 ```
 
-**Expected response from your handler:** `200 OK` (or any 2xx). Anything else is treated as a delivery failure — product-editor retries up to 6 times with exponential backoff (1, 2, 4, 8, 16 s).
+**Expected response from your handler:** `200 OK` (or any 2xx). Anything else is treated as a delivery failure — Product Editor retries up to **6 attempts total** (1 initial + 5 retries) with exponential backoff `2^n` seconds: 1, 2, 4, 8, 16 s. Per `notify_caller_webhook_task` `max_retries=5` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py).
 
 ### ZIP fetch — `GET <download_url>`
 
@@ -66,7 +68,9 @@ This handler is what completes step 3.
 |---|---|
 | `Authorization` | `Bearer <YOUR_PRINTO_API_KEY>` — same key your storefront uses to create embed sessions |
 
-**Response:** `200 OK` with `Content-Type: application/zip`, body = the ZIP archive containing all rendered files. Typical size 30–500 MB depending on canvas count.
+**Response:** `200 OK` with `Content-Type: application/zip`, body = the ZIP archive containing all rendered files. Typical size 30–500 MB depending on canvas count. The download is streamed; do not buffer in memory.
+
+The ZIP layout (since v1.8) is three subfolders: `1_customer_uploads/`, `2_mock/`, `3_print/`.
 
 ---
 
@@ -131,7 +135,7 @@ router.post('/api/internal/pe-callback', async (req: Request, res: Response) => 
 
   if (payload.status === 'completed' && payload.download_url) {
     // 4. Fetch the ZIP. Do this OUT-OF-BAND so this handler returns fast —
-    //    product-editor has a 10s timeout and will retry on slow responses.
+    //    Product Editor has a 10s timeout and will retry on slow responses.
     queueDownloadJob({
       orderId: payload.order_id,
       jobId: payload.job_id,
@@ -226,7 +230,7 @@ def pe_callback(request):
         return JsonResponse({'ok': True}, status=200)
 
     if status == 'completed' and payload.get('download_url'):
-        # Fetch out-of-band — product-editor has a 10s webhook timeout.
+        # Fetch out-of-band — Product Editor has a 10s webhook timeout.
         fetch_and_attach_rendered_files.delay(
             order_id=order_id,
             job_id=payload['job_id'],
@@ -292,13 +296,13 @@ Add to your storefront's `.env`:
 
 ```bash
 # Same api_key your storefront already uses to create EmbedSessions on
-# product-editor. Used for two things:
+# Product Editor. Used for two things:
 #   (a) HMAC-SHA256 verification of incoming webhooks (shared secret)
 #   (b) Bearer auth when fetching the ZIP from download_url
 PRODUCT_EDITOR_API_KEY=<the api_key from your existing embed setup>
 ```
 
-The api_key is the **same value** you POST to product-editor at `POST /api/embed/session` in the `Authorization: Bearer …` header. You already have this — no new key needed.
+The api_key is the **same value** you POST to Product Editor at `POST /api/embed/session` in the `Authorization: Bearer …` header. You already have this — no new key needed.
 
 ### 2. Route registration
 
@@ -321,7 +325,7 @@ urlpatterns = [
 ]
 ```
 
-### 3. Tell product-editor where to call you
+### 3. Tell Product Editor where to call you
 
 When your storefront creates an embed session, include `callback_url`:
 
@@ -335,11 +339,11 @@ curl -X POST https://product-editor.printo.in/api/embed/session \
   }'
 ```
 
-The `callback_url` flows through the embed proxy to the backend, gets stamped onto `CanvasData`, and is the exact URL the webhook task POSTs to when render completes. No domain allowlist on product-editor's side — auth is enforced by the api_key + HMAC.
+The `callback_url` flows through the embed proxy to the backend, gets stamped onto `CanvasData`, and is the exact URL the webhook task POSTs to when render completes. No domain allowlist on Product Editor's side — auth is enforced by the api_key + HMAC. `callback_url` must be `https://` and ≤ 2000 chars.
 
 ### 4. Firewall
 
-Allow inbound HTTPS from product-editor's PUBLIC_HOST egress IP range to your `/api/internal/pe-callback` endpoint. Confirm the IP set with infra; add to allowlist.
+Allow inbound HTTPS from Product Editor's egress IP range to your `/api/internal/pe-callback` endpoint. Confirm the IP set with infra; add to allowlist.
 
 ---
 
@@ -347,7 +351,7 @@ Allow inbound HTTPS from product-editor's PUBLIC_HOST egress IP range to your `/
 
 While developing the handler, point `callback_url` at a local tunnel (e.g. `https://<subdomain>.ngrok-free.app/api/internal/pe-callback`) and trigger an embed session + Save & Continue from your storefront. Watch your logs for the HMAC verification result.
 
-For unit-testing the handler without product-editor in the loop:
+For unit-testing the handler without Product Editor in the loop:
 
 ```ts
 // Generate a valid signed payload for tests
@@ -386,12 +390,31 @@ await fetch('http://localhost:3000/api/internal/pe-callback', {
 | Letting `express.json()` parse the body before verification | HMAC always fails — the parsed body's stringification differs from the original bytes | Use `express.raw({ type: 'application/json' })` and verify against the raw `Buffer`, then `JSON.parse(buf.toString())` for the payload |
 | Comparing HMAC with `===` instead of constant-time | Timing-attack vulnerable | Use `crypto.timingSafeEqual` (Node) / `hmac.compare_digest` (Python) |
 | Using a hard-coded secret in the verification | Secret rotation breaks the integration silently | Read from env; rotate api_key on both sides simultaneously |
-| Downloading the ZIP synchronously inside the webhook handler | Webhook timeouts (product-editor's limit is 10 s); product-editor retries 6×; each retry creates duplicate downstream work | Enqueue a job and return 200 immediately; download in the worker |
+| Downloading the ZIP synchronously inside the webhook handler | Webhook timeouts (Product Editor's limit is 10 s); Product Editor retries up to 6 attempts; each retry creates duplicate downstream work | Enqueue a job and return 200 immediately; download in the worker |
 | Storing the ZIP in memory before persisting | OOM at 500 MB renders | Stream with `iter_content` (Python) or `Readable.fromWeb` (Node) directly to S3/disk |
 | Skipping the HMAC check entirely | Anyone who knows the URL can forge order completions | Don't |
 
 ---
 
-## Reference: product-editor side of the contract
+## What also fires alongside the webhook
 
-The webhook is fired by `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](../backend/django/api/tasks.py) and the payload is constructed in the same file. Source-of-truth for any future contract changes — keep this doc in sync.
+Inside the embed iframe, after Save & Continue, the browser posts a message to the parent:
+
+```js
+window.parent.postMessage(
+  { type: 'pe:render_job', jobId: '<uuid>', orderID: '<order_id>' },
+  parentOrigin // strictly locked, never '*'
+);
+```
+
+This is purely for the storefront's **UX** ("your design is being prepared") — the actual file delivery happens via the webhook above. Don't rely on this message for fulfillment; it's optional and best-effort.
+
+---
+
+## Reference
+
+- Webhook fired by `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py). Task config: `max_retries=5`, retry delay `2 ** retry_number` seconds.
+- Payload shape constructed in the same file (`webhook_payload = {...}`). Keep this doc in sync if the task changes.
+- Embed-session creation: see `EmbedSessionView` in `backend/django/api/views.py`.
+- ZIP download endpoint: `RenderJobDownloadView` in the same file. Streams via `StreamingHttpResponse`; safe for 500 MB+ payloads.
+- Embed proxy path allowlist + token cache: [`frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts`](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts).

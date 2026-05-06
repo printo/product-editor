@@ -138,7 +138,7 @@
 ### 12. Product Editor ↔ Estimator
 
 - **Status:** **NONE**.
-- **Verified by:** `grep -rn "estimator\|printose\|cs\.printo\.in"` against `product-editor/backend/` and `frontend/` returns zero matches in runtime code. Mentions exist in `.kiro/specs/` (legacy design docs) only.
+- **Verified by:** `grep -rn "estimator\|printose\|cs\.printo\.in"` against `product-editor/backend/` and `frontend/` returns zero matches in runtime code. (Legacy `.kiro/specs/` design docs were deleted in v1.10 cleanup.)
 - **By design:** Product Editor is a **standalone print-file generator**. The storefront hands the ZIP to its existing OMS via its own (existing) integration; Product Editor never sees Estimator.
 
 ## What's missing across all systems

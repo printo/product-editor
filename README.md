@@ -104,7 +104,8 @@ python3 -c "import secrets; print(secrets.token_urlsafe(50))"
 
 ```bash
 # Production: paste the Cloudflare Origin Certificate into these files.
-# See proxy/nginx/README.md for the full workflow.
+# Cloudflare dashboard → SSL/TLS → Origin Server → Create Certificate
+# (defaults are fine: RSA 2048, 15-year). Then SSL/TLS mode → "Full (strict)".
 mkdir -p proxy/nginx/certs
 echo "<paste cert body>"  > proxy/nginx/certs/origin.crt
 echo "<paste private key>" > proxy/nginx/certs/origin.key

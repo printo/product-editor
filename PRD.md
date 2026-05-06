@@ -126,7 +126,7 @@ The Product Editor replaces the entire manual preflight checkpoint with an autom
 #### A2 — Direct-to-Production File Delivery (Post-Checkout)
 
 - Once the customer completes checkout, the approved canvas data (images + layout + overlays) is rendered server-side at 300 DPI and the rendered files are delivered to printo.in's storefront via two complementary channels:
-  1. **Embed webhook (primary):** the storefront sets `EmbedSession.callback_url` at session creation; on render completion the Product Editor POSTs an HMAC-SHA256-signed payload (`order_id`, `job_id`, `status`, `download_url`, `expires_at`, `file_count`, …) to that URL. The storefront verifies the signature and fetches the ZIP from `download_url` using the same api_key as Bearer auth. Implementation guide for the storefront team: [`docs/printo-in-callback-integration.md`](docs/printo-in-callback-integration.md).
+  1. **Embed webhook (primary):** the storefront sets `EmbedSession.callback_url` at session creation; on render completion the Product Editor POSTs an HMAC-SHA256-signed payload (`order_id`, `job_id`, `status`, `download_url`, `expires_at`, `file_count`, …) to that URL. The storefront verifies the signature and fetches the ZIP from `download_url` using the same api_key as Bearer auth. Implementation guide for the storefront team: [`INTEGRATION.md`](INTEGRATION.md).
   2. **Direct download (fallback):** dashboard / direct-API callers poll `GET /api/render-status/<job_id>/` and fetch the ZIP from `GET /api/jobs/<job_id>/download/` themselves.
 - **No internal OMS push.** The Product Editor is a standalone print-file generator. The previous `push_to_production_estimator_task` (POST to `OMS_PRODUCTION_ESTIMATOR_URL`) was retired in v1.9 — the embed webhook gives the storefront everything it needs to attach files to the order, and the storefront talks to OMS via its own existing integration.
 - No manual handoff step. The production team receives a print-ready file that has already been validated by the customer's own preview approval.
@@ -423,7 +423,7 @@ flowchart LR
 ### Phase 2 — Direct-to-Production (2–6 weeks)
 
 - ~~Implement canvas state persistence~~ **✅ Done** (B1 — IndexedDB blob store + `editor_state` JSON; survives page refresh).
-- Build the post-checkout integration: printo.in storefront receives the HMAC-signed embed webhook (Product Editor side **✅ done** — `notify_caller_webhook_task`; storefront side pending — implementation guide at [`docs/printo-in-callback-integration.md`](docs/printo-in-callback-integration.md)).
+- Build the post-checkout integration: printo.in storefront receives the HMAC-signed embed webhook (Product Editor side **✅ done** — `notify_caller_webhook_task`; storefront side pending — implementation guide at [`INTEGRATION.md`](INTEGRATION.md)).
 - ~~Implement Celery + Redis async queue for non-blocking image generation.~~ **✅ Done** — async queue with priority/standard worker isolation is live.
 - ~~Security hardening~~ **✅ Done** — API key bundle leak closed, session token refresh, auth guards, path traversal protection, and 18 additional fixes all complete. TypeScript and Django build both clean.
 - ~~Server-side upload + render for large batches~~ **✅ Done** — Chunked upload API, per-frame transform pipeline, Celery 300 DPI Pillow render, embed `pe:render_job` postMessage, direct admin ZIP download. Threshold: ≤ 20 canvases → client-side; > 20 → server-side. Smart downscaling and PNG optimization included.
@@ -458,7 +458,7 @@ The following approvals are required before implementation proceeds:
 | 2 | Confirm SKU-to-layout mapping for fridge magnets, photo prints, canvas prints, coasters, mugs (data — endpoint is live) | Viji / Kanna | May 5, 2026 | Open |
 | 3 | Production team readiness assessment — can they accept automated output without preflight? | Mohan | Apr 14, 2026 | Open |
 | 4 | Implement canvas state persistence (backend JSON save + IndexedDB file persistence) | Kanna | Apr 18, 2026 | **✅ Done (Apr 27)** |
-| 5 | Build post-checkout → printo.in storefront webhook (HMAC-signed) | Kanna (✅ Product Editor side) / printo.in storefront team (pending — see [docs/printo-in-callback-integration.md](docs/printo-in-callback-integration.md)) | Apr 25, 2026 | Product Editor side **✅ Done (May 5)**; storefront side **pending** |
+| 5 | Build post-checkout → printo.in storefront webhook (HMAC-signed) | Kanna (✅ Product Editor side) / printo.in storefront team (pending — see [INTEGRATION.md](INTEGRATION.md)) | Apr 25, 2026 | Product Editor side **✅ Done (May 5)**; storefront side **pending** |
 | 6 | Celery + Redis async queue deployment | Kanna / DevOps | Apr 30, 2026 | **✅ Done** |
 | 7 | Security hardening — API key leak, auth refresh, path traversal, 18 additional fixes | Kanna | Apr 11, 2026 | **✅ Done** |
 | 8 | Set `INTERNAL_API_KEY` server env var + remove `NEXT_PUBLIC_DIRECT_API_KEY` from all envs + rotate key | DevOps | Apr 14, 2026 | Open |
@@ -509,7 +509,7 @@ Required steps when running `./deploy.sh` for the v1.7 release. None require cod
 - Should the Product Editor embed completely replace the existing file upload flow on printo.in, or run in parallel (A/B test)?
 - What is the fallback process if the automated output has a print-quality issue that preflight would have caught? Does production reject and notify, or does a post-print QC catch it?
 - For products with variable quantity (e.g., customer orders 50 business cards but uploads 1 design), how should the editor handle the 1-to-many mapping?
-- ~~Is the production estimator API ready to accept the postMessage payload format that the Product Editor emits, or does an adapter need to be built?~~ — **Resolved (v1.9):** Product Editor no longer pushes to OMS directly. It POSTs an HMAC-signed webhook to the printo.in storefront's `callback_url`; the storefront then talks to OMS via its own existing integration. Implementation guide for the storefront in [`docs/printo-in-callback-integration.md`](docs/printo-in-callback-integration.md).
+- ~~Is the production estimator API ready to accept the postMessage payload format that the Product Editor emits, or does an adapter need to be built?~~ — **Resolved (v1.9):** Product Editor no longer pushes to OMS directly. It POSTs an HMAC-signed webhook to the printo.in storefront's `callback_url`; the storefront then talks to OMS via its own existing integration. Implementation guide for the storefront in [`INTEGRATION.md`](INTEGRATION.md).
 - What SLA does production commit to for orders received via the automated pipeline vs the manual pipeline? Should they be identical?
 - Can the Catalog Manager be extended to store the SKU-to-layout mapping, or does this need a new system?
 

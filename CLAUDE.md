@@ -500,7 +500,7 @@ The full prioritised list is in [PRD.md](PRD.md) §8 — these are the items tha
 
 ### Edge proxy (nginx)
 
-Routing, TLS, and tunables live in `proxy/nginx/nginx.conf` (single source — no per-service labels). Detailed cert workflow + troubleshooting in `proxy/nginx/README.md`. Notable behaviour:
+Routing, TLS, and tunables live in [`proxy/nginx/nginx.conf`](proxy/nginx/nginx.conf) — single source, no per-service labels. The `certs/` workflow: paste a Cloudflare Origin Certificate (`SSL/TLS → Origin Server → Create Certificate`, RSA 2048, 15-year, hostnames `product-editor.printo.in` or `*.printo.in`) into `proxy/nginx/certs/origin.crt` and the matching key into `proxy/nginx/certs/origin.key` (`chmod 600`). Set Cloudflare SSL/TLS mode to **Full (strict)**. Skip → `deploy.sh` generates a self-signed bootstrap that requires CF "Full" (not strict). Notable behaviour:
 
 - `^~ /api/auth/`, `^~ /api/internal/proxy/`, `^~ /api/embed/proxy/` → frontend:3000
 - `^~ /admin/django-admin/` → backend:8000 with basic auth (file at `proxy/nginx/.htpasswd`, default `admin/admin`)
