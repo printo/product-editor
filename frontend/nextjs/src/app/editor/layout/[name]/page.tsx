@@ -2241,36 +2241,34 @@ export default function LayoutEditorPage() {
 
           {showImpositionModal && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={() => setShowImpositionModal(false)} />
-              <div className="relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
+              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowImpositionModal(false)} />
+              <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[85vh] border border-slate-200">
                 {/* Left: Preview */}
-                <div className="flex-[1.2] bg-slate-100 p-8 flex flex-col items-center justify-center relative border-r border-slate-100">
-                  <div className="absolute top-6 left-8">
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Sheet Preview</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                <div className="flex-[1.1] bg-slate-50 p-6 flex flex-col items-center justify-center relative border-r border-slate-200">
+                  <div className="absolute top-5 left-6">
+                    <h3 className="text-sm font-semibold text-slate-900">Sheet preview</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
                       Sheet {previewSheetIdx + 1} of {impositionResult.sheets.length}
                     </p>
                   </div>
 
-                  <div className="relative bg-white p-1 rounded-sm">
-                    <canvas ref={impositionPreviewRef} className="max-w-full h-auto rounded-sm border border-slate-200" />
-                  </div>
+                  <canvas ref={impositionPreviewRef} className="max-w-full h-auto rounded shadow-sm border border-slate-200 bg-white" />
 
-                  <div className="mt-8 flex items-center gap-4 bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="mt-6 flex items-center gap-1 bg-white border border-slate-200 rounded-full p-1 shadow-sm">
                     <button
                       disabled={previewSheetIdx === 0}
                       onClick={() => setPreviewSheetIdx(p => p - 1)}
-                      className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-xl hover:bg-slate-50"
+                      className="p-1.5 text-slate-500 hover:text-indigo-600 disabled:opacity-30 transition rounded-full hover:bg-slate-50"
                     >
                       <ChevronRight className="w-4 h-4 rotate-180" />
                     </button>
-                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-tighter min-w-[60px] text-center">
+                    <span className="text-xs font-medium text-slate-700 min-w-[50px] text-center">
                       Page {previewSheetIdx + 1}
                     </span>
                     <button
                       disabled={previewSheetIdx === impositionResult.sheets.length - 1}
                       onClick={() => setPreviewSheetIdx(p => p + 1)}
-                      className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-xl hover:bg-slate-50"
+                      className="p-1.5 text-slate-500 hover:text-indigo-600 disabled:opacity-30 transition rounded-full hover:bg-slate-50"
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
@@ -2278,76 +2276,125 @@ export default function LayoutEditorPage() {
                 </div>
 
                 {/* Right: Controls */}
-                <div className="flex-1 p-8 flex flex-col gap-8 bg-white overflow-y-auto custom-scrollbar">
+                <div className="flex-1 p-6 flex flex-col gap-5 bg-white overflow-y-auto custom-scrollbar">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-sm shadow-emerald-100">
-                        <FileText className="w-5 h-5" />
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center">
+                        <FileText className="w-4 h-4" />
                       </div>
-                      <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Print Settings</h3>
+                      <h3 className="text-base font-semibold text-slate-900">Print settings</h3>
                     </div>
-                    <button onClick={() => setShowImpositionModal(false)} className="p-2 hover:bg-slate-50 rounded-full transition-colors">
-                      <X className="w-4 h-4 text-slate-400" />
+                    <button onClick={() => setShowImpositionModal(false)} className="p-1.5 hover:bg-slate-100 rounded-md transition-colors">
+                      <X className="w-4 h-4 text-slate-500" />
                     </button>
                   </div>
 
-                  <div className="space-y-8">
+                  <div className="space-y-5">
                     {/* Presets */}
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sheet Size</label>
-                      <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-slate-500">Sheet size</label>
+                      <div className="grid grid-cols-3 gap-1.5">
                         {(['a4', 'a3', '12x18', '13x19', 'custom'] as const).map(p => (
-                          <button key={p} onClick={() => setImpositionSettings(s => ({ ...s, preset: p }))} className={clsx('py-2.5 text-[10px] font-black rounded-xl border transition-all uppercase tracking-tighter', impositionSettings.preset === p ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100' : 'border-slate-100 text-slate-400 hover:border-slate-300')}>
+                          <button
+                            key={p}
+                            onClick={() => setImpositionSettings(s => ({ ...s, preset: p }))}
+                            className={clsx(
+                              'py-2 text-xs font-semibold rounded-md border transition uppercase',
+                              impositionSettings.preset === p
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50',
+                            )}
+                          >
                             {p}
                           </button>
                         ))}
                       </div>
                     </div>
 
-                    {/* Precise Gutter & Margin */}
-                    <div className="grid grid-cols-2 gap-6">
-                      <div className="space-y-3">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Gutter (Gap)</label>
-                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                    {/* Custom W × H — only when preset === 'custom' */}
+                    {impositionSettings.preset === 'custom' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-slate-500">Width</label>
+                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="1"
+                              value={impositionSettings.widthIn}
+                              onChange={e => setImpositionSettings(s => ({ ...s, widthIn: Math.max(1, Number(e.target.value) || 0) }))}
+                              className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
+                            />
+                            <span className="text-xs text-slate-400">in</span>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-slate-500">Height</label>
+                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="1"
+                              value={impositionSettings.heightIn}
+                              onChange={e => setImpositionSettings(s => ({ ...s, heightIn: Math.max(1, Number(e.target.value) || 0) }))}
+                              className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
+                            />
+                            <span className="text-xs text-slate-400">in</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Gutter & Margin */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-slate-500">Gutter (gap)</label>
+                        <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
                           <input
                             type="number"
                             value={impositionSettings.gutterMm}
                             onChange={e => setImpositionSettings(s => ({ ...s, gutterMm: Number(e.target.value) }))}
-                            className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
+                            className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
                           />
-                          <span className="text-[9px] font-black text-slate-300 uppercase">mm</span>
+                          <span className="text-xs text-slate-400">mm</span>
                         </div>
                       </div>
-                      <div className="space-y-3">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Margin</label>
-                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-slate-500">Margin</label>
+                        <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
                           <input
                             type="number"
                             value={impositionSettings.marginMm}
                             onChange={e => setImpositionSettings(s => ({ ...s, marginMm: Number(e.target.value) }))}
-                            className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
+                            className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
                           />
-                          <span className="text-[9px] font-black text-slate-300 uppercase">mm</span>
+                          <span className="text-xs text-slate-400">mm</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Auto Repeat Logic */}
-                    <div className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100/50 flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-black text-indigo-900 uppercase tracking-tight">Smart Auto-Repeat</p>
-                        <div className="w-5 h-5 bg-indigo-500 text-white rounded-full flex items-center justify-center text-[10px] font-black">✓</div>
+                    {/* Smart Auto-Repeat */}
+                    <div className="px-4 py-3 bg-indigo-50 rounded-md border border-indigo-100 flex items-start gap-2.5">
+                      <div className="w-4 h-4 mt-0.5 bg-indigo-600 text-white rounded-full flex items-center justify-center text-[10px] flex-shrink-0">
+                        ✓
                       </div>
-                      <p className="text-[10px] font-bold text-indigo-700/60 leading-relaxed">
-                        The imposition engine will automatically repeat your canvases to fill the empty space on the {impositionSettings.preset.toUpperCase()} sheet efficiently.
-                      </p>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-indigo-900">Smart auto-repeat</p>
+                        <p className="text-xs text-indigo-700/80 mt-0.5 leading-relaxed">
+                          Canvases are automatically repeated to fill the {impositionSettings.preset === 'custom' ? `${impositionSettings.widthIn}″ × ${impositionSettings.heightIn}″` : impositionSettings.preset.toUpperCase()} sheet efficiently.
+                        </p>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="mt-auto pt-6 border-t border-slate-100 flex gap-4">
-                    <button onClick={executeImposition} disabled={isImposing} className="w-full py-4 bg-slate-900 text-white rounded-[24px] text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 shadow-xl shadow-slate-200">
+                  <div className="mt-auto pt-5 border-t border-slate-100">
+                    <button
+                      onClick={executeImposition}
+                      disabled={isImposing}
+                      className="w-full py-2.5 bg-slate-900 text-white rounded-md text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                    >
                       {isImposing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                      Download Print Sheets
+                      Download print sheets
                     </button>
                   </div>
                 </div>
