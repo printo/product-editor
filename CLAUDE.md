@@ -77,7 +77,9 @@ All exports go through one unified server-side pipeline. The previous client-sid
 - `src/types/next-auth.d.ts` — type augmentation for `Session` (`error`, `is_ops_team`, `accessToken`, `user.role`) and `JWT` — never use `(session as any)`
 - `src/app/editor/layout/[name]/page.tsx` — Main editor page. Single render path via `executeServerRender()` regardless of canvas count. `handleSubmitDesign` (embed "Save & Continue") and `executeBatchDownload` (dashboard "Download") are thin wrappers that both call it. Dual-mode (dashboard session vs. embed token).
 - `src/components/` — React components (FabricEditor.tsx is the canvas core)
-- `src/lib/fabric-renderer.ts` — Off-screen canvas renderer for previews and exports; uses pre-computed `frameRects[]` array to avoid repeated coordinate recalculation
+- `src/components/ServiceWorkerRegistration.tsx` — registers `/sw.js` in production after `window.load`. No-op in dev so cache doesn't mask code changes. Wired into `app/layout.tsx`.
+- `public/sw.js` — minimal cache-first Service Worker for `/_next/static/*` and `/static/*`. `CACHE_VERSION` constant gates cache buckets; bump to bust everything. See `## Service Worker` section.
+- `src/lib/fabric-renderer.ts` — Off-screen canvas renderer for previews and exports; uses pre-computed `frameRects[]` array to avoid repeated coordinate recalculation. `calculateSmartCropOffsets` clamps the returned offset to the frame's actual per-axis pan room — see v1.10 fix.
 - `src/lib/image-utils.ts` — Image metadata extraction; WeakMap caches only `{width, height, orientation}` (not the HTMLImageElement — would OOM at 200 files)
 - `src/lib/upload-utils.ts` — Chunked upload utility: `uploadFile()` (single, sequential chunks) and `uploadFiles()` (batched, 4 parallel)
 - `src/lib/zip-utils.ts` — Chunked ZIP generation for client-side batch downloads
@@ -321,7 +323,7 @@ session.error            // "RefreshAccessTokenError" when refresh has failed �
 
 ## Coordinate System
 
-Fabric.js uses pixels; layouts specify mm. Confirm DPI-based conversion is applied consistently in both `fabric-renderer.ts` (client) and `engine.py` (server). ICC profiles live in `backend/django/icc_profiles/`.
+Fabric.js uses pixels; layouts specify mm. Confirm DPI-based conversion is applied consistently in both `fabric-renderer.ts` (client) and `engine.py` (server). ICC profiles + CMYK pipeline were retired in v1.8 — output is now PNG (default) or PDF only.
 
 ## Adding a New Layout Property
 
@@ -362,6 +364,30 @@ Some configuration lives as JSON on disk (under `STORAGE_ROOT`, default `./stora
 | `storage/layouts/*.json` | per-layout layout def | `GET /api/layouts`, `GET/PUT/DELETE /api/ops/layouts/<name>` | ops team |
 
 For SKU mapping: PUT validates that every `layout_name` exists on disk before persisting, so the file never holds a broken pointer. GET resolution returns 410 Gone if the disk file has since been deleted.
+
+## Service Worker
+
+The frontend ships a minimal Service Worker at [`public/sw.js`](frontend/nextjs/public/sw.js) registered by [`ServiceWorkerRegistration`](frontend/nextjs/src/components/ServiceWorkerRegistration.tsx) in the root layout.
+
+**What it does:**
+- Cache-first for `GET` requests under `/_next/static/*` and `/static/*` (both content-hashed → safe forever).
+- Same-origin only; non-static paths fall through to network.
+- `skipWaiting` + `clients.claim` → updates apply on reload, no hard-refresh required.
+- On `activate`, sweeps any cache that doesn't match the current `CACHE_VERSION`.
+
+**What it deliberately does NOT do:**
+- Cache HTML, API responses, or anything auth-gated.
+- Pre-cache anything on install (would bloat first-load).
+- Offline routing, push, background sync.
+
+**Registration is production-only** — `process.env.NODE_ENV !== 'production'` short-circuits in `ServiceWorkerRegistration.tsx`. This is deliberate: in dev you want every change to hit the network.
+
+**Cache bust:** bump `CACHE_VERSION = 'pe-static-v1'` in `public/sw.js`. The activate handler clears any prior `pe-static-*` bucket on the next page load.
+
+**Verification on prod:**
+- DevTools → Application → Service Workers → expect `activated and is running` on `/sw.js`
+- Network tab on a warm reload → static chunks show `(ServiceWorker)` in the **Size** column
+- Cache Storage → `pe-static-v1` populating with chunks as you navigate
 
 ## Migrations
 
@@ -415,6 +441,8 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 | `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | Only honored when `DEBUG=1` |
 | `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` | `https://printo.in` | Last-resort fallback for `postMessage` targetOrigin if `ancestorOrigins` and `referrer` are both unavailable |
 | `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS` | `'self' https://printo.in https://*.printo.in` | CSP `frame-ancestors` directive applied to iframe entry pages. Override for staging / partner hosts |
+| `REDIS_URL` | `redis://redis:6379/0` | Celery broker (db **0**) |
+| `REDIS_CACHE_URL` | derived (`redis://redis:6379/1`) | Django cache (db **1**). Auto-derived by swapping the `REDIS_URL` trailing `/0` → `/1`. Override only if cache and broker need to live on different Redis instances |
 
 ## Security Rules
 
@@ -440,6 +468,17 @@ No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped �
 
 ### Fixed
 
+- **v1.10 — Cover-mode white-space bug.** `calculateSmartCropOffsets` ([fabric-renderer.ts](frontend/nextjs/src/app/editor/layout/[name]/fabric-renderer.ts)) now clamps the returned offset to `±(scaled_dim − frame_dim)/2` per axis. Previously the function returned a smartcrop-driven offset with no awareness of the frame's actual pan room — when the constraining axis had zero overflow, the raw offset shoved the image past the frame edge and exposed white inside the frame (visible mostly on portrait photos in 5×7 portrait layouts).
+- **v1.10 — Editor drag clipPath fix.** Frame-image `clipPath` is in image-local coords, so during `object:moving` Fabric updated `img.left/top` in real time but the clipPath drifted with the image. The visible "window" moved with the image instead of staying fixed in the frame, and the user saw the same cropped centre throughout. `updateRelativeClipPath` is now invoked on every `object:moving` / `:scaling` / `:rotating` event in [FabricEditor.tsx](frontend/nextjs/src/app/editor/layout/[name]/FabricEditor.tsx), not only on `:modified`.
+- **v1.10 — Imposition modal: Custom W×H inputs.** Selecting `CUSTOM` previously left users stuck at whatever `widthIn`/`heightIn` was last in state because the modal had no UI to edit them. Inch inputs now render gated on `preset === 'custom'`. Modal styling tightened: `rounded-[40px]` shell → `rounded-2xl`, `font-black` everywhere → `font-semibold`/`font-medium`, padding/gaps `p-8`/`space-y-8` → `p-6`/`space-y-5`. Smart-auto-repeat copy reflects the actual custom dimensions.
+- **v1.10 — Smartcrop IDB cache wiring.** Three call sites in `page.tsx` (`generateCanvases`, `generateCanvasesForLayout`, fit-mode change handler) were calling `calculateSmartCropOffsets` without a `cacheKey`, so the IDB-backed cache (`getCachedCrop`/`setCachedCrop` in [file-store.ts](frontend/nextjs/src/lib/file-store.ts)) was bypassed for the editor mount path. They now pass content-fingerprint keys (`name:size:lastModified:WxH:rotation`).
+- **v1.10 — Editor parallel-batch tuned.** `BATCH_SIZE` in `generateCanvases` raised 5 → 8. Roughly halves metadata + smartcrop wall time on 100+-photo uploads; peak memory still well below OOM zone on typical tablets (~400 MB peak vs the OOM zone at ~700 MB on 4 GB devices). 16 was tested mentally and rejected — too risky on low-RAM tablets for 200-photo batches.
+- **v1.10 — `_smart_downscale` defensive copy removed.** [`engine.py`](backend/django/layout_engine/engine.py) called `img = img.copy()` before `img.thumbnail(...)`. The source RGBA was already a fresh per-frame allocation, so the copy was wasted ~50 MB memcpy per 12 MP frame (tens of GB across a 200-canvas batch). Caller already reassigns the return value, so in-place mutation is safe.
+- **v1.10 — Hot-path debug logs gated.** `log()` is a no-op in prod but JS evaluates arguments at call sites. Wrapped 9 hot-path call sites in [FabricEditor.tsx](frontend/nextjs/src/app/editor/layout/[name]/FabricEditor.tsx) behind `if (_DEV)` blocks: canvas-build summary (with `JSON.stringify(layout)` × 2 + per-frame forEach), full-rebuild summary, in-place update header, paper/bleed/safe-zone updates, frame-image-calculation, getPaperPath per-frame log. Saves ~5–15 ms/sec of dead computation during interactions on slower devices.
+- **v1.10 — Redis DB split.** Django cache moved to db `1`; Celery broker stays on db `0`. Same instance, separate logical DBs, so the cache's `allkeys-lru` eviction policy can no longer drop in-flight Celery messages under cache pressure. Settings derives `REDIS_CACHE_URL` from `REDIS_URL` by swapping `/0` → `/1` unless explicitly overridden.
+- **v1.10 — Docker log rotation.** Top-level `x-default-logging` YAML anchor in [docker-compose.yml](docker-compose.yml) caps every service's json-file logs at 50 MB × 3 rotations (~150 MB ceiling per service). Without this, `/var/lib/docker/containers/<id>/*-json.log` would grow unbounded.
+- **v1.10 — Ops layouts list cache.** `LayoutManagementView.get` ([api/views.py](backend/django/api/views.py)) now mirrors `ListLayoutsView` — Django cache key `ops_layouts_list_all` (2-min TTL) + `Cache-Control: private, max-age=60, stale-while-revalidate=120`. Invalidated on PUT/POST via `cache.delete_many([...])`.
+- **v1.10 — Service Worker.** Minimal SW at [`public/sw.js`](frontend/nextjs/public/sw.js) registered from `<ServiceWorkerRegistration />` in root layout. Cache-first for `/_next/static/*` and `/static/*` (both content-hashed, safe to keep forever); same-origin GETs only; non-static paths fall through. `skipWaiting` + `clients.claim` so updates take effect without a hard refresh. Activate handler sweeps prior `pe-static-*` caches. Production-only registration. To bust caches: bump `CACHE_VERSION` in `public/sw.js`.
 - **B1 — Canvas state file persistence.** `src/lib/file-store.ts` is an IndexedDB store keyed by `(orderId, fileId)`. Each frame and image overlay carries an optional `fileId` (UUID) on `FrameState` / `ImageOverlay`. A self-stabilising effect in `editor/layout/[name]/page.tsx` walks `surfaceStates` after every change, persists any `originalFile` that lacks a `fileId`, and patches the new id back into state. The auto-restore effect calls `getFilesForOrder(orderId)` and rehydrates `originalFile` for any frame/overlay whose `fileId` is in the IndexedDB map. **For image overlays**, restore also re-creates `src` via `getFileUrl(file)` because the previous session's blob URL is revoked — without this fix overlays appear broken in the modal. Net effect: refreshing the page restores not just dataUrl previews but the original Files (and live blob URLs) needed to re-render.
 - **B3 — SKU → layout resolution.** `storage/sku_layouts.json` holds a `{ sku → layout_name }` mapping. `GET /api/sku-layouts/` returns the full mapping; `GET /api/sku-layouts/<sku>/` returns a single resolution (404 if unmapped, 410 if mapped to a deleted layout). `PUT /api/sku-layouts/` replaces the mapping (ops-team only). Public-read so printo.in can resolve the layout before creating an embed session. Cache headers: `public, max-age=300, stale-while-revalidate=600`.
 - **B4 — ESLint flat config.** Replaced `.eslintrc.json` with `eslint.config.mjs`. `pnpm lint` now runs `eslint src` directly (Next.js 16 removed the `next lint` subcommand). The strict TypeScript preset is intentionally not loaded — see watch list above.

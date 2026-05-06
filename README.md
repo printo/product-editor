@@ -8,18 +8,19 @@ A production-ready full-stack application for generating photo layouts for perso
 
 **Backend**
 - Django 5.0.6 + Django REST Framework
-- PostgreSQL 16
-- Pillow — high-resolution image rendering (300 DPI PNG / CMYK TIFF)
-- Celery 5 + Redis — async render queue with priority/standard worker isolation
-- Gunicorn (gthread) — web serving
-- Bearer token API authentication + short-lived embed session tokens
+- PostgreSQL 16 (tuned: `shared_buffers=128MB`, `work_mem=8MB`, `effective_cache_size=384MB`, slow-query log at 1 s)
+- Pillow — high-resolution rendering at 300 DPI (PNG default, PDF alternate)
+- Celery 5 + Redis 7 — async render queue with priority/standard worker isolation; Redis split (broker on db `0`, Django cache on db `1`) so `allkeys-lru` eviction can't drop in-flight task messages
+- Gunicorn (gthread, `(2 × nproc) + 1` workers) — web serving
+- Bearer token API authentication + short-lived embed session tokens (HMAC-signed callback webhooks)
 
 **Frontend**
-- Next.js 16 (App Router)
-- React 19, TypeScript 5.7
-- Fabric.js 7.2 — interactive canvas editing
+- Next.js 16 (App Router, `output: 'standalone'`)
+- React 19, TypeScript 5.7 (full strict mode)
+- Fabric.js 7.2 — interactive canvas editing, lazy-loaded via `next/dynamic`
 - Tailwind CSS 3.4
-- Performance optimized for large batches (100–200+ images) via parallel rendering and metadata caching
+- Service Worker at `/sw.js` — cache-first for `/_next/static/*` and `/static/*` (warm visits skip the CDN)
+- Performance optimized for large batches (100–200+ images) via parallel BATCH_SIZE-8 metadata extraction, IndexedDB-cached smartcrop, and content-hashed asset caching
 
 **Infrastructure**
 - Docker Compose
@@ -195,12 +196,14 @@ curl https://product-editor.printo.in/api/render-status/cb842c45-.../
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-When complete, `callback_url` receives a POST with `status: "completed"` and `output_files`.
+When complete, the printo.in storefront receives a POST to its registered `EmbedSession.callback_url` with the v1.8+ webhook payload (`order_id`, `job_id`, `status`, `download_url`, `expires_at`, `file_count`, `layout_name`, `export_format`) and an HMAC signature in the `X-Signature` header. Direct API callers without an `EmbedSession` poll `/api/render-status/{job_id}/`.
 
-### CMYK soft-proof (priority queue)
+### Output formats
+
+`export_format` is `png` (default) or `pdf`. The CMYK / soft-proof / TIFF pipeline was retired in v1.8 — output is RGB PNG/PDF only.
 
 ```bash
--F "soft_proof=true"   # routes to priority queue; outputs PNG + TIFF CMYK + preview PNG
+-F "export_format=pdf"   # default is 'png'
 ```
 
 ---
@@ -251,7 +254,7 @@ cat backup.sql | docker-compose exec -T db psql -U postgres product_editor
 docker-compose exec backend python manage.py migrate
 ```
 
-Current migrations:
+Current migrations (latest: `0007_exportedresult_gc_partial_index`):
 
 | Migration | Change |
 |---|---|
@@ -260,6 +263,8 @@ Current migrations:
 | 0003 | `CanvasData.editor_state` JSON field + `UploadedFile.upload_session` — canvas persistence and chunked-upload session tracking |
 | 0004 | `CanvasData.updated_at` (`auto_now`) + `canvas_data_expires_idx` index — GC age queries |
 | 0005 | `CanvasData` uniqueness changed from global `order_id` to composite `(order_id, api_key)` — tenant isolation fix |
+| 0006 | `EmbedSession.order_id` — caller's job ID, injected as `X-Order-ID` by embed proxy |
+| 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` |
 
 ---
 
