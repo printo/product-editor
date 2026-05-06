@@ -2,6 +2,7 @@ import "./globals.css"
 import { ReactNode } from "react"
 import { AuthProvider } from "@/components/AuthProvider"
 import { AppWrapper } from "@/components/AppWrapper"
+import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration"
 import { auth } from "@/pia-auth"
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
@@ -30,6 +31,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className="min-h-screen bg-white text-slate-900 antialiased" suppressHydrationWarning>
+        <ServiceWorkerRegistration />
         <AuthProvider session={session}>
           <AppWrapper>
             {children}

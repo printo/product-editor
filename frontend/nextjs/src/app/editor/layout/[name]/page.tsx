@@ -734,7 +734,15 @@ export default function LayoutEditorPage() {
 
     try {
       const built: CanvasItem[] = [];
-      const BATCH_SIZE = 5;
+      // 8 simultaneous getImageMetadata + smartcrop calls. Each pins a
+      // full-res HTMLImageElement (~50 MB for a 12 MP photo). At 8 in
+      // flight we're ceiling at ~400 MB peak, well within desktop and
+      // the median tablet's headroom; bumping further (16) reaches the
+      // OOM zone on 4 GB devices for 200-photo batches. Was 5 — the
+      // next 3 slots roughly halve the metadata+smartcrop wall time on
+      // big uploads without changing the memory ceiling enough to
+      // matter.
+      const BATCH_SIZE = 8;
       
       for (let i = 0; i < canvasCount; i += BATCH_SIZE) {
         const end = Math.min(i + BATCH_SIZE, canvasCount);
