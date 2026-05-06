@@ -112,7 +112,7 @@ function applyOverlayToObject(
     const sy = (overlay.y / 100) * canvasH;
     const sw = (overlay.width / 100) * canvasW;
     const sh = (overlay.height / 100) * canvasH;
-    log('Shape Overlay Calculation (In-place Update):', { overlay, sx, sy, sw, sh });
+    if (_DEV) log('Shape Overlay Calculation (In-place Update):', { overlay, sx, sy, sw, sh });
     const def = getShapeDef(overlay.shapeType);
     if (def?.fabricType === 'circle') {
       const radius = Math.min(sw, sh) / 2;
@@ -132,7 +132,7 @@ function applyOverlayToObject(
   } else if (overlay.type === 'image') {
     const left = (overlay.x / 100) * canvasW;
     const top = (overlay.y / 100) * canvasH;
-    log('Image Overlay Calculation (In-place Update):', { overlay, left, top });
+    if (_DEV) log('Image Overlay Calculation (In-place Update):', { overlay, left, top });
     obj.set({
       left,
       top,
@@ -234,14 +234,16 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
       const fr = Math.round(Math.min(fw / 2, fh / 2, frMm * pxPerMm) * 10) / 10;
 
-      log(
-        `[getPaperPath] Frame[${_fIdx}]:`,
-        `isPercent=${isPercent} | isTransforming=${isTransforming}`,
-        `| raw=(x:${frameSpec.x}, y:${frameSpec.y}, w:${frameSpec.width}, h:${frameSpec.height})`,
-        `| hole px=(x:${fx}, y:${fy}, w:${fw}, h:${fh})`,
-        `| coverage=${(fw / canvasW * 100).toFixed(1)}%×${(fh / canvasH * 100).toFixed(1)}%`,
-        `| pxPerMm=${pxPerMm.toFixed(3)} bleed=${bleed}mm fr=${fr}px`,
-      );
+      if (_DEV) {
+        log(
+          `[getPaperPath] Frame[${_fIdx}]:`,
+          `isPercent=${isPercent} | isTransforming=${isTransforming}`,
+          `| raw=(x:${frameSpec.x}, y:${frameSpec.y}, w:${frameSpec.width}, h:${frameSpec.height})`,
+          `| hole px=(x:${fx}, y:${fy}, w:${fw}, h:${fh})`,
+          `| coverage=${(fw / canvasW * 100).toFixed(1)}%×${(fh / canvasH * 100).toFixed(1)}%`,
+          `| pxPerMm=${pxPerMm.toFixed(3)} bleed=${bleed}mm fr=${fr}px`,
+        );
+      }
 
       if (fr > 0) {
         // Punched-out rounded rect (A command for arcs)
@@ -432,8 +434,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     prevLayoutNameRef.current = currentLayoutName;
     prevIsTransformingRef.current = isTransforming;
 
-    // ── Canvas Build Debug Summary ──────────────────────────────────────────
-    {
+    // ── Canvas Build Debug Summary (dev only) ───────────────────────────────
+    // Gated explicitly: `log()` is a no-op in prod but JS still evaluates the
+    // arguments at the call site — JSON.stringify(layout) and the per-frame
+    // forEach below would otherwise run on every editingCanvas tick (i.e.
+    // every keystroke + every drag frame). For a 12-frame layout that's
+    // ~0.5–2 ms of pure dead computation per effect run.
+    if (_DEV) {
       const _pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
       logGroupCollapsed(
         `[FabricEditor] Render | canvas=${canvasW}×${canvasH}px | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length} | needsFullRebuild=${needsFullRebuild}`,
@@ -465,9 +472,11 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     if (!needsFullRebuild) {
       // ── #3 In-place property update ─────────────
-      log(
-        `[FabricEditor] ↻ In-place update | canvas=${canvasW}×${canvasH}px | transformChanged=${transformChanged} | isTransforming=${isTransforming} | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length}`,
-      );
+      if (_DEV) {
+        log(
+          `[FabricEditor] ↻ In-place update | canvas=${canvasW}×${canvasH}px | transformChanged=${transformChanged} | isTransforming=${isTransforming} | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length}`,
+        );
+      }
       const objs = fc.getObjects();
 
       // ✅ Update paper overlay in-place if transform status changed
@@ -476,7 +485,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         if (transformChanged || !paperObj.path) {
           // Use Path constructor to parse string into array of commands to avoid TypeError in toDataURL/toJSON
           const updatedPath = getPaperPath(isTransforming);
-          log(`  [Paper In-place] transformChanged=${transformChanged} | path (first 80 chars): "${updatedPath.substring(0, 80)}..."`);
+          if (_DEV) log(`  [Paper In-place] transformChanged=${transformChanged} | path (first 80 chars): "${updatedPath.substring(0, 80)}..."`);
           const tempPath = new Path(updatedPath);
           paperObj.set({ path: tempPath.path });
         }
@@ -491,12 +500,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       // ✅ Update bleed zone visibility during transform
       objs.forEach((o: any) => {
         if (o[BLEED_KEY]) {
-          log(`  [Bleed update] Frame[${o.__frameIdx ?? '?'}] visible=${isTransforming} opacity=0.5`);
+          if (_DEV) log(`  [Bleed update] Frame[${o.__frameIdx ?? '?'}] visible=${isTransforming} opacity=0.5`);
           o.set({ visible: isTransforming, opacity: 0.5 });
         }
         if (o[SAFE_KEY]) {
           const _safeOpacity = isTransforming ? 0.25 : 0.45;
-          log(`  [SafeZone update] Frame[${o.__frameIdx ?? '?'}] opacity=${_safeOpacity}`);
+          if (_DEV) log(`  [SafeZone update] Frame[${o.__frameIdx ?? '?'}] opacity=${_safeOpacity}`);
           o.set({ visible: true, opacity: _safeOpacity });
         }
       });
@@ -541,17 +550,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const imgX = clip.fx + (clip.fw - imgW * scale) / 2 + frameState.offset.x;
         const imgY = clip.fy + (clip.fh - imgH * scale) / 2 + frameState.offset.y;
 
-        log('Frame Image Calculation (In-place Update):', {
-          frameState,
-          clip,
-          imgW,
-          imgH,
-          scale,
-          imgX,
-          imgY,
-          left: imgX + (imgW * scale) / 2,
-          top: imgY + (imgH * scale) / 2,
-        });
+        if (_DEV) {
+          log('Frame Image Calculation (In-place Update):', {
+            frameState, clip, imgW, imgH, scale, imgX, imgY,
+            left: imgX + (imgW * scale) / 2,
+            top: imgY + (imgH * scale) / 2,
+          });
+        }
 
         img.set({
           left: imgX + (imgW * scale) / 2,
@@ -575,10 +580,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     fc.backgroundColor = 'transparent';
     fc.set({ renderOnAddRemove: false });
 
-    logGroup(`[FabricEditor] 🔨 Full Rebuild (gen=${gen}) | canvas=${canvasW}×${canvasH}px | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length}`);
-    log('bgColor:', editingCanvas.bgColor || '#ffffff', '| paperColor:', editingCanvas.paperColor || '#ffffff');
-    log('layout.canvas:', JSON.stringify(layout?.canvas));
-    log('layout.maskUrl:', layout?.maskUrl ?? '(none)');
+    if (_DEV) {
+      logGroup(`[FabricEditor] 🔨 Full Rebuild (gen=${gen}) | canvas=${canvasW}×${canvasH}px | frames=${editingCanvas.frames.length} | overlays=${editingCanvas.overlays.length}`);
+      log('bgColor:', editingCanvas.bgColor || '#ffffff', '| paperColor:', editingCanvas.paperColor || '#ffffff');
+      log('layout.canvas:', JSON.stringify(layout?.canvas));
+      log('layout.maskUrl:', layout?.maskUrl ?? '(none)');
+    }
 
     let zIndex = 0;
 
@@ -610,14 +617,16 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const pxPerMm = canvasW / (layout?.canvas?.widthMm || 1);
       const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
 
-      log(
-        `  [SafeZone Frame ${frameIdx}]`,
-        `isPercent=${isPercent}`,
-        `| raw: x=${frameSpec.x} y=${frameSpec.y} w=${frameSpec.width} h=${frameSpec.height}`,
-        `| px: x=${fx.toFixed(1)} y=${fy.toFixed(1)} w=${fw.toFixed(1)} h=${fh.toFixed(1)}`,
-        `| canvas coverage: ${(fw / canvasW * 100).toFixed(1)}% wide × ${(fh / canvasH * 100).toFixed(1)}% tall`,
-        `| pxPerMm=${pxPerMm.toFixed(3)} borderRadius=${fr.toFixed(1)}px`,
-      );
+      if (_DEV) {
+        log(
+          `  [SafeZone Frame ${frameIdx}]`,
+          `isPercent=${isPercent}`,
+          `| raw: x=${frameSpec.x} y=${frameSpec.y} w=${frameSpec.width} h=${frameSpec.height}`,
+          `| px: x=${fx.toFixed(1)} y=${fy.toFixed(1)} w=${fw.toFixed(1)} h=${fh.toFixed(1)}`,
+          `| canvas coverage: ${(fw / canvasW * 100).toFixed(1)}% wide × ${(fh / canvasH * 100).toFixed(1)}% tall`,
+          `| pxPerMm=${pxPerMm.toFixed(3)} borderRadius=${fr.toFixed(1)}px`,
+        );
+      }
 
       // ✅ Safe Zone Guide
       const sr = (fr > fw / 2 - 1 && fr > fh / 2 - 1)
@@ -652,20 +661,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const frMm = Number(frameSpec.borderRadiusMm || 0);
       const fr = Math.min(fw / 2, fh / 2, frMm * pxPerMm);
 
-      log('Bleed Zone Calculation:', {
-        frameSpec,
-        canvasW,
-        canvasH,
-        isPercent,
-        fx,
-        fy,
-        fw,
-        fh,
-        bleed,
-        pxPerMm,
-        bleedPx,
-        fr,
-      });
+      if (_DEV) {
+        log('Bleed Zone Calculation:', {
+          frameSpec, canvasW, canvasH, isPercent,
+          fx, fy, fw, fh, bleed, pxPerMm, bleedPx, fr,
+        });
+      }
 
       // ✅ Bleed Zone Guide
       const br = (fr > fw / 2 - 1 && fr > fh / 2 - 1)
@@ -764,10 +765,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     // ── Paper Overlay ──
     const _paperPathStr = getPaperPath(isTransforming);
-    log(
-      `  [Paper Overlay] fill=${editingCanvas.paperColor || '#ffffff'} | fillRule=evenodd | isTransforming=${isTransforming}`,
-      `| path (first 120 chars): "${_paperPathStr.substring(0, 120)}..."`,
-    );
+    if (_DEV) {
+      log(
+        `  [Paper Overlay] fill=${editingCanvas.paperColor || '#ffffff'} | fillRule=evenodd | isTransforming=${isTransforming}`,
+        `| path (first 120 chars): "${_paperPathStr.substring(0, 120)}..."`,
+      );
+    }
     const paperOverlay = new Path(_paperPathStr, {
       left: 0, top: 0, originX: 'left', originY: 'top', fill: editingCanvas.paperColor || '#ffffff',
       selectable: false, evented: false, fillRule: 'evenodd',
@@ -820,7 +823,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (overlay.type === 'text') {
         const left = (overlay.x / 100) * canvasW;
         const top = (overlay.y / 100) * canvasH;
-        log('Text Overlay Calculation (Full Rebuild):', { overlay, left, top });
+        if (_DEV) log('Text Overlay Calculation (Full Rebuild):', { overlay, left, top });
         fabricObj = new Textbox(overlay.text, {
           left, top,
           originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
@@ -834,7 +837,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       } else if (overlay.type === 'shape') {
         fabricObj = makeShapeObject(overlay as any, canvasW, canvasH);
         if (fabricObj) {
-          log('Shape Overlay Calculation (Full Rebuild):', { overlay, fabricObj });
+          if (_DEV) log('Shape Overlay Calculation (Full Rebuild):', { overlay, fabricObj });
           fabricObj.__fabricEditor = 'shape';
         }
       } else if (overlay.type === 'image') {
