@@ -246,12 +246,19 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
 
-# Cache Configuration — django-redis (shared across all Gunicorn workers)
-# REDIS_URL defaults to the Docker service name; override via env in any environment.
+# Cache Configuration — django-redis (shared across all Gunicorn workers).
+#
+# Cache uses Redis DB 1; Celery broker stays on DB 0 (see CELERY_BROKER_URL
+# below). Same Redis instance, separate logical DBs — so the cache's
+# allkeys-lru eviction policy can't drop in-flight Celery task messages
+# under cache pressure. REDIS_CACHE_URL overrides explicitly; otherwise
+# derived from REDIS_URL by swapping the trailing /0 → /1.
+_redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+_redis_cache_url = os.getenv("REDIS_CACHE_URL") or _redis_url.rsplit("/", 1)[0] + "/1"
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.getenv("REDIS_URL", "redis://redis:6379/0"),
+        "LOCATION": _redis_cache_url,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             # Fail open: if Redis is unreachable, log the error rather than raising.

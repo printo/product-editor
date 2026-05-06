@@ -1,3 +1,13 @@
+# Default logging for every service — caps each container's JSON log file
+# at 50 MB and keeps 3 rotations (~150 MB ceiling per service). Without
+# this Docker's json-file driver writes to /var/lib/docker/containers/<id>/*-json.log
+# without bound, so a noisy week of traffic can fill the disk.
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   # ── Edge proxy: nginx ────────────────────────────────────────────────────
   # Sits behind Cloudflare. TLS terminates here using a Cloudflare Origin
@@ -23,6 +33,7 @@ services:
     networks:
       - web
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/nginx-health"]
       interval: 30s
@@ -42,6 +53,7 @@ services:
         reservations:
           memory: 128M
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -87,6 +99,7 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    logging: *default-logging
 
   backend:
     build:
@@ -122,6 +135,7 @@ services:
         reservations:
           memory: 512M
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status == 200 else 1)"]
       interval: 30s
@@ -157,6 +171,7 @@ services:
     networks:
       - web
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       # 127.0.0.1 (not localhost) — alpine wget resolves localhost to ::1
       # but the standalone Next.js server binds to 0.0.0.0 (IPv4 only).
@@ -205,6 +220,7 @@ services:
         reservations:
           memory: 512M
     restart: unless-stopped
+    logging: *default-logging
 
   # ── Standard worker ────────— PNG/TIFF exports for regular delivery orders ────────
   # Scale horizontally under load:
@@ -242,6 +258,7 @@ services:
         reservations:
           memory: 512M
     restart: unless-stopped
+    logging: *default-logging
 
   celery-beat:
     build:
@@ -262,6 +279,7 @@ services:
     networks:
       - web
     restart: unless-stopped
+    logging: *default-logging
 
 networks:
   web:

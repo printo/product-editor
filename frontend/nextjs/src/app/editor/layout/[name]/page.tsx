@@ -16,7 +16,7 @@ import {
   SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { createZipFromDataUrls, createMultiSurfaceZip, downloadBlob } from '@/lib/zip-utils';
+import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
 import { uploadFiles } from '@/lib/upload-utils';
 import { saveFile, getFilesForOrder } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
@@ -677,7 +677,8 @@ export default function LayoutEditorPage() {
 
             let offset = { x: 0, y: 0 };
             if (fitMode === 'cover') {
-              offset = await calculateSmartCropOffsets(imgEl, frameW, frameH, rotation);
+              const ck = `${file.name}:${file.size}:${file.lastModified}:${frameW}x${frameH}:${rotation}`;
+              offset = await calculateSmartCropOffsets(imgEl, frameW, frameH, rotation, ck);
             }
 
             canvasFrames.push({
@@ -779,7 +780,8 @@ export default function LayoutEditorPage() {
 
                   let offset = { x: 0, y: 0 };
                   if (globalFitModeRef.current === 'cover') {
-                    offset = await calculateSmartCropOffsets(imgEl, frameW, frameH, rotation);
+                    const ck = `${file.name}:${file.size}:${file.lastModified}:${frameW}x${frameH}:${rotation}`;
+                    offset = await calculateSmartCropOffsets(imgEl, frameW, frameH, rotation, ck);
                   }
 
                   canvasFrames.push({
@@ -879,7 +881,10 @@ export default function LayoutEditorPage() {
                 const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
                 const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
                 const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-                newOffset = await calculateSmartCropOffsets(imgEl, frameW, frameH, f.rotation);
+                const ck = f.fileId
+                  ? `${f.fileId}:${frameW}x${frameH}:${f.rotation}`
+                  : `${f.originalFile.name}:${f.originalFile.size}:${f.originalFile.lastModified}:${frameW}x${frameH}:${f.rotation}`;
+                newOffset = await calculateSmartCropOffsets(imgEl, frameW, frameH, f.rotation, ck);
               } else if (globalFitMode === 'contain') {
                 newOffset = { x: 0, y: 0 };
               }

@@ -946,40 +946,58 @@ class LayoutManagementView(APIView):
 
     def get(self, request, name=None):
         """List layouts or get a specific layout's JSON."""
+        from django.core.cache import cache as django_cache
         storage = get_storage()
         if name:
             if not self._is_valid_layout_name(name):
                 return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
             path = os.path.join(storage.layouts_dir(), f"{name}.json")
             if not self._is_path_safe(path, storage.layouts_dir()):
                 return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
-            
+
             if not os.path.exists(path):
                 return Response({"detail": "Layout not found"}, status=status.HTTP_404_NOT_FOUND)
-            
+
             try:
                 with open(path, "r") as f:
-                    return Response(json.load(f))
+                    response = Response(json.load(f))
+                    # Single-layout fetches are dominated by the editor mount on
+                    # an ops admin's machine; a 60 s browser cache + 120 s SWR
+                    # keeps repeat visits free without making invalidation
+                    # tricky (PUT clears `layouts_list_all` already; per-layout
+                    # cache is browser-only and ages out fast).
+                    response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
+                    return response
             except Exception as e:
                 return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
-            layout_names = storage.list_layouts()
-            layouts_data = []
-            for name in layout_names:
-                path = os.path.join(storage.layouts_dir(), f"{name}.json")
-                if os.path.exists(path):
-                    try:
-                        with open(path, "r") as f:
-                            data = json.load(f)
-                            if "name" not in data:
-                                data["name"] = name
-                            layouts_data.append(data)
-                    except Exception:
+            # Full list — server-side Django cache mirrors ListLayoutsView so
+            # repeat hits skip the disk scan; HTTP Cache-Control lets the
+            # admin's browser cache it too.
+            CACHE_KEY = "ops_layouts_list_all"
+            CACHE_TTL = 120
+            layouts_data = django_cache.get(CACHE_KEY)
+            if layouts_data is None:
+                layout_names = storage.list_layouts()
+                layouts_data = []
+                for name in layout_names:
+                    path = os.path.join(storage.layouts_dir(), f"{name}.json")
+                    if os.path.exists(path):
+                        try:
+                            with open(path, "r") as f:
+                                data = json.load(f)
+                                if "name" not in data:
+                                    data["name"] = name
+                                layouts_data.append(data)
+                        except Exception:
+                            layouts_data.append({"name": name})
+                    else:
                         layouts_data.append({"name": name})
-                else:
-                    layouts_data.append({"name": name})
-            return Response({"layouts": layouts_data})
+                django_cache.set(CACHE_KEY, layouts_data, CACHE_TTL)
+            response = Response({"layouts": layouts_data})
+            response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
+            return response
 
     def post(self, request, name=None):
         """Create or update a layout JSON file."""
@@ -1228,9 +1246,9 @@ class LayoutManagementView(APIView):
                 except Exception as e:
                     logger.warning(f"Rename: mask move failed: {e}")
             
-            # Invalidate the layouts list cache so next GET reflects the change
+            # Invalidate both layouts list caches so next GET reflects the change
             from django.core.cache import cache as django_cache
-            django_cache.delete("layouts_list_all")
+            django_cache.delete_many(["layouts_list_all", "ops_layouts_list_all"])
 
             return Response({"status": "success", "name": layout_name, "maskUrl": layout_data.get('maskUrl')})
         except json.JSONDecodeError:

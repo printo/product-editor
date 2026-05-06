@@ -975,12 +975,35 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       if (changed) fc.requestRenderAll();
     };
 
-    const handleMoving = () => {
+    const handleMoving = (e: { target?: FabricObject } = {}) => {
+      // Frame images carry an image-local clipPath that defines the visible
+      // window through the frame. Fabric updates left/top in real time during
+      // drag, so the clipPath (anchored at image-local origin) drifts with
+      // the image — without recomputing it, the user sees the same cropped
+      // center of the image throughout the drag instead of the image scrolling
+      // through a fixed frame window.
+      const target = e.target;
+      if (target?.__fabricEditor === 'frame' && target.__clipRect) {
+        const clip = target.__clipRect;
+        updateRelativeClipPath(target, clip.fx, clip.fy, clip.fw, clip.fh);
+      }
+
       const objs = fc.getObjects();
       let changed = false;
       objs.forEach(obj => { if ((obj.__guideLayer || obj.__gridLayer) && !obj.visible) { obj.set({ visible: true }); changed = true; } });
       if (!isTransforming) setIsTransforming(true);
       if (changed) fc.requestRenderAll();
+    };
+
+    const handleScalingOrRotating = (e: { target?: FabricObject } = {}) => {
+      // Same reason as handleMoving: scale/rotate also invalidate the
+      // image-local clipPath placement.
+      const target = e.target;
+      if (target?.__fabricEditor === 'frame' && target.__clipRect) {
+        const clip = target.__clipRect;
+        updateRelativeClipPath(target, clip.fx, clip.fy, clip.fw, clip.fh);
+      }
+      if (!isTransforming) setIsTransforming(true);
     };
 
         const handleMouseUp = () => {
@@ -997,8 +1020,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     fc.on('object:modified', (e) => { handleModified(e); hideGuides(); });
     fc.on('object:moving', handleMoving);
-    fc.on('object:scaling', () => setIsTransforming(true));
-    fc.on('object:rotating', () => setIsTransforming(true));
+    fc.on('object:scaling', handleScalingOrRotating);
+    fc.on('object:rotating', handleScalingOrRotating);
     fc.on('mouse:up', handleMouseUp);
     fc.on('selection:created', handleSelection);
     fc.on('selection:updated', handleSelection);
