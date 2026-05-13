@@ -33,6 +33,48 @@ import { CanvasEditorModal } from './CanvasEditorModal';
 
 // ─── Fabric-based imposition / export ─────────────────────────────────────
 
+/**
+ * Decide whether a freshly-uploaded image should be auto-rotated 90° to fit
+ * the target frame.
+ *
+ * The previous rule was a binary orientation match
+ * (`(imgRatio > 1) !== (frameRatio > 1) → rotate`). That worked for layouts
+ * whose frames span the full canvas (Classic prints: frame is 1500×2100, a
+ * clear portrait) but mis-fired on layouts where the frame is a sub-region
+ * with a near-square aspect — e.g. Retro polaroid 4.2×3.5, whose frame is
+ * 945×921 (ratio 1.026). 1.026 is technically "landscape" by the strict `> 1`
+ * test, so every portrait selfie tripped the mismatch and got rotated 90°,
+ * landing sideways inside the polaroid window.
+ *
+ * The new rule rotates only when rotation provides a *meaningful* improvement
+ * in aspect-ratio fit — at least 30% closer to the frame's aspect than the
+ * original orientation. Near-square frames produce small differences either
+ * way and stay un-rotated (preserving the photo's natural orientation);
+ * frames with a clear portrait/landscape bias still get aggressive rotation
+ * (a landscape photo into a 5×7 portrait frame still rotates correctly).
+ *
+ * Worked examples:
+ *   - Classic 5×7 (frame ratio 0.714), portrait selfie (0.75):
+ *     originalGap=0.04, rotatedGap=0.62 → don't rotate. ✓
+ *   - Classic 5×7 (0.714), landscape photo (1.333):
+ *     originalGap=0.62, rotatedGap=0.04 → rotate. ✓
+ *   - Retro polaroid (frame ratio 1.026), portrait selfie (0.75):
+ *     originalGap=0.28, rotatedGap=0.31 → don't rotate. ✓ (was the bug)
+ *   - Retro polaroid (1.026), landscape photo (1.333):
+ *     originalGap=0.31, rotatedGap=0.28 → marginal; 0.28 > 0.31×0.7 → don't rotate.
+ */
+function shouldAutoRotate90(
+  imgW: number, imgH: number,
+  frameW: number, frameH: number,
+): boolean {
+  if (imgW <= 0 || imgH <= 0 || frameW <= 0 || frameH <= 0) return false;
+  const imgRatio = imgW / imgH;
+  const targetRatio = frameW / frameH;
+  const originalGap = Math.abs(imgRatio - targetRatio);
+  const rotatedGap = Math.abs((1 / imgRatio) - targetRatio);
+  return rotatedGap < originalGap * 0.7;
+}
+
 export default function LayoutEditorPage() {
   const params = useParams();
   const layoutName = Array.isArray(params.name) ? params.name[0] : (params.name as string);
@@ -663,17 +705,10 @@ export default function LayoutEditorPage() {
             const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
             const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
 
-            const imgRatio = imgW / imgH;
-            const targetRatio = frameW / frameH;
-
-            // Check if the image orientation matches the target orientation 
-            const isImgLandscape = imgRatio > 1;
-            const isTargetLandscape = targetRatio > 1;
-
-            let rotation = 0;
-            if (isImgLandscape !== isTargetLandscape) {
-              rotation = 90; // Suggest/Apply rotation to fill layout better
-            }
+            // Aspect-aware rotation — see shouldAutoRotate90 docstring for why
+            // the old `(imgRatio > 1) !== (frameRatio > 1)` test broke for
+            // near-square frames like the Retro polaroid.
+            const rotation = shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0;
 
             let offset = { x: 0, y: 0 };
             if (fitMode === 'cover') {
@@ -776,15 +811,7 @@ export default function LayoutEditorPage() {
                   const frameW = frameSpec.width <= 1 ? frameSpec.width * canvasW : frameSpec.width;
                   const frameH = frameSpec.height <= 1 ? frameSpec.height * canvasH : frameSpec.height;
 
-                  const imgRatio = imgW / imgH;
-                  const targetRatio = frameW / frameH;
-                  const isImgLandscape = imgRatio > 1;
-                  const isTargetLandscape = targetRatio > 1;
-
-                  let rotation = 0;
-                  if (isImgLandscape !== isTargetLandscape) {
-                    rotation = 90;
-                  }
+                  const rotation = shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0;
 
                   let offset = { x: 0, y: 0 };
                   if (globalFitModeRef.current === 'cover') {
