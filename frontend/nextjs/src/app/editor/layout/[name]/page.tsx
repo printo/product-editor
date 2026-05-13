@@ -24,6 +24,7 @@ import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/la
 import { getImageMetadata, detectJpegColorSpace } from '@/lib/image-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
+import { detectFileOrientation } from '@/lib/ml-orientation';
 // Type-only import — erased at compile time, zero bundle impact.
 // The actual Fabric.js runtime is loaded lazily inside executeImposition / the
 // imposition preview useEffect so it does NOT inflate the initial page bundle.
@@ -705,10 +706,13 @@ export default function LayoutEditorPage() {
             const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
             const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
 
-            // Aspect-aware rotation — see shouldAutoRotate90 docstring for why
-            // the old `(imgRatio > 1) !== (frameRatio > 1)` test broke for
-            // near-square frames like the Retro polaroid.
-            const rotation = shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0;
+            // Server-side MediaPipe Pose Landmarker decides rotation when
+            // it can find a pose (handles sideways selfies / babies on a
+            // blanket / scanned photos taken sideways — see CLAUDE.md
+            // "Auto-orientation"). Falls back to the aspect-ratio heuristic
+            // when the photo has no person / pose is occluded / mode=off.
+            const ml = await detectFileOrientation(apiBase, file, getAuthHeaders ? getAuthHeaders() : undefined);
+            const rotation = ml?.rotation ?? (shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0);
 
             let offset = { x: 0, y: 0 };
             if (fitMode === 'cover') {
@@ -811,7 +815,8 @@ export default function LayoutEditorPage() {
                   const frameW = frameSpec.width <= 1 ? frameSpec.width * canvasW : frameSpec.width;
                   const frameH = frameSpec.height <= 1 ? frameSpec.height * canvasH : frameSpec.height;
 
-                  const rotation = shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0;
+                  const ml = await detectFileOrientation(apiBase, file, getAuthHeaders ? getAuthHeaders() : undefined);
+                  const rotation = ml?.rotation ?? (shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0);
 
                   let offset = { x: 0, y: 0 };
                   if (globalFitModeRef.current === 'cover') {

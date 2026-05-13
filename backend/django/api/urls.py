@@ -1,11 +1,12 @@
 from django.urls import path
 from .views import (
-    GenerateLayoutView, ListLayoutsView, HealthView, GetLayoutView, SecureExportDownloadView,
+    GenerateLayoutView, ListLayoutsView, HealthView, ConfigView, GetLayoutView, SecureExportDownloadView,
     LayoutManagementView, ExternalLayoutDetailView, MaskDownloadView,
     EmbedSessionView, EmbedSessionValidateView, FontsView,
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
     CanvasStateView, SKULayoutView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
+    OrientationDetectView,
     EditorRenderView, EditorInitView,
 )
 
@@ -16,6 +17,8 @@ urlpatterns = [
     path("layouts/masks/<str:filename>", MaskDownloadView.as_view(), name="layout-mask-download"),
     path("layouts/<str:name>", GetLayoutView.as_view(), name="layout-detail"),
     path("health", HealthView.as_view(), name="health"),
+    path("config", ConfigView.as_view(), name="config"),
+    path("orientation/detect", OrientationDetectView.as_view(), name="orientation-detect"),
     path("exports/<path:file_path>", SecureExportDownloadView.as_view(), name="export-download"),
 
     # Async rendering endpoints

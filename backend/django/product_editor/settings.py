@@ -212,6 +212,23 @@ os.makedirs(EXPORTS_DIR, exist_ok=True)
 # File Upload Configuration — single source of truth, driven by env var
 MAX_UPLOAD_FILE_SIZE_MB = int(os.getenv("MAX_UPLOAD_FILE_SIZE_MB", "50"))
 MAX_UPLOAD_FILE_SIZE = MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
+
+# Auto-orientation detection mode — see .env.example for the full block.
+# - "mediapipe": client-side BlazeFace only (recommended for ≤ 2 cores)
+# - "hybrid":    client MediaPipe + server-side MoveNet pose fallback
+# - "off":       disable ML entirely, use only the aspect-ratio heuristic
+# Surfaced to the browser via GET /api/config so switching modes only needs
+# a backend restart, not a frontend rebuild.
+_AUTO_ORIENTATION_MODE_RAW = os.getenv("AUTO_ORIENTATION_MODE", "mediapipe").lower().strip()
+if _AUTO_ORIENTATION_MODE_RAW not in ("off", "mediapipe", "hybrid"):
+    import warnings
+    warnings.warn(
+        f"AUTO_ORIENTATION_MODE={_AUTO_ORIENTATION_MODE_RAW!r} not recognised; "
+        "falling back to 'mediapipe'. Valid: off|mediapipe|hybrid.",
+        stacklevel=2,
+    )
+    _AUTO_ORIENTATION_MODE_RAW = "mediapipe"
+AUTO_ORIENTATION_MODE = _AUTO_ORIENTATION_MODE_RAW
 # Django spools files to disk when they exceed FILE_UPLOAD_MAX_MEMORY_SIZE;
 # it does NOT reject uploads at this size (files just move from memory to disk).
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — non-file request body limit

@@ -88,6 +88,46 @@ class HealthView(APIView):
         })
 
 
+class ConfigView(APIView):
+    """
+    Public runtime-config endpoint — exposes a handful of settings the
+    browser needs to know to decide which feature paths to activate.
+
+    Kept deliberately tiny so it's safe to hit on every editor mount.
+    Anything sensitive (API keys, secrets) MUST NOT be added here.
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["config"],
+        summary="Public runtime configuration",
+        description=(
+            "Read-only config flags the frontend needs at boot. Currently "
+            "exposes `autoOrientationMode` ('off' | 'mediapipe' | 'hybrid'); "
+            "the frontend uses this to decide whether to load the MediaPipe "
+            "BlazeFace model and whether to fall through to the server-side "
+            "MoveNet pose endpoint when no face is detected client-side."
+        ),
+        responses={
+            200: inline_serializer(
+                name="ConfigResponse",
+                fields={
+                    "autoOrientationMode": drf_serializers.CharField(),
+                },
+            )
+        },
+    )
+    def get(self, request):
+        from django.conf import settings as _s
+        response = Response({
+            "autoOrientationMode": getattr(_s, "AUTO_ORIENTATION_MODE", "mediapipe"),
+        })
+        # Brief browser cache so the editor doesn't refetch every navigation;
+        # operator restart of backend will still propagate within ~30 s.
+        response['Cache-Control'] = 'public, max-age=30, stale-while-revalidate=60'
+        return response
+
+
 class ListLayoutsView(APIView):
     """List available layouts - requires API key."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanListLayouts]
@@ -2666,4 +2706,102 @@ class ChunkedUploadCompleteView(APIView):
             'file_path': final_path,
             'filename': meta['filename'],
             'file_size': assembled_size,
+            'upload_id': upload_id,
         }, status=status.HTTP_201_CREATED)
+
+
+class OrientationDetectView(APIView):
+    """
+    POST /api/orientation/detect  — synchronous server-side auto-orientation.
+
+    Frontend sends each uploaded file's bytes (multipart) while building
+    canvases; backend runs MediaPipe Pose Landmarker inline and returns
+    the suggested rotation immediately. No DB writes, no Celery
+    round-trip, no temp files persisted — the file bytes are decoded,
+    inferenced, and discarded.
+
+    Why inline (not Celery): the rotation must be applied to the
+    in-editor preview before the customer interacts with the canvas, so
+    by the time the chunked upload at submit-time happens it's too late.
+    The customer's experience is "drop file → see correctly-oriented
+    preview". Inference is fast enough (~30–150 ms on CPU) that holding
+    a gunicorn thread is acceptable.
+
+    Why not Celery: a separate ml-worker container would force frontend
+    polling, which we'd have to wait out before drawing the canvas.
+    Worse UX, no measurable benefit at this scale.
+
+    Returns 503 when AUTO_ORIENTATION_MODE=off so the frontend short-
+    circuits and uses its aspect-ratio heuristic. Returns 204 when the
+    model couldn't find a confident pose (food, landscape, occluded
+    subject) so the caller falls back to the same heuristic.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+    # Default DRF parsers (incl. MultiPartParser) are enough — frontend
+    # sends a single 'file' field as multipart/form-data.
+
+    @extend_schema(tags=["upload"], summary="Detect rotation for a single file")
+    def post(self, request):
+        if getattr(settings, "AUTO_ORIENTATION_MODE", "mediapipe") == "off":
+            return Response(
+                {'detail': 'Auto-orientation disabled'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        upload_file = request.FILES.get('file')
+        if not upload_file:
+            return Response(
+                {'detail': "Missing 'file' multipart field"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Write to a tempfile so the orientation service can mmap-read it.
+        # NamedTemporaryFile + delete=False because we want to control
+        # cleanup explicitly in the finally block.
+        import tempfile
+        suffix = os.path.splitext(upload_file.name or '')[1] or '.jpg'
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                for chunk in upload_file.chunks():
+                    tmp.write(chunk)
+                tmp_path = tmp.name
+        except Exception:
+            logger.exception("orientation/detect: failed to write tempfile")
+            return Response(
+                {'detail': 'Server error writing temp file'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        try:
+            from services.orientation import detect_rotation
+            suggestion = detect_rotation(tmp_path)
+        except ImportError:
+            logger.warning(
+                "orientation/detect: services.orientation unavailable "
+                "(mediapipe not installed) — returning 503"
+            )
+            return Response(
+                {'detail': 'Orientation service not available on this worker'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception:
+            logger.exception("orientation/detect: inference failed")
+            return Response(
+                {'detail': 'Inference failed'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+        if suggestion is None:
+            # No usable pose — frontend falls back to aspect heuristic.
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        return Response({
+            'rotation': suggestion.rotation,
+            'confidence': suggestion.confidence,
+            'source': suggestion.source,
+        })

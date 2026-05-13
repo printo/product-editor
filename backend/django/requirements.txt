@@ -14,3 +14,12 @@ celery[redis]==5.3.4
 django-celery-beat==2.7.0
 django-celery-results==2.5.1
 django-csp==3.8
+
+# ── Server-side auto-orientation (MediaPipe Pose Landmarker) ────────────────
+# Loaded lazily by services/orientation.py when the gunicorn backend container
+# handles POST /api/orientation/detect (synchronous, inline). Celery workers
+# share the same Dockerfile so they also have it installed but they never
+# import the module — the orientation endpoint only runs on backend.
+# Pulls in tflite-runtime + opencv-python-headless + numpy + protobuf;
+# ~200 MB total docker layer cost. Apache 2.0 throughout.
+mediapipe==0.10.18
