@@ -46,14 +46,31 @@ _MP_LANDMARKER = None
 _MP_LOAD_LOCK = threading.Lock()
 _MP_LOAD_FAILED = False
 
-# Conservative dead-zone (degrees) — only suggest rotation when we're
-# confident. Angles near a 45° boundary (e.g. 40°) are ambiguous between
-# 0 and 90; returning 0 ("don't rotate") is the safer default.
-_CARDINAL_DEAD_ZONE_DEG = 30
+# Cardinal window half-width (degrees). A pose's body-up angle must land
+# within this many degrees of a cardinal (0/90/180/270) to trigger a
+# rotation suggestion. Everything else returns None and the frontend
+# falls back to the aspect-ratio heuristic.
+#
+# Tightened from 30° to 15° after the first prod rollout produced false
+# positives on subjects with moderate body tilt (e.g. someone leaning
+# while holding a pet — a ~30° body-axis tilt landed inside the old
+# window and got "corrected" to sideways). 15° is loose enough that
+# slightly-tilted but clearly-upright shots stay at 0°, and tight enough
+# that genuinely-sideways shots (which sit at exactly ±90°) still hit.
+_CARDINAL_DEAD_ZONE_DEG = 15
 
-# Landmark visibility threshold — discard the pose if either shoulder
-# or the nose is occluded, since the body-up vector becomes unreliable.
-_MIN_LANDMARK_VISIBILITY = 0.5
+# Landmark visibility threshold — discard the pose entirely if either
+# shoulder or the nose isn't confidently detected. Raised 0.5 → 0.7 after
+# observing that low-visibility keypoints produced erratic body-up
+# vectors and false rotations on partially-occluded subjects.
+_MIN_LANDMARK_VISIBILITY = 0.7
+
+# How far the shoulder line is allowed to be from perpendicular to the
+# body-up vector. In an upright human, shoulders are horizontal and
+# body-up is vertical (dot product = 0). Cameras at unusual angles or
+# bad pose detection produce dot products further from zero; rejecting
+# those eliminates a common class of false positive.
+_MAX_NON_PERP_COS = 0.45  # ~63° away from perpendicular at most
 
 # MediaPipe Pose landmark indices (BlazePose's 33-keypoint topology).
 # See https://developers.google.com/mediapipe/solutions/vision/pose_landmarker
@@ -161,26 +178,40 @@ def _get_landmarker():
 
 def _angle_to_rotation(angle_deg: float) -> Optional[int]:
     """
-    Snap the body-up angle to the nearest cardinal rotation (Fabric.js
-    convention: positive = clockwise). Returns None when the angle falls
-    inside the dead zone between two cardinals — we'd rather not rotate
-    than rotate the wrong way.
+    Snap the body-up angle to the nearest cardinal rotation in Fabric.js
+    convention (positive = clockwise). Returns None when the angle falls
+    outside the tight window around each cardinal — caller treats that
+    as "no confident suggestion" and falls back to the aspect heuristic.
 
-    angle_deg = 0   → subject pointing up   → return 0
-    angle_deg = +90 → subject pointing right (in image) → return 90 (CW)
-    angle_deg = 180 → subject upside down   → return 180
-    angle_deg = -90 → subject pointing left → return 270 (= -90 CW)
+    Convention:
+      Image coords have y-down, x-right (top-left origin). A subject
+      "upright in image" has nose ABOVE shoulders (smaller y). The
+      angle is measured from "image up" with `atan2(body_up_x, -body_up_y)`
+      so the cardinal mapping is:
+
+        angle_deg ≈ 0    → subject upright          → rotate by 0   (no-op)
+        angle_deg ≈ +90  → subject's up points → image-RIGHT
+                            → rotate 90° CCW to upright → Fabric angle 270
+        angle_deg ≈ ±180 → subject upside down      → rotate 180
+        angle_deg ≈ -90  → subject's up points → image-LEFT
+                            → rotate 90° CW to upright  → Fabric angle 90
+
+    Direction was inverted in the initial v1.11 ship (90 and 270
+    swapped) — fixed here after observing the baby photo rotate the
+    wrong way on prod. Verify mentally: CW rotation moves "left" of
+    the image to "top"; "left-pointing subject" therefore needs CW
+    (Fabric angle = 90) to become upright.
     """
     dz = _CARDINAL_DEAD_ZONE_DEG
     if -dz <= angle_deg <= dz:
         return 0
     if (90 - dz) <= angle_deg <= (90 + dz):
-        return 90
+        return 270  # subject points right → rotate CCW so right becomes top
     if angle_deg >= (180 - dz) or angle_deg <= -(180 - dz):
         return 180
     if -(90 + dz) <= angle_deg <= -(90 - dz):
-        return 270
-    return None  # ambiguous — caller treats as "no suggestion"
+        return 90   # subject points left → rotate CW so left becomes top
+    return None  # ambiguous tilt — caller treats as "no suggestion"
 
 
 def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
@@ -249,6 +280,29 @@ def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
     shoulder_mid_y = (left_sh.y + right_sh.y) / 2.0
     body_up_x = nose.x - shoulder_mid_x
     body_up_y = nose.y - shoulder_mid_y
+
+    # Shoulder line (right minus left in image space).
+    shoulder_x = right_sh.x - left_sh.x
+    shoulder_y = right_sh.y - left_sh.y
+
+    body_up_len = math.hypot(body_up_x, body_up_y)
+    shoulder_len = math.hypot(shoulder_x, shoulder_y)
+
+    # Reject poses where keypoints are too close together (subject very
+    # small, or detection collapsed several keypoints into a single
+    # point). 5% of normalised coords ≈ 5% of image diagonal — anything
+    # smaller is unreliable.
+    if body_up_len < 0.05 or shoulder_len < 0.05:
+        return None
+
+    # Sanity check: in an upright human the shoulder line is roughly
+    # perpendicular to the body-up vector. If the dot product of their
+    # unit vectors is far from 0, the pose is suspect (e.g. one shoulder
+    # mis-detected, or the subject is twisted at an unusual angle).
+    # Reject rather than risk a wrong rotation. cos(63°) ≈ 0.45.
+    dot = (body_up_x * shoulder_x + body_up_y * shoulder_y) / (body_up_len * shoulder_len)
+    if abs(dot) > _MAX_NON_PERP_COS:
+        return None
 
     # atan2(image_right_component, image_up_component) — note we flip y so
     # "image up" (smaller y) becomes positive on our reference axis.
