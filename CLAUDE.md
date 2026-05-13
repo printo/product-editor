@@ -365,6 +365,29 @@ Some configuration lives as JSON on disk (under `STORAGE_ROOT`, default `./stora
 
 For SKU mapping: PUT validates that every `layout_name` exists on disk before persisting, so the file never holds a broken pointer. GET resolution returns 410 Gone if the disk file has since been deleted.
 
+## Auto-orientation (server-side MediaPipe Pose)
+
+The editor decides whether to rotate an uploaded photo 90°/180°/270° in two layers:
+
+1. **Server-side MediaPipe Pose Landmarker** (primary, v1.11). Inline endpoint at `POST /api/orientation/detect` runs BlazePose, computes the nose-to-shoulder-midpoint vector in image coords, snaps it to the nearest cardinal with a 30° dead-zone, and returns `{rotation, confidence, source}`. ~30–150 ms per photo on CPU. Catches photos whose subject is stored sideways in the bytes (camera held wrong, scanned prints, WhatsApp-stripped EXIF) — the exact case where the aspect heuristic can't help.
+2. **Aspect-ratio heuristic** (`shouldAutoRotate90` in [page.tsx](frontend/nextjs/src/app/editor/layout/[name]/page.tsx), v1.10). Fallback when ML finds no pose (food / landscape / occluded) or returns 503 (mode off). Compares `imgRatio` to `frameRatio` and rotates only when rotation cuts the gap by ≥ 30%.
+
+**Mode switch** via `.env`:
+```bash
+AUTO_ORIENTATION_MODE=mediapipe   # BlazePose Lite, ~5 MB, recommended for ≤ 2 cores
+# AUTO_ORIENTATION_MODE=hybrid    # BlazePose Full, ~9 MB, recommended for ≥ 4 cores
+# AUTO_ORIENTATION_MODE=off       # disable ML; aspect heuristic only
+```
+Changing the mode only needs `docker compose restart backend` (no image rebuild). The `/api/config` endpoint exposes the active mode to the frontend so the client skips the detect call when `off`.
+
+**Model files** live in [`backend/django/services/ml_models/`](backend/django/services/ml_models/) — both Lite (5.5 MB) and Full (9 MB) `.task` files are committed (Apache 2.0, downloaded from Google's public MediaPipe model store). The service module ([`services/orientation.py`](backend/django/services/orientation.py)) lazy-loads the variant matching `AUTO_ORIENTATION_MODE` once per gunicorn worker process, then reuses it.
+
+**Why inline (not Celery + ml-worker)**: `generateCanvases` needs the rotation **before** drawing the canvas preview. Polling for a Celery result would either delay the preview or force a double-render. At our scale (~4 parallel uploads per session, ~50 ms inference each) the gunicorn thread pool absorbs it easily.
+
+**Frontend client** at [`src/lib/ml-orientation.ts`](frontend/nextjs/src/lib/ml-orientation.ts) — per-file memoised by `name:size:lastModified` so the same file never re-uploads for inference within a session. Coalesces concurrent calls.
+
+**Docker layer cost**: `mediapipe==0.10.18` + bundled OpenCV + TFLite ≈ 200 MB on the backend image. The runtime needs `libgl1` + `libglib2.0-0` (system libs OpenCV links against); both are installed in the runner stage of [`backend/django/Dockerfile`](backend/django/Dockerfile). Without them `import mediapipe` raises `ImportError: libGL.so.1: cannot open shared object file` and the orientation service silently disables itself.
+
 ## Service Worker
 
 The frontend ships a minimal Service Worker at [`public/sw.js`](frontend/nextjs/public/sw.js) registered by [`ServiceWorkerRegistration`](frontend/nextjs/src/components/ServiceWorkerRegistration.tsx) in the root layout.
