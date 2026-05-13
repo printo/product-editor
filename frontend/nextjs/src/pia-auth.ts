@@ -9,6 +9,31 @@ interface DecodedToken {
 
 const PIA_AUTH_TIMEOUT_MS = 10_000;
 
+// Refresh the access token this many ms before its `exp`. Without a buffer,
+// every concurrent request that lands at the exact instant of expiry sees an
+// expired token and independently fires its own refresh against PIA. With
+// PIA's rotating refresh tokens, only the first succeeds; the rest hit a
+// now-invalid refresh token, mark the session as errored, and the browser
+// ends up with whichever Set-Cookie response wins the race — sometimes
+// healthy, sometimes broken. 60 s gives the first crossing request enough
+// time to refresh before any sibling request hits the same threshold.
+const ACCESS_TOKEN_REFRESH_BUFFER_MS = 60_000;
+
+type RefreshResult = {
+  accessToken?: string;
+  accessTokenExpires?: number;
+  refreshToken?: string;
+  error?: string;
+};
+
+// In-process singleflight cache: dedupes concurrent refresh attempts for the
+// same refresh token. The Next.js process is a singleton in our container
+// (one Node runtime, all requests share heap), so an in-memory Map is the
+// right granularity here — no need for Redis. If we ever scale the frontend
+// horizontally, swap this for a Redis-backed lock; the existing per-IP login
+// rate limiter in `app/actions/auth.ts` will need the same treatment.
+const refreshInFlight = new Map<string, Promise<RefreshResult>>();
+
 class PiaServiceUnavailableError extends CredentialsSignin {
   code = "PiaServiceUnavailable";
 }
@@ -98,42 +123,70 @@ const nextAuth = NextAuth({
         }
       }
 
-      // Access token still valid — return as-is (fast path)
-      if (Date.now() < (token.accessTokenExpires as number)) {
+      // Fast path — token has at least one full buffer window of life left.
+      // Refreshing *before* expiry (not after) is what prevents the storm:
+      // only the first request to cross the buffer threshold fires a refresh;
+      // every other concurrent request still sees a valid token and skips
+      // the upstream call entirely.
+      const expiresAt = token.accessTokenExpires as number;
+      if (Date.now() < expiresAt - ACCESS_TOKEN_REFRESH_BUFFER_MS) {
         return token
       }
 
-      // Access token has expired — attempt a silent refresh via PIA.
-      // PIA uses Django REST Framework SimpleJWT, so the refresh endpoint
-      // follows the standard pattern: POST /auth/token/refresh/ → { access, refresh? }
-      const piaUrl = process.env.PIA_API_BASE_URL || "https://pia.printo.in/api/v1"
-      try {
-        const res = await fetch(`${piaUrl}/auth/token/refresh/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh: token.refreshToken }),
-          signal: AbortSignal.timeout(PIA_AUTH_TIMEOUT_MS),
-        })
-        if (res.ok) {
-          const refreshed = await res.json()
-          const decoded = decodeJwt(refreshed.access) as unknown as DecodedToken
-          return {
-            ...token,
-            accessToken: refreshed.access,
-            accessTokenExpires: decoded.exp * 1000,
-            // Rotating refresh tokens: update if the server returns a new one
-            ...(refreshed.refresh ? { refreshToken: refreshed.refresh } : {}),
-            error: undefined, // clear any previous refresh error
+      // Refresh window open — singleflight on (current refresh token).
+      // Multiple concurrent `auth()` invocations sharing the same starting
+      // JWT will hit this branch within milliseconds of each other; the
+      // first installs a pending promise in the Map and the rest await it.
+      // After the promise settles the Map entry is cleared so the next
+      // refresh window can start its own request.
+      const currentRefreshToken = token.refreshToken as string;
+      let pending = refreshInFlight.get(currentRefreshToken);
+      if (!pending) {
+        pending = (async (): Promise<RefreshResult> => {
+          const piaUrl = process.env.PIA_API_BASE_URL || "https://pia.printo.in/api/v1"
+          try {
+            const res = await fetch(`${piaUrl}/auth/token/refresh/`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refresh: currentRefreshToken }),
+              signal: AbortSignal.timeout(PIA_AUTH_TIMEOUT_MS),
+            })
+            if (res.ok) {
+              const refreshed = await res.json()
+              const decoded = decodeJwt(refreshed.access) as unknown as DecodedToken
+              return {
+                accessToken: refreshed.access,
+                accessTokenExpires: decoded.exp * 1000,
+                // Rotating refresh tokens: pick up the new one if PIA rotated.
+                ...(refreshed.refresh ? { refreshToken: refreshed.refresh } : {}),
+              }
+            }
+            console.error("PIA token refresh returned", res.status)
+          } catch (e) {
+            console.error("PIA token refresh failed", e)
           }
-        }
-      } catch (e) {
-        console.error("PIA token refresh failed", e)
+          // Refresh genuinely failed (expired refresh token, PIA outage,
+          // network error). The error flows to every awaiting caller so they
+          // all surface the same state to the UI.
+          return { error: 'RefreshAccessTokenError' }
+        })().finally(() => {
+          // Always clear so the next expiry window can refresh again.
+          refreshInFlight.delete(currentRefreshToken);
+        });
+        refreshInFlight.set(currentRefreshToken, pending);
       }
 
-      // Refresh failed (refresh token expired / revoked / network error).
-      // Propagate an error so the session callback can surface it to the UI,
-      // allowing the app to redirect to login instead of silently failing.
-      return { ...token, error: 'RefreshAccessTokenError' }
+      const result = await pending;
+      if (result.error) {
+        return { ...token, error: result.error }
+      }
+      return {
+        ...token,
+        accessToken: result.accessToken,
+        accessTokenExpires: result.accessTokenExpires,
+        ...(result.refreshToken ? { refreshToken: result.refreshToken } : {}),
+        error: undefined, // clear any previous refresh error
+      }
     },
     async session({ session, token }) {
         if (token) {

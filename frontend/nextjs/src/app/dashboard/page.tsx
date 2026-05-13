@@ -109,12 +109,34 @@ export default function Dashboard() {
       // Use the server-side internal proxy — the API key never leaves the
       // Next.js server.  The proxy gates this on the NextAuth session cookie
       // which we've already validated above.
-      const res = await fetch('/api/internal/proxy/layouts', {
+      let res = await fetch('/api/internal/proxy/layouts', {
         headers: { Accept: 'application/json' },
+        cache: 'no-store',
       });
+
+      // Defense-in-depth against a JWT refresh that just settled in another
+      // request after we sent ours. If the proxy returns 401, force NextAuth
+      // to re-resolve the cookie (which picks up the freshly-rotated tokens)
+      // and retry once. The singleflight guard in `pia-auth.ts` means the
+      // re-resolve is cheap — no second PIA call.
+      if (res.status === 401) {
+        await fetch('/api/auth/session', { cache: 'no-store' }).catch(() => {});
+        res = await fetch('/api/internal/proxy/layouts', {
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        });
+      }
+
       if (res.ok) {
         const data = await res.json();
         setLayouts((data.layouts || []).map(normalizeLayoutItem));
+        setError(null);
+      } else if (res.status === 401) {
+        // Both attempts came back 401 — the refresh genuinely failed.
+        // Send the user to /login so they can re-authenticate cleanly
+        // instead of staring at "no layouts found".
+        window.location.href = '/login?callbackUrl=/dashboard';
+        return;
       } else {
         setError(`Failed to load layouts (${res.status}). The server may be unavailable.`);
       }
