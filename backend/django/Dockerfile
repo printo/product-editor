@@ -26,8 +26,13 @@ ENV DJANGO_SETTINGS_MODULE=product_editor.settings
 ENV PORT=8000
 
 # libpq5 covers any psycopg2 (non-binary) fallback; psycopg2-binary bundles its own.
+# libgl1 + libglib2.0-0 are required by opencv-python (vendored inside mediapipe);
+# without them `import mediapipe` fails with "libGL.so.1: cannot open shared
+# object file" and the orientation service silently disables itself.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
+        libgl1 \
+        libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv
