@@ -236,7 +236,28 @@ Both renderers compute the calendar grid in the same way so the preview matches 
 
 The whole calendar goes on top of all other artwork (just below the mask).
 
-### 4.4 Reuse vs build new
+### 4.4 Library research summary (validated against npm + Pillow ecosystem)
+
+Searches were run for Fabric.js calendar plugins, JS calendar grid utilities, auto-fit-text libraries (both DOM and canvas-targeted), and Pillow text-fitting solutions before this PRD finalised the "build new" list. Findings:
+
+| Need | Library that fits | Source |
+|---|---|---|
+| Fabric.js calendar plugin | **None exists.** Build with `Rect` + `Line` + `Textbox` + `FabricImage` primitives. | [Fabric.js docs](https://fabricjs.com/), [Fabric.js GitHub](https://github.com/fabricjs/fabric.js) |
+| JS month-grid date math | **`date-fns`** — `startOfMonth` + `endOfMonth` + `startOfWeek` + `eachDayOfInterval` give the full 35/42-cell grid in 8 lines. Already a widely-used pattern. | [date-fns](https://date-fns.org/), [calendar-matrix gist](https://gist.github.com/miljan-aleksic/bd70452a3f0cd6a11545db9f6ab57df6) |
+| Auto-fit text in a Fabric.js Textbox | **No library fits.** All auto-fit libraries (`auto-text-size`, `fitty`, `react-textfit`, `use-fit-text`, `textFit`, `react-scale-text`) measure DOM via `getBoundingClientRect`; Fabric draws onto `<canvas>` and they can't see it. [Fabric issue #3563](https://github.com/fabricjs/fabric.js/issues/3563) + [discussion #7541](https://github.com/fabricjs/fabric.js/discussions/7541) confirm there's no built-in either. | [fitty](https://github.com/rikschennink/fitty), [auto-text-size](https://www.npmjs.com/package/auto-text-size), [use-fit-text](https://github.com/saltycrane/use-fit-text) |
+| Auto-fit text in Pillow | **No library exists**, but `ImageFont.getbbox()` + binary search is the documented community pattern. ~15 LOC. | [Pillow discussion #6891](https://github.com/python-pillow/Pillow/discussions/6891), [issue #5669](https://github.com/python-pillow/Pillow/issues/5669), [Pillow ImageFont docs](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html) |
+| Cell-image auto-cover ("always fills") | **100% reuse**: `calculateSmartCropOffsets` (client) + `_composite_canvas` cover-fit math (server) — each cell is a `frameSpec`. Adds zero new logic. | (in-repo) |
+| Cell-image auto-orientation | **100% reuse**: v1.11 MediaPipe Pose pipeline already runs on every uploaded file. A sideways photo dropped into a calendar cell gets corrected automatically. | (in-repo) |
+
+**Net change vs the initial draft:**
+
+- `date-fns` becomes a new frontend dep (~6 KB tree-shaken). Saves ~30 LOC of manual date arithmetic + gives locale-aware weekday names via `Intl`.
+- Auto-fit text helpers remain "build new" on both sides (~20 LOC client, ~15 LOC server). No library escapes them.
+- Cell image handling is **confirmed pure reuse** — no separate cropping/orientation pipeline.
+
+These findings are folded into §4.4 below.
+
+### 4.5 Reuse vs build new
 
 | Concern | Approach | Why |
 |---|---|---|
@@ -257,7 +278,7 @@ The whole calendar goes on top of all other artwork (just below the mask).
 | Layout-management UI (calendar editor in `/editor/layouts`) | **Build new** — `CalendarLayoutEditor.tsx` (position, style picker) | Different from frame editor; smaller |
 | Locale-aware weekday names + ordinals | **Use stdlib** — `Intl.DateTimeFormat` on client, `babel` (already a dep — actually Python `babel` is NOT yet a dep, would add) on server | One small dep on backend |
 
-### 4.5 UI/UX flows
+### 4.6 UI/UX flows
 
 #### Flow A — Ops creates a calendar layout
 
@@ -296,7 +317,7 @@ The whole calendar goes on top of all other artwork (just below the mask).
 5. Cell now shows a thumbnail of the uploaded photo, scaled to fit the cell with `style.cellPadding`.
 6. On submit, the server-side calendar renderer composites the photo into the cell at 300 DPI.
 
-### 4.6 API changes
+### 4.7 API changes
 
 **New endpoints — none.** Everything rides on existing surfaces:
 
@@ -312,9 +333,9 @@ The whole calendar goes on top of all other artwork (just below the mask).
 
 **New JSON schema validation:** server-side validator for the `calendar` block (range checks on year, month 1-12, x/y/width/height in [0,1], style fields). Add to `api/validators.py`.
 
-### 4.7 Render pipeline changes
+### 4.8 Render pipeline changes
 
-#### 4.7.1 Foundation phase — server-side overlay rendering (v1.12)
+#### 4.8.1 Foundation phase — server-side overlay rendering (v1.12)
 
 **Pre-requisite for calendar.** Build the missing server-side renderer for the existing `TextOverlay | ShapeOverlay | ImageOverlay` types. New module:
 
@@ -358,7 +379,7 @@ if overlays_for_this_canvas:
     canvas = render_overlays(canvas, overlays_for_this_canvas, canvas_w, canvas_h, upload_map)
 ```
 
-#### 4.7.2 Calendar phase (v1.13)
+#### 4.8.2 Calendar phase (v1.13)
 
 Adds calendar rendering on top of the foundation:
 
@@ -385,7 +406,7 @@ def render_calendar(
 
 Client-side mirror in `fabric-renderer.ts` (new function `buildCalendarFabricGroup`) builds a `fabric.Group` of `Textbox`, `Rect`, and `FabricImage` objects. Lives at `overlayZStart + overlays.length + 1`.
 
-#### 4.7.3 Z-order summary (post-feature)
+#### 4.8.3 Z-order summary (post-feature)
 
 | zIndex | Layer |
 |---|---|
