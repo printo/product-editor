@@ -118,7 +118,9 @@ A new `'calendar'` tab fits naturally (when the active layout declares a calenda
 
 ### 3.5 Existing fonts plumbing
 
-`storage/fonts.json` + `FontsView` (GET/PUT `/api/fonts`) already provide a managed list of font families. Both the editor (text overlay font picker) and a future server-side text renderer can pull from this source.
+`storage/fonts.json` + `FontsView` (GET/PUT `/api/fonts`) already provide a managed list of font families used by the text-overlay font picker in the editor. **The calendar feature reuses this exact list as its single source of truth** — no separate "calendar fonts" bundle, no parallel approval workflow, no risk of drift between what the editor shows and what the server can render. When ops adds a new font through the existing header UI, the calendar's `style.fontFamily` picker gains it for free.
+
+For server-side rendering (a new requirement — see §3.2) we additionally need the actual `.ttf`/`.woff2` files on disk. Convention: a file named `<FontFamily>-Variable.ttf` (or weight-specific variants like `<FontFamily>-Regular.ttf`, `<FontFamily>-Bold.ttf`) lives under `backend/django/services/fonts_assets/`. Ops adding a font does two things: (a) append the name to `storage/fonts.json` via the existing UI, (b) drop the matching `.ttf` into `services/fonts_assets/`. A small startup check warns when a font name in `fonts.json` has no matching `.ttf` so misconfiguration is loud rather than silent.
 
 For server-side rendering we additionally need the actual `.ttf` / `.woff2` files. They're not in the repo today. Either:
 - Bundle a small set of approved fonts in the backend image
@@ -462,7 +464,7 @@ Unblocks the calendar AND fixes the pre-existing bug where text/shape/image over
 
 | Day | Deliverable |
 |---|---|
-| 1 | `services/fonts.py` — lazy-cached `PIL.ImageFont`. Curated bundled fonts (Inter, Roboto, Playfair Display, Caveat, Lobster — 5 families × 4 weights = ~10 MB) in `backend/django/services/fonts_assets/`. Wire to existing `/api/fonts` so client + server agree on the available list. |
+| 1 | `services/fonts.py` — lazy-cached `PIL.ImageFont`. **Font names come from the existing `storage/fonts.json` (managed via the existing header UI) — single source of truth, no separate curated list.** Ops drops the matching `.ttf` into `backend/django/services/fonts_assets/<FontFamily>.ttf` when they add a font to the JSON. Startup check warns on any name in `fonts.json` missing a matching `.ttf`. Initial set: whatever's already in prod's `fonts.json` today. |
 | 2 | `services/overlay_renderer.py` — `render_overlays` with text + shape drawing. Smoke-test by adding a text overlay in dev and rendering at 300 DPI. |
 | 3 | Image-overlay path (reuse the chunked-upload pipeline; pull bytes from `upload_id → file_path` map). Engine wires through `editor_state.overlays`. |
 | 4 | E2E test: dashboard render with mixed text + shape + image overlays; confirm dataUrl preview ≈ rendered PNG. Doc updates. |
@@ -508,7 +510,7 @@ Unblocks the calendar AND fixes the pre-existing bug where text/shape/image over
 | # | Risk | Likelihood | Mitigation |
 |---|---|---|---|
 | 1 | **Server-side text rendering quality** — Pillow's text rendering is not as crisp as a browser's font hinting. Some font families look noticeably different at 300 DPI between preview and print. | Medium | Pre-render a side-by-side diff during Phase 1; if any family fails QA, drop it from the bundled list. Stick to Inter / Roboto as safe defaults. |
-| 2 | **Bundled font licence** — every font we ship needs SIL OFL or similar permissive licence. Misreading a licence is easy to do quietly. | Low–Medium | Build the bundle from Google Fonts only (all SIL OFL or Apache 2.0). Add a `LICENSES.md` next to `fonts_assets/` listing each. |
+| 2 | **Font licence drift** — when ops adds a new font through the existing header UI, the licence needs to be OFL / Apache / equivalent. Misreading a licence is easy to do quietly. | Low–Medium | The header-UI font-add flow already mandates that ops adds only Google-Fonts-sourced families (all SIL OFL or Apache 2.0). Add a `LICENSES.md` next to `services/fonts_assets/` listing each `.ttf`'s licence and source URL; ops fills it in alongside the file drop. |
 | 3 | **Calendar cell-image upload races** — customer uploads, leaves the editor before the upload completes, returns later. Cell shows broken image. | Medium | Persist `upload_id` to IDB on file selection (B1 pattern). Re-resolve on editor reload via `upload_id → file_path` map. If file is missing on render, fall back to date number + log. |
 | 4 | **Layout has calendar but customer never picks year** — defaults to whatever ops set; could be stale (e.g. 2025 when customer is buying for 2026). | Medium | Ops sets a "rolling default" flag: `defaultYear: "current"` resolves to `new Date().getFullYear()` on editor mount. |
 | 5 | **i18n complexity creep** — different locales want different weekday orders, ordinal suffixes, holiday colouring. Easy to scope-creep. | High | Lock v1 to: `weekStart=monday\|sunday` + weekday name from `Intl` + holidays for `en-IN` and `generic` only. Anything else (`en-US`, `en-GB`, etc.) is added by ops upload when needed. |
@@ -519,7 +521,7 @@ Unblocks the calendar AND fixes the pre-existing bug where text/shape/image over
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Which fonts? | **TBD** — pending Mohan / Viji sign-off on print-quality. Straw-man: Inter, Roboto, Playfair Display, Lora, Caveat, Lobster, Bebas Neue. |
+| 1 | Which fonts? | **✅ Resolved.** Reuse the existing `storage/fonts.json` list managed via the header UI — same fonts the text-overlay picker already uses. No separate calendar-fonts sign-off. Ops adds a new font once, both text overlays and calendar pick it up. (Server-side rendering still needs the `.ttf` dropped alongside the JSON entry — see §3.5.) |
 | 2 | Storefront pre-selects year/month via embed metadata? | **TBD** — defer to ops feedback after first calendar SKU goes live. In-editor selector ships v1.13. |
 | 3 | Per-cell pan/scale on image overrides? | **v1 = auto-fit only.** Per-cell pan/scale lands in v2 if ops sees the demand. |
 | 4 | Holiday auto-load? | **✅ IN SCOPE for v1.13.** Hybrid maintenance: 5-year seed (`2026–2030`) for `en-IN` + `generic` locales sourced from [Nager.Date](https://date.nager.at/) at build time; ops upload endpoint available for corrections + new locales without a deploy. |
@@ -623,8 +625,8 @@ Two senior engineers in parallel can compress this to ~8 calendar days.
 
 ## 9. What to do next
 
-1. **Confirm the 7 open questions in §6.2 with Viji + Mohan + Manish** — ~30 min meeting.
-2. **Lock the bundled font list** — needs Mohan's print-quality sign-off on each.
+1. **Confirm the remaining open questions in §6.2 with Viji + Mohan + Manish** — ~15 min meeting (most are resolved; only Q2/Q5/Q6/Q7 remain).
+2. **Drop the existing `fonts.json` font families' `.ttf` files** into `backend/django/services/fonts_assets/` — one-time prep work for ops, no engineering needed. (Resolved once Phase 1 lands.)
 3. **Kick off Phase 1 (foundation)** — independent of calendar; ships v1.12. ~4 days.
 4. **Phase 2 + 3 in parallel** if 2 engineers available; otherwise serial. ~8 days.
 5. **Phase 4 polish** — ~2 days.
