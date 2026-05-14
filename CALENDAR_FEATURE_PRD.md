@@ -1,6 +1,8 @@
 # PRD — Calendar Feature for Product Editor
 
-**Status:** Proposal · **Date:** May 14, 2026 · **Owner:** Kanna · **Target:** v1.12 (foundation) → v1.13 (calendar) · **Estimated effort:** ~13–16 engineer-days end-to-end
+**Status:** Proposal · **Date:** May 14, 2026 · **Owner:** Kanna · **Target:** v1.12 (foundation) → v1.13 (calendar) · **Estimated effort:** ~17.5 engineer-days end-to-end (after design-review additions)
+
+> **Visual mockup:** [`mockups/calendar-feature.html`](mockups/calendar-feature.html) — interactive HTML mockup of all three theme presets, the cell-edit popover, and the holiday auto-populate flow for `en-IN`. Opens in any browser, no build step. Useful for visual review during PRD iteration.
 
 ---
 
@@ -479,21 +481,59 @@ Unblocks the calendar AND fixes the pre-existing bug where text/shape/image over
 | 2 | **Bundled font licence** — every font we ship needs SIL OFL or similar permissive licence. Misreading a licence is easy to do quietly. | Low–Medium | Build the bundle from Google Fonts only (all SIL OFL or Apache 2.0). Add a `LICENSES.md` next to `fonts_assets/` listing each. |
 | 3 | **Calendar cell-image upload races** — customer uploads, leaves the editor before the upload completes, returns later. Cell shows broken image. | Medium | Persist `upload_id` to IDB on file selection (B1 pattern). Re-resolve on editor reload via `upload_id → file_path` map. If file is missing on render, fall back to date number + log. |
 | 4 | **Layout has calendar but customer never picks year** — defaults to whatever ops set; could be stale (e.g. 2025 when customer is buying for 2026). | Medium | Ops sets a "rolling default" flag: `defaultYear: "current"` resolves to `new Date().getFullYear()` on editor mount. |
-| 5 | **i18n complexity creep** — different locales want different weekday orders, ordinal suffixes, holiday colouring. Easy to scope-creep. | High | Lock v1 to: `weekStart=monday\|sunday` + weekday name from `Intl`. Nothing else. Defer holidays to v2. |
+| 5 | **i18n complexity creep** — different locales want different weekday orders, ordinal suffixes, holiday colouring. Easy to scope-creep. | High | Lock v1 to: `weekStart=monday\|sunday` + weekday name from `Intl` + holidays for `en-IN` and `generic` only. Anything else (`en-US`, `en-GB`, etc.) is added by ops upload when needed. |
 | 6 | **Z-order conflict with frame outlines** — the calendar might visually clash with the safe-zone / bleed-zone outlines on the preview (not the print). | Low | Hide outlines whenever a calendar overlaps them in the preview, via the existing `isTransforming` opacity dimming. |
 | 7 | **Mobile editor UX for cell editing** — 42 tiny tap targets on a phone is painful. | Medium | Cell editor opens as a bottom-sheet list view on narrow viewports (md breakpoint), not the canvas itself. |
 
-### 6.2 Open questions to confirm before kickoff
+### 6.2 Open questions — status
 
-1. **Which fonts?** Pick the curated bundled set with Mohan / Viji. My straw-man: Inter, Roboto, Playfair Display, Lora, Caveat, Lobster, Bebas Neue.
-2. **Does the storefront need to pre-select year/month** via embed-session `metadata`, or is the in-editor selector enough? If pre-select, add `defaultYear` / `defaultMonth` to `EmbedSession` model.
-3. **Cell-image cropping** — should the customer be able to pan/scale the cell image like they can with frame images today? (Adds a per-cell editor modal — extra ~1 day.) My recommendation: v1 ships with auto-fit only; v2 adds per-cell editing if requested.
-4. **Holiday support** — explicit non-goal for v1. Confirm we're OK leaving customers to override cells manually. If they want pre-filled holidays, that's v2 with a per-locale holiday JSON file.
-5. **Calendar in non-Gregorian layouts** (Hijri, Shaka, Vikram Samvat) — also v2. Confirm v1 is Gregorian-only.
-6. **Year range** — what's the lower bound (we let customers pick the past, e.g. for a "memorial calendar")? Suggest: `currentYear - 5` to `currentYear + 5`. Configurable per layout.
-7. **Should ops be able to lock specific cells** to pre-defined text (e.g. branded "Diwali 2026" on Oct 18)? Adds complexity to the layout schema. v2 candidate.
+| # | Question | Decision |
+|---|---|---|
+| 1 | Which fonts? | **TBD** — pending Mohan / Viji sign-off on print-quality. Straw-man: Inter, Roboto, Playfair Display, Lora, Caveat, Lobster, Bebas Neue. |
+| 2 | Storefront pre-selects year/month via embed metadata? | **TBD** — defer to ops feedback after first calendar SKU goes live. In-editor selector ships v1.13. |
+| 3 | Per-cell pan/scale on image overrides? | **v1 = auto-fit only.** Per-cell pan/scale lands in v2 if ops sees the demand. |
+| 4 | Holiday auto-load? | **✅ IN SCOPE for v1.13.** Hybrid maintenance: 5-year seed (`2026–2030`) for `en-IN` + `generic` locales sourced from [Nager.Date](https://date.nager.at/) at build time; ops upload endpoint available for corrections + new locales without a deploy. |
+| 5 | Non-Gregorian calendars (Hijri / Shaka / Vikram Samvat)? | **v2 candidate.** v1.13 is Gregorian-only. |
+| 6 | Year range? | **`currentYear − 5` to `currentYear + 5`.** Configurable per layout via `calendar.yearRange`. |
+| 7 | Ops can lock specific cells to pre-defined text? | **v2 candidate.** v1.13 lets ops define a holiday list; cells aren't otherwise lockable. |
+| 8 | **NEW** — Cell entry pill style (post-design-review with mockup) | **✅ Pill design locked.** Date number always visible top-right; entries stack below; cap `MAX_ENTRIES = 3` (configurable per layout via `calendar.style.maxEntriesPerCell`); rounded-rect pill with coloured dot + text; "+N more" overflow indicator. |
+| 9 | **NEW** — Three style presets (Modern Minimalist / Modern Gen-Z / Weekday Highlight) | **✅ Locked.** Stored as JSON in `storage/calendar_styles/`; ops picks one when authoring a layout; resolved style fields written to layout JSON; customer cannot switch presets (preserves design intent). |
 
-### 6.3 Migration / backwards compatibility
+### 6.3 Confirmed scope additions (post-design-review)
+
+After the first design review the following additions were locked in. They are NOT part of the original v1.13 estimate (~14 days); they add **~3.5 days** for a revised total of **~17.5 days**.
+
+**a. Pill-style cell entries (replaces "override" model)**
+
+- Date number always visible (top-right by default).
+- User events stack below as small pill badges: rounded-rect bg + 6 px coloured dot + 9–10 pt auto-fit text.
+- Holiday entries from the auto-loaded list co-mingle with user entries.
+- Cap = 3 entries per cell (configurable via `calendar.style.maxEntriesPerCell`). Overflow shows "+N more" at the bottom of the cell.
+- Image overrides still exist as a mutually-exclusive mode — `imageOverride` blanks the whole cell.
+
+**b. Global holiday auto-load**
+
+Layer | Detail
+--- | ---
+Storage | `backend/django/storage/holidays/<locale>/<year>.json`
+Schema | `{ year, locale, events: [{ date, name, type, color }] }` (see PRD §4.2 for example)
+Seed (v1.13 ship) | 5 years (`2026–2030`) × 2 locales (`en-IN`, `generic`) sourced from [Nager.Date](https://date.nager.at/) at backend image build time
+Ops endpoints | `GET /api/ops/holidays/`, `PUT /api/ops/holidays/<locale>/<year>` (upload / replace), `DELETE /api/ops/holidays/<locale>/<year>`
+Customer endpoint | `GET /api/holidays/<locale>/<year>` (public, cached `Cache-Control: public, max-age=86400, swr=604800`)
+Layout opt-in | `calendar.holidaySource = { enabled: true, locale: 'en-IN', showInCells: true }`
+Editor behaviour | When customer picks year/month, frontend fetches holidays for that (locale, year) and auto-injects matching cells as `source: 'holiday'` entries. User cannot delete holiday entries (would re-inject); can override the whole cell with an image to hide them.
+
+**c. Three style presets**
+
+Stored as JSON in `backend/django/storage/calendar_styles/`. Endpoints `GET /api/calendar-styles/`, `GET /api/calendar-styles/<name>`, `PUT /api/ops/calendar-styles/<name>`. Ops picks one in the layout editor; the preset's `style` block is copied into the layout JSON's `calendar.style` (and can then be fine-tuned per layout).
+
+| Preset | Look | Hooks |
+|---|---|---|
+| `modern-minimalist` | white bg · black text · light grey grid (#E5E5E5) · subtle entry pills (#F7F7F7) · Inter 400 | Default |
+| `modern-genz` | buttery yellow header bg (#FEF3C7) · electric purple headers (#A855F7) · soft pink grid (#FBCFE8) · mint entry pills (#CCFBF1) · Inter 500/700 | Trendy 2026 palette; revisit annually |
+| `weekday-highlight` | per-weekday styling: Sunday red text + red 1.5 px cell outline; Saturday softer blue; weekdays neutral; light grey grid | Most flexible — also the template for any future weekday-aware styling |
+
+### 6.4 Migration / backwards compatibility
 
 - **Existing layouts without `calendar`:** unaffected. Behaviour unchanged.
 - **Existing canvases (already-saved CanvasData):** unaffected. The `calendar` field is optional everywhere.
