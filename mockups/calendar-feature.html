@@ -563,12 +563,15 @@
       ? `<div class="empty-entries">${hasImage ? 'Cell is overridden with an image.' : 'No entries yet.'}</div>`
       : `<div class="entry-list">${entries.map((e, i) => {
           const isHoliday = e.source === 'holiday';
+          const removeAttrs = isHoliday
+            ? `disabled title="Holidays auto-load and can&#39;t be removed individually."`
+            : `data-remove-idx="${i - (entries.length - userOnlyCount)}"`;
           return `
             <div class="entry-row">
               <span class="dot" style="background:${e.dotColor}"></span>
               <span class="text">${escapeHtml(e.text)}</span>
               <span class="source ${isHoliday ? 'holiday' : ''}">${isHoliday ? '🇮🇳 holiday' : 'you'}</span>
-              <button class="remove" ${isHoliday ? 'disabled title="Holidays auto-load and can\\'t be removed individually."' : `data-remove-idx="${i - (entries.length - userOnlyCount)}"`}>×</button>
+              <button class="remove" ${removeAttrs}>×</button>
             </div>
           `;
         }).join('')}</div>`;
@@ -579,7 +582,7 @@
 
     container.innerHTML = `
       <div class="editor-header">
-        <div class="editor-date">${date.getDate()}<small>${fullDate.replace(/^[^,]+,\\s*/, '')}</small></div>
+        <div class="editor-date">${date.getDate()}<small>${fullDate.replace(/^[^,]+,\s*/, '')}</small></div>
         <button class="editor-close" title="Close">×</button>
       </div>
 
