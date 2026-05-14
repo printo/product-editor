@@ -174,17 +174,32 @@
       transition: color 0.2s;
     }
     .entries { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
+    /*
+      Pills read two CSS variables for their colour scheme:
+        --user-pill-bg / --user-dot   used by USER entries (auto-fill from theme)
+      Holiday entries override the dot via inline style="background:<holidayColor>"
+      because each holiday in the JSON has its own colour (Republic Day red,
+      Diwali orange, etc.). The pill background for both kinds is the same
+      per-theme value — distinguishes user vs holiday via the dot colour alone.
+    */
+    .calendar-area {
+      --user-pill-bg: #FFF7E0;
+      --user-dot:     #F59E0B;
+    }
     .pill {
       display: flex; align-items: center; gap: 4px;
       padding: 2px 5px 2px 4px;
       border-radius: 4px;
-      background: #FFF7E0;
+      background: var(--user-pill-bg);
       font-size: 9px; font-weight: 500; line-height: 1.1;
       color: #1A1A1A;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       transition: background 0.2s, color 0.2s;
     }
-    .pill .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; background: #F59E0B; }
+    .pill .dot {
+      width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+      background: var(--user-dot);
+    }
     .pill .label { overflow: hidden; text-overflow: ellipsis; }
     .more-indicator { font-size: 8px; color: var(--muted); margin-top: 1px; font-weight: 500; }
     .cell.has-image-override { background: linear-gradient(135deg, #94A3B8 0%, #475569 100%); }
@@ -214,6 +229,9 @@
       --genz-grid:     #FBCFE8;
       --genz-date:     #0F172A;
       --genz-pill-bg:  #CCFBF1;
+      /* User pill dot + bg auto-derive from the active palette. */
+      --user-pill-bg:  var(--genz-pill-bg);
+      --user-dot:      var(--genz-month);
       background: var(--genz-bg);
     }
     .calendar-area.theme-genz .month-name { color: var(--genz-month); font-weight: 700; }
@@ -233,6 +251,11 @@
       style). Saturday is now neutral — no tint, no border. Weekdays
       neutral. The whole theme says one thing: "Sundays stand out."
     */
+    .calendar-area.theme-weekday {
+      /* Neutral user-pill scheme — keeps the Sunday red as the only visual cue. */
+      --user-pill-bg: #F3F4F6;
+      --user-dot:     #1F2937;
+    }
     .calendar-area.theme-weekday .month-name { color: #1A1A1A; font-weight: 600; }
     .calendar-area.theme-weekday .weekday-row span { color: #1A1A1A; font-weight: 600; }
     .calendar-area.theme-weekday .weekday-row span.sun { color: #DC2626; }
@@ -276,7 +299,9 @@
       display: flex; align-items: center; gap: 8px;
       padding: 8px 10px; background: #F4F4F5; border-radius: 8px; font-size: 13px;
     }
-    .entry-row .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .entry-row .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: #9CA3AF; }
+    /* User-event dot in the editor list previews the theme's auto-fill colour. */
+    .entry-row .dot.user-dot { background: #F59E0B; }
     .entry-row .text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .entry-row .source { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #E4E4E7; color: var(--muted); font-weight: 500; }
     .entry-row .source.holiday { background: #FEE2E2; color: #DC2626; }
@@ -303,14 +328,6 @@
     }
     .input-row button:hover { background: #4338CA; }
     .input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    .swatches { display: flex; gap: 6px; flex-wrap: wrap; }
-    .swatch {
-      width: 24px; height: 24px; border-radius: 50%;
-      border: 2px solid transparent;
-      cursor: pointer; transition: border 0.1s;
-    }
-    .swatch.selected { border-color: var(--text); }
 
     .cap-indicator { font-size: 11px; color: var(--muted); margin-top: 6px; }
 
@@ -527,18 +544,21 @@
     ],
   };
 
-  // Sample customer-added events — these would live in CanvasData.editor_state
+  // Sample customer-added events — these would live in CanvasData.editor_state.
+  // Note: user entries no longer carry `dotColor`. The dot + pill colour
+  // auto-fill from the active theme (or the active Gen-Z palette) via CSS
+  // variables, so customers don't pick colours and can't produce off-brand
+  // combinations.
   const userEntries = {
-    '2026-01-07': [{ text: "Mom's birthday", dotColor: '#EC4899' }],
-    '2026-01-16': [{ text: 'Deadline',       dotColor: '#F59E0B' }],
-    '2026-01-22': [{ text: 'Dentist',        dotColor: '#3B82F6' }],
+    '2026-01-07': [{ text: "Mom's birthday" }],
+    '2026-01-16': [{ text: 'Deadline' }],
+    '2026-01-22': [{ text: 'Dentist' }],
   };
   // Cells overridden with an image (mutually exclusive with entries)
   const imageOverrides = {
     '2026-01-30': { uploadId: 'mock-upload-id-1' },
   };
 
-  const SWATCH_COLORS = ['#F59E0B', '#EC4899', '#3B82F6', '#10B981', '#A855F7', '#1A1A1A'];
   const MAX_ENTRIES = 3;
 
   // ────────────────────────────────────────────────────────────────────────
@@ -568,7 +588,6 @@
   let weekStartsOn    = 0;  // 0=Sun (default), 1=Mon
   let currentGenzPaletteName = GENZ_PALETTES[0].name;
   let selectedDate    = null;
-  let selectedDotColor = SWATCH_COLORS[0];
 
   // ────────────────────────────────────────────────────────────────────────
   function isoDate(year, month, day) {
@@ -629,12 +648,16 @@
       const entries = hasImage ? [] : getEntriesForDate(iso);
       const shown = entries.slice(0, MAX_ENTRIES);
       const overflow = entries.length - shown.length;
-      const pillsHtml = shown.map(e => `
+      const pillsHtml = shown.map(e => {
+        // Holiday entries carry their own colour from the holiday JSON; user
+        // entries auto-derive their dot/pill colour from theme CSS variables.
+        const dotStyle = e.source === 'holiday' ? ` style="background:${e.dotColor}"` : '';
+        return `
         <div class="pill ${e.source === 'holiday' ? 'holiday' : ''}" title="${escapeHtml(e.text)}">
-          <span class="dot" style="background:${e.dotColor}"></span>
+          <span class="dot"${dotStyle}></span>
           <span class="label">${escapeHtml(e.text)}</span>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
       const moreHtml = overflow > 0 ? `<div class="more-indicator">+${overflow} more</div>` : '';
       cellsHtml.push(`
         <div class="cell ${wdCls} ${oomCls} ${imgCls}" data-iso="${iso}" data-in-month="${inMonth}">
@@ -680,19 +703,16 @@
           const removeAttrs = isHoliday
             ? `disabled title="Holidays auto-load and can&#39;t be removed individually."`
             : `data-remove-idx="${i - (entries.length - userOnlyCount)}"`;
+          const dotStyle = isHoliday ? ` style="background:${e.dotColor}"` : '';
           return `
             <div class="entry-row">
-              <span class="dot" style="background:${e.dotColor}"></span>
+              <span class="dot ${isHoliday ? '' : 'user-dot'}"${dotStyle}></span>
               <span class="text">${escapeHtml(e.text)}</span>
               <span class="source ${isHoliday ? 'holiday' : ''}">${isHoliday ? '🇮🇳 holiday' : 'you'}</span>
               <button class="remove" ${removeAttrs}>×</button>
             </div>
           `;
         }).join('')}</div>`;
-
-    const swatchesHtml = SWATCH_COLORS.map(c => `
-      <span class="swatch ${c === selectedDotColor ? 'selected' : ''}" style="background:${c}" data-color="${c}"></span>
-    `).join('');
 
     container.innerHTML = `
       <div class="editor-header">
@@ -717,11 +737,9 @@
             canAddMore ? `${MAX_ENTRIES - totalCount} slot${(MAX_ENTRIES - totalCount) === 1 ? '' : 's'} remaining.` :
             'Max reached. Remove an entry to add another.'}
         </div>
-      </div>
-
-      <div class="editor-section">
-        <h4>Dot colour</h4>
-        <div class="swatches">${swatchesHtml}</div>
+        <div class="cap-indicator" style="margin-top:8px">
+          Dot &amp; pill colours auto-fill from the layout's theme — no picker shown.
+        </div>
       </div>
 
       <div class="editor-section">
@@ -827,12 +845,6 @@
     if (e.target.closest('.editor-close')) {
       selectedDate = null; renderEditor(); return;
     }
-    const swatch = e.target.closest('.swatch');
-    if (swatch) {
-      selectedDotColor = swatch.dataset.color;
-      renderEditor();
-      return;
-    }
     if (e.target.id === 'image-btn') {
       if (imageOverrides[selectedDate]) {
         delete imageOverrides[selectedDate];
@@ -849,7 +861,7 @@
       const entries = getEntriesForDate(selectedDate);
       if (entries.length >= MAX_ENTRIES) return;
       userEntries[selectedDate] = userEntries[selectedDate] || [];
-      userEntries[selectedDate].push({ text, dotColor: selectedDotColor });
+      userEntries[selectedDate].push({ text });
       input.value = '';
       renderCells(); renderEditor();
       return;

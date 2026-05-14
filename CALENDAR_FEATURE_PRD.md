@@ -139,7 +139,7 @@ Every customisation knob we add to the editor is a chance for a customer to prod
 | Concern | Customer can change | Customer cannot change |
 |---|---|---|
 | Which month is shown | ✅ Year + Month selectors | — |
-| What's in each cell | ✅ Add 1–3 text entries with dot colour, or override the whole cell with an image | Layout's positioning of the calendar; whether holidays auto-load; the holiday list itself |
+| What's in each cell | ✅ Add 1–3 text entries (text only — colour auto-fills from theme), or override the whole cell with an image | Dot colour and pill background (theme-driven); layout's positioning of the calendar; whether holidays auto-load; the holiday list itself |
 | Colour scheme on Gen-Z layouts | ✅ Pick one of 4 coordinated palettes | Individual colour roles (background / grid / month / weekday / date / pill) — picking those separately invites ugly combinations |
 | Colour scheme on Minimalist / Weekday-highlight layouts | — | Theme is fixed by ops at layout creation |
 | Font, font weight, grid stroke, padding, header style, week-start day | — | All locked at layout creation by ops |
@@ -218,8 +218,13 @@ export interface CalendarState {
   cells: Record<string, CalendarCellOverride>;
 }
 
+// User entries are intentionally text-only. The dot colour and the
+// pill background BOTH auto-derive from the active theme (or the
+// active Gen-Z palette) at render time. No customer-facing colour
+// picker — per the §4.0 minimal-controls principle, picking dot
+// colours individually opens the door to ugly off-brand pills.
 export type CalendarCellOverride =
-  | { type: 'text';  text: string; color?: string; fontSize?: number }
+  | { type: 'text';  text: string }                        // colour auto-fills from theme
   | { type: 'image'; uploadId: string; opacity?: number }
   | { type: 'hide';  /* hide date number, leave cell empty */ };
 
@@ -521,7 +526,7 @@ Unblocks the calendar AND fixes the pre-existing bug where text/shape/image over
 | 5 | Non-Gregorian calendars (Hijri / Shaka / Vikram Samvat)? | **v2 candidate.** v1.13 is Gregorian-only. |
 | 6 | Year range? | **`currentYear − 5` to `currentYear + 5`.** Configurable per layout via `calendar.yearRange`. |
 | 7 | Ops can lock specific cells to pre-defined text? | **v2 candidate.** v1.13 lets ops define a holiday list; cells aren't otherwise lockable. |
-| 8 | **NEW** — Cell entry pill style (post-design-review with mockup) | **✅ Pill design locked.** Date number always visible top-right; entries stack below; cap `MAX_ENTRIES = 3` (configurable per layout via `calendar.style.maxEntriesPerCell`); rounded-rect pill with coloured dot + text; "+N more" overflow indicator. |
+| 8 | **NEW** — Cell entry pill style (post-design-review with mockup) | **✅ Pill design locked.** Date number always visible top-right; entries stack below; cap `MAX_ENTRIES = 3` (configurable per layout via `calendar.style.maxEntriesPerCell`); rounded-rect pill with auto-fill dot + text; "+N more" overflow indicator. **Dot colour + pill background both auto-derive from the active theme/palette** — no customer-facing colour picker. (Holiday entries keep their own colour from the holiday JSON.) |
 | 9 | **NEW** — Three style presets (Modern Minimalist / Modern Gen-Z / Weekday Highlight) | **✅ Locked.** Stored as JSON in `storage/calendar_styles/`; ops picks one when authoring a layout; resolved style fields written to layout JSON; customer cannot switch presets (preserves design intent). |
 
 ### 6.3 Confirmed scope additions (post-design-review)
@@ -531,7 +536,7 @@ After the first design review the following additions were locked in. They are N
 **a. Pill-style cell entries (replaces "override" model)**
 
 - Date number always visible (top-right by default).
-- User events stack below as small pill badges: rounded-rect bg + 6 px coloured dot + 9–10 pt auto-fit text.
+- User events stack below as small pill badges: rounded-rect bg + 6 px dot + 9–10 pt auto-fit text. **Dot colour and pill bg are theme-driven** — auto-fill from the active theme's CSS variables (or, on Gen-Z, the active palette). Customer sees no colour picker.
 - Holiday entries from the auto-loaded list co-mingle with user entries.
 - Cap = 3 entries per cell (configurable via `calendar.style.maxEntriesPerCell`). Overflow shows "+N more" at the bottom of the cell.
 - Image overrides still exist as a mutually-exclusive mode — `imageOverride` blanks the whole cell.
