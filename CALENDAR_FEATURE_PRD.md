@@ -132,6 +132,20 @@ For server-side rendering we additionally need the actual `.ttf` / `.woff2` file
 
 ## 4. Proposed design
 
+### 4.0 Design principle — minimal customer-facing controls
+
+Every customisation knob we add to the editor is a chance for a customer to produce an output the design team would not have shipped. The calendar feature deliberately keeps customer-facing controls to the smallest set that still serves the use case:
+
+| Concern | Customer can change | Customer cannot change |
+|---|---|---|
+| Which month is shown | ✅ Year + Month selectors | — |
+| What's in each cell | ✅ Add 1–3 text entries with dot colour, or override the whole cell with an image | Layout's positioning of the calendar; whether holidays auto-load; the holiday list itself |
+| Colour scheme on Gen-Z layouts | ✅ Pick one of 4 coordinated palettes | Individual colour roles (background / grid / month / weekday / date / pill) — picking those separately invites ugly combinations |
+| Colour scheme on Minimalist / Weekday-highlight layouts | — | Theme is fixed by ops at layout creation |
+| Font, font weight, grid stroke, padding, header style, week-start day | — | All locked at layout creation by ops |
+
+If a customer wants something further, they pick a different layout from the catalog (which is the existing surface that already exists for product variation). This is the "templates, not configurators" pattern — costs less to maintain, produces fewer support tickets, and protects print quality.
+
 ### 4.1 Architectural shape
 
 The calendar is a **layout-agnostic primitive**: a positioned region inside any canvas, defined by `{x, y, width, height}` percentages of the canvas dimensions. It composes into multiple product types without changes to the primitive itself:
@@ -541,8 +555,8 @@ Stored as JSON in `backend/django/storage/calendar_styles/`. Endpoints `GET /api
 | Preset | Look | Hooks |
 |---|---|---|
 | `modern-minimalist` | white bg · black text · light grey grid (#E5E5E5) · subtle entry pills (#F7F7F7) · Inter 400 | Default |
-| `modern-genz` | buttery yellow header bg (#FEF3C7) · electric purple headers (#A855F7) · soft pink grid (#FBCFE8) · mint entry pills (#CCFBF1) · Inter 500/700 | Trendy 2026 palette; revisit annually |
-| `weekday-highlight` | per-weekday styling: **Sunday** = light-red cell fill `#FEE2E2` + 1.5 px red border `#DC2626` + red date number (auto-fill light shade for bg AND dark shade for border, per design review); **Saturday** = soft-blue tint `#DBEAFE` + blue date number; weekdays neutral; light grey grid | Most flexible — also the template for any future weekday-aware styling |
+| `modern-genz` | parameterised by **4 coordinated palettes** (Butter & Purple, Mint & Hot Pink, Lilac & Coral, Sky & Lemon). Each palette sets all 6 colour roles together: page bg, grid colour, month text, weekday header, date number, entry-pill bg. Customer picks one palette swatch in the editor — that's the *only* Gen-Z customisation control. Default palette = Butter & Purple. | Trendy 2026 palettes; new palettes ship as additional JSON files under `storage/calendar_palettes/genz/` — no code change |
+| `weekday-highlight` | **Sunday** stands out: light-red cell fill `#FEE2E2` + red date number `#DC2626`. No border (read as a state indicator in v1 review, looked off). No Saturday treatment. All other days neutral. Light grey grid. Single visual cue, easy to read at a glance. | Theme says one thing: "Sundays are different." |
 
 ### 6.4 Migration / backwards compatibility
 

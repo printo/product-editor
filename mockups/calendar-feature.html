@@ -78,6 +78,29 @@
       background-repeat: no-repeat; background-position: right 10px center;
     }
 
+    /* ─── Gen-Z palette picker (only visible when Gen-Z theme is active) ─── */
+    .genz-palette-group { display: none; }
+    .genz-palette-group.visible { display: flex; }
+    .palette-swatches { display: inline-flex; gap: 6px; }
+    .palette-swatch {
+      width: 38px; height: 38px; border-radius: 8px;
+      border: 2px solid transparent;
+      cursor: pointer; transition: transform 0.1s, border 0.1s;
+      position: relative; overflow: hidden;
+      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .palette-swatch span { display: block; }
+    .palette-swatch:hover { transform: translateY(-1px); }
+    .palette-swatch.selected { border-color: var(--text); }
+    .palette-swatch::after {
+      content: attr(data-label); position: absolute; bottom: -22px; left: 50%;
+      transform: translateX(-50%); white-space: nowrap;
+      font-size: 10px; color: var(--muted); pointer-events: none; opacity: 0;
+      transition: opacity 0.1s;
+    }
+    .palette-swatch:hover::after { opacity: 1; }
+
     /* ─── Stage ──────────────────────────────────────────────────────────── */
     .stage { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 24px; }
     @media (min-width: 1000px) {
@@ -173,53 +196,54 @@
     /* ─── Theme: modern-minimalist (default) ─────────────────────────────── */
     /* Already covered by base styles above. */
 
-    /* ─── Theme: modern-genz ─────────────────────────────────────────────── */
-    .calendar-area.theme-genz { background: #FEF3C7; }
-    .calendar-area.theme-genz .month-name { color: #A855F7; font-weight: 700; }
-    .calendar-area.theme-genz .year-name { color: #C084FC; }
-    .calendar-area.theme-genz .weekday-row { border-bottom-color: #FBCFE8; }
-    .calendar-area.theme-genz .weekday-row span { color: #A855F7; font-weight: 700; }
-    .calendar-area.theme-genz .cells { gap: 1px; background: #FBCFE8; }
-    .calendar-area.theme-genz .cell {
-      border: 0; background: #FFFBEB;
+    /* ─── Theme: modern-genz (palette-driven via CSS variables) ──────────── */
+    /*
+      The Gen-Z theme is parameterised by 6 colour roles, all set as CSS
+      custom properties so that swapping the palette is a one-line JS
+      update (no DOM reflow, no inline-style sprawl). Defaults below are
+      the "Butter & Purple" palette — JS overrides them when a different
+      palette is picked.
+      Design principle: customers get ONE control (palette picker), not
+      six. Coordinated palettes prevent "ugly mix" outcomes that an
+      open-ended colour picker would invite.
+    */
+    .calendar-area.theme-genz {
+      --genz-bg:       #FEF3C7;
+      --genz-month:    #A855F7;
+      --genz-weekday:  #A855F7;
+      --genz-grid:     #FBCFE8;
+      --genz-date:     #0F172A;
+      --genz-pill-bg:  #CCFBF1;
+      background: var(--genz-bg);
     }
-    .calendar-area.theme-genz .cell:hover { background: #FEF9C3; }
-    .calendar-area.theme-genz .date-num { color: #0F172A; font-weight: 700; }
-    .calendar-area.theme-genz .pill { background: #CCFBF1; border-radius: 12px; color: #0F172A; font-weight: 600; }
-    .calendar-area.theme-genz .pill.holiday { background: #FBCFE8; }
+    .calendar-area.theme-genz .month-name { color: var(--genz-month); font-weight: 700; }
+    .calendar-area.theme-genz .year-name  { color: var(--genz-month); opacity: 0.6; }
+    .calendar-area.theme-genz .weekday-row { border-bottom-color: var(--genz-grid); }
+    .calendar-area.theme-genz .weekday-row span { color: var(--genz-weekday); font-weight: 700; }
+    .calendar-area.theme-genz .cells { gap: 1px; background: var(--genz-grid); }
+    .calendar-area.theme-genz .cell { border: 0; background: var(--genz-bg); filter: brightness(1.04); }
+    .calendar-area.theme-genz .cell:hover { filter: brightness(0.98); }
+    .calendar-area.theme-genz .date-num { color: var(--genz-date); font-weight: 700; }
+    .calendar-area.theme-genz .pill { background: var(--genz-pill-bg); border-radius: 12px; color: var(--genz-date); font-weight: 600; }
 
     /* ─── Theme: weekday-highlight ───────────────────────────────────────── */
     /*
-      Sunday: light red cell background + red 1.5 px border + red date number
-      Saturday: light blue cell background + blue date number
-      Weekdays: neutral
-      The "auto-fill light shade + dark border" lands here per the design
-      decision after the v1 preview.
+      Sunday: light red cell background + red date number. Border removed
+      per design review (read as a state indicator rather than a permanent
+      style). Saturday is now neutral — no tint, no border. Weekdays
+      neutral. The whole theme says one thing: "Sundays stand out."
     */
     .calendar-area.theme-weekday .month-name { color: #1A1A1A; font-weight: 600; }
     .calendar-area.theme-weekday .weekday-row span { color: #1A1A1A; font-weight: 600; }
     .calendar-area.theme-weekday .weekday-row span.sun { color: #DC2626; }
-    .calendar-area.theme-weekday .weekday-row span.sat { color: #2563EB; }
     .calendar-area.theme-weekday .cell { border-right: 0.8px solid #D4D4D8; border-bottom: 0.8px solid #D4D4D8; }
     .calendar-area.theme-weekday .cell.weekday-sun {
-      background: #FEE2E2;          /* light shade fill */
-      outline: 1.5px solid #DC2626; /* dark shade border */
-      outline-offset: -1.5px;
-      z-index: 1;
+      background: #FEE2E2;          /* light shade fill only */
     }
     .calendar-area.theme-weekday .cell.weekday-sun .date-num { color: #DC2626; font-weight: 700; }
     .calendar-area.theme-weekday .cell.weekday-sun:hover { background: #FECACA; }
-    .calendar-area.theme-weekday .cell.weekday-sat {
-      background: #DBEAFE;          /* soft blue tint */
-    }
-    .calendar-area.theme-weekday .cell.weekday-sat .date-num { color: #2563EB; font-weight: 600; }
-    .calendar-area.theme-weekday .cell.weekday-sat:hover { background: #BFDBFE; }
     .calendar-area.theme-weekday .cell.out-of-month.weekday-sun {
       background: #FEF2F2;
-      outline: 1.5px dashed #FCA5A5;
-    }
-    .calendar-area.theme-weekday .cell.out-of-month.weekday-sat {
-      background: #EFF6FF;
     }
 
     /* ─── Right-side popover (cell editor) ──────────────────────────────── */
@@ -390,6 +414,10 @@
       <button data-aspect="square">Square</button>
     </div>
   </div>
+  <div class="group genz-palette-group" id="genz-palette-group">
+    <label>Palette <span style="text-transform:none;font-weight:400;color:var(--muted);font-size:10px">(Gen-Z only)</span></label>
+    <div class="palette-swatches" id="palette-swatches"></div>
+  </div>
 </div>
 
 <div class="stage">
@@ -512,6 +540,25 @@
 
   const SWATCH_COLORS = ['#F59E0B', '#EC4899', '#3B82F6', '#10B981', '#A855F7', '#1A1A1A'];
   const MAX_ENTRIES = 3;
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Gen-Z palette set — the customer's only Gen-Z customisation control.
+  // Each palette coordinates all six colour roles so customers can't
+  // accidentally produce an ugly mix. Backend ships these as
+  // storage/calendar_palettes/genz/*.json (or inline in the layout's
+  // calendar.style); ops can extend the list seasonally without a
+  // code change.
+  // ────────────────────────────────────────────────────────────────────────
+  const GENZ_PALETTES = [
+    { name: 'butter', label: 'Butter & Purple',
+      bg: '#FEF3C7', month: '#A855F7', weekday: '#A855F7', grid: '#FBCFE8', date: '#0F172A', pill: '#CCFBF1' },
+    { name: 'mint',   label: 'Mint & Hot Pink',
+      bg: '#ECFDF5', month: '#DB2777', weekday: '#DB2777', grid: '#FCE7F3', date: '#0F172A', pill: '#FEF3C7' },
+    { name: 'lilac',  label: 'Lilac & Coral',
+      bg: '#FAF5FF', month: '#F97316', weekday: '#F97316', grid: '#E9D5FF', date: '#1E1B4B', pill: '#FED7AA' },
+    { name: 'sky',    label: 'Sky & Lemon',
+      bg: '#F0F9FF', month: '#0284C7', weekday: '#0284C7', grid: '#BAE6FD', date: '#0C4A6E', pill: '#FEF08A' },
+  ];
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   let currentTheme    = 'minimalist';
@@ -519,6 +566,7 @@
   let currentYear     = 2026;
   let currentMonth    = 0;  // 0-based
   let weekStartsOn    = 0;  // 0=Sun (default), 1=Mon
+  let currentGenzPaletteName = GENZ_PALETTES[0].name;
   let selectedDate    = null;
   let selectedDotColor = SWATCH_COLORS[0];
 
@@ -692,11 +740,41 @@
     currentTheme = theme;
     const area = document.getElementById('calendar-area');
     area.className = `calendar-area theme-${theme === 'minimalist' ? 'minimalist' : theme === 'genz' ? 'genz' : 'weekday'}`;
+    const paletteGroup = document.getElementById('genz-palette-group');
+    paletteGroup.classList.toggle('visible', theme === 'genz');
+    if (theme === 'genz') applyGenzPalette(currentGenzPaletteName);
   }
   function applyAspect(aspect) {
     currentAspect = aspect;
     const card = document.getElementById('calendar-card');
     card.className = `calendar-card aspect-${aspect}`;
+  }
+
+  function applyGenzPalette(name) {
+    const p = GENZ_PALETTES.find(x => x.name === name) || GENZ_PALETTES[0];
+    currentGenzPaletteName = p.name;
+    const area = document.getElementById('calendar-area');
+    area.style.setProperty('--genz-bg',      p.bg);
+    area.style.setProperty('--genz-month',   p.month);
+    area.style.setProperty('--genz-weekday', p.weekday);
+    area.style.setProperty('--genz-grid',    p.grid);
+    area.style.setProperty('--genz-date',    p.date);
+    area.style.setProperty('--genz-pill-bg', p.pill);
+    document.querySelectorAll('.palette-swatch').forEach(s => {
+      s.classList.toggle('selected', s.dataset.palette === p.name);
+    });
+  }
+
+  function renderPaletteSwatches() {
+    document.getElementById('palette-swatches').innerHTML = GENZ_PALETTES.map(p => `
+      <button class="palette-swatch ${p.name === currentGenzPaletteName ? 'selected' : ''}"
+              data-palette="${p.name}" data-label="${p.label}" title="${p.label}">
+        <span style="background:${p.bg}"></span>
+        <span style="background:${p.month}"></span>
+        <span style="background:${p.grid}"></span>
+        <span style="background:${p.pill}"></span>
+      </button>
+    `).join('');
   }
 
   document.getElementById('theme-seg').addEventListener('click', e => {
@@ -710,6 +788,11 @@
     document.querySelectorAll('#aspect-seg button').forEach(b => b.classList.remove('active'));
     e.target.classList.add('active');
     applyAspect(e.target.dataset.aspect);
+  });
+  document.getElementById('palette-swatches').addEventListener('click', e => {
+    const swatch = e.target.closest('.palette-swatch');
+    if (!swatch) return;
+    applyGenzPalette(swatch.dataset.palette);
   });
   document.getElementById('weekstart-seg').addEventListener('click', e => {
     if (e.target.tagName !== 'BUTTON') return;
@@ -790,6 +873,7 @@
   // ────────────────────────────────────────────────────────────────────────
   // Init
   // ────────────────────────────────────────────────────────────────────────
+  renderPaletteSwatches();
   renderWeekdays();
   renderCells();
   renderEditor();
