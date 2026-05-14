@@ -2,25 +2,33 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Product Editor · Calendar feature mockup</title>
+  <title>Product Editor · Calendar primitive mockup</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!--
     Visual mockup for the calendar feature PRD (CALENDAR_FEATURE_PRD.md).
     Single self-contained HTML file — opens in any browser, no build step.
 
-    What it covers:
-      • Desk-calendar form factor (landscape ~5x7 with photo on top, grid below)
-      • Three calendar style presets (modern-minimalist / modern-genz / weekday-highlight)
-      • January 2026 grid populated with sample en-IN holidays (Nager.Date schema)
-      • Sample customer-added events (incl. the "Deadline" pill from the design ref)
-      • Click any date cell → edit popover: add/remove entries, pick dot colour,
-        or replace the whole cell with an image
-      • Max-entries cap (3) with "+N more" overflow
+    SCOPE: this mockup visualises ONLY the calendar primitive — the grid,
+    cells, pills, holiday auto-load, theme presets, and per-cell editing.
+    The calendar is layout-agnostic: the same primitive composes into
+    desk-calendar layouts, full-page-calendar layouts, poster layouts,
+    etc. via the layout JSON's calendar.{x, y, width, height} fields.
+    Photo frames around the calendar are owned by the layout, NOT by
+    the calendar primitive itself (no photo area shown here).
+
+    What's interactive:
+      • Theme switcher: modern-minimalist / modern-genz / weekday-highlight
+      • Year + month + week-start selectors
+      • Aspect ratio: landscape / portrait / square — proves the grid
+        works at any canvas shape
+      • Click any cell → side editor: add events (text + dot colour),
+        replace the cell with an image override, or remove entries
+      • Cap at 3 entries; "+N more" overflow indicator
   -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@500;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
     rel="stylesheet"
   />
   <style>
@@ -40,15 +48,16 @@
     body { padding: 32px 24px 80px; }
 
     /* ─── Top header ─────────────────────────────────────────────────────── */
-    .hero { max-width: 1100px; margin: 0 auto 24px; }
-    .hero h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
-    .hero p  { color: var(--muted); font-size: 14px; }
+    .hero { max-width: 1180px; margin: 0 auto 8px; }
+    .hero h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+    .hero p  { color: var(--muted); font-size: 13.5px; max-width: 820px; }
     .hero .badge { display:inline-block; background: #EEF2FF; color: var(--accent); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 8px; vertical-align: middle; }
+    .hero .note { display: inline-block; margin-top: 10px; padding: 8px 12px; background: #FFF7ED; border-left: 3px solid #F59E0B; font-size: 12.5px; color: #78350F; border-radius: 4px; }
 
     /* ─── Controls strip ─────────────────────────────────────────────────── */
     .controls {
-      max-width: 1100px; margin: 0 auto 24px;
-      display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+      max-width: 1180px; margin: 20px auto;
+      display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end;
       padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
     }
     .group { display: flex; flex-direction: column; gap: 6px; }
@@ -70,82 +79,47 @@
     }
 
     /* ─── Stage ──────────────────────────────────────────────────────────── */
-    .stage { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 24px; }
+    .stage { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 24px; }
     @media (min-width: 1000px) {
-      .stage { grid-template-columns: minmax(0, 1.6fr) 320px; }
+      .stage { grid-template-columns: minmax(0, 1.7fr) 320px; }
     }
 
-    /* ─── Desk calendar ──────────────────────────────────────────────────── */
-    .desk-calendar {
+    /* ─── Calendar primitive card ────────────────────────────────────────── */
+    .calendar-card {
       background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
       box-shadow: var(--shadow); overflow: hidden;
-      aspect-ratio: 5 / 7;
-      max-width: 640px;  /* about 5"x7" at 90 dpi screen */
+      width: 100%;
       margin: 0 auto;
-      display: grid; grid-template-rows: 55% 45%;
-      position: relative;
     }
-    /* The simulated spiral binding strip at the top */
-    .desk-calendar::before {
-      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 22px;
-      background: repeating-linear-gradient(90deg, transparent 0 22px, #d4d4d8 22px 30px);
-      opacity: 0.55; pointer-events: none;
-    }
-    .desk-calendar::after {
-      content: ''; position: absolute; top: 11px; left: 50%; transform: translateX(-50%);
-      width: 56px; height: 4px; background: rgba(0,0,0,0.15); border-radius: 999px;
-    }
+    /* Aspect-ratio variants — illustrate the primitive works at any shape */
+    .calendar-card.aspect-landscape { aspect-ratio: 7 / 5; max-width: 820px; }
+    .calendar-card.aspect-portrait  { aspect-ratio: 5 / 7; max-width: 560px; }
+    .calendar-card.aspect-square    { aspect-ratio: 1 / 1; max-width: 680px; }
 
-    /* Photo area */
-    .photo-area {
-      position: relative;
-      background:
-        linear-gradient(135deg, #FFD89B 0%, #19547B 100%);
-      overflow: hidden;
-      display: flex; flex-direction: column; justify-content: flex-end;
-      padding: 16px 18px 14px;
-      color: white;
-    }
-    .photo-area::before {
-      content: ''; position: absolute; inset: 0;
-      background:
-        radial-gradient(at 28% 24%, rgba(255,255,255,0.35) 0, transparent 40%),
-        radial-gradient(at 72% 64%, rgba(0,0,0,0.18) 0, transparent 50%);
-      pointer-events: none;
-    }
-    .photo-area .photo-label {
-      position: relative; z-index: 1;
-      font-family: 'Playfair Display', serif; font-weight: 700; font-size: 22px; letter-spacing: 0.01em;
-      text-shadow: 0 2px 8px rgba(0,0,0,0.35);
-    }
-    .photo-area .photo-sub {
-      position: relative; z-index: 1; font-size: 11px; font-weight: 500;
-      opacity: 0.85; letter-spacing: 0.08em; text-transform: uppercase;
-    }
-
-    /* Calendar grid container */
+    /* Calendar grid container — fills its card entirely */
     .calendar-area {
-      padding: 12px 14px 14px;
+      padding: 18px 22px 20px;
       display: flex; flex-direction: column;
+      height: 100%;
       transition: background 0.2s;
     }
     .month-row {
       display: flex; align-items: baseline; justify-content: space-between;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .month-name {
-      font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+      font-size: 22px; font-weight: 600; letter-spacing: -0.02em;
       transition: color 0.2s;
     }
-    .year-name { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .year-name { font-size: 14px; color: var(--muted); font-weight: 500; }
     .weekday-row {
       display: grid; grid-template-columns: repeat(7, 1fr);
-      padding-bottom: 4px; margin-bottom: 2px;
+      padding-bottom: 6px; margin-bottom: 4px;
       border-bottom: 1px solid var(--border);
       transition: border-color 0.2s;
     }
     .weekday-row span {
-      text-align: center; font-size: 9px; font-weight: 600;
+      text-align: center; font-size: 10px; font-weight: 600;
       letter-spacing: 0.06em; text-transform: uppercase;
       color: var(--muted);
       transition: color 0.2s;
@@ -160,7 +134,7 @@
       position: relative;
       border-right: 0.5px solid var(--border);
       border-bottom: 0.5px solid var(--border);
-      padding: 3px 4px 2px;
+      padding: 4px 5px 4px;
       cursor: pointer;
       transition: background 0.15s, outline 0.15s;
       display: flex; flex-direction: column;
@@ -171,32 +145,33 @@
     .cell.out-of-month .date-num { opacity: 0.35; }
     .date-num {
       align-self: flex-end;
-      font-size: 11px; font-weight: 600; line-height: 1;
-      margin-bottom: 3px;
+      font-size: 12px; font-weight: 600; line-height: 1;
+      margin-bottom: 4px;
       color: var(--text);
       transition: color 0.2s;
     }
     .entries { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
     .pill {
       display: flex; align-items: center; gap: 4px;
-      padding: 2px 4px 2px 3px;
+      padding: 2px 5px 2px 4px;
       border-radius: 4px;
       background: #FFF7E0;
-      font-size: 8.5px; font-weight: 500; line-height: 1.1;
+      font-size: 9px; font-weight: 500; line-height: 1.1;
       color: #1A1A1A;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       transition: background 0.2s, color 0.2s;
     }
     .pill .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; background: #F59E0B; }
-    .pill.holiday { font-style: normal; }
-    .pill.holiday .dot { width: 5px; height: 5px; border-radius: 50%; }
     .pill .label { overflow: hidden; text-overflow: ellipsis; }
-    .more-indicator { font-size: 7.5px; color: var(--muted); margin-top: 1px; font-weight: 500; }
+    .more-indicator { font-size: 8px; color: var(--muted); margin-top: 1px; font-weight: 500; }
     .cell.has-image-override { background: linear-gradient(135deg, #94A3B8 0%, #475569 100%); }
     .cell.has-image-override .date-num { color: white; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
     .cell.has-image-override::after {
       content: '📷'; position: absolute; bottom: 4px; left: 4px; font-size: 12px; opacity: 0.9;
     }
+
+    /* ─── Theme: modern-minimalist (default) ─────────────────────────────── */
+    /* Already covered by base styles above. */
 
     /* ─── Theme: modern-genz ─────────────────────────────────────────────── */
     .calendar-area.theme-genz { background: #FEF3C7; }
@@ -214,16 +189,38 @@
     .calendar-area.theme-genz .pill.holiday { background: #FBCFE8; }
 
     /* ─── Theme: weekday-highlight ───────────────────────────────────────── */
+    /*
+      Sunday: light red cell background + red 1.5 px border + red date number
+      Saturday: light blue cell background + blue date number
+      Weekdays: neutral
+      The "auto-fill light shade + dark border" lands here per the design
+      decision after the v1 preview.
+    */
     .calendar-area.theme-weekday .month-name { color: #1A1A1A; font-weight: 600; }
     .calendar-area.theme-weekday .weekday-row span { color: #1A1A1A; font-weight: 600; }
     .calendar-area.theme-weekday .weekday-row span.sun { color: #DC2626; }
     .calendar-area.theme-weekday .weekday-row span.sat { color: #2563EB; }
-    .calendar-area.theme-weekday .cells { gap: 0; }
     .calendar-area.theme-weekday .cell { border-right: 0.8px solid #D4D4D8; border-bottom: 0.8px solid #D4D4D8; }
+    .calendar-area.theme-weekday .cell.weekday-sun {
+      background: #FEE2E2;          /* light shade fill */
+      outline: 1.5px solid #DC2626; /* dark shade border */
+      outline-offset: -1.5px;
+      z-index: 1;
+    }
     .calendar-area.theme-weekday .cell.weekday-sun .date-num { color: #DC2626; font-weight: 700; }
-    .calendar-area.theme-weekday .cell.weekday-sun { outline: 1.5px solid #DC2626; outline-offset: -1.5px; z-index: 1; }
-    .calendar-area.theme-weekday .cell.weekday-sat .date-num { color: #2563EB; }
-    .calendar-area.theme-weekday .cell.out-of-month.weekday-sun { outline: 1.5px dashed #FCA5A5; outline-offset: -1.5px; }
+    .calendar-area.theme-weekday .cell.weekday-sun:hover { background: #FECACA; }
+    .calendar-area.theme-weekday .cell.weekday-sat {
+      background: #DBEAFE;          /* soft blue tint */
+    }
+    .calendar-area.theme-weekday .cell.weekday-sat .date-num { color: #2563EB; font-weight: 600; }
+    .calendar-area.theme-weekday .cell.weekday-sat:hover { background: #BFDBFE; }
+    .calendar-area.theme-weekday .cell.out-of-month.weekday-sun {
+      background: #FEF2F2;
+      outline: 1.5px dashed #FCA5A5;
+    }
+    .calendar-area.theme-weekday .cell.out-of-month.weekday-sat {
+      background: #EFF6FF;
+    }
 
     /* ─── Right-side popover (cell editor) ──────────────────────────────── */
     .editor-panel {
@@ -256,7 +253,7 @@
       padding: 8px 10px; background: #F4F4F5; border-radius: 8px; font-size: 13px;
     }
     .entry-row .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .entry-row .text { flex: 1; }
+    .entry-row .text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .entry-row .source { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #E4E4E7; color: var(--muted); font-weight: 500; }
     .entry-row .source.holiday { background: #FEE2E2; color: #DC2626; }
     .entry-row .remove {
@@ -304,7 +301,7 @@
 
     /* ─── Legend / footnotes ─────────────────────────────────────────────── */
     .legend {
-      max-width: 1100px; margin: 32px auto 0;
+      max-width: 1180px; margin: 32px auto 0;
       padding: 20px; background: var(--panel); border: 1px solid var(--border);
       border-radius: var(--radius); box-shadow: var(--shadow);
     }
@@ -312,18 +309,37 @@
     .legend ul { padding-left: 18px; }
     .legend li { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
     .legend code { background: #F4F4F5; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+    .legend .composition { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .legend .composition .example {
+      border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+      font-size: 11px; color: var(--muted);
+    }
+    .legend .composition .example .thumb {
+      display: block; background: #F4F4F5; border-radius: 4px; margin-bottom: 8px;
+      position: relative;
+    }
+    .legend .composition .example .thumb .photo-block { background: linear-gradient(135deg, #FFD89B, #19547B); border-radius: 4px 4px 0 0; }
+    .legend .composition .example .thumb .cal-block { background: white; border: 1px solid var(--border); border-radius: 0 0 4px 4px; position: relative; overflow: hidden; }
+    .legend .composition .example .thumb .cal-block::before {
+      content: ''; position: absolute; inset: 4px; background-image:
+        linear-gradient(to right, var(--border) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+      background-size: calc(100%/7) calc(100%/5);
+    }
+    .legend .composition .example b { color: var(--text); font-size: 12px; display: block; margin-bottom: 2px; }
   </style>
 </head>
 <body>
 
 <div class="hero">
-  <h1>Calendar feature · visual mockup <span class="badge">CALENDAR_FEATURE_PRD.md</span></h1>
-  <p>Desk-calendar form factor. Switch themes; click any date to add events or override with an image. Holidays for <code>en-IN</code> are auto-loaded.</p>
+  <h1>Calendar primitive · visual mockup <span class="badge">CALENDAR_FEATURE_PRD.md</span></h1>
+  <p>The calendar is a <strong>layout primitive</strong> — a positioned region inside any canvas. This mockup shows the primitive standalone. The layout JSON decides how it sits next to photo frames, branding, etc. across desk-calendar / full-page / poster products.</p>
+  <div class="note">Switch themes; click any date to add events or override with an image. Holidays for <code>en-IN</code> are auto-loaded for the selected year.</div>
 </div>
 
 <div class="controls">
   <div class="group">
-    <label>Theme</label>
+    <label>Theme preset</label>
     <div class="seg" id="theme-seg">
       <button data-theme="minimalist" class="active">Modern · Minimalist</button>
       <button data-theme="genz">Modern · Gen-Z</button>
@@ -362,19 +378,23 @@
   <div class="group">
     <label>Week starts</label>
     <div class="seg" id="weekstart-seg">
-      <button data-start="1" class="active">Monday</button>
-      <button data-start="0">Sunday</button>
+      <button data-start="0" class="active">Sunday</button>
+      <button data-start="1">Monday</button>
+    </div>
+  </div>
+  <div class="group">
+    <label>Aspect ratio</label>
+    <div class="seg" id="aspect-seg">
+      <button data-aspect="landscape" class="active">Landscape</button>
+      <button data-aspect="portrait">Portrait</button>
+      <button data-aspect="square">Square</button>
     </div>
   </div>
 </div>
 
 <div class="stage">
-  <!-- Desk calendar preview -->
-  <div class="desk-calendar">
-    <div class="photo-area">
-      <div class="photo-sub">Family Photos · 2026</div>
-      <div class="photo-label" id="photo-month-label">January</div>
-    </div>
+  <!-- Calendar primitive card -->
+  <div class="calendar-card aspect-landscape" id="calendar-card">
     <div class="calendar-area theme-minimalist" id="calendar-area">
       <div class="month-row">
         <span class="month-name" id="month-name">January</span>
@@ -397,16 +417,58 @@
 </div>
 
 <div class="legend">
-  <h3>Mockup notes</h3>
+  <h3>Scope &amp; mockup notes</h3>
   <ul>
+    <li><strong>This mockup is just the calendar primitive.</strong> Photo frames, branding, and other artwork that sit alongside the calendar are owned by the surrounding <em>layout</em> (e.g. desk-calendar layout, full-page-calendar layout). The same primitive embeds into all of them via the layout JSON's <code>calendar.{x, y, width, height}</code>.</li>
     <li><strong>Date number</strong> is always visible (top-right of each cell) unless the cell has an <code>imageOverride</code>.</li>
     <li><strong>Holiday pills</strong> auto-load from <code>storage/holidays/en-IN/&lt;year&gt;.json</code> (seeded from Nager.Date). User can't delete them — only override the whole cell with an image.</li>
     <li><strong>User event pills</strong> stack below holidays. Cap = 3 per cell; <code>+N more</code> when overflow.</li>
     <li><strong>Cell text auto-fits</strong> to the cell width (the real renderer uses a binary-search font-size helper; this mockup uses CSS <code>text-overflow: ellipsis</code> for simplicity).</li>
     <li><strong>Themes</strong> map to <code>storage/calendar_styles/{modern-minimalist,modern-genz,weekday-highlight}.json</code>. Ops picks at layout creation; customer can't switch.</li>
-    <li><strong>Image override</strong> replaces the entire cell content. The real implementation reuses the existing chunked-upload + MediaPipe auto-orientation pipeline.</li>
+    <li><strong>Weekday-highlight theme:</strong> Sunday cells get a light-red fill + 1.5 px red outline + red date number (the "auto-fill light shade for cells bg AND dark shade for border" treatment). Saturday cells get a soft-blue tint.</li>
+    <li><strong>Default week-start: Sunday</strong> (en-IN convention). Toggleable per layout.</li>
+    <li><strong>Image override</strong> replaces the entire cell content. Reuses the existing chunked-upload + MediaPipe auto-orientation pipeline.</li>
     <li>The 300 DPI server-rendered output will look identical to this preview (paritied via PRD §4.3 "identical math").</li>
   </ul>
+
+  <h3 style="margin-top:18px">How the primitive composes into different products</h3>
+  <div class="composition">
+    <div class="example">
+      <div class="thumb" style="height: 110px; display: grid; grid-template-rows: 60% 40%;">
+        <div class="photo-block"></div>
+        <div class="cal-block"></div>
+      </div>
+      <b>Desk calendar</b>
+      Layout owns a photo frame (top) + a calendar region (bottom 40%).
+    </div>
+    <div class="example">
+      <div class="thumb" style="height: 110px; display: grid; grid-template-rows: 100%;">
+        <div class="cal-block" style="border-radius:4px"></div>
+      </div>
+      <b>Full-page calendar</b>
+      Layout has zero frames; calendar fills the page.
+    </div>
+    <div class="example">
+      <div class="thumb" style="height: 110px; display: grid; grid-template-rows: 70% 30%; gap: 4px;">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px">
+          <div class="photo-block" style="border-radius:3px"></div>
+          <div class="photo-block" style="border-radius:3px"></div>
+          <div class="photo-block" style="border-radius:3px"></div>
+        </div>
+        <div class="cal-block" style="border-radius:3px"></div>
+      </div>
+      <b>Poster calendar</b>
+      Layout has multiple small photo frames + a calendar strip.
+    </div>
+    <div class="example">
+      <div class="thumb" style="height: 110px; display: grid; grid-template-columns: 60% 40%; gap: 4px;">
+        <div class="cal-block" style="border-radius:3px"></div>
+        <div class="photo-block" style="border-radius:3px"></div>
+      </div>
+      <b>Side-by-side calendar</b>
+      Calendar on the left, photo collage on the right. Same primitive.
+    </div>
+  </div>
 </div>
 
 <script>
@@ -437,11 +499,7 @@
     ],
   };
 
-  // ────────────────────────────────────────────────────────────────────────
   // Sample customer-added events — these would live in CanvasData.editor_state
-  // ────────────────────────────────────────────────────────────────────────
-  // Default seed for January 2026 so the mockup shows interesting content
-  // out of the box. The user can add/remove/override interactively.
   const userEntries = {
     '2026-01-07': [{ text: "Mom's birthday", dotColor: '#EC4899' }],
     '2026-01-16': [{ text: 'Deadline',       dotColor: '#F59E0B' }],
@@ -457,9 +515,10 @@
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   let currentTheme    = 'minimalist';
+  let currentAspect   = 'landscape';
   let currentYear     = 2026;
   let currentMonth    = 0;  // 0-based
-  let weekStartsOn    = 1;  // 1=Mon, 0=Sun
+  let weekStartsOn    = 0;  // 0=Sun (default), 1=Mon
   let selectedDate    = null;
   let selectedDotColor = SWATCH_COLORS[0];
 
@@ -481,13 +540,21 @@
 
   // ────────────────────────────────────────────────────────────────────────
   function renderWeekdays() {
-    const labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    if (weekStartsOn === 0) labels.unshift(labels.pop()); // rotate Sun to front
-    const container = document.getElementById('weekday-row');
-    container.innerHTML = labels.map(d => {
-      const cls = d === 'Sun' ? 'sun' : d === 'Sat' ? 'sat' : '';
-      return `<span class="${cls}">${d}</span>`;
-    }).join('');
+    // Default order Sun..Sat; if Monday-first, rotate.
+    let labels = [
+      { txt: 'Sun', cls: 'sun' },
+      { txt: 'Mon', cls: ''    },
+      { txt: 'Tue', cls: ''    },
+      { txt: 'Wed', cls: ''    },
+      { txt: 'Thu', cls: ''    },
+      { txt: 'Fri', cls: ''    },
+      { txt: 'Sat', cls: 'sat' },
+    ];
+    if (weekStartsOn === 1) {
+      labels = [...labels.slice(1), labels[0]];
+    }
+    document.getElementById('weekday-row').innerHTML =
+      labels.map(d => `<span class="${d.cls}">${d.txt}</span>`).join('');
   }
 
   function renderCells() {
@@ -532,7 +599,6 @@
 
     document.getElementById('month-name').textContent = MONTH_NAMES[currentMonth];
     document.getElementById('year-name').textContent  = currentYear;
-    document.getElementById('photo-month-label').textContent = MONTH_NAMES[currentMonth];
   }
 
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
@@ -627,6 +693,11 @@
     const area = document.getElementById('calendar-area');
     area.className = `calendar-area theme-${theme === 'minimalist' ? 'minimalist' : theme === 'genz' ? 'genz' : 'weekday'}`;
   }
+  function applyAspect(aspect) {
+    currentAspect = aspect;
+    const card = document.getElementById('calendar-card');
+    card.className = `calendar-card aspect-${aspect}`;
+  }
 
   document.getElementById('theme-seg').addEventListener('click', e => {
     if (e.target.tagName !== 'BUTTON') return;
@@ -634,7 +705,12 @@
     e.target.classList.add('active');
     applyTheme(e.target.dataset.theme);
   });
-
+  document.getElementById('aspect-seg').addEventListener('click', e => {
+    if (e.target.tagName !== 'BUTTON') return;
+    document.querySelectorAll('#aspect-seg button').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    applyAspect(e.target.dataset.aspect);
+  });
   document.getElementById('weekstart-seg').addEventListener('click', e => {
     if (e.target.tagName !== 'BUTTON') return;
     document.querySelectorAll('#weekstart-seg button').forEach(b => b.classList.remove('active'));

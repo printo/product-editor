@@ -134,6 +134,17 @@ For server-side rendering we additionally need the actual `.ttf` / `.woff2` file
 
 ### 4.1 Architectural shape
 
+The calendar is a **layout-agnostic primitive**: a positioned region inside any canvas, defined by `{x, y, width, height}` percentages of the canvas dimensions. It composes into multiple product types without changes to the primitive itself:
+
+| Product type | Layout JSON shape |
+|---|---|
+| **Desk calendar** (5×7 portrait) | 1 frame (top ~60%) + 1 calendar region (bottom ~40%) |
+| **Full-page calendar** (A4 / A3) | 0 frames + 1 calendar region covering the canvas |
+| **Poster calendar** (12×18) | N small photo frames around the edges + 1 calendar region in the middle |
+| **Side-by-side calendar** (landscape) | 1 photo frame on the left + 1 calendar region on the right |
+
+The calendar primitive owns **only** the grid, cells, pills, holidays, and per-cell editing. Photo frames, branding, and any other artwork are owned by the **layout** (the existing `layout.frames[]` and `layout.overlays[]` machinery). So the build effort scoped in this PRD covers the primitive once and the four product types come "free" via layout authoring.
+
 The calendar is **layout-authored, customer-overridden**. Two layers of definition:
 
 | Layer | Owned by | Stored in | Frequency |
@@ -160,7 +171,7 @@ Customer never controls position / size / font of the calendar. Customer control
     "defaultYear": 2026,               // customer can change at runtime
     "defaultMonth": 1,
     "style": {
-      "weekStart": "monday",           // "monday" | "sunday"
+      "weekStart": "sunday",           // "sunday" (default, en-IN) | "monday"
       "showWeekdayHeader": true,
       "weekdayFormat": "short",        // "short" | "narrow"  → "Mon" | "M"
       "fontFamily": "Inter",
@@ -531,7 +542,7 @@ Stored as JSON in `backend/django/storage/calendar_styles/`. Endpoints `GET /api
 |---|---|---|
 | `modern-minimalist` | white bg · black text · light grey grid (#E5E5E5) · subtle entry pills (#F7F7F7) · Inter 400 | Default |
 | `modern-genz` | buttery yellow header bg (#FEF3C7) · electric purple headers (#A855F7) · soft pink grid (#FBCFE8) · mint entry pills (#CCFBF1) · Inter 500/700 | Trendy 2026 palette; revisit annually |
-| `weekday-highlight` | per-weekday styling: Sunday red text + red 1.5 px cell outline; Saturday softer blue; weekdays neutral; light grey grid | Most flexible — also the template for any future weekday-aware styling |
+| `weekday-highlight` | per-weekday styling: **Sunday** = light-red cell fill `#FEE2E2` + 1.5 px red border `#DC2626` + red date number (auto-fill light shade for bg AND dark shade for border, per design review); **Saturday** = soft-blue tint `#DBEAFE` + blue date number; weekdays neutral; light grey grid | Most flexible — also the template for any future weekday-aware styling |
 
 ### 6.4 Migration / backwards compatibility
 
