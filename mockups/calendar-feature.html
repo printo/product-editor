@@ -564,21 +564,44 @@
   // ────────────────────────────────────────────────────────────────────────
   // Gen-Z palette set — the customer's only Gen-Z customisation control.
   // Each palette coordinates all six colour roles so customers can't
-  // accidentally produce an ugly mix. Backend ships these as
-  // storage/calendar_palettes/genz/*.json (or inline in the layout's
-  // calendar.style); ops can extend the list seasonally without a
-  // code change.
+  // accidentally produce an ugly mix. `dotCycle` is a 3-colour rotation
+  // used to auto-assign user-entry dots by entry index (1st = dotCycle[0],
+  // 2nd = dotCycle[1], 3rd = dotCycle[2]) — keeps multi-entry cells
+  // visually distinguishable without giving the customer a colour picker.
+  // Backend ships these as storage/calendar_palettes/genz/*.json (or
+  // inline in the layout's calendar.style); ops can extend the list
+  // seasonally without a code change.
   // ────────────────────────────────────────────────────────────────────────
   const GENZ_PALETTES = [
     { name: 'butter', label: 'Butter & Purple',
-      bg: '#FEF3C7', month: '#A855F7', weekday: '#A855F7', grid: '#FBCFE8', date: '#0F172A', pill: '#CCFBF1' },
+      bg: '#FEF3C7', month: '#A855F7', weekday: '#A855F7', grid: '#FBCFE8', date: '#0F172A', pill: '#CCFBF1',
+      dotCycle: ['#A855F7', '#EC4899', '#0EA5E9'] },
     { name: 'mint',   label: 'Mint & Hot Pink',
-      bg: '#ECFDF5', month: '#DB2777', weekday: '#DB2777', grid: '#FCE7F3', date: '#0F172A', pill: '#FEF3C7' },
+      bg: '#ECFDF5', month: '#DB2777', weekday: '#DB2777', grid: '#FCE7F3', date: '#0F172A', pill: '#FEF3C7',
+      dotCycle: ['#DB2777', '#F59E0B', '#10B981'] },
     { name: 'lilac',  label: 'Lilac & Coral',
-      bg: '#FAF5FF', month: '#F97316', weekday: '#F97316', grid: '#E9D5FF', date: '#1E1B4B', pill: '#FED7AA' },
+      bg: '#FAF5FF', month: '#F97316', weekday: '#F97316', grid: '#E9D5FF', date: '#1E1B4B', pill: '#FED7AA',
+      dotCycle: ['#F97316', '#A855F7', '#0EA5E9'] },
     { name: 'sky',    label: 'Sky & Lemon',
-      bg: '#F0F9FF', month: '#0284C7', weekday: '#0284C7', grid: '#BAE6FD', date: '#0C4A6E', pill: '#FEF08A' },
+      bg: '#F0F9FF', month: '#0284C7', weekday: '#0284C7', grid: '#BAE6FD', date: '#0C4A6E', pill: '#FEF08A',
+      dotCycle: ['#0284C7', '#EAB308', '#EC4899'] },
   ];
+
+  // 3-colour user-dot cycles per non-Gen-Z theme. Same pattern as
+  // GENZ_PALETTES.dotCycle — entry index in the cell picks the slot.
+  const USER_DOT_CYCLES = {
+    minimalist: ['#F59E0B', '#EC4899', '#3B82F6'],  // amber, rose, sky — warm + cool mix
+    weekday:    ['#1F2937', '#475569', '#71717A'],  // charcoal, slate, gray — all neutral so the
+                                                    // Sunday red stays the only loud cue
+  };
+
+  function activeUserDotCycle() {
+    if (currentTheme === 'genz') {
+      const p = GENZ_PALETTES.find(x => x.name === currentGenzPaletteName) || GENZ_PALETTES[0];
+      return p.dotCycle;
+    }
+    return USER_DOT_CYCLES[currentTheme] || USER_DOT_CYCLES.minimalist;
+  }
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   let currentTheme    = 'minimalist';
@@ -648,13 +671,23 @@
       const entries = hasImage ? [] : getEntriesForDate(iso);
       const shown = entries.slice(0, MAX_ENTRIES);
       const overflow = entries.length - shown.length;
+      // User entries rotate through the active theme's 3-colour dotCycle by
+      // entry index (1st = cycle[0], 2nd = cycle[1], 3rd = cycle[2]). Holiday
+      // entries keep their own colour from the holiday JSON. Pill BG stays
+      // uniform per theme (via CSS variable) — only the dot rotates.
+      const dotCycle = activeUserDotCycle();
+      let userIdx = 0;
       const pillsHtml = shown.map(e => {
-        // Holiday entries carry their own colour from the holiday JSON; user
-        // entries auto-derive their dot/pill colour from theme CSS variables.
-        const dotStyle = e.source === 'holiday' ? ` style="background:${e.dotColor}"` : '';
+        let dotColor;
+        if (e.source === 'holiday') {
+          dotColor = e.dotColor;
+        } else {
+          dotColor = dotCycle[userIdx % dotCycle.length];
+          userIdx++;
+        }
         return `
         <div class="pill ${e.source === 'holiday' ? 'holiday' : ''}" title="${escapeHtml(e.text)}">
-          <span class="dot"${dotStyle}></span>
+          <span class="dot" style="background:${dotColor}"></span>
           <span class="label">${escapeHtml(e.text)}</span>
         </div>`;
       }).join('');
@@ -696,6 +729,10 @@
     const totalCount = entries.length;
     const canAddMore = !hasImage && totalCount < MAX_ENTRIES;
 
+    // Same rotation rule as the cell pills — preview each user entry's
+    // assigned dot colour so the editor list matches the cell exactly.
+    const editorDotCycle = activeUserDotCycle();
+    let editorUserIdx = 0;
     const entriesHtml = entries.length === 0
       ? `<div class="empty-entries">${hasImage ? 'Cell is overridden with an image.' : 'No entries yet.'}</div>`
       : `<div class="entry-list">${entries.map((e, i) => {
@@ -703,10 +740,16 @@
           const removeAttrs = isHoliday
             ? `disabled title="Holidays auto-load and can&#39;t be removed individually."`
             : `data-remove-idx="${i - (entries.length - userOnlyCount)}"`;
-          const dotStyle = isHoliday ? ` style="background:${e.dotColor}"` : '';
+          let dotColor;
+          if (isHoliday) {
+            dotColor = e.dotColor;
+          } else {
+            dotColor = editorDotCycle[editorUserIdx % editorDotCycle.length];
+            editorUserIdx++;
+          }
           return `
             <div class="entry-row">
-              <span class="dot ${isHoliday ? '' : 'user-dot'}"${dotStyle}></span>
+              <span class="dot" style="background:${dotColor}"></span>
               <span class="text">${escapeHtml(e.text)}</span>
               <span class="source ${isHoliday ? 'holiday' : ''}">${isHoliday ? '🇮🇳 holiday' : 'you'}</span>
               <button class="remove" ${removeAttrs}>×</button>

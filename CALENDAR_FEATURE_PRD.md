@@ -141,7 +141,7 @@ Every customisation knob we add to the editor is a chance for a customer to prod
 | Concern | Customer can change | Customer cannot change |
 |---|---|---|
 | Which month is shown | ✅ Year + Month selectors | — |
-| What's in each cell | ✅ Add 1–3 text entries (text only — colour auto-fills from theme), or override the whole cell with an image | Dot colour and pill background (theme-driven); layout's positioning of the calendar; whether holidays auto-load; the holiday list itself |
+| What's in each cell | ✅ Add 1–3 text entries (text only — dot colour auto-rotates through the theme's 3-slot cycle by entry index), or override the whole cell with an image | Dot colour (auto-rotates per entry), pill background (single theme value); layout's positioning of the calendar; whether holidays auto-load; the holiday list itself |
 | Colour scheme on Gen-Z layouts | ✅ Pick one of 4 coordinated palettes | Individual colour roles (background / grid / month / weekday / date / pill) — picking those separately invites ugly combinations |
 | Colour scheme on Minimalist / Weekday-highlight layouts | — | Theme is fixed by ops at layout creation |
 | Font, font weight, grid stroke, padding, header style, week-start day | — | All locked at layout creation by ops |
@@ -220,13 +220,18 @@ export interface CalendarState {
   cells: Record<string, CalendarCellOverride>;
 }
 
-// User entries are intentionally text-only. The dot colour and the
-// pill background BOTH auto-derive from the active theme (or the
-// active Gen-Z palette) at render time. No customer-facing colour
-// picker — per the §4.0 minimal-controls principle, picking dot
-// colours individually opens the door to ugly off-brand pills.
+// User entries are intentionally text-only. The dot colour rotates
+// through a per-theme 3-slot cycle by entry index (1st = slot 0,
+// 2nd = slot 1, 3rd = slot 2) so multi-entry cells stay visually
+// distinguishable without giving the customer a picker. The pill
+// background is a single theme-wide colour (consistent across all
+// user entries). On Gen-Z the rotation comes from the active
+// palette's `dotCycle` field; on Minimalist + Weekday-Highlight it
+// comes from a hard-coded theme-appropriate cycle. Per §4.0:
+// minimal-controls — picking dot colours individually opens the
+// door to ugly off-brand pills.
 export type CalendarCellOverride =
-  | { type: 'text';  text: string }                        // colour auto-fills from theme
+  | { type: 'text';  text: string }                        // colour auto-fills from theme cycle
   | { type: 'image'; uploadId: string; opacity?: number }
   | { type: 'hide';  /* hide date number, leave cell empty */ };
 
@@ -528,7 +533,7 @@ Unblocks the calendar AND fixes the pre-existing bug where text/shape/image over
 | 5 | Non-Gregorian calendars (Hijri / Shaka / Vikram Samvat)? | **v2 candidate.** v1.13 is Gregorian-only. |
 | 6 | Year range? | **`currentYear − 5` to `currentYear + 5`.** Configurable per layout via `calendar.yearRange`. |
 | 7 | Ops can lock specific cells to pre-defined text? | **v2 candidate.** v1.13 lets ops define a holiday list; cells aren't otherwise lockable. |
-| 8 | **NEW** — Cell entry pill style (post-design-review with mockup) | **✅ Pill design locked.** Date number always visible top-right; entries stack below; cap `MAX_ENTRIES = 3` (configurable per layout via `calendar.style.maxEntriesPerCell`); rounded-rect pill with auto-fill dot + text; "+N more" overflow indicator. **Dot colour + pill background both auto-derive from the active theme/palette** — no customer-facing colour picker. (Holiday entries keep their own colour from the holiday JSON.) |
+| 8 | **NEW** — Cell entry pill style (post-design-review with mockup) | **✅ Pill design locked.** Date number always visible top-right; entries stack below; cap `MAX_ENTRIES = 3` (configurable per layout via `calendar.style.maxEntriesPerCell`); rounded-rect pill with auto-fill dot + text; "+N more" overflow indicator. **Pill background = single theme-wide colour. Dot colour rotates through a 3-slot per-theme cycle by entry index** (so 1st / 2nd / 3rd user entries in a cell each get a distinct dot) — keeps multi-entry cells readable without a picker. On Gen-Z the cycle comes from the active palette's `dotCycle`. (Holiday entries keep their own colour from the holiday JSON.) |
 | 9 | **NEW** — Three style presets (Modern Minimalist / Modern Gen-Z / Weekday Highlight) | **✅ Locked.** Stored as JSON in `storage/calendar_styles/`; ops picks one when authoring a layout; resolved style fields written to layout JSON; customer cannot switch presets (preserves design intent). |
 
 ### 6.3 Confirmed scope additions (post-design-review)
@@ -538,7 +543,7 @@ After the first design review the following additions were locked in. They are N
 **a. Pill-style cell entries (replaces "override" model)**
 
 - Date number always visible (top-right by default).
-- User events stack below as small pill badges: rounded-rect bg + 6 px dot + 9–10 pt auto-fit text. **Dot colour and pill bg are theme-driven** — auto-fill from the active theme's CSS variables (or, on Gen-Z, the active palette). Customer sees no colour picker.
+- User events stack below as small pill badges: rounded-rect bg + 6 px dot + 9–10 pt auto-fit text. **Pill bg = single theme-wide colour. Dot colour rotates through a 3-slot per-theme cycle by entry index**, so the 1st / 2nd / 3rd user entries in a cell get distinct dots automatically (e.g. amber → rose → sky on Modern Minimalist). On Gen-Z the cycle comes from the active palette's `dotCycle` field. Customer sees no colour picker.
 - Holiday entries from the auto-loaded list co-mingle with user entries.
 - Cap = 3 entries per cell (configurable via `calendar.style.maxEntriesPerCell`). Overflow shows "+N more" at the bottom of the cell.
 - Image overrides still exist as a mutually-exclusive mode — `imageOverride` blanks the whole cell.
@@ -562,7 +567,7 @@ Stored as JSON in `backend/django/storage/calendar_styles/`. Endpoints `GET /api
 | Preset | Look | Hooks |
 |---|---|---|
 | `modern-minimalist` | white bg · black text · light grey grid (#E5E5E5) · subtle entry pills (#F7F7F7) · Inter 400 | Default |
-| `modern-genz` | parameterised by **4 coordinated palettes** (Butter & Purple, Mint & Hot Pink, Lilac & Coral, Sky & Lemon). Each palette sets all 6 colour roles together: page bg, grid colour, month text, weekday header, date number, entry-pill bg. Customer picks one palette swatch in the editor — that's the *only* Gen-Z customisation control. Default palette = Butter & Purple. | Trendy 2026 palettes; new palettes ship as additional JSON files under `storage/calendar_palettes/genz/` — no code change |
+| `modern-genz` | parameterised by **4 coordinated palettes** (Butter & Purple, Mint & Hot Pink, Lilac & Coral, Sky & Lemon). Each palette sets all 6 colour roles together: page bg, grid colour, month text, weekday header, date number, entry-pill bg. **Plus a 3-slot `dotCycle`** that auto-assigns user-entry dot colours by index (e.g. Butter & Purple cycles purple → pink → sky). Customer picks one palette swatch in the editor — that's the *only* Gen-Z customisation control. Default palette = Butter & Purple. | Trendy 2026 palettes; new palettes ship as additional JSON files under `storage/calendar_palettes/genz/` — no code change |
 | `weekday-highlight` | **Sunday** stands out: light-red cell fill `#FEE2E2` + red date number `#DC2626`. No border (read as a state indicator in v1 review, looked off). No Saturday treatment. All other days neutral. Light grey grid. Single visual cue, easy to read at a glance. | Theme says one thing: "Sundays are different." |
 
 ### 6.4 Migration / backwards compatibility
