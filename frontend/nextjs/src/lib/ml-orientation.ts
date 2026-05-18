@@ -2,27 +2,30 @@
  * Server-side auto-orientation client.
  *
  * Detection happens entirely on the backend (`services/orientation.py`,
- * MediaPipe Pose Landmarker, Apache 2.0). The browser only sends each
- * file's bytes once via multipart upload and gets the suggested rotation
- * back in the same response. No client-side model load, no model
- * download to the customer's device, consistent quality regardless of
- * the customer's hardware.
+ * MediaPipe Pose Landmarker, Apache 2.0). The browser sends a small
+ * downscaled copy of each photo and gets the suggested rotation back.
+ * No client-side model load, consistent quality regardless of device.
+ *
+ * Why downscale before sending: MediaPipe Pose internally works at
+ * ~256 px; a 640 px long-edge JPEG is more than enough and detects
+ * identically to the full-resolution original. Sending the raw file
+ * (1–5 MB for a phone photo) for all 200 photos in a batch was
+ * 200 MB–1 GB of upload traffic on top of the real render upload —
+ * a major contributor to the editor lagging / crashing on large
+ * batches. The downscaled copy is ~30–90 KB.
  *
  * Lifecycle:
- *   1. `generateCanvases` in the editor page calls `detectFileOrientation`
- *      per file, in parallel batches (BATCH_SIZE=8 — matches the rest of
- *      the upload pipeline).
- *   2. Backend `POST /api/orientation/detect` writes the file to a temp
- *      path, runs PoseLandmarker, deletes the temp, returns the rotation.
- *   3. If 503 (mode=off) or 204 (no usable pose) or any network error,
- *      caller falls back to the aspect-ratio heuristic (`shouldAutoRotate90`
- *      in `editor/layout/[name]/page.tsx`).
+ *   1. `generateCanvases` calls `detectFileOrientation` per file,
+ *      passing the already-decoded `HTMLImageElement` from
+ *      `getImageMetadata` so we don't decode the image twice.
+ *   2. We draw that element onto a ≤640 px canvas, export JPEG.
+ *   3. Backend `POST /api/orientation/detect` runs PoseLandmarker,
+ *      returns `{rotation, confidence, source}`.
+ *   4. On 503 (mode off) / 204 (no pose) / error → return null,
+ *      caller falls back to the aspect-ratio heuristic.
  *
- * Cache: results are memoised per file content-fingerprint
- * (`name:size:lastModified`) so the same file doesn't re-upload + re-infer
- * if the user changes layout / re-opens the editor with state restored
- * from IndexedDB. Memoisation is in-memory only (Map on the module);
- * a refresh re-runs detection, which is fine — backend is fast.
+ * Cache: results memoised per file fingerprint (name:size:lastModified)
+ * for the session; the same file never re-uploads or re-infers.
  */
 
 type OrientationResult = {
@@ -33,6 +36,11 @@ type OrientationResult = {
 
 const memo = new Map<string, OrientationResult | null>();
 const inflight = new Map<string, Promise<OrientationResult | null>>();
+
+// Long-edge cap for the copy we send to the backend. Pose detection is
+// resolution-insensitive well below this; 640 keeps faces/shoulders crisp.
+const DETECT_MAX_EDGE = 640;
+const DETECT_JPEG_QUALITY = 0.82;
 
 let runtimeConfigPromise: Promise<{ autoOrientationMode: string } | null> | null = null;
 
@@ -66,36 +74,75 @@ function fingerprint(file: File): string {
 }
 
 /**
- * Send a single file to the backend orientation endpoint and return the
- * suggested rotation, or null if nothing usable came back (network
- * error, mode=off, no pose detected, low confidence, etc.). Callers
- * should fall back to the aspect-ratio heuristic on null.
+ * Draw an already-decoded image element onto a small canvas and return a
+ * JPEG blob. Returns null if the browser can't produce one (caller then
+ * falls back to sending the original file). Reuses the caller's decoded
+ * HTMLImageElement — no second decode.
+ */
+async function downscaleForDetection(imgEl: HTMLImageElement): Promise<Blob | null> {
+  const sw = imgEl.naturalWidth;
+  const sh = imgEl.naturalHeight;
+  if (!sw || !sh) return null;
+
+  const scale = Math.min(1, DETECT_MAX_EDGE / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * scale));
+  const h = Math.max(1, Math.round(sh * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  try {
+    ctx.drawImage(imgEl, 0, 0, w, h);
+  } catch {
+    // Tainted canvas / decode race — fall back to original file upstream.
+    return null;
+  }
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((b) => resolve(b), 'image/jpeg', DETECT_JPEG_QUALITY);
+  });
+}
+
+/**
+ * Detect the rotation a file's subject needs. Returns the suggestion or
+ * null (network error, mode off, no pose, low confidence) — callers fall
+ * back to the aspect-ratio heuristic on null.
+ *
+ * `imgEl` is the already-decoded element from `getImageMetadata`; passing
+ * it lets us downscale without a second decode. If omitted, the original
+ * file is sent (heavier — avoid on large batches).
  */
 export async function detectFileOrientation(
   apiBase: string,
   file: File,
+  imgEl?: HTMLImageElement | null,
   fetchHeaders?: HeadersInit,
   signal?: AbortSignal,
 ): Promise<OrientationResult | null> {
   const key = fingerprint(file);
 
-  // Per-session memo: same file → reuse result rather than re-uploading
-  // for every layout change / canvas regeneration.
   if (memo.has(key)) return memo.get(key) ?? null;
 
-  // Coalesce concurrent calls for the same file — generateCanvases
-  // sometimes asks for the same file twice within a few ms.
   const pending = inflight.get(key);
   if (pending) return pending;
 
   const promise = (async (): Promise<OrientationResult | null> => {
     try {
+      // Prefer a downscaled JPEG (~50 KB); fall back to the raw file only
+      // if we couldn't produce one.
+      let payload: Blob = file;
+      if (imgEl) {
+        const small = await downscaleForDetection(imgEl);
+        if (small) payload = small;
+      }
+
       const formData = new FormData();
-      formData.append('file', file, file.name);
+      formData.append('file', payload, file.name);
 
       const headers = new Headers(fetchHeaders);
-      // FormData with a File sets Content-Type with the right boundary
-      // automatically — explicitly setting it here breaks multipart parsing.
+      // FormData sets its own multipart Content-Type w/ boundary — setting
+      // it manually breaks server-side parsing.
       headers.delete('Content-Type');
 
       const res = await fetch(`${apiBase}/orientation/detect`, {
@@ -107,9 +154,7 @@ export async function detectFileOrientation(
       });
 
       if (res.status === 503 || res.status === 204) {
-        // 503: AUTO_ORIENTATION_MODE=off, or mediapipe not available.
-        // 204: model couldn't determine a confident rotation.
-        // Both: caller falls back to aspect heuristic.
+        // 503: mode off / mediapipe unavailable. 204: no confident pose.
         return null;
       }
       if (!res.ok) return null;
@@ -117,7 +162,6 @@ export async function detectFileOrientation(
       if (![0, 90, 180, 270].includes(data.rotation)) return null;
       return data;
     } catch {
-      // Network error / abort → fall back. Don't throw — caller is mid-loop.
       return null;
     }
   })();

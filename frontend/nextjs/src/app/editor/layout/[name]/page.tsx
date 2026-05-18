@@ -709,9 +709,10 @@ export default function LayoutEditorPage() {
             // Server-side MediaPipe Pose Landmarker decides rotation when
             // it can find a pose (handles sideways selfies / babies on a
             // blanket / scanned photos taken sideways — see CLAUDE.md
-            // "Auto-orientation"). Falls back to the aspect-ratio heuristic
-            // when the photo has no person / pose is occluded / mode=off.
-            const ml = await detectFileOrientation(apiBase, file, getAuthHeaders ? getAuthHeaders() : undefined);
+            // "Auto-orientation"). Passes the decoded element so the client
+            // downscales to ~50 KB before upload. Falls back to the
+            // aspect-ratio heuristic when no person / occluded / mode=off.
+            const ml = await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined);
             const rotation = ml?.rotation ?? (shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0);
 
             let offset = { x: 0, y: 0 };
@@ -815,7 +816,7 @@ export default function LayoutEditorPage() {
                   const frameW = frameSpec.width <= 1 ? frameSpec.width * canvasW : frameSpec.width;
                   const frameH = frameSpec.height <= 1 ? frameSpec.height * canvasH : frameSpec.height;
 
-                  const ml = await detectFileOrientation(apiBase, file, getAuthHeaders ? getAuthHeaders() : undefined);
+                  const ml = await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined);
                   const rotation = ml?.rotation ?? (shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0);
 
                   let offset = { x: 0, y: 0 };
