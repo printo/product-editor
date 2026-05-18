@@ -2774,7 +2774,7 @@ class OrientationDetectView(APIView):
 
         try:
             from services.orientation import detect_rotation
-            suggestion = detect_rotation(tmp_path)
+            suggestion = detect_rotation(tmp_path, label=(upload_file.name or 'unnamed'))
         except ImportError:
             logger.warning(
                 "orientation/detect: services.orientation unavailable "

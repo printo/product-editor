@@ -214,14 +214,24 @@ def _angle_to_rotation(angle_deg: float) -> Optional[int]:
     return None  # ambiguous tilt — caller treats as "no suggestion"
 
 
-def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
+def detect_rotation(image_path: str, label: str = "") -> Optional[RotationSuggestion]:
     """
     Run PoseLandmarker on the given image and return a rotation suggestion,
     or None if no usable pose was detected. Safe to call from any worker
     process — model loading is lazy + cached + thread-safe.
+
+    `label` is a human-readable tag (the uploaded filename) used only for
+    log lines. Every decision branch logs at INFO with an `[orientation]`
+    prefix so the exact reason a photo did / didn't get a rotation is
+    visible in `docker compose logs backend`. This is the diagnostic the
+    ops team's "Classic doesn't rotate" report needs — read the logs
+    after a re-test to see per-photo what the model decided.
     """
+    tag = label or image_path
+
     landmarker = _get_landmarker()
     if landmarker is None:
+        logger.info("[orientation] %s: declined — model unavailable (mode off / load failed)", tag)
         return None
 
     try:
@@ -230,6 +240,7 @@ def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
         import numpy as np  # type: ignore
         import mediapipe as mp  # type: ignore
     except ImportError:
+        logger.info("[orientation] %s: declined — mediapipe/PIL import failed", tag)
         return None
 
     try:
@@ -243,19 +254,20 @@ def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
             # MediaPipe expects RGB uint8 numpy array.
             arr = np.asarray(rgb, dtype=np.uint8)
     except Exception as e:
-        logger.warning("Auto-orientation: failed to read %s: %s", image_path, e)
+        logger.warning("[orientation] %s: declined — failed to read image: %s", tag, e)
         return None
 
     try:
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=arr)
         result = landmarker.detect(mp_image)
     except Exception as e:
-        logger.warning("Auto-orientation: detect() failed on %s: %s", image_path, e)
+        logger.warning("[orientation] %s: declined — detect() raised: %s", tag, e)
         return None
 
     if not result.pose_landmarks:
         # No person in this photo — orientation can't be determined from
         # pose. Caller falls back to the aspect-ratio heuristic.
+        logger.info("[orientation] %s: declined — no pose detected", tag)
         return None
 
     landmarks = result.pose_landmarks[0]
@@ -270,6 +282,10 @@ def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
         or left_sh.visibility < _MIN_LANDMARK_VISIBILITY
         or right_sh.visibility < _MIN_LANDMARK_VISIBILITY
     ):
+        logger.info(
+            "[orientation] %s: declined — low visibility (nose=%.2f lsh=%.2f rsh=%.2f, need >=%.2f)",
+            tag, nose.visibility, left_sh.visibility, right_sh.visibility, _MIN_LANDMARK_VISIBILITY,
+        )
         return None
 
     # MediaPipe returns normalised [0, 1] coords with origin at image top-left
@@ -293,6 +309,10 @@ def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
     # point). 5% of normalised coords ≈ 5% of image diagonal — anything
     # smaller is unreliable.
     if body_up_len < 0.05 or shoulder_len < 0.05:
+        logger.info(
+            "[orientation] %s: declined — keypoints too close (body_up_len=%.3f shoulder_len=%.3f, need >=0.05)",
+            tag, body_up_len, shoulder_len,
+        )
         return None
 
     # Sanity check: in an upright human the shoulder line is roughly
@@ -302,6 +322,10 @@ def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
     # Reject rather than risk a wrong rotation. cos(63°) ≈ 0.45.
     dot = (body_up_x * shoulder_x + body_up_y * shoulder_y) / (body_up_len * shoulder_len)
     if abs(dot) > _MAX_NON_PERP_COS:
+        logger.info(
+            "[orientation] %s: declined — shoulders not perpendicular to body-up (|dot|=%.2f, max %.2f)",
+            tag, abs(dot), _MAX_NON_PERP_COS,
+        )
         return None
 
     # atan2(image_right_component, image_up_component) — note we flip y so
@@ -314,6 +338,10 @@ def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
         # Subject's body-up vector is between cardinals (e.g. they're
         # photographed at a diagonal). Better to not rotate at all than
         # to rotate the wrong way.
+        logger.info(
+            "[orientation] %s: declined — ambiguous angle %.1f° (no cardinal within %d° dead-zone)",
+            tag, angle_deg, _CARDINAL_DEAD_ZONE_DEG,
+        )
         return None
 
     # Aggregate confidence: minimum of the three keypoint visibilities,
@@ -330,6 +358,10 @@ def detect_rotation(image_path: str) -> Optional[RotationSuggestion]:
     except Exception:
         source = "pose-lite"
 
+    logger.info(
+        "[orientation] %s: rotation=%d confidence=%.3f angle=%.1f° source=%s",
+        tag, rotation, float(confidence), angle_deg, source,
+    )
     return RotationSuggestion(
         rotation=rotation,
         confidence=float(confidence),
