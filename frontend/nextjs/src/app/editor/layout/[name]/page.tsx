@@ -24,7 +24,7 @@ import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/la
 import { getImageMetadata, detectJpegColorSpace } from '@/lib/image-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
-import { detectFileOrientation } from '@/lib/ml-orientation';
+import { detectFileOrientation, type OrientationOutcome } from '@/lib/ml-orientation';
 // Type-only import — erased at compile time, zero bundle impact.
 // The actual Fabric.js runtime is loaded lazily inside executeImposition / the
 // imposition preview useEffect so it does NOT inflate the initial page bundle.
@@ -74,6 +74,30 @@ function shouldAutoRotate90(
   const originalGap = Math.abs(imgRatio - targetRatio);
   const rotatedGap = Math.abs((1 / imgRatio) - targetRatio);
   return rotatedGap < originalGap * 0.7;
+}
+
+/**
+ * Resolve a server-side orientation outcome into the final frame rotation.
+ *
+ * The important rule: when the ML model RAN (whether it gave a rotation or
+ * declined), we do NOT consult `shouldAutoRotate90`. That aspect-ratio
+ * heuristic rotates any landscape photo 90° to "fit" a portrait frame —
+ * which lays the people in a wide group shot on their side (the Classic
+ * 5×7 bug the ops team reported: ML correctly declined the wide group
+ * shots, but the fallback heuristic then flipped them sideways).
+ *
+ * The heuristic is used ONLY when the backend explicitly reports
+ * AUTO_ORIENTATION_MODE=off ('use-heuristic') — the deliberate pre-ML mode.
+ */
+function resolveRotation(
+  outcome: OrientationOutcome,
+  imgW: number, imgH: number, frameW: number, frameH: number,
+): number {
+  if (typeof outcome === 'object') return outcome.rotation;     // ML gave an answer
+  if (outcome === 'use-heuristic') {                            // mode=off → legacy heuristic
+    return shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0;
+  }
+  return 0;                                                     // 'no-rotate' → leave as-is
 }
 
 export default function LayoutEditorPage() {
@@ -707,13 +731,11 @@ export default function LayoutEditorPage() {
             const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
 
             // Server-side MediaPipe Pose Landmarker decides rotation when
-            // it can find a pose (handles sideways selfies / babies on a
-            // blanket / scanned photos taken sideways — see CLAUDE.md
-            // "Auto-orientation"). Passes the decoded element so the client
-            // downscales to ~50 KB before upload. Falls back to the
-            // aspect-ratio heuristic when no person / occluded / mode=off.
+            // it can find a pose. When it declines, we leave the photo
+            // as-is — see resolveRotation for why we DON'T fall back to
+            // the aspect heuristic (it flips wide group photos sideways).
             const ml = await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined);
-            const rotation = ml?.rotation ?? (shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0);
+            const rotation = resolveRotation(ml, imgW, imgH, frameW, frameH);
 
             let offset = { x: 0, y: 0 };
             if (fitMode === 'cover') {
@@ -817,7 +839,7 @@ export default function LayoutEditorPage() {
                   const frameH = frameSpec.height <= 1 ? frameSpec.height * canvasH : frameSpec.height;
 
                   const ml = await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined);
-                  const rotation = ml?.rotation ?? (shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0);
+                  const rotation = resolveRotation(ml, imgW, imgH, frameW, frameH);
 
                   let offset = { x: 0, y: 0 };
                   if (globalFitModeRef.current === 'cover') {
