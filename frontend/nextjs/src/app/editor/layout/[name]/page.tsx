@@ -77,27 +77,44 @@ function shouldAutoRotate90(
 }
 
 /**
- * Resolve a server-side orientation outcome into the final frame rotation.
+ * Resolve the final frame rotation, prioritising FRAME FILL.
  *
- * The important rule: when the ML model RAN (whether it gave a rotation or
- * declined), we do NOT consult `shouldAutoRotate90`. That aspect-ratio
- * heuristic rotates any landscape photo 90° to "fit" a portrait frame —
- * which lays the people in a wide group shot on their side (the Classic
- * 5×7 bug the ops team reported: ML correctly declined the wide group
- * shots, but the fallback heuristic then flipped them sideways).
+ * Ops decision (2026-05-19): a photo should be auto-rotated to FILL its
+ * print frame, even when that lays a wide group shot on its side — the
+ * ops person rotates that canvas back manually if they want it upright.
+ * Filling the frame beats auto-keeping people upright.
  *
- * The heuristic is used ONLY when the backend explicitly reports
- * AUTO_ORIENTATION_MODE=off ('use-heuristic') — the deliberate pre-ML mode.
+ * Decision order, per photo:
+ *
+ *  1. `shouldAutoRotate90` — does rotating 90° make the photo fill the
+ *     frame meaningfully better? If yes → rotate 90°. This is the FILL
+ *     case: a landscape photo into a portrait classic frame, etc.
+ *     For a near-square frame this is always false (rotation can't
+ *     improve fill on a square) — which is exactly the "if the frame is
+ *     square it shouldn't rotate" rule.
+ *
+ *  2. Aspect rotation gained nothing (photo already matches the frame's
+ *     orientation, or the frame is near-square). Now the ML result
+ *     decides — it rotates a genuinely-sideways photo (camera held
+ *     wrong, scanned print) upright. This is what fixes the Retro
+ *     polaroid baby photo, whose near-square frame means step 1 never
+ *     fires.
+ *
+ *  3. ML disabled / declined / errored → leave the photo as-is.
+ *
+ * The customer can always override with the per-canvas manual rotate.
  */
 function resolveRotation(
   outcome: OrientationOutcome,
   imgW: number, imgH: number, frameW: number, frameH: number,
 ): number {
-  if (typeof outcome === 'object') return outcome.rotation;     // ML gave an answer
-  if (outcome === 'use-heuristic') {                            // mode=off → legacy heuristic
-    return shouldAutoRotate90(imgW, imgH, frameW, frameH) ? 90 : 0;
-  }
-  return 0;                                                     // 'no-rotate' → leave as-is
+  // 1. FILL priority — rotate to best fill a clearly portrait/landscape frame.
+  if (shouldAutoRotate90(imgW, imgH, frameW, frameH)) return 90;
+  // 2. Aspect-neutral / near-square frame — let the ML correct genuine
+  //    sideways content (Retro polaroid case).
+  if (typeof outcome === 'object') return outcome.rotation;
+  // 3. ML off / declined → as-is.
+  return 0;
 }
 
 export default function LayoutEditorPage() {
