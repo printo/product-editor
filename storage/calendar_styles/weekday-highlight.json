@@ -1,0 +1,25 @@
+{
+  "name": "weekday-highlight",
+  "label": "Weekday Highlight",
+  "description": "Sunday cells get a light-red fill (#FEE2E2) + red date number (#DC2626). Saturday neutral. All other days neutral. Light grey grid. Single visual cue, easy to read at a glance — theme says one thing: 'Sundays are different'.",
+  "colors": {
+    "background": "#FFFFFF",
+    "monthText": "#1A1A1A",
+    "weekdayText": "#1A1A1A",
+    "weekdaySunday": "#DC2626",
+    "dateNumber": "#1A1A1A",
+    "dateNumberSunday": "#DC2626",
+    "outOfMonth": "#D4D4D8",
+    "outOfMonthSundayFill": "#FEF2F2",
+    "sundayCellFill": "#FEE2E2",
+    "sundayCellHover": "#FECACA",
+    "grid": "#D4D4D8",
+    "pillBackground": "#F3F4F6",
+    "pillText": "#1A1A1A"
+  },
+  "dotCycle": ["#1F2937", "#475569", "#71717A"],
+  "_meta": {
+    "version": 1,
+    "rationale": "3-slot user-dot cycle: charcoal, slate, gray — all neutrals so the Sunday red stays the only loud visual cue. PRD §11.14 — user-first precedence; this cycle never applies to auto-loaded holidays."
+  }
+}

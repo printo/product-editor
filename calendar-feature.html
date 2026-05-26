@@ -18,7 +18,10 @@
 
     What's interactive:
       • Theme switcher: modern-minimalist / modern-genz / weekday-highlight
-      • Year + month + week-start selectors
+      • Calendar type: English (Jan–Dec) vs Financial year (Apr–Mar, IN)
+      • Year + month + week-start selectors (Year selector reformats to
+        "FY 2026–27" when Financial is picked; Month dropdown reorders
+        so April is first)
       • Aspect ratio: landscape / portrait / square — proves the grid
         works at any canvas shape
       • Click any cell → side editor: add events (text + dot colour),
@@ -201,7 +204,7 @@
       background: var(--user-dot);
     }
     .pill .label { overflow: hidden; text-overflow: ellipsis; }
-    .more-indicator { font-size: 8px; color: var(--muted); margin-top: 1px; font-weight: 500; }
+    /* `.more-indicator` removed — no overflow badge (PRD §11.10). */
     .cell.has-image-override { background: linear-gradient(135deg, #94A3B8 0%, #475569 100%); }
     .cell.has-image-override .date-num { color: white; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
     .cell.has-image-override::after {
@@ -424,6 +427,13 @@
     </div>
   </div>
   <div class="group">
+    <label>Calendar type</label>
+    <div class="seg" id="caltype-seg">
+      <button data-caltype="english" class="active">English · Jan–Dec</button>
+      <button data-caltype="financial">Financial · Apr–Mar (IN)</button>
+    </div>
+  </div>
+  <div class="group">
     <label>Aspect ratio</label>
     <div class="seg" id="aspect-seg">
       <button data-aspect="landscape" class="active">Landscape</button>
@@ -467,11 +477,33 @@
     <li><strong>This mockup is just the calendar primitive.</strong> Photo frames, branding, and other artwork that sit alongside the calendar are owned by the surrounding <em>layout</em> (e.g. desk-calendar layout, full-page-calendar layout). The same primitive embeds into all of them via the layout JSON's <code>calendar.{x, y, width, height}</code>.</li>
     <li><strong>Date number</strong> is always visible (top-right of each cell) unless the cell has an <code>imageOverride</code>.</li>
     <li><strong>Holiday pills</strong> auto-load from <code>storage/holidays/en-IN/&lt;year&gt;.json</code> (seeded from Nager.Date). User can't delete them — only override the whole cell with an image.</li>
-    <li><strong>User event pills</strong> stack below holidays. Cap = 3 per cell; <code>+N more</code> when overflow.</li>
+    <li><strong>User event pills</strong> stack with holidays (user-first precedence). Hard cap = 3 entries per cell total; anything beyond the cap is silently suppressed (no <code>+N more</code> badge — PRD §11.10).</li>
     <li><strong>Cell text auto-fits</strong> to the cell width (the real renderer uses a binary-search font-size helper; this mockup uses CSS <code>text-overflow: ellipsis</code> for simplicity).</li>
     <li><strong>Themes</strong> map to <code>storage/calendar_styles/{modern-minimalist,modern-genz,weekday-highlight}.json</code>. Ops picks at layout creation; customer can't switch.</li>
     <li><strong>Weekday-highlight theme:</strong> Sunday cells get a light-red fill + 1.5 px red outline + red date number (the "auto-fill light shade for cells bg AND dark shade for border" treatment). Saturday cells get a soft-blue tint.</li>
     <li><strong>Default week-start: Sunday</strong> (en-IN convention). Toggleable per layout.</li>
+    <li><strong>Calendar type — English vs Financial.</strong> <code>english</code> runs Jan→Dec; <code>financial</code> runs Apr→Mar (India's fiscal year). In financial mode the Year selector reformats to <code>FY 2026–27</code> and the Month dropdown reorders so April is first. Under the hood the grid math, holidays, and 300 DPI renderer stay Gregorian — only the navigation UI changes. Picking <em>March</em> from <code>FY 2026–27</code> resolves to March 2027 (the FY's final month). PRD §4.2.1 gains a <code>calendar.calendarType</code> field; defaults to <code>english</code> for back-compat.</li>
+    <li><strong>Product type — <code>productType: 'calendar'</code> (PRD §10).</strong> A 12-month calendar product is a Multi-Surface Product with a top-level <code>productType: 'calendar'</code> tag and a <code>monthRange: { count, defaultYear }</code> field. Ops designs ONE representative month (calendar primitive in one area, photo frames in another); the system materializes 12 surfaces from that single template at editor-mount time. <code>defaultYear: "current"</code> auto-rolls — same layout JSON prints 2026 in 2026 and 2027 in 2027 with zero ops intervention. Same pattern extends to <strong>photobook</strong> (<code>productType: 'photobook'</code>, <code>pageRange: { count, layout }</code>) and any future N-surface bloc product.</li>
+    <li><strong>Per-surface overrides (PRD §10.2.1).</strong> The 12 auto-generated surfaces are the starting point, not a permanent constraint. Ops can drill into any individual month (e.g. December for Christmas overlays, February for a hearts decoration) and override its <em>structure</em> — frames, calendar primitive position, decorative overlays. Overrides live in a sparse <code>surfaceOverrides</code> field on the layout JSON, keyed by month surface key; untouched months continue to inherit from the template. A "Reset to template" action returns a customized month to the template's design. Per-surface overrides are field-level <strong>replace</strong> (not deep-merge) so the contract stays trivial: if ops touched <code>frames</code> on a month, that month uses the overridden array entirely. Customer-controllable fields (<code>themePreset</code>, <code>calendarType</code>) and physical fields (<code>canvas.{widthMm,heightMm,dpi}</code>) cannot be overridden per surface — they stay layout-global to avoid merge ambiguity.</li>
+    <li><strong>Edge-case decisions (PRD §11).</strong>
+      <ul style="margin-top:4px">
+        <li><strong>One or many calendar primitives per layout (§11.1).</strong> Schema is <code>calendars: []</code> (plural). v1 supports two modes: <em>multi-surface</em> (12 pages × 1 calendar/page — desk calendar) or <em>multi-calendar single-page</em> (1 page × 12 calendars — year-on-one-poster). Constraint: <code>monthRange.count × calendars.length === 12</code>.</li>
+        <li><strong>MAX_ENTRIES precedence: user-first (§11.14).</strong> Hard cap of 3 total entries per cell. User entries fill slots first; holidays fill any remaining slots; <strong>no overflow badge</strong> (§11.10 — anything beyond the cap is silently suppressed). This mockup now follows this rule.</li>
+        <li><strong>Out-of-month cells: date number only (§11.12).</strong> Filler cells from prev/next month show greyed date, no pills, no overrides.</li>
+        <li><strong>Font: single bundled default — Inter Variable (§11.7).</strong> No font picker exposed to ops or customer. Eliminates render-time font drift.</li>
+        <li><strong>Calendar type flip mid-edit (§11.4):</strong> warning modal if orphaning entries. <strong>Multi-surface partial render failure (§11.5):</strong> fail-all-or-nothing with retry warning. <strong>ZIP filenames (§11.6):</strong> from Multi-Surface displayLabel (e.g. <code>January 2026.png</code>).</li>
+        <li><strong>Per-month theme override: NOT supported in v1 (§11.2).</strong> Workaround: per-month decorative overlays.</li>
+        <li><strong>Layout versioning (§11.16):</strong> none — embed always loads the current layout JSON. Last-write-wins.</li>
+      </ul>
+    </li>
+    <li><strong>Ops vs Customer controls in production.</strong> The 4 controls visible in this mockup are <em>not</em> all customer-facing. In production:
+      <ul style="margin-top:4px">
+        <li><strong>Customer-controllable</strong> on the preview page: Theme preset (Minimalist / Gen-Z / Weekday-Highlight), Gen-Z palette (when theme=Gen-Z), Calendar type (English / Financial), per-cell entries + image overrides.</li>
+        <li><strong>Ops-locked</strong> at layout creation: Aspect ratio (physical SKU), Week starts (locale convention).</li>
+        <li><strong>Auto-populated</strong>: Year (English ⇒ current calendar year; Financial ⇒ current FY-start year, i.e. <code>today.month ≥ April ? currentYear : currentYear − 1</code>). No customer year picker.</li>
+      </ul>
+      All 4 controls remain interactive in this mockup for prototyping convenience — the customer/ops split lives in the surrounding component code (<code>CalendarLayoutEditor.tsx</code> for ops, <code>CalendarProductPreview.tsx</code> for customer).
+    </li>
     <li><strong>Image override</strong> replaces the entire cell content. Reuses the existing chunked-upload + MediaPipe auto-orientation pipeline.</li>
     <li>The 300 DPI server-rendered output will look identical to this preview (paritied via PRD §4.3 "identical math").</li>
   </ul>
@@ -607,10 +639,44 @@
   let currentTheme    = 'minimalist';
   let currentAspect   = 'landscape';
   let currentYear     = 2026;
-  let currentMonth    = 0;  // 0-based
+  let currentMonth    = 0;  // 0-based; ALWAYS the real Gregorian month (Jan=0..Dec=11)
   let weekStartsOn    = 0;  // 0=Sun (default), 1=Mon
   let currentGenzPaletteName = GENZ_PALETTES[0].name;
   let selectedDate    = null;
+  // ────────────────────────────────────────────────────────────────────────
+  // Calendar type — 'english' (Jan–Dec) or 'financial' (Apr–Mar, India FY).
+  // Underlying date math stays Gregorian — calendarType only changes
+  //   (a) the dropdown order (Apr is "month 1" of the financial year)
+  //   (b) the Year selector label format ("FY 2026–27" vs "2026")
+  //   (c) which calendar-year a (fyYear, monthSlot) pair resolves to
+  //       (Apr–Dec of the FY → fyYear; Jan–Mar → fyYear+1)
+  // The grid, holidays, and renderer all keep working in Gregorian terms
+  // (en-IN holidays attach to the real date, not to an FY slot). PRD:
+  // CALENDAR_FEATURE_PRD.md §4.2.1 will gain a `calendarType` style field.
+  // ────────────────────────────────────────────────────────────────────────
+  let calendarType    = 'english';   // 'english' | 'financial'
+  // In financial mode, the Year dropdown represents the FY-start year
+  // (e.g. "FY 2026–27" → fyYear = 2026 → covers Apr 2026 → Mar 2027).
+  // We keep currentYear in sync with the actual Gregorian year so the
+  // existing render code doesn't need to branch.
+  let fyYear          = 2026;
+
+  // Financial-year month order: Apr (index 3) → Mar (index 2 of next year).
+  // The dropdown's option-value is still the real Gregorian month index;
+  // only the visual order changes.
+  const FY_MONTH_ORDER = [3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2];
+
+  function resolveYearForMonth(month) {
+    // In financial mode: Apr–Dec (3..11) belong to fyYear; Jan–Mar (0..2)
+    // belong to fyYear + 1. English mode always uses currentYear as-is.
+    if (calendarType !== 'financial') return currentYear;
+    return month >= 3 ? fyYear : fyYear + 1;
+  }
+  function fyLabel(startYear) {
+    // "FY 2026–27" — short-form, matches Indian convention.
+    const end = String(startYear + 1).slice(-2);
+    return `FY ${startYear}–${end}`;
+  }
 
   // ────────────────────────────────────────────────────────────────────────
   function isoDate(year, month, day) {
@@ -618,13 +684,15 @@
   }
 
   function getEntriesForDate(iso) {
-    // Holidays come first; then user entries.
+    // Precedence rule (PRD §11.14): USER ENTRIES first, then holidays.
+    // Customer intent outranks auto-injection. Overflow ("+N more") will
+    // push holidays out of the visible cap before it pushes user entries.
     const year = parseInt(iso.slice(0, 4));
     const out = [];
+    (userEntries[iso] || []).forEach(e => out.push({ source: 'user', ...e }));
     (HOLIDAYS[year] || []).forEach(h => {
       if (h.date === iso) out.push({ source: 'holiday', text: h.name, dotColor: h.color });
     });
-    (userEntries[iso] || []).forEach(e => out.push({ source: 'user', ...e }));
     return out;
   }
 
@@ -668,9 +736,15 @@
       const oomCls = inMonth ? '' : 'out-of-month';
       const hasImage = !!imageOverrides[iso] && inMonth;
       const imgCls = hasImage ? 'has-image-override' : '';
-      const entries = hasImage ? [] : getEntriesForDate(iso);
+      // PRD §11.12: out-of-month cells render the date number only — no
+      // entries, no holiday pills, no image overrides. Avoids ambiguity
+      // about which month an entry on a "filler" cell belongs to.
+      const entries = (hasImage || !inMonth) ? [] : getEntriesForDate(iso);
+      // Hard cap of MAX_ENTRIES = 3 per cell (§11.10 / §11.14). No "+N more"
+      // overflow indicator — anything beyond the cap is silently suppressed
+      // by the renderer. Combined with the user-first precedence rule, a day
+      // with 3 user entries hides any auto-loaded holiday for that date.
       const shown = entries.slice(0, MAX_ENTRIES);
-      const overflow = entries.length - shown.length;
       // User entries rotate through the active theme's 3-colour dotCycle by
       // entry index (1st = cycle[0], 2nd = cycle[1], 3rd = cycle[2]). Holiday
       // entries keep their own colour from the holiday JSON. Pill BG stays
@@ -691,18 +765,23 @@
           <span class="label">${escapeHtml(e.text)}</span>
         </div>`;
       }).join('');
-      const moreHtml = overflow > 0 ? `<div class="more-indicator">+${overflow} more</div>` : '';
       cellsHtml.push(`
         <div class="cell ${wdCls} ${oomCls} ${imgCls}" data-iso="${iso}" data-in-month="${inMonth}">
           <div class="date-num">${cellD}</div>
-          ${ !hasImage ? `<div class="entries">${pillsHtml}${moreHtml}</div>` : '' }
+          ${ !hasImage ? `<div class="entries">${pillsHtml}</div>` : '' }
         </div>
       `);
     }
     document.getElementById('cells').innerHTML = cellsHtml.join('');
 
     document.getElementById('month-name').textContent = MONTH_NAMES[currentMonth];
-    document.getElementById('year-name').textContent  = currentYear;
+    // In financial mode the side-label reads "2026 · FY 2026–27" so the
+    // user can see at a glance both the real calendar year (which the
+    // grid actually represents) and which FY it belongs to.
+    document.getElementById('year-name').textContent =
+      calendarType === 'financial'
+        ? `${currentYear} · ${fyLabel(fyYear)}`
+        : `${currentYear}`;
   }
 
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
@@ -811,6 +890,58 @@
     card.className = `calendar-card aspect-${aspect}`;
   }
 
+  function rebuildMonthDropdown() {
+    // English: Jan..Dec in natural order. Financial: Apr..Mar (FY order).
+    const sel = document.getElementById('month-select');
+    const order = calendarType === 'financial' ? FY_MONTH_ORDER : [0,1,2,3,4,5,6,7,8,9,10,11];
+    sel.innerHTML = order.map(m => {
+      const selected = m === currentMonth ? ' selected' : '';
+      return `<option value="${m}"${selected}>${MONTH_NAMES[m]}</option>`;
+    }).join('');
+  }
+  function rebuildYearDropdown() {
+    // English: plain year. Financial: "FY 2026–27"-style labels.
+    const sel = document.getElementById('year-select');
+    const baseYears = [2026, 2027, 2028];
+    if (calendarType === 'financial') {
+      sel.innerHTML = baseYears.map(y => {
+        const selected = y === fyYear ? ' selected' : '';
+        return `<option value="${y}"${selected}>${fyLabel(y)}</option>`;
+      }).join('');
+    } else {
+      sel.innerHTML = baseYears.map(y => {
+        const selected = y === currentYear ? ' selected' : '';
+        return `<option value="${y}"${selected}>${y}</option>`;
+      }).join('');
+    }
+  }
+  function applyCalendarType(type) {
+    calendarType = type;
+    if (type === 'financial') {
+      // Snap fyYear to whatever currentYear/currentMonth implied. If we're
+      // on Jan–Mar 2026, that's part of FY 2025–26, so fyYear = 2025; on
+      // Apr–Dec 2026 it's FY 2026–27, fyYear = 2026.
+      fyYear = currentMonth >= 3 ? currentYear : currentYear - 1;
+      // Default selection if the snapped FY isn't in our 3-year sample.
+      if (fyYear < 2026) fyYear = 2026;
+      if (fyYear > 2028) fyYear = 2028;
+      // Auto-jump to April (month index 3) — the FY's first month. Without
+      // this, switching from Jan 2026 silently lands on Jan 2027 (same
+      // month, year +1) which looks like nothing changed.
+      currentMonth = 3;
+      currentYear  = resolveYearForMonth(currentMonth);
+    } else {
+      // Leaving financial mode — currentYear stays at the real Gregorian
+      // year, which is what the rest of the code already uses.
+    }
+    rebuildMonthDropdown();
+    rebuildYearDropdown();
+    renderCells();
+    // Selection may now reference a date outside the visible window; clear.
+    selectedDate = null;
+    renderEditor();
+  }
+
   function applyGenzPalette(name) {
     const p = GENZ_PALETTES.find(x => x.name === name) || GENZ_PALETTES[0];
     currentGenzPaletteName = p.name;
@@ -862,9 +993,23 @@
     weekStartsOn = parseInt(e.target.dataset.start);
     renderWeekdays(); renderCells();
   });
+  document.getElementById('caltype-seg').addEventListener('click', e => {
+    if (e.target.tagName !== 'BUTTON') return;
+    document.querySelectorAll('#caltype-seg button').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    applyCalendarType(e.target.dataset.caltype);
+  });
 
   document.getElementById('year-select').addEventListener('change', e => {
-    currentYear = parseInt(e.target.value);
+    const val = parseInt(e.target.value);
+    if (calendarType === 'financial') {
+      // FY-start year picker — recompute the real Gregorian year for the
+      // currently-selected month so the grid lands in the right window.
+      fyYear = val;
+      currentYear = resolveYearForMonth(currentMonth);
+    } else {
+      currentYear = val;
+    }
     renderCells();
     if (selectedDate && !selectedDate.startsWith(String(currentYear))) {
       selectedDate = null;
@@ -873,6 +1018,9 @@
   });
   document.getElementById('month-select').addEventListener('change', e => {
     currentMonth = parseInt(e.target.value);
+    // Month change in FY mode may flip the grid into the next calendar year
+    // (e.g. picking March from FY 2026–27 → March 2027).
+    if (calendarType === 'financial') currentYear = resolveYearForMonth(currentMonth);
     renderCells();
     selectedDate = null; renderEditor();
   });
@@ -929,6 +1077,8 @@
   // Init
   // ────────────────────────────────────────────────────────────────────────
   renderPaletteSwatches();
+  rebuildMonthDropdown();   // honours initial English-mode order + selection
+  rebuildYearDropdown();
   renderWeekdays();
   renderCells();
   renderEditor();

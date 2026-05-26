@@ -42,6 +42,140 @@ def _extract_frame_transforms(editor_state: dict | None) -> list | None:
     return transforms or None
 
 
+def _extract_overlays_per_canvas(editor_state: dict | None) -> list | None:
+    """
+    Extract per-canvas overlay lists from CanvasData.editor_state for the
+    server-side overlay renderer (Phase 1 of CALENDAR_FEATURE_PRD.md §5).
+
+    Returns a list-of-lists indexed by canvas batch:
+        [ [overlay, overlay, ...],   # canvas 0
+          [overlay, ...],            # canvas 1
+          ... ]
+
+    Returns None when editor_state is absent or every canvas's overlays
+    array is empty — letting the engine skip the overlay branch entirely
+    (zero-cost for layouts without overlays).
+    """
+    if not editor_state:
+        return None
+    canvases = editor_state.get('canvases') or []
+    if not canvases:
+        return None
+    out = [list(canvas.get('overlays') or []) for canvas in canvases]
+    # All-empty short-circuit so the engine takes the fast path.
+    if not any(out):
+        return None
+    return out
+
+
+def _extract_calendar_state(editor_state: dict | None):
+    """
+    Pull the customer's calendar-product choices out of editor_state for
+    a productType='calendar' render (PRD Phase 4 Bug B fix).
+
+    The customer's preview-page choices (theme preset, calendar type,
+    Gen-Z palette) are product-wide — every canvas saves the same value.
+    Per-cell entries are per-canvas (each month's cells are separate).
+
+    Returns a dict shaped:
+        {
+            'theme_preset':     'modern-minimalist' | 'modern-genz' | 'weekday-highlight' | None,
+            'calendar_type':    'english' | 'financial' | None,
+            'palette':          '<palette name>' | None,   # only relevant for Gen-Z
+            'cells_per_canvas': [{ iso_date: [override, ...] }, ...]
+                                # one entry per editor canvas, in saved order
+        }
+
+    Returns None when editor_state is absent or contains no calendar
+    blocks — the engine then renders with layout-level defaults only.
+    """
+    if not editor_state:
+        return None
+    canvases = editor_state.get('canvases') or []
+    if not canvases:
+        return None
+
+    cells_per_canvas: list[dict] = []
+    any_calendar_state = False
+    for cv in canvases:
+        cal = cv.get('calendar') if isinstance(cv, dict) else None
+        if isinstance(cal, dict):
+            any_calendar_state = True
+            cells_per_canvas.append(dict(cal.get('cells') or {}))
+        else:
+            cells_per_canvas.append({})
+
+    if not any_calendar_state:
+        return None
+
+    # Read product-wide fields from the first canvas that has them set.
+    # Phase 5 UI will keep all canvases in sync; this just survives early
+    # partial-saves where only canvas 0 has the choice recorded.
+    theme_preset = None
+    calendar_type = None
+    palette = None
+    for cv in canvases:
+        cal = cv.get('calendar') if isinstance(cv, dict) else None
+        if not isinstance(cal, dict):
+            continue
+        theme_preset = theme_preset or cal.get('themePreset')
+        calendar_type = calendar_type or cal.get('calendarType')
+        palette = palette or cal.get('genzPalette')
+        if theme_preset and calendar_type and palette:
+            break
+
+    return {
+        'theme_preset': theme_preset,
+        'calendar_type': calendar_type,
+        'palette': palette,
+        'cells_per_canvas': cells_per_canvas,
+    }
+
+
+def _build_uploaded_files_map(canvas_data, overlays_per_canvas) -> dict | None:
+    """
+    Build { upload_id → server file path } for image overlays referenced
+    by this canvas's overlays list. Used by the server-side overlay
+    renderer to resolve image overlays that point at local customer
+    uploads (PRD §11 — Phase 1 of the calendar feature roadmap).
+
+    Strategy:
+      1. Walk every overlay across every canvas, collect each `fileId`
+         (which is the upload_session_id assigned by the chunked-upload
+         API when the customer uploaded the image).
+      2. Query UploadedFile filtered by `api_key` (tenant boundary) and
+         the collected upload_session_ids.
+      3. Return a flat { upload_session_id → file_path } map.
+
+    Returns None when no image overlays reference uploads (engine then
+    skips the lookup entirely).
+    """
+    if not overlays_per_canvas:
+        return None
+
+    upload_ids: set[str] = set()
+    for canvas_overlays in overlays_per_canvas:
+        for o in canvas_overlays or []:
+            if o.get('type') != 'image':
+                continue
+            fid = o.get('fileId')
+            if fid:
+                upload_ids.add(str(fid))
+
+    if not upload_ids:
+        return None
+
+    from api.models import UploadedFile
+
+    rows = UploadedFile.objects.filter(
+        api_key=canvas_data.api_key,
+        upload_session_id__in=upload_ids,
+        is_deleted=False,
+    ).values_list('upload_session_id', 'file_path')
+    mapping = {str(uid): path for uid, path in rows if uid and path}
+    return mapping or None
+
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -100,10 +234,25 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         # can reproduce the exact pan / zoom / rotation the user set in the editor.
         frame_transforms = _extract_frame_transforms(canvas.editor_state)
 
+        # Phase 1 (CALENDAR_FEATURE_PRD.md §5) — extract overlays + the upload
+        # map so text/shape/image overlays render server-side. Layouts without
+        # overlays return None here and the engine fast-paths past the new code.
+        overlays_per_canvas = _extract_overlays_per_canvas(canvas.editor_state)
+        uploaded_files = _build_uploaded_files_map(canvas, overlays_per_canvas)
+
+        # Phase 4 (Bug B fix) — extract customer-side calendar state. Returns
+        # None for non-calendar products; engine then uses the layout's ops
+        # defaults. For calendar products the customer's themePreset /
+        # calendarType / palette choices override the layout defaults at
+        # materialize time; per-canvas cells override at render time.
+        calendar_state = _extract_calendar_state(canvas.editor_state)
+
         try:
             logger.info(
-                "Job %s: rendering layout '%s' format '%s'",
+                "Job %s: rendering layout '%s' format '%s' (overlays: %s, calendar_state: %s)",
                 job_id, canvas.layout_name, canvas.export_format,
+                sum(len(c or []) for c in (overlays_per_canvas or [])),
+                bool(calendar_state),
             )
             outputs = engine.generate(
                 canvas.layout_name,
@@ -111,6 +260,9 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                 fit_mode=canvas.fit_mode,
                 export_format=canvas.export_format,
                 frame_transforms=frame_transforms,
+                overlays_per_canvas=overlays_per_canvas,
+                uploaded_files=uploaded_files,
+                calendar_state=calendar_state,
             )
             output_paths = outputs
 

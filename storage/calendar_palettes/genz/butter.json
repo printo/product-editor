@@ -1,0 +1,11 @@
+{
+  "name": "butter",
+  "label": "Butter & Purple",
+  "bg": "#FEF3C7",
+  "month": "#A855F7",
+  "weekday": "#A855F7",
+  "grid": "#FBCFE8",
+  "date": "#0F172A",
+  "pill": "#CCFBF1",
+  "dotCycle": ["#A855F7", "#EC4899", "#0EA5E9"]
+}

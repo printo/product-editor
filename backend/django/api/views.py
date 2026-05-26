@@ -1079,6 +1079,20 @@ class LayoutManagementView(APIView):
                         )
             elif 'canvas' not in layout_data or 'width' not in layout_data['canvas'] or 'height' not in layout_data['canvas']:
                 return Response({"detail": "Invalid layout structure: missing canvas width/height"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Calendar product type — enforce monthRange × calendars constraint,
+            # validate ops-default + customer-controllable fields, reject banned
+            # fields inside surfaceOverrides. PRD §10.2, §11.1, §11.15.
+            if layout_data.get('productType') == 'calendar':
+                from api.validators import validate_calendar_layout
+                from django.core.exceptions import ValidationError as _DjangoValidationError
+                try:
+                    validate_calendar_layout(layout_data)
+                except _DjangoValidationError as exc:
+                    # Surface the first failure message exactly as the validator
+                    # built it — already specific and actionable.
+                    msg = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
+                    return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
             
             # Append metadata
             from django.utils import timezone
@@ -2084,6 +2098,370 @@ class SKULayoutView(APIView):
 
         _write_sku_layouts(mappings)
         return Response({'mappings': mappings})
+
+
+# ── Calendar style presets + Gen-Z palettes (PRD §10.3, §6.3) ───────────────
+
+CALENDAR_STYLES_DIR = os.path.join(settings.STORAGE_ROOT, 'calendar_styles')
+GENZ_PALETTES_DIR = os.path.join(settings.STORAGE_ROOT, 'calendar_palettes', 'genz')
+_CALENDAR_STYLES_CACHE_KEY = 'storage:calendar_styles:list'
+_CALENDAR_STYLE_CACHE_KEY = 'storage:calendar_styles:'  # + name
+
+
+def _list_calendar_styles():
+    """Return [{name, label}] for every calendar style on disk."""
+    from django.core.cache import cache
+    cached = cache.get(_CALENDAR_STYLES_CACHE_KEY)
+    if cached is not None:
+        return cached
+
+    out = []
+    if os.path.isdir(CALENDAR_STYLES_DIR):
+        for fname in sorted(os.listdir(CALENDAR_STYLES_DIR)):
+            if not fname.endswith('.json'):
+                continue
+            path = os.path.join(CALENDAR_STYLES_DIR, fname)
+            try:
+                with open(path, 'r') as f:
+                    style = json.load(f)
+                out.append({
+                    'name': style.get('name') or fname[:-5],
+                    'label': style.get('label') or style.get('name') or fname[:-5],
+                    'description': style.get('description') or '',
+                })
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning("Failed to read calendar style %s: %s", fname, exc)
+    cache.set(_CALENDAR_STYLES_CACHE_KEY, out, _STORAGE_CACHE_TTL)
+    return out
+
+
+def _read_calendar_style(name):
+    """Read a single calendar style JSON. Returns None if missing/invalid."""
+    from django.core.cache import cache
+    cache_key = _CALENDAR_STYLE_CACHE_KEY + name
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    path = os.path.join(CALENDAR_STYLES_DIR, f'{name}.json')
+    # Path-traversal guard — name must round-trip through basename.
+    if os.path.basename(path) != f'{name}.json' or not name.replace('-', '').replace('_', '').isalnum():
+        return None
+    try:
+        with open(path, 'r') as f:
+            style = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+    # For Gen-Z, attach the available palettes inline so clients don't
+    # have to make a second request to enumerate them.
+    if style.get('name') == 'modern-genz' and os.path.isdir(GENZ_PALETTES_DIR):
+        palettes = []
+        for fname in sorted(os.listdir(GENZ_PALETTES_DIR)):
+            if fname.endswith('.json'):
+                try:
+                    with open(os.path.join(GENZ_PALETTES_DIR, fname), 'r') as f:
+                        palettes.append(json.load(f))
+                except (OSError, json.JSONDecodeError):
+                    continue
+        style['palettes'] = palettes
+
+    cache.set(cache_key, style, _STORAGE_CACHE_TTL)
+    return style
+
+
+def _write_calendar_style(name, payload):
+    """Persist a calendar style atomically and invalidate cache."""
+    from django.core.cache import cache
+    if not name.replace('-', '').replace('_', '').isalnum():
+        raise ValueError("invalid style name")
+    os.makedirs(CALENDAR_STYLES_DIR, exist_ok=True)
+    path = os.path.join(CALENDAR_STYLES_DIR, f'{name}.json')
+    tmp_path = path + '.tmp'
+    with open(tmp_path, 'w') as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+    os.replace(tmp_path, path)
+    cache.delete(_CALENDAR_STYLES_CACHE_KEY)
+    cache.delete(_CALENDAR_STYLE_CACHE_KEY + name)
+
+
+class CalendarStylesView(APIView):
+    """
+    GET  /api/calendar-styles/             → list summary [{name, label, description}]
+    GET  /api/calendar-styles/<name>       → full style JSON (with palettes for genz)
+    PUT  /api/calendar-styles/<name>       → ops-team only; replaces a style preset
+
+    Public read so the customer preview page can fetch styles without an
+    auth round-trip. Cached 5 min with stale-while-revalidate so the
+    storefront can hammer it under load.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, name=None):
+        if name is None:
+            response = Response({'styles': _list_calendar_styles()})
+            response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
+            return response
+
+        style = _read_calendar_style(name)
+        if style is None:
+            return Response(
+                {'detail': f"Calendar style '{name}' not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        response = Response(style)
+        response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
+        return response
+
+    def put(self, request, name=None):
+        if name is None:
+            return Response(
+                {'detail': 'style name is required in the URL'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Ops-only mutation — mirror the FontsView gate.
+        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        user = None
+        for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
+            try:
+                result = auth_cls.authenticate(request)
+                if result:
+                    user = result[0]
+                    break
+            except Exception:
+                continue
+
+        if not user:
+            return Response(
+                {'detail': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        is_ops = getattr(user, 'is_ops_team', False) or getattr(user, 'is_staff', False)
+        if not is_ops:
+            return Response(
+                {'detail': 'Only ops team can modify calendar styles'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        payload = request.data
+        if not isinstance(payload, dict):
+            return Response(
+                {'detail': 'request body must be a JSON object'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Ensure the stored name field matches the URL path so clients
+        # can't smuggle a different name into the payload.
+        payload['name'] = name
+
+        try:
+            _write_calendar_style(name, payload)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(payload)
+
+
+# ── Holiday data (PRD §11.9, §11.11) ────────────────────────────────────────
+
+HOLIDAYS_ROOT = os.path.join(settings.STORAGE_ROOT, 'holidays')
+_HOLIDAYS_CACHE_KEY = 'storage:holidays:'  # + locale:year
+
+
+def _safe_locale_year(locale: str, year_str: str) -> tuple[str, int]:
+    """
+    Validate path-traversal-safe locale + year before touching disk.
+
+    Returns (locale, year_int) or raises ValueError.
+    """
+    if not locale or not all(c.isalnum() or c == '-' for c in locale):
+        raise ValueError(f"invalid locale: {locale!r}")
+    try:
+        year = int(year_str)
+    except (TypeError, ValueError):
+        raise ValueError(f"invalid year: {year_str!r}")
+    if not (1900 <= year <= 2100):
+        raise ValueError(f"year {year} outside the supported range 1900..2100")
+    return locale, year
+
+
+def _holiday_path(locale: str, year: int) -> str:
+    return os.path.join(HOLIDAYS_ROOT, locale, f"{year}.json")
+
+
+def _read_holidays(locale: str, year: int) -> dict | None:
+    """Read a holiday file from disk with a Redis cache."""
+    from django.core.cache import cache
+    cache_key = f"{_HOLIDAYS_CACHE_KEY}{locale}:{year}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    path = _holiday_path(locale, year)
+    if not os.path.exists(path):
+        cache.set(cache_key, None, _STORAGE_CACHE_TTL)
+        return None
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to read holiday file %s: %s", path, exc)
+        return None
+    cache.set(cache_key, data, _STORAGE_CACHE_TTL)
+    return data
+
+
+def _write_holidays(locale: str, year: int, payload: dict) -> None:
+    """Persist a holiday file atomically and invalidate cache."""
+    from django.core.cache import cache
+    dir_path = os.path.dirname(_holiday_path(locale, year))
+    os.makedirs(dir_path, exist_ok=True)
+    path = _holiday_path(locale, year)
+    tmp_path = path + '.tmp'
+    with open(tmp_path, 'w') as f:
+        json.dump(payload, f, indent=2, sort_keys=False)
+    os.replace(tmp_path, path)
+    cache.delete(f"{_HOLIDAYS_CACHE_KEY}{locale}:{year}")
+
+
+class HolidaysView(APIView):
+    """
+    GET    /api/holidays/<locale>/<year>           → public, cached 1 day / swr 7 days
+    PUT    /api/ops/holidays/<locale>/<year>       → ops-team only; replaces year file
+    DELETE /api/ops/holidays/<locale>/<year>       → ops-team only
+
+    Per PRD §11.9 + §11.11. Calendar layouts that opt into a locale auto-load
+    the matching year's holiday file; years without a file render with no
+    auto-injection (no error — customers can still add their own entries).
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, locale: str, year: str):
+        try:
+            locale, year_int = _safe_locale_year(locale, year)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        data = _read_holidays(locale, year_int)
+        if data is None:
+            return Response(
+                {'detail': f"No holiday data for {locale}/{year_int}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        response = Response(data)
+        # 1-day cache + 7-day stale-while-revalidate. Holiday data changes
+        # at most once a year, so aggressive caching is the right call.
+        response['Cache-Control'] = 'public, max-age=86400, stale-while-revalidate=604800'
+        return response
+
+    def _gate_ops(self, request):
+        """Returns (user, None) on success or (None, Response) on auth failure."""
+        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        user = None
+        for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
+            try:
+                result = auth_cls.authenticate(request)
+                if result:
+                    user = result[0]
+                    break
+            except Exception:
+                continue
+        if not user:
+            return None, Response(
+                {'detail': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        is_ops = getattr(user, 'is_ops_team', False) or getattr(user, 'is_staff', False)
+        if not is_ops:
+            return None, Response(
+                {'detail': 'Only ops team can modify holidays'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return user, None
+
+    def put(self, request, locale: str, year: str):
+        try:
+            locale, year_int = _safe_locale_year(locale, year)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        user, err = self._gate_ops(request)
+        if err:
+            return err
+
+        payload = request.data
+        if not isinstance(payload, dict):
+            return Response(
+                {'detail': 'request body must be a JSON object'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        events = payload.get('events')
+        if not isinstance(events, list):
+            return Response(
+                {'detail': 'payload must contain an "events" array'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Lightly validate each event so an ops typo doesn't corrupt the file.
+        # Empty events: [] is intentionally allowed — it's the canonical way to
+        # clear out a year's auto-injection without deleting the file (which
+        # would also drop the _meta metadata).
+        from datetime import date as _date
+        for idx, ev in enumerate(events):
+            if not isinstance(ev, dict):
+                return Response(
+                    {'detail': f'events[{idx}] must be an object'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            date_str = ev.get('date')
+            if not isinstance(date_str, str):
+                return Response(
+                    {'detail': f"events[{idx}].date must be a string"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # Full ISO YYYY-MM-DD parse — rejects "2026-13-32" and friends
+            # that the old startswith check would have let through.
+            try:
+                parsed = _date.fromisoformat(date_str)
+            except ValueError:
+                return Response(
+                    {'detail': f"events[{idx}].date is not a valid ISO date: {date_str!r}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if parsed.year != year_int:
+                return Response(
+                    {'detail': (
+                        f"events[{idx}].date year ({parsed.year}) doesn't match the URL year ({year_int})"
+                    )},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not ev.get('name'):
+                return Response(
+                    {'detail': f'events[{idx}].name is required'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Stamp authoritative metadata
+        from django.utils import timezone
+        payload['year'] = year_int
+        payload['locale'] = locale
+        payload.setdefault('_meta', {})
+        payload['_meta']['lastRefreshed'] = timezone.now().isoformat()
+
+        _write_holidays(locale, year_int, payload)
+        return Response(payload)
+
+    def delete(self, request, locale: str, year: str):
+        try:
+            locale, year_int = _safe_locale_year(locale, year)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        user, err = self._gate_ops(request)
+        if err:
+            return err
+        path = _holiday_path(locale, year_int)
+        if os.path.exists(path):
+            os.remove(path)
+            from django.core.cache import cache
+            cache.delete(f"{_HOLIDAYS_CACHE_KEY}{locale}:{year_int}")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RenderJobDownloadView(APIView):

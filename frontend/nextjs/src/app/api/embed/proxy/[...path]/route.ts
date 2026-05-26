@@ -122,6 +122,12 @@ const ALLOWED_PATH_PREFIXES = [
   'fonts',             // GET only — list fonts (PUT requires ops auth at backend)
   'sku-layouts',       // GET only — resolve SKU → layout
   'embed/session',     // self-validate (rare; mostly internal)
+  // P7.4 (PRD §5 Phase 7) — calendar customer-facing endpoints. Required
+  // for the calendar product preview to load holiday badges + Gen-Z
+  // palette swatches when running inside the embed iframe. Read-only;
+  // backend separately enforces ops auth for PUT/DELETE.
+  'holidays',          // GET holidays for locale + year
+  'calendar-styles',   // GET style presets + Gen-Z palettes
 ] as const;
 
 function isPathAllowed(p: string): boolean {

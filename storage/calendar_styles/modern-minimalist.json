@@ -1,0 +1,21 @@
+{
+  "name": "modern-minimalist",
+  "label": "Modern · Minimalist",
+  "description": "White background, black text, light grey grid, subtle entry pills. Inter 400. The conservative default; reads as a print-friendly grid at any size.",
+  "colors": {
+    "background": "#FFFFFF",
+    "monthText": "#18181B",
+    "weekdayText": "#71717A",
+    "weekdaySunday": "#71717A",
+    "dateNumber": "#18181B",
+    "outOfMonth": "#CCCCCC",
+    "grid": "#E5E5E5",
+    "pillBackground": "#F7F7F7",
+    "pillText": "#1A1A1A"
+  },
+  "dotCycle": ["#F59E0B", "#EC4899", "#3B82F6"],
+  "_meta": {
+    "version": 1,
+    "rationale": "3-slot user-dot cycle: amber, rose, sky. Warm + cool mix keeps the 1st/2nd/3rd entries in a cell visually distinguishable on a near-monochrome background. PRD §11.14 — user-first precedence; this cycle never applies to auto-loaded holidays (those keep their own color from the holiday JSON)."
+  }
+}

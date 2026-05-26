@@ -2,6 +2,7 @@ import gc
 import json
 import math
 import os
+import re
 import tempfile
 import logging
 from typing import List, Optional
@@ -9,6 +10,22 @@ from typing import List, Optional
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+# Filesystem-unsafe characters across macOS/Linux/Windows + the NULL byte.
+# Spaces are explicitly KEPT per PRD §11.6 — example filenames are
+# "January 2026.png", "February 2026.png", etc. Sanitization replaces unsafe
+# chars with underscore so the displayLabel still reads naturally.
+_FS_UNSAFE = re.compile(r'[\x00-\x1f<>:"/\\|?*]+')
+
+
+def _sanitize_for_filename(name: str) -> str:
+    """Replace filesystem-unsafe characters in a label; trim & collapse spaces."""
+    if not name:
+        return ""
+    cleaned = _FS_UNSAFE.sub("_", name)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ._")
+    return cleaned
 
 # Decompression-bomb guard. PIL warns at 178M pixels by default and refuses
 # above 2× that. Photo prints can legitimately approach the warn threshold (a
@@ -238,6 +255,8 @@ class LayoutEngine:
         fit_mode: str,
         mask_img,
         frame_transforms: Optional[List[dict]] = None,
+        overlays: Optional[List[dict]] = None,
+        uploaded_files: Optional[dict] = None,
     ) -> Image.Image:
         """
         Composite one canvas from a batch of image file paths.
@@ -246,6 +265,14 @@ class LayoutEngine:
         frame_transforms (optional): per-frame overrides from the editor state.
         Each entry matches the frontend FrameState shape:
           { offset_x, offset_y, scale, rotation, fit_mode }
+
+        overlays (optional): list of TextOverlay / ShapeOverlay / ImageOverlay
+        dicts for THIS canvas (Phase 1, CALENDAR_FEATURE_PRD.md §5). Rendered
+        after frames and before the layout mask via services.overlay_renderer.
+        Layouts with no overlays pay zero cost.
+
+        uploaded_files (optional): { upload_id → server file path } map used
+        to resolve `image`-type overlays that reference local uploads.
         """
         canvas_w = surface_def["canvas"]["width"]
         canvas_h = surface_def["canvas"]["height"]
@@ -317,6 +344,73 @@ class LayoutEngine:
             img.close()
             del img
 
+        # ── Overlays (Phase 1 — CALENDAR_FEATURE_PRD.md §5) ──────────────────
+        # Render text / shape / image overlays after frames but before the
+        # mask, matching the editor's z-order (overlays above frames, below
+        # mask). Layouts without overlays skip this branch entirely.
+        if overlays:
+            try:
+                from services.overlay_renderer import render_overlays
+                canvas = render_overlays(
+                    canvas, overlays, canvas_w, canvas_h, uploaded_files or {},
+                )
+            except Exception:
+                logger.exception("Overlay rendering failed; continuing without overlays")
+
+        # ── Calendar (Phase 4 — CALENDAR_FEATURE_PRD.md §5) ──────────────────
+        # Surfaces produced by `materialize_surfaces()` carry their resolved
+        # year/month + per-cell user state + holidays. Each `calendars[i]`
+        # primitive on the surface gets drawn at its own position. Sits
+        # above overlays, below mask — matches the editor's z-order.
+        #
+        # P7.3 — Per-calendar (year, month) fall-through:
+        #   If cal_def carries its own "year"+"month" (set by the poster-mode
+        #   aggregation step in engine.generate()), those win over the
+        #   surface-level values. This lets a single poster surface render
+        #   12 different months without 12 separate _generate_for_surface
+        #   calls. Multi-surface stays byte-identical — each surface still
+        #   carries one calendar without per-calendar year/month.
+        cal_primitives = surface_def.get("calendars") or []
+        if cal_primitives:
+            try:
+                from services.calendar_renderer import render_calendar
+                # Per-surface state comes from materialize_surfaces; if a
+                # caller invokes _composite_canvas directly we still try
+                # to render whatever's in surface_def with sane defaults.
+                surface_year = int(surface_def.get("year") or 0)
+                surface_month = int(surface_def.get("month") or 0)
+                style = surface_def.get("calendar") or {}
+                week_start = style.get("weekStart") or "sunday"
+                user_cells_by_key = surface_def.get("cellsByKey") or None
+                surface_user_cells = surface_def.get("cells") or {}
+                holidays = surface_def.get("holidays") or []
+                palette = surface_def.get("activePalette")
+                for cal_def in cal_primitives:
+                    cal_year = int(cal_def.get("year") or 0) or surface_year
+                    cal_month = int(cal_def.get("month") or 0) or surface_month
+                    if not (cal_year and cal_month):
+                        continue
+                    # Poster aggregation: per-calendar cells keyed by the
+                    # surface_key ("month_03"). Fall back to surface-level
+                    # cells for the standard (non-aggregated) path.
+                    key = cal_def.get("surfaceKey")
+                    cells = (
+                        user_cells_by_key.get(key, {})
+                        if (user_cells_by_key is not None and key is not None)
+                        else surface_user_cells
+                    )
+                    render_calendar(
+                        canvas, cal_def,
+                        year=cal_year, month=cal_month,
+                        style=style, week_start=week_start,
+                        user_cells=cells, holidays=holidays,
+                        canvas_w_px=canvas_w, canvas_h_px=canvas_h,
+                        palette=palette,
+                        uploaded_files=uploaded_files or {},
+                    )
+            except Exception:
+                logger.exception("Calendar rendering failed; continuing without grid")
+
         if mask_img:
             resized_mask = mask_img
             mask_was_resized = False
@@ -352,6 +446,24 @@ class LayoutEngine:
 
     # ── PNG / TIFF export ────────────────────────────────────────────────────
 
+    def _cleanup_partial_outputs(self, output_paths: List[str]) -> None:
+        """
+        Delete partial output files left on disk by a multi-surface render
+        that aborted mid-batch (P7.2 — PRD §11.5). Best-effort: missing
+        files are silently ignored; one file's cleanup failure does NOT
+        block cleanup of the rest. Sibling preview JPEGs from `_mock`
+        directory aren't created at this stage so no extra paths to chase.
+        """
+        for path in output_paths:
+            try:
+                if path and os.path.exists(path):
+                    os.remove(path)
+            except OSError as exc:
+                logger.warning(
+                    "Cleanup of partial output %s failed: %s — leaving on disk",
+                    path, exc,
+                )
+
     def _generate_for_surface(
         self,
         surface_def: dict,
@@ -361,6 +473,9 @@ class LayoutEngine:
         fit_mode: str = "cover",
         export_format: str = "png",
         frame_transforms: Optional[List[dict]] = None,
+        overlays_per_canvas: Optional[List[List[dict]]] = None,
+        uploaded_files: Optional[dict] = None,
+        display_label: Optional[str] = None,
     ) -> List[str]:
         """
         Generate export files for a single surface.
@@ -369,6 +484,14 @@ class LayoutEngine:
         export_format:
           "png" — RGB PNG at 300 DPI (default)
           "pdf" — RGB single-page PDF at 300 DPI
+
+        display_label (P7.1 — PRD §11.6):
+          When provided, the per-surface filename is derived from this human-
+          readable label (e.g., "January 2026.png") rather than the layout
+          name + surface_key. Used by calendar products and non-calendar
+          multi-surface products with ops-set display labels (Front/Back/etc.).
+          Filesystem-unsafe chars are replaced with underscores; falls back to
+          the legacy `{layout_name}_{surface_key}_{n}` format when blank.
         """
         frames = surface_def.get("frames", [])
         if not frames:
@@ -387,6 +510,13 @@ class LayoutEngine:
                 mask_img.close()
                 mask_img = resized
 
+        # ── Filename resolution (P7.1 — PRD §11.6) ─────────────────────────
+        # When display_label is provided, use it as the file stem. Sanitize for
+        # filesystem safety (keeps spaces; PRD example is "January 2026.png").
+        # Fall back to the legacy {layout_name}{_surface_key} prefix when no
+        # label is given so non-calendar legacy callers stay byte-identical.
+        sanitized_label = _sanitize_for_filename(display_label or "")
+        use_label = bool(sanitized_label)
         suffix = f"_{surface_key}" if surface_key != "default" else ""
         outputs = []
 
@@ -398,16 +528,29 @@ class LayoutEngine:
                 start = batch_n * frames_per_canvas
                 batch_transforms = frame_transforms[start: start + frames_per_canvas]
 
-            canvas = self._composite_canvas(surface_def, batch, fit_mode, mask_img, batch_transforms)
+            # Pick this canvas's overlays from the per-canvas list (Phase 1).
+            batch_overlays = None
+            if overlays_per_canvas and batch_n < len(overlays_per_canvas):
+                batch_overlays = overlays_per_canvas[batch_n]
 
-            if export_format == "pdf":
-                out_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}.pdf")
-                # PIL's PDF writer expects RGB (no alpha). Composite is already
-                # RGB by the time it reaches here, so save() works directly.
-                self._write_output_atomic(canvas, out_path)
+            canvas = self._composite_canvas(
+                surface_def, batch, fit_mode, mask_img, batch_transforms,
+                overlays=batch_overlays, uploaded_files=uploaded_files,
+            )
+
+            # Stem resolution:
+            #   - display_label set + first batch  →  "{label}"
+            #   - display_label set + batch n > 1  →  "{label}_{n}"
+            #     (calendar normally has one batch per surface; the suffix
+            #      guards against an unexpected multi-batch case.)
+            #   - no display_label                 →  "{layout_name}{suffix}_{n}"
+            if use_label:
+                stem = sanitized_label if n == 1 else f"{sanitized_label}_{n}"
             else:
-                out_path = os.path.join(self.exports_dir, f"{layout_name}{suffix}_{n}.png")
-                self._write_output_atomic(canvas, out_path)
+                stem = f"{layout_name}{suffix}_{n}"
+            ext = "pdf" if export_format == "pdf" else "png"
+            out_path = os.path.join(self.exports_dir, f"{stem}.{ext}")
+            self._write_output_atomic(canvas, out_path)
 
             outputs.append(out_path)
             canvas.close()
@@ -428,6 +571,9 @@ class LayoutEngine:
         fit_mode: str = "cover",
         export_format: str = "png",
         frame_transforms: Optional[List[dict]] = None,
+        overlays_per_canvas: Optional[List[List[dict]]] = None,
+        uploaded_files: Optional[dict] = None,
+        calendar_state: Optional[dict] = None,
     ) -> List[str]:
         """
         Generate layout images. Returns a list of output file paths.
@@ -435,8 +581,141 @@ class LayoutEngine:
         export_format: "png" (default) or "pdf".
         frame_transforms: optional per-frame overrides (offset, scale, rotation, fit_mode)
           from the editor state — mirrors the Fabric.js FrameState shape.
+        overlays_per_canvas: optional list-of-lists of overlay dicts, one entry
+          per canvas batch (Phase 1, CALENDAR_FEATURE_PRD.md §5). Rendered after
+          frames and before the mask.
+        uploaded_files: optional { upload_id → server file path } map used to
+          resolve `image`-type overlays.
         """
         layout = self._load_layout(layout_name)
+
+        # Calendar product type (CALENDAR_FEATURE_PRD §5 Phase 4).
+        # 1) Auto-derive 12 surfaces from the single template + monthRange
+        #    + calendars[], honouring customer-side calendarType / palette /
+        #    theme overrides at materialize time.
+        # 2) Stamp each surface with its customer cells (if any), then
+        #    delegate to the existing per-surface render loop.
+        if layout.get("productType") == "calendar":
+            from services.calendar_layout import materialize_surfaces
+            all_outputs: List[str] = []
+
+            cstate = calendar_state or {}
+            ctype_override = cstate.get("calendar_type")
+            theme_override = cstate.get("theme_preset")
+            palette_override = cstate.get("palette")
+
+            materialized = materialize_surfaces(
+                layout,
+                calendar_type_override=ctype_override,
+                theme_preset_override=theme_override,
+                palette_name_override=palette_override,
+            )
+
+            cells_per_canvas = cstate.get("cells_per_canvas") or []
+
+            # P7.3 — Poster-mode aggregation.
+            # When monthRange.count == 1 and there are multiple calendars on
+            # the single physical page, materialize_surfaces emits N entries
+            # for ergonomic addressing (each "month_NN" key reachable per
+            # the cell editor / surface override UI). The render side should
+            # NOT produce N separate PNGs in this case — it must composite
+            # all N calendars onto ONE canvas. Aggregate them here before
+            # the per-surface render loop sees them.
+            month_range = layout.get("monthRange") or {}
+            poster_mode = (
+                int(month_range.get("count") or 0) == 1
+                and len(layout.get("calendars") or []) > 1
+                and len(materialized) > 1
+            )
+            if poster_mode:
+                base = materialized[0]
+                merged_calendars: List[dict] = []
+                cells_by_key: dict = {}
+                # Union of all years' holidays so render_calendar's per-cell
+                # date filter sees every holiday it might match.
+                holiday_dedup: dict = {}
+                for i, surf in enumerate(materialized):
+                    cell_state = (
+                        cells_per_canvas[i] if i < len(cells_per_canvas) else {}
+                    )
+                    cells_by_key[surf.get("key")] = cell_state or {}
+                    for cal_def in surf.get("calendars") or []:
+                        merged = dict(cal_def)
+                        merged["year"] = int(surf.get("year") or 0)
+                        merged["month"] = int(surf.get("month") or 0)
+                        merged["surfaceKey"] = surf.get("key")
+                        merged_calendars.append(merged)
+                    for h in surf.get("holidays") or []:
+                        holiday_dedup[(h.get("date"), h.get("name"))] = h
+                aggregate = {
+                    **base,
+                    "calendars": merged_calendars,
+                    "holidays": list(holiday_dedup.values()),
+                    "cellsByKey": cells_by_key,
+                    # Drop the per-surface (year, month) so the renderer
+                    # uses the merged calendar-level fields exclusively.
+                    "year": 0,
+                    "month": 0,
+                    # Use the layout name (no month-specific displayLabel)
+                    # since the poster is one physical PNG covering the
+                    # whole year/FY.
+                    "displayLabel": layout.get("displayLabel") or layout.get("name") or base.get("key"),
+                }
+                materialized = [aggregate]
+                cells_per_canvas = [{}]  # cells handled via cellsByKey above
+
+            # P7.2 (PRD §11.5) — Multi-surface partial-failure handling.
+            # If any 1 of N surfaces fails, fail the whole job: clean up
+            # the partial outputs from prior surfaces (so retry doesn't
+            # leave orphan PNGs on disk) and raise an error tagged with the
+            # failing surface's displayLabel ("Render failed on March 2026")
+            # so the task-layer error message tells the customer which month
+            # broke.
+            for surf_idx, surface in enumerate(materialized):
+                surface_key = surface.get("key", "unknown")
+                canvas_w = surface["canvas"]["width"]
+                canvas_h = surface["canvas"]["height"]
+                # Stamp the customer's per-day entries onto this surface so
+                # _composite_canvas → render_calendar can pick them up.
+                cells = cells_per_canvas[surf_idx] if surf_idx < len(cells_per_canvas) else {}
+                surface = {
+                    **surface,
+                    "cells": cells or {},
+                    "frames": self._normalize_frames(surface.get("frames") or [], canvas_w, canvas_h),
+                }
+                # P7.1 — Calendar surface output filenames come from the
+                # human-readable displayLabel ("January 2026.png" etc.) per
+                # PRD §11.6, not the surface_key.
+                display_label = surface.get("displayLabel") or surface_key
+                try:
+                    all_outputs.extend(
+                        self._generate_for_surface(
+                            surface, image_paths, layout_name, surface_key,
+                            fit_mode, export_format, frame_transforms,
+                            overlays_per_canvas=overlays_per_canvas,
+                            uploaded_files=uploaded_files,
+                            display_label=display_label,
+                        )
+                    )
+                except (MemoryError, SystemExit, KeyboardInterrupt):
+                    # Don't swallow these — propagate immediately. Cleanup
+                    # is still useful so we attempt it before re-raising.
+                    self._cleanup_partial_outputs(all_outputs)
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "Calendar surface %s/%d render failed (key=%s, label=%s)",
+                        surf_idx + 1, len(materialized), surface_key, display_label,
+                    )
+                    self._cleanup_partial_outputs(all_outputs)
+                    # Re-raise with a customer-facing message identifying the
+                    # failing month so tasks.py can attach it to the
+                    # RenderJob.error_message field for retry UX.
+                    raise RuntimeError(
+                        f"Render failed on {display_label} "
+                        f"(surface {surf_idx + 1} of {len(materialized)}): {exc}"
+                    ) from exc
+            return all_outputs
 
         if layout.get("type") == "product" and isinstance(layout.get("surfaces"), list):
             all_outputs: List[str] = []
@@ -448,10 +727,18 @@ class LayoutEngine:
                     **surface,
                     "frames": self._normalize_frames(surface.get("frames") or [], canvas_w, canvas_h),
                 }
+                # P7.1 — Non-calendar multi-surface products (cards, brochures)
+                # also use ops-set displayLabel ("Front.png", "Back.png") per
+                # PRD §11.6. Falls back to surface_key when displayLabel is
+                # absent (legacy layouts without the field).
+                display_label = surface.get("displayLabel") or None
                 all_outputs.extend(
                     self._generate_for_surface(
                         surface, image_paths, layout_name, surface_key,
                         fit_mode, export_format, frame_transforms,
+                        overlays_per_canvas=overlays_per_canvas,
+                        uploaded_files=uploaded_files,
+                        display_label=display_label,
                     )
                 )
             return all_outputs
@@ -464,4 +751,6 @@ class LayoutEngine:
             fit_mode,
             export_format,
             frame_transforms,
+            overlays_per_canvas=overlays_per_canvas,
+            uploaded_files=uploaded_files,
         )

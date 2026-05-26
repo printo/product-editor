@@ -24,6 +24,7 @@ import {
   AlignJustify,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { LayoutSVG } from '@/components/LayoutSVG';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { useHeader } from '@/context/HeaderContext';
@@ -305,6 +306,19 @@ export default function LayoutCreatorPage() {
             <Plus className="w-3.5 h-3.5" />
             Create
           </button>
+          {/* Calendar product type uses a dedicated authoring page since the
+              schema diverges from the regular layout JSON shape (productType,
+              monthRange, calendars[], surfaceOverrides). Phase 6 review fix
+              Gap C — without this link ops can't reach the calendar editor
+              from the standard layouts page. */}
+          <Link
+            href="/editor/layouts/calendar/new"
+            data-testid="create-calendar-layout-link"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-[10px] font-bold uppercase rounded hover:bg-emerald-700 transition-colors shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Create Calendar
+          </Link>
         </div>
       );
     }
@@ -871,9 +885,16 @@ export default function LayoutCreatorPage() {
             })
             .map((layoutObj: any) => {
               const layoutStr = typeof layoutObj === 'string' ? layoutObj : layoutObj.name;
+              // Phase 6.3 — Calendar layouts are flagged distinctly so ops can
+              // spot calendar products at a glance and the Edit button routes
+              // to the dedicated CalendarLayoutEditor instead of the generic
+              // edit modal (whose schema doesn't cover monthRange/calendars[]).
+              const isCalendar = typeof layoutObj === 'object' && layoutObj.productType === 'calendar';
               return (
                 <div
                   key={layoutStr}
+                  data-testid={`layout-card-${layoutStr}`}
+                  data-product-type={isCalendar ? 'calendar' : 'standard'}
                   className="bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-lg hover:border-indigo-200 transition-all group relative"
                 >
                   <div className="flex items-start justify-between mb-4">
@@ -883,7 +904,18 @@ export default function LayoutCreatorPage() {
                         <LayoutSVG layout={layoutObj} className="w-full h-full object-contain" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-slate-900 capitalize tracking-tight">{(layoutStr || '').replace(/_/g, ' ')}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-slate-900 capitalize tracking-tight">{(layoutStr || '').replace(/_/g, ' ')}</h3>
+                          {isCalendar && (
+                            <span
+                              data-testid={`calendar-badge-${layoutStr}`}
+                              className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] rounded-full font-bold uppercase tracking-tight"
+                              title="Calendar product — opens in the calendar layout editor"
+                            >
+                              Calendar
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] text-slate-400 font-mono mt-0.5 tracking-wider">{(layoutStr || '')}.json</p>
                         {layoutObj.tags && layoutObj.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2">
@@ -905,13 +937,24 @@ export default function LayoutCreatorPage() {
                       >
                         <Copy className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => openEditModal(layoutStr)}
-                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                        title="Edit Layout"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                      {isCalendar ? (
+                        <Link
+                          href={`/editor/layouts/calendar/${layoutStr}`}
+                          data-testid={`edit-calendar-${layoutStr}`}
+                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all inline-flex items-center"
+                          title="Edit Calendar Layout"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Link>
+                      ) : (
+                        <button
+                          onClick={() => openEditModal(layoutStr)}
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          title="Edit Layout"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => setDeleteConfirm(layoutStr)}
                         className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"

@@ -134,6 +134,8 @@ For server-side rendering we additionally need the actual `.ttf` / `.woff2` file
 
 ## 4. Proposed design
 
+> **⚠ Amended on May 21, 2026 — see §10.** The "minimal customer-facing controls" rule below stands for week-start and aspect ratio (still ops-locked), but **Theme preset** and **Calendar type** are now genuine customer choices on the preview page (the "custom-printing" concept). Year selection is replaced with auto-population from today's date + the customer's calendar type. The updated control matrix lives in §10.3.
+
 ### 4.0 Design principle — minimal customer-facing controls
 
 Every customisation knob we add to the editor is a chance for a customer to produce an output the design team would not have shipped. The calendar feature deliberately keeps customer-facing controls to the smallest set that still serves the use case:
@@ -171,6 +173,8 @@ The calendar is **layout-authored, customer-overridden**. Two layers of definiti
 Customer never controls position / size / font of the calendar. Customer controls **what goes in the cells.**
 
 ### 4.2 New data types
+
+> **⚠ Schema amended on May 21, 2026 — see §11.** Two changes: (a) `calendar` (singular) is replaced by `calendars: []` (plural array) to support poster-style "year-on-one-page" layouts with 12 mini-calendars (§11.1). (b) Font fields (`fontFamily`, `fontWeight`, `headerFontWeight`) are removed — renderer uses a single bundled default font (§11.7).
 
 #### 4.2.1 Layout-level `calendar` (in layout JSON)
 
@@ -463,48 +467,144 @@ Client-side mirror in `fabric-renderer.ts` (new function `buildCalendarFabricGro
 
 ## 5. Implementation phases
 
-### Phase 1 — Foundation: server-side overlay rendering (v1.12, ~4 days)
+**Replan locked May 21, 2026.** Absorbs all decisions from §10 (calendar product type, single-template authoring, per-surface overrides) and §11 (16 edge-case resolutions). Dependency-ordered; critical path = ~18 days; serial single-engineer = ~25.5 days.
 
-Unblocks the calendar AND fixes the pre-existing bug where text/shape/image overlays don't make it into the printed file. Ship-on-its-own valuable.
+```
+Phase 1 (foundation)
+   │
+   ├── Phase 2 (schema) ──┐
+   └── Phase 3 (data)  ───┤
+                           ▼
+                       Phase 4 (renderer) ──┐
+                                            ├── Phase 5 (customer UI) ──┐
+                                            └── Phase 6 (ops UI)       ─┤
+                                                                        ▼
+                                                                  Phase 7 (multi-surface)
+                                                                        │
+                                                              ┌─────────┼─────────┐
+                                                          Phase 8     Phase 9   Phase 10
+                                                         (uploads)   (polish)    (QA)
+```
+
+### Phase 1 — Server-side overlay rendering (v1.12, ~4 days)
+
+**The unblocker for everything.** Fixes the pre-existing gap where text/shape/image overlays vanish from the printed file. Ships on its own; valuable independent of calendar.
 
 | Day | Deliverable |
 |---|---|
-| 1 | `services/fonts.py` — lazy-cached `PIL.ImageFont`. **Font names come from the existing `storage/fonts.json` (managed via the existing header UI) — single source of truth, no separate curated list.** Ops drops the matching `.ttf` into `backend/django/services/fonts_assets/<FontFamily>.ttf` when they add a font to the JSON. Startup check warns on any name in `fonts.json` missing a matching `.ttf`. Initial set: whatever's already in prod's `fonts.json` today. |
-| 2 | `services/overlay_renderer.py` — `render_overlays` with text + shape drawing. Smoke-test by adding a text overlay in dev and rendering at 300 DPI. |
-| 3 | Image-overlay path (reuse the chunked-upload pipeline; pull bytes from `upload_id → file_path` map). Engine wires through `editor_state.overlays`. |
-| 4 | E2E test: dashboard render with mixed text + shape + image overlays; confirm dataUrl preview ≈ rendered PNG. Doc updates. |
+| 1 | `services/fonts.py` — lazy-cached `PIL.ImageFont` factory. **Single bundled font: `Inter-Variable.ttf`** in `services/fonts_assets/` per §11.7. No font picker exposed to ops or customer. Startup check warns if the font file is missing; renderer falls back to `ImageFont.load_default()`. |
+| 2 | `services/overlay_renderer.py` — `render_overlays(canvas, overlays, canvas_w_px, canvas_h_px, uploaded_files)` for **text + shape**. Smoke-test by adding a text overlay in dev and rendering at 300 DPI. |
+| 3 | Image-overlay path (reuse the chunked-upload pipeline; pull bytes from `upload_id → file_path` map). Wire `render_overlays` into `engine._generate_for_surface` after compositing, before mask. |
+| 4 | E2E test: dashboard render with mixed text + shape + image overlays; confirm dataUrl preview ≈ rendered PNG. Doc updates in CLAUDE.md. |
 
 **Success criteria:**
-- A canvas with one text overlay ("Hello world") renders the same text in the same position in the downloaded PNG as in the preview.
+- Canvas with one text overlay ("Hello world") renders the same text in the same position in the downloaded PNG as in the preview.
 - All three existing overlay types render server-side.
-- No regression on layouts without overlays (pixel-diff < 1% on a baseline set).
+- No regression on layouts without overlays (pixel-diff < 1% on baseline set).
 
-### Phase 2 — Calendar template authoring (v1.13, ~3 days)
+### Phase 2 — Calendar product type schema (v1.13, ~3 days)
 
-| Day | Deliverable |
-|---|---|
-| 1 | Extend layout JSON schema. Server validator (`validators.py`) for the `calendar` block. `LayoutManagementView` accepts the new field round-trip. |
-| 2 | `CalendarLayoutEditor.tsx` — UI in `/editor/layouts` for positioning + styling a calendar on a layout. Save → JSON. |
-| 3 | "🗓 Calendar" badge in the customer-facing layout list (`ListLayoutsView` returns `hasCalendar` flag). |
-
-### Phase 3 — Calendar runtime (v1.13, ~5 days)
+Lands all schema + validator changes for calendar layouts. Can run in parallel with Phase 3.
 
 | Day | Deliverable |
 |---|---|
-| 1 | TypeScript types (`CalendarState`, `CalendarCellOverride`). `editor_state` round-trip. |
-| 2 | `fabric-renderer.ts` — `buildCalendarFabricGroup`. Year/month selector on the sidebar. Render basic grid (no per-cell overrides yet) in editor preview. |
-| 3 | Cell-edit panel — tap a cell, choose text / image / hide / reset. Wire to `editor_state.cells`. |
-| 4 | `services/calendar_renderer.py` — server-side grid math + cell drawing. Wire into engine. |
-| 5 | E2E: customer picks Feb 2026, overrides Feb 14 with "Valentine's Day", overrides Feb 29 with their dog's photo. Both render at 300 DPI. |
+| 1 | Layout JSON schema: add `productType: 'calendar'`, `calendars: []` (plural per §11.1), `monthRange: { count, defaultYear }`, `surfaceOverrides`, ops-default + customer-controllable fields. TypeScript types (`CalendarState`, `CalendarCellOverride`, `LayoutCalendar`, `MonthRange`). |
+| 2 | Backend validator (`api/validators.py`): enforce `monthRange.count × calendars.length === 12` (§11.1), reject banned fields in `surfaceOverrides[*]` (§11.15), range-check positions and offsets. `LayoutManagementView` accepts new fields round-trip. |
+| 3 | Multi-surface auto-derivation from single template. Resolution formula (§11.1): `totalOffset = surfaceIndex + (calendarMonthOffset ?? 0)`. Auto-set `displayLabel` to "January 2026"-style names (§11.6). |
 
-### Phase 4 — Polish + safeguards (v1.13, ~2 days)
+### Phase 3 — Style presets + holiday data (v1.13, ~1.5 days)
+
+Static config + data files. Can run in parallel with Phase 2.
 
 | Day | Deliverable |
 |---|---|
-| 1 | Cell-image auto-orientation reuses `/api/orientation/detect` (already shipped). Cell-text wrapping + truncation rules. Locale handling for weekday names (start with `en`, support `fr`/`de`/`es` via `Intl`). |
-| 2 | Performance pass: a 12-canvas calendar batch (Jan-Dec) renders in the same wall-time envelope as a 12-photo render (~1s overhead per canvas for the grid + cells, tolerable). Doc updates: CLAUDE.md "Calendar" section, PRD.md v1.13 row, .env.example if any new vars. |
+| 1 | `storage/calendar_styles/{modern-minimalist,modern-genz,weekday-highlight}.json`. `storage/calendar_palettes/genz/*.json` (4 palettes: Butter & Purple, Mint & Hot Pink, Lilac & Coral, Sky & Lemon — each with `dotCycle`). Endpoints: `GET /api/calendar-styles/`, `GET /api/calendar-styles/<name>`, `PUT /api/ops/calendar-styles/<name>`. |
+| 0.5 | Seed `storage/holidays/en-IN/{2026..2030}.json` from Nager.Date. Seed `storage/holidays/generic/{2026..2030}.json` with universal observances (§11.11). Endpoints: `GET /api/holidays/<locale>/<year>` (public, cached `public, max-age=86400, swr=604800`), `PUT /api/ops/holidays/<locale>/<year>`, `DELETE`. `scripts/refresh-holidays.py` — annual ops task (§11.9). |
 
-**Total: ~14 days** from kick-off to v1.13 ship.
+### Phase 4 — Calendar renderer (client + server, v1.13, ~5 days)
+
+Depends on Phase 1, 2, 3.
+
+| Day | Deliverable |
+|---|---|
+| 1 | `frontend/nextjs/src/lib/calendar.ts` — shared month-grid math (`date-fns` based). Implements §10.4 baseYear derivation (English vs Financial) and §11.1 resolution formula. Used by both Fabric renderer and sidebar UI. |
+| 2 | `fabric-renderer.ts` extension: `buildCalendarFabricGroup` — renders the calendar grid as a Fabric `Group` (Rect grid + Textbox dates + pill badges). Lives at `overlayZStart + overlays.length + 1`. |
+| 3 | `services/calendar_renderer.py` — server-side grid math + cell drawing. Implements user-first precedence (§11.14), hard cap of 3 entries (§11.10), out-of-month cells render date number only (§11.12), IST timezone with ISO strings throughout (§11.13). |
+| 4 | Wire `render_calendar` into `engine.py` after `render_overlays` (calendar on top, below mask). Auto-fit text via `ImageFont.getbbox()` binary search (~15 LOC per PRD §4.4). |
+| 5 | E2E: render a single canvas with date grid + holiday pills at 300 DPI. Pixel-diff between editor preview and server render ≤ 2%. |
+
+### Phase 5 — Customer-facing preview (v1.13, ~3 days)
+
+Depends on Phase 4. Can run in parallel with Phase 6.
+
+| Day | Deliverable |
+|---|---|
+| 0 | **Frontend test runner setup + TS↔Python parity** (~0.5 d, deferred from Phase 4 review). The frontend currently has no `"test"` script in package.json. Add a minimal Node-native or Vitest test runner so Phase 5 components can be tested. As the first task on the runner, wire up the 4 parity pins from `test_calendar_renderer.py` (Jan 2026 Sunday/Monday-first, Apr 2026 + Mar 2027 FY edges) so any drift between `lib/calendar.ts` and `services/calendar_renderer.py` fails CI. Extract the fixtures to a shared `storage/calendar_parity_fixtures.json` (or similar) so both sides consume the same ground truth. |
+| 1 | `CalendarProductPreview.tsx` — 12-month grid component. Theme preset segmented toggle, Gen-Z palette swatches (interlinked, only visible when theme=Gen-Z), Calendar type toggle (English / Financial). Year auto-populated from today + calendar type (read-only). |
+| 2 | Calendar type flip warning modal (§11.4). Year derivation: English → `currentYear`; Financial → `today.month >= 3 ? currentYear : currentYear − 1`. 12 month thumbnails grid; tap → opens per-month canvas editor for that surface. |
+| 3 | `CalendarEditPanel.tsx` — tap a cell → add text entries (cap=3 per §11.10), upload image override, or reset. User-first precedence in entry list (§11.14). |
+
+### Phase 6 — Ops authoring UI (v1.13, ~3 days)
+
+Depends on Phase 4. Can run in parallel with Phase 5.
+
+| Day | Deliverable |
+|---|---|
+| 1 | `CalendarLayoutEditor.tsx` shell in `/editor/layouts` — "Create new layout" → product type picker (Single / Multi-surface / **Calendar**). Calendar mode shows the template editor: drag-and-drop calendar primitive(s) + photo frames on ONE representative month. Mode toggle: multi-surface (12 × 1) vs multi-calendar-single-page (1 × 12). |
+| 2 | Per-month tile pane (12 tiles) — each tap opens per-month editor pre-loaded with merged effective config (template ⊕ `surfaceOverrides[month_ii]`). "Customized" badge per modified tile. "Reset to template" per-month action. Save → diff against template persisted to `surfaceOverrides`. |
+| 3 | "🗓 Calendar" badge in customer-facing layout list (`ListLayoutsView` returns `hasCalendar` flag). Ops-side smoke test: create a 5×7 desk calendar layout end-to-end. |
+
+### Phase 7 — Multi-surface render integration (v1.13, ~2 days)
+
+Depends on Phase 4 + 6. Pulls the whole pipeline together.
+
+| Day | Deliverable |
+|---|---|
+| 1 | `tasks.py` `render_canvas_task` handles N surfaces for calendar products. Per-surface (year, month) resolution via §11.1 formula. ZIP filename from `displayLabel` (§11.6). |
+| 2 | Multi-surface partial-failure handling (§11.5): fail-all-or-nothing with retry warning. Verify embed flow: `EmbedSession` → render → ZIP → webhook → caller pulls. |
+
+### Phase 8 — Cell-image upload pipeline (v1.13, ~1 day)
+
+Depends on Phase 5. Mostly reuse.
+
+| Day | Deliverable |
+|---|---|
+| 1 | Cell-image uploads reuse existing chunked-upload API. IDB-backed file persistence keyed by `uploadId` (B1 pattern reused). Cell-image expiry handling (§11.3): show "Image expired — re-upload" inline if GC'd. Auto-orientation already wired via v1.11 MediaPipe. |
+
+### Phase 9 — Polish, safeguards, docs (v1.13, ~2 days)
+
+Depends on Phases 5–8.
+
+| Day | Deliverable |
+|---|---|
+| 1 | Cell-text auto-fit via `getbbox()` binary search (per §4.4). Feb 29 toast for non-leap year auto-roll (§11.8). Mobile UX: cell editing as bottom-sheet on narrow viewports. S3-readiness audit (§11.17): grep for hardcoded disk paths outside `EXPORTS_DIR`. |
+| 2 | Performance pass: 12-canvas calendar batch renders within the same wall-time envelope as a 12-photo render (target: ≤ 90 s server-side). Doc updates — CLAUDE.md "Calendar" section, .env.example if any new vars, version history row for v1.12 + v1.13. |
+
+### Phase 10 — Smoke tests & QA (v1.13, ~1 day)
+
+Depends on everything.
+
+| Day | Deliverable |
+|---|---|
+| 1 | Synthetic tests: (a) ops creates desk-calendar layout → customer fills 12 months → render → ZIP → verify naming + content. (b) Multi-calendar (year-on-one-poster) variant. (c) Calendar type flip mid-edit with orphan entries. (d) Holiday auto-load for 2026 and 2030. (e) IST timezone correctness near midnight. (f) `surfaceOverrides` round-trip via PUT `/api/ops/layouts/<name>`. |
+
+---
+
+**Total effort: ~25.5 days serial single-engineer; ~18 days with two engineers in parallel (Phases 2+3 and Phases 5+6 each parallelizable).**
+
+| Phase | Effort | Depends on | v |
+|---|---|---|---|
+| 1 — Server-side overlay rendering | 4 d | — | v1.12 |
+| 2 — Calendar schema | 3 d | 1 | v1.13 |
+| 3 — Style presets + holiday data | 1.5 d | — | v1.13 |
+| 4 — Calendar renderer | 5 d | 1, 2, 3 | v1.13 |
+| 5 — Customer-facing preview | 3 d | 4 | v1.13 |
+| 6 — Ops authoring UI | 3 d | 4 | v1.13 |
+| 7 — Multi-surface render integration | 2 d | 4, 6 | v1.13 |
+| 8 — Cell-image upload pipeline | 1 d | 5 | v1.13 |
+| 9 — Polish + safeguards + docs | 2 d | 5–8 | v1.13 |
+| 10 — Smoke tests & QA | 1 d | all | v1.13 |
+| **Total** | **25.5 d** | | |
 
 ---
 
@@ -636,6 +736,363 @@ Two senior engineers in parallel can compress this to ~8 calendar days.
 4. **Phase 2 + 3 in parallel** if 2 engineers available; otherwise serial. ~8 days.
 5. **Phase 4 polish** — ~2 days.
 6. **v1.13 ship target:** ~3 working weeks from kickoff.
+
+---
+
+## 10. Calendar Product Type Architecture (May 21, 2026 amendment)
+
+This section folds in architectural decisions made after the original PRD draft. It supersedes the §4.0 table for the controls listed below.
+
+### 10.1 Calendar as a Multi-Surface Product
+
+A 12-month calendar is modelled as a regular Multi-Surface Product with a new top-level flag:
+
+```jsonc
+{ "productType": "calendar", ... }
+```
+
+The system already has full multi-surface plumbing: `LayoutEngine.generate()` dispatches per-surface, the ZIP packager bundles N files, the embed webhook fires once when all surfaces complete. Adding a `productType` tag on top is the entire architectural cost — **no changes to render, embed, or webhook code.**
+
+**Why not a separate "Calendar" product category.** A new category would fork the codebase (two render pipelines, two ops UIs, two preview UIs) and would contradict §4.1's "calendar is a positioned region inside any canvas" principle.
+
+**Why not pure Multi-Surface (no flag).** Without the flag, ops would have to manually create 12 surfaces, manually drop the calendar primitive on each, and manually keep global controls (theme, calendar type) in sync across all 12. The flag lets the system auto-generate the 12 surfaces from a single template.
+
+### 10.2 Single-template authoring + 12-surface auto-gen
+
+Ops designs ONE representative month — drops the calendar primitive in one area, photo frames in another. The layout JSON stores this single template; at customer-editor mount, the system materializes 12 surfaces from it.
+
+```jsonc
+{
+  "name": "family_desk_calendar_5x7_landscape",
+  "productType": "calendar",
+
+  "canvas": { "widthMm": 178, "heightMm": 127, "dpi": 300 },
+  "frames": [...],                       // photo frame(s) — same on every month
+
+  "calendar": {                          // calendar primitive position + style
+    "x": 0.05, "y": 0.6, "width": 0.9, "height": 0.35,
+    "themePreset":  "modern-minimalist", // ops default; customer can change
+    "calendarType": "english",           // ops default; customer can change
+    "weekStart":    "sunday",            // ops locked
+    "holidaySource": { "enabled": true, "locale": "en-IN" },
+    "style": { ... }
+  },
+
+  "monthRange": {
+    "count": 12,
+    "defaultYear": "current"             // auto-rolls; never freezes
+  }
+}
+```
+
+**Surface index → (year, month) resolution.** Customer's calendar type selection drives `startMonth`:
+
+- `english`   → `startMonth = 1`   (Jan..Dec)
+- `financial` → `startMonth = 4`   (Apr..Mar of next FY year)
+
+```
+realMonth = ((startMonth - 1 + i) % 12) + 1
+realYear  = baseYear + Math.floor((startMonth - 1 + i) / 12)
+```
+
+where `i` is the surface index (0..11) and `baseYear` is derived from `defaultYear: "current"` at mount time (see §10.4).
+
+### 10.2.1 Per-surface overrides (sparse, optional)
+
+Once the 12 surfaces are auto-materialized from the template, ops can drill into any individual month and override its *structure* (frame layout, calendar position, decorative overlays). The auto-generated template is the starting point, not a permanent constraint — months that don't need customization continue to inherit from the template; months that do hold a sparse field-level override.
+
+**Data model — one new optional field on the layout JSON:**
+
+```jsonc
+{
+  "productType": "calendar",
+  "canvas":   { ... },              // template canvas (locked across all months)
+  "frames":   [...],                // template frames
+  "calendar": { ... },              // template calendar primitive
+  "monthRange": { ... },
+
+  // NEW — sparse, keyed by surface key. Absent entries inherit from template.
+  "surfaceOverrides": {
+    "month_03": {                   // March has its own frame layout
+      "frames": [...]
+    },
+    "month_12": {                   // December adds a winter-themed overlay
+      "overlays": [
+        { "type": "image", "src": "snowflakes.png", "x": 0.8, "y": 0.05, ... }
+      ]
+    }
+  }
+}
+```
+
+**Merge semantics.** At render time, each surface's effective config:
+
+```
+effective(surface_i) = template ⊕ surfaceOverrides[month_ii]
+```
+
+Override fields **replace** the corresponding template field (not deep-merge). Untouched fields inherit. A surface with no entry in `surfaceOverrides` renders identically to the template; only the resolved `(year, month)` varies.
+
+**Allowed per-surface overrides:**
+
+| Field | Override allowed? | Notes |
+|---|---|---|
+| `frames` | ✅ | Replace the whole `frames[]` array — different layouts per month are fine |
+| `calendar.{x, y, width, height}` | ✅ | Reposition the calendar primitive (e.g. smaller cal box for Dec to make room for a decorative element) |
+| `overlays` | ✅ | Add per-month decorations (snowflakes for Dec, hearts for Feb, etc.) |
+| `canvas.{widthMm, heightMm, dpi}` | ❌ | Physical product dimensions — must match the SKU; can't differ across months |
+| `calendar.themePreset` | ❌ | Customer-controllable on preview page (§10.3) — per-surface override would create merge ambiguity |
+| `calendar.calendarType` | ❌ | Customer-controllable on preview page (§10.3) — drives `startMonth` resolution, must stay layout-global |
+| `calendar.weekStart` | ❌ | Locale convention; layout-global |
+
+**Ops UX (Phase 5):**
+
+1. Create layout → ops designs the template (calendar primitive + photo frames on ONE representative month) → save.
+2. Layout editor's "Months" pane shows 12 tiles (Jan..Dec or Apr..Mar depending on default `calendarType`).
+3. Each tile is a thumbnail preview of how that month will render — initially all identical to the template.
+4. Click any tile → opens the per-month editor pre-loaded with the merged effective config (template + that month's existing override if any).
+5. Modify frames / reposition the calendar / add overlays → save → only the *diff* against the template is persisted into `surfaceOverrides[month_ii]`.
+6. Customized tiles show a "Customized" badge so ops can see at a glance which months differ from the template.
+7. "Reset to template" button on each customized month → clears its entry from `surfaceOverrides` — the surface goes back to inheriting from the template on next save.
+
+**Customer-side impact: zero.** Customer sees the 12 materialized surfaces with all overrides already baked in. They edit at the cell-content level (entries, image overrides) — the structural layout (frames, calendar position, ops-added decorative overlays) is read-only to them, exactly as it is on today's single-month products.
+
+**Why field-level replace, not deep merge.** Deep-merging arrays (frames, overlays) is ambiguous — "merge by id"? "concatenate"? "positional"? Each interpretation leaks to UX. Field-level replace keeps the contract trivial: if ops touched `frames` on a month, that month uses the overridden `frames` entirely; otherwise inherit. Diff tracking on save uses a structural-equality check against the template.
+
+### 10.3 Ops vs Customer control split (updated)
+
+| Control | Ops sets (default) | Customer changes on preview page | Why |
+|---|---|---|---|
+| Aspect ratio | ✅ locked | — | Physical SKU dimensions |
+| Week starts | ✅ locked | — | Cultural convention per layout / locale |
+| **Theme preset** (Minimalist / Gen-Z / Weekday-Highlight) | ✅ default | ✅ | Custom-printing concept — customer picks the vibe |
+| **Gen-Z palette** (when theme=Gen-Z) | ✅ default | ✅ | Sub-option of Gen-Z theme; picker only renders when theme=Gen-Z (the two are interlinked in the UI) |
+| **Calendar type** (English / Financial) | ✅ default | ✅ | Same SKU; customer picks calendar style |
+| Year | — | **auto-populated** from today + calendar type | No manual year picker; see §10.4 |
+| **Per-cell entries** | — | ✅ | Pill badges customer types into a day's cell ("Mom's birthday" on Jan 7). Cap = 3/cell. `CalendarCellOverride` `{ type: 'text', text }` (§4.2.2) |
+| **Image overrides** | — | ✅ | Replace whole cell with an uploaded image (baby photo on the day of birth, logo on an anniversary). Date number disappears. `CalendarCellOverride` `{ type: 'image', uploadId }` (§4.2.2) |
+
+**Customer preview page (v1.13) renders:**
+- Theme preset segmented toggle (3 options)
+- Gen-Z palette swatches — visible only when theme = Gen-Z
+- Calendar type segmented toggle (English / Financial)
+- 12 month thumbnails in a grid; tap one → opens the per-month canvas editor
+- Year is shown read-only (e.g. "FY 2026–27" in financial mode)
+- Per-month editor: cell entries + image overrides as in §4.2.2
+
+### 10.4 Auto-rolling year (no manual maintenance)
+
+`defaultYear: "current"` resolves at editor mount via the active `Date()` — layout files never freeze to a specific year. A "Family Calendar" layout published in 2026 prints 2026 dates throughout 2026, then automatically prints 2027 starting Jan 1, 2027, with zero ops intervention.
+
+Combined with the customer's calendar-type choice:
+
+```js
+if (calendarType === 'english') {
+  baseYear = today.getFullYear();              // e.g. 2026
+} else {
+  // Apr–Dec ⇒ current calendar year IS the FY-start year
+  // Jan–Mar ⇒ previous calendar year is the FY-start year
+  baseYear = today.getMonth() >= 3
+           ? today.getFullYear()
+           : today.getFullYear() - 1;
+}
+```
+
+For today May 21, 2026:
+- `english` → baseYear = 2026 → grid spans Jan 2026 → Dec 2026
+- `financial` → baseYear = 2026 → grid spans Apr 2026 → Mar 2027 (FY 2026–27)
+
+### 10.5 Photobook and other future product types
+
+Multi-Surface Product is the generic substrate for any "designed once, replicated N times with per-instance data" product. **Photobook** is the immediate next candidate:
+
+```jsonc
+{
+  "productType": "photobook",
+  "pageRange": { "count": 20, "layout": "spread" }
+}
+```
+
+The pattern reuses:
+- Multi-surface render pipeline (zero changes)
+- Single-template authoring (ops designs a representative page; system materializes N)
+- Embed flow, ZIP packaging, webhook payload
+
+Differences from calendar (handled in the photobook-specific PRD):
+- N is variable (customer picks 20-page / 40-page / 60-page SKU)
+- No calendar primitive — just photo frames + optional text
+- Pages may be "spreads" (left + right bound as one design unit) vs single pages
+
+Each `productType` gets its own ops authoring UI and customer preview UI, but the storage + render layer is shared. **`productType` is the extension point for new products** — same pattern for calendar, photobook, brochure, multi-page card, etc.
+
+### 10.6 Resolved open questions (May 21, 2026)
+
+These items in §6.2 are now resolved by this amendment:
+
+| # | Question | Resolution |
+|---|---|---|
+| 10 | Multi-surface vs new product category? | **Multi-Surface + `productType` tag.** No new category. (§10.1) |
+| 11 | Customer-facing controls on preview page? | **Theme preset + Gen-Z palette + Calendar type are customer-controllable**; aspect ratio + week start ops-locked; year auto-populated. (§10.3) |
+| 12 | Same SKU for English vs Financial? | **Yes — same SKU.** Customer toggles on preview page; the 12 surfaces re-derive instantly. (§10.3) |
+| 13 | Auto-roll dates for next year? | **Yes — `defaultYear: "current"`** resolves at mount; layouts never freeze to a year. (§10.4) |
+| 14 | Mixed month ranges (quarterly, academic)? | **v1 = 12-month annual only.** Schema allows arbitrary `monthRange.count`/`startMonth` for future use. (§10.5) |
+| 15 | What about photobook later? | **Same Multi-Surface + `productType` pattern;** photobook gets its own ops/preview UIs but reuses storage + render layers. (§10.5) |
+
+### 10.7 Revised effort — superseded by the §5 replan
+
+The Phase 5 breakdown that originally lived here has been folded into the §5 master phase plan (Phases 2 + 4 + 6). The calendar product type work is now distributed across schema (Phase 2), renderer integration (Phase 4), and ops authoring UI (Phase 6) rather than treated as a single Phase 5. **Effort total stays at ~25.5 days; see §5 for the current breakdown.**
+
+---
+
+## 11. Edge cases & defaults (May 21, 2026 amendment)
+
+Consolidated edge-case resolutions agreed during PRD review. Each subsection is a locked decision; deviating requires an explicit re-review.
+
+### 11.1 Single vs multiple calendar primitives per layout
+
+`calendar` (singular) → **`calendars: []`** (plural array). A layout has one or more calendar primitives; each has its own position + optional `monthOffset`. Two configurations supported in v1:
+
+**(a) Multi-surface mode** — desk/wall calendar with 12 pages:
+- `monthRange.count = 12`, `calendars.length = 1`
+- Surface index drives the month (surface 0 = Jan, surface 1 = Feb …)
+- Each surface renders one calendar grid
+
+**(b) Multi-calendar single-surface mode** — year-on-one-poster:
+- `monthRange.count = 1`, `calendars.length = 12`
+- Each calendar entry has explicit `monthOffset: 0..11`
+- All 12 calendars render on a single page; the photo frame sits above them (or wherever ops positions it)
+
+**Resolution formula** (handles both modes uniformly):
+
+```js
+totalOffset = surfaceIndex + (calendarMonthOffset ?? 0);
+realMonth   = ((startMonth - 1 + totalOffset) % 12) + 1;
+realYear    = baseYear + Math.floor((startMonth - 1 + totalOffset) / 12);
+```
+
+**Constraint (v1):** `monthRange.count × calendars.length === 12`. Validator rejects other products. Mixed-grid (e.g. 4 surfaces × 3 calendars/surface) is mathematically valid but UI ships only the two patterns above.
+
+### 11.2 Per-month theme override — not supported in v1
+
+`themePreset`, `calendarType`, `weekStart` are layout-global. Per-surface `surfaceOverrides` cannot include these fields (validator rejects per §11.15). Ops cannot make December look thematically different from January at the layout level. **Workaround:** per-surface `overlays` for decorative accents (snowflakes for Dec, hearts for Feb). Per-surface theme is a v2 candidate.
+
+### 11.3 Cell-image expiry — re-upload on reopen
+
+Cell-image uploads follow the existing `UploadedFile` GC policy. If a customer reopens a calendar after the image was GC'd, the cell renders blank with an inline **"Image expired — please re-upload"** prompt. No automatic recovery; customer re-uploads. Calendar embed sessions are short-lived enough that this is rare in practice.
+
+### 11.4 Calendar type flip mid-edit — warning modal
+
+When customer toggles English ⇄ Financial and N existing entries fall outside the new visible 12-month range, show a confirmation modal:
+
+> Switching to **Financial year** changes the visible range. **N entries** outside the new range will be hidden but not deleted. Switch back to **English** to see them. **Continue?**
+
+Orphaned entries stay in `editor_state.cells` keyed by ISO date; they re-render if the customer flips back.
+
+### 11.5 Multi-surface partial-render failure — fail-all-or-nothing + warning
+
+If any 1 of N surfaces fails to render, the entire RenderJob fails (`status: 'failed'`). Customer-facing retry re-renders all N surfaces. Warning on retry button:
+
+> Render failed on month **March**. Retrying will re-render all 12 months from scratch.
+
+Per-surface retry is a v2 candidate.
+
+### 11.6 ZIP filename convention — from Multi-Surface Display Label
+
+ZIP entries are named from each surface's `displayLabel` field on the Multi-Surface Product schema. For calendar products, the system auto-sets `displayLabel` to the resolved month + year:
+
+```
+January 2026.png
+February 2026.png
+…
+December 2026.png
+```
+
+Non-calendar multi-surface products (cards, brochures) use the ops-set label (`Front.png`, `Back.png`). For Financial-year calendars, labels span the FY: `April 2026.png … March 2027.png`.
+
+### 11.7 Font — single bundled default, no picker
+
+The calendar renderer uses **Inter Variable** (bundled in `backend/django/services/fonts_assets/Inter-Variable.ttf`) for every text element — date numbers, weekday headers, entry pills, "+N more" indicators, all of it. **No font picker is exposed to ops or customer.** The §4.2.1 layout-JSON `style.fontFamily / fontWeight / headerFontWeight` fields are removed.
+
+Net effect: no font drift between editor preview and 300 DPI render; ops authoring is simpler; production failure mode ("font missing") eliminated.
+
+### 11.8 Leap year — Feb 29 entries on non-leap years
+
+Auto-roll to a non-leap year (2024 → 2025) hides Feb 29 entries from the visible grid. Entries survive in `editor_state.cells` keyed by their original ISO date `"2024-02-29"`. One-time toast on first non-leap render:
+
+> 1 entry on Feb 29 won't appear in 2025.
+
+Customer can roll back to a leap year to see them. (For auto-rolling layouts, this is rarely visible — only matters if customer's editing carried over from one year's draft into the next.)
+
+### 11.9 Holiday list maintenance — annual ops task
+
+`storage/holidays/<locale>/<year>.json` is seeded for `en-IN` + `generic` × 2026–2030. Each January, ops runs `scripts/refresh-holidays.py` to pull the next year from Nager.Date. Calendars rolling to a year without a holiday file render with no auto-injection (no error, customer adds their own entries). Annual maintenance task documented in CLAUDE.md ops section.
+
+### 11.10 No overflow indicator — hard cap of 3 total entries per cell
+
+There is no "+N more" badge. A cell renders at most **3 entries total** (user + auto-loaded holidays combined). Anything beyond the cap is silently suppressed by the renderer per the §11.14 user-first precedence rule.
+
+Customer experience:
+- "Add event" button disables when total visible entries = 3.
+- If 3 holidays auto-load on the same day (rare, e.g. national + regional overlap), the cell shows all 3 holidays and the customer cannot add their own entry on that day.
+- If customer fills 3 user entries on a day that also has a holiday, the holiday silently disappears from the render. Removing a user entry causes the previously-suppressed holiday to re-appear.
+
+Cell-editor panel mirrors the render (same 3 visible entries) — no separate "all entries" view.
+
+### 11.11 `generic` locale — flexible holiday source
+
+`storage/holidays/generic/<year>.json` ships with universal observances (New Year, Christmas, Easter, Valentine's Day). Ops can replace or extend via existing `PUT /api/ops/holidays/generic/<year>` endpoint. Useful for layouts that don't want India-specific holidays.
+
+### 11.12 Out-of-month cells — date number only, no entries
+
+Cells from the previous or next month (the "filler" cells at the start/end of the 6-week grid) render the date number in `style.outOfMonthColor` (greyed). **No entries, no holiday pills, no image overrides.** Cleaner visual; avoids ambiguity ("is this entry for current month or the next?").
+
+### 11.13 Server-side renderer timezone — IST-only for v1
+
+All date math uses ISO date strings (`YYYY-MM-DD`) end-to-end; the renderer never calls `datetime.now()` for date resolution. The frontend computes "today" in `Asia/Kolkata` for the auto-year derivation. **All customers in India** for v1; international expansion is a v2 concern.
+
+### 11.14 MAX_ENTRIES precedence — user-first
+
+Hard cap of `MAX_ENTRIES = 3` total per cell (user + holidays combined). When a cell has both:
+1. User entries fill slots first (up to 3)
+2. Holidays fill remaining slots
+3. Anything beyond the cap is **silently suppressed** — no "+N more" badge (§11.10)
+
+**Reverses the original §6.3 holidays-first rule.** Customer intent takes priority over auto-injection. A day with 3 user entries hides any holiday that would have auto-loaded there; removing a user entry causes the suppressed holiday to re-appear.
+
+### 11.15 Validator — reject banned fields in `surfaceOverrides`
+
+`PUT /api/ops/layouts/<name>` rejects layouts where any entry in `surfaceOverrides[*]` contains a forbidden field:
+
+```
+banned = { themePreset, calendarType, weekStart, canvas, monthRange }
+```
+
+Returns `400 Bad Request` with the specific field name. Prevents ops from bypassing §10.2.1 / §11.2 via manual JSON edits.
+
+### 11.16 Layout versioning — fresh load on every embed
+
+The Product Editor does NOT version layouts. Each embed session loads the **current** state of the layout JSON from disk. Implications:
+
+- Ops updates a template → next customer (or returning customer) sees the new template immediately.
+- A customer's existing `surfaceOverrides` continue to apply; references to deleted frame IDs silently render as empty frames.
+- No `layoutVersion` field, no cache invalidation complexity.
+
+**Acceptable for v1** because calendar layouts are short-lived (one session) and ops rarely changes published layouts mid-quarter. If layout-edit frequency rises post-launch, add `layoutVersion` + lock active orders to their submission-time version.
+
+### 11.17 v2 readiness — S3 download path
+
+The Next.js proxy buffers full ZIPs in memory before forwarding to the browser (300 MB peak for a 12-month high-res calendar). **v1 ships with the existing on-disk + streaming approach;** v2 moves rendered output to an S3 bucket and has the customer's browser fetch the ZIP via a signed S3 URL directly (skipping the Next.js proxy entirely).
+
+To make the v2 swap a contained change rather than a refactor, v1 keeps these contracts S3-friendly:
+
+| Contract | v1 behavior | v2 swap |
+|---|---|---|
+| `download_url` in webhook payload | Points at `https://product-editor.printo.in/api/jobs/<job_id>/download/` (Django streams from disk) | Points at signed S3 URL; same field name, same caller code |
+| `RenderJobDownloadView` | Streams from `EXPORTS_DIR/<job_id>/*.zip` | Issues `302 Redirect` to signed S3 URL; same endpoint, same auth check |
+| Engine output path | `EXPORTS_DIR/<job_id>/<displayLabel>.png` | `s3://printo-product-editor/jobs/<job_id>/<displayLabel>.png`; same filename convention (§11.6) |
+| Webhook payload schema | Unchanged | Unchanged — callers see no difference |
+
+**v1 implementation rule:** all file output uses the existing `EXPORTS_DIR` abstraction (already centralized in `engine.py` + `tasks.py`). No new code should hardcode disk paths outside that abstraction.
 
 ---
 

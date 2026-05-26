@@ -1,0 +1,11 @@
+{
+  "name": "sky",
+  "label": "Sky & Lemon",
+  "bg": "#F0F9FF",
+  "month": "#0284C7",
+  "weekday": "#0284C7",
+  "grid": "#BAE6FD",
+  "date": "#0C4A6E",
+  "pill": "#FEF08A",
+  "dotCycle": ["#0284C7", "#EAB308", "#EC4899"]
+}

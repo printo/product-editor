@@ -1,0 +1,81 @@
+{
+  "_meta": {
+    "purpose": "Shared ground truth for buildMonthGrid parity between frontend/nextjs/src/lib/calendar.ts and backend/django/services/calendar_renderer.py. Both sides MUST produce identical grid outputs for the inputs below — if either drifts, the editor preview diverges from the 300 DPI print. PRD §5 Phase 5 day-0 deliverable.",
+    "loaded_by": {
+      "python": "backend/django/services/tests/test_calendar_renderer.py",
+      "typescript": "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts"
+    }
+  },
+  "cases": [
+    {
+      "name": "january_2026_sunday_first",
+      "year": 2026,
+      "month": 1,
+      "weekStart": "sunday",
+      "expectedGridSize": 35,
+      "firstRowIso": [
+        "2025-12-28",
+        "2025-12-29",
+        "2025-12-30",
+        "2025-12-31",
+        "2026-01-01",
+        "2026-01-02",
+        "2026-01-03"
+      ],
+      "lastInMonthIso": "2026-01-31",
+      "lastInMonthDayOfWeek": 6
+    },
+    {
+      "name": "january_2026_monday_first",
+      "year": 2026,
+      "month": 1,
+      "weekStart": "monday",
+      "firstRowIso": [
+        "2025-12-29",
+        "2025-12-30",
+        "2025-12-31",
+        "2026-01-01",
+        "2026-01-02",
+        "2026-01-03",
+        "2026-01-04"
+      ]
+    },
+    {
+      "name": "april_2026_financial_year_start",
+      "year": 2026,
+      "month": 4,
+      "weekStart": "sunday",
+      "expectedFirstInMonthIso": "2026-04-01",
+      "expectedFirstInMonthDayOfWeek": 3
+    },
+    {
+      "name": "march_2027_financial_year_end",
+      "year": 2027,
+      "month": 3,
+      "weekStart": "sunday",
+      "expectedFirstInMonthIso": "2027-03-01",
+      "expectedFirstInMonthDayOfWeek": 1
+    },
+    {
+      "name": "february_2024_leap_year",
+      "year": 2024,
+      "month": 2,
+      "weekStart": "sunday",
+      "expectedInMonthDayCount": 29
+    },
+    {
+      "name": "february_2025_non_leap_year",
+      "year": 2025,
+      "month": 2,
+      "weekStart": "sunday",
+      "expectedInMonthDayCount": 28
+    },
+    {
+      "name": "may_2026_six_row_month",
+      "year": 2026,
+      "month": 5,
+      "weekStart": "sunday",
+      "expectedGridSize": 42
+    }
+  ]
+}

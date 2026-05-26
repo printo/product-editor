@@ -4,7 +4,7 @@ from .views import (
     LayoutManagementView, ExternalLayoutDetailView, MaskDownloadView,
     EmbedSessionView, EmbedSessionValidateView, FontsView,
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
-    CanvasStateView, SKULayoutView,
+    CanvasStateView, SKULayoutView, CalendarStylesView, HolidaysView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
     OrientationDetectView,
     EditorRenderView, EditorInitView,
@@ -57,4 +57,12 @@ urlpatterns = [
     # SKU → layout resolution (B3 — auto-mapping for embed callers)
     path("sku-layouts/", SKULayoutView.as_view(), name="sku-layouts-list"),
     path("sku-layouts/<str:sku>/", SKULayoutView.as_view(), name="sku-layouts-detail"),
+
+    # Calendar style presets (PRD §10.3 + §6.3 + Phase 3)
+    path("calendar-styles/", CalendarStylesView.as_view(), name="calendar-styles-list"),
+    path("calendar-styles/<str:name>", CalendarStylesView.as_view(), name="calendar-styles-detail"),
+
+    # Holiday data (PRD §11.9 / §11.11 / Phase 3)
+    path("holidays/<str:locale>/<str:year>", HolidaysView.as_view(), name="holidays-detail"),
+    path("ops/holidays/<str:locale>/<str:year>", HolidaysView.as_view(), name="holidays-ops-detail"),
 ]

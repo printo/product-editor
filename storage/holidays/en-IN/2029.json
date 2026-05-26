@@ -1,0 +1,17 @@
+{
+  "year": 2029,
+  "locale": "en-IN",
+  "_meta": {
+    "source": "Fixed-date holidays only — run scripts/refresh-holidays.py to populate variable-date ones.",
+    "version": 1,
+    "lastRefreshed": null
+  },
+  "events": [
+    { "date": "2029-01-01", "name": "New Year", "type": "observance", "color": "#3B82F6" },
+    { "date": "2029-01-26", "name": "Republic Day", "type": "national", "color": "#DC2626" },
+    { "date": "2029-05-01", "name": "Labour Day", "type": "observance", "color": "#0EA5E9" },
+    { "date": "2029-08-15", "name": "Independence Day", "type": "national", "color": "#DC2626" },
+    { "date": "2029-10-02", "name": "Gandhi Jayanti", "type": "national", "color": "#10B981" },
+    { "date": "2029-12-25", "name": "Christmas", "type": "religious", "color": "#10B981" }
+  ]
+}

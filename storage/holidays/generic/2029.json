@@ -1,0 +1,16 @@
+{
+  "year": 2029,
+  "locale": "generic",
+  "_meta": {
+    "source": "Fixed-date universal observances only — variable-date entries (Easter, Mother's Day, Father's Day) need scripts/refresh-holidays.py.",
+    "version": 1,
+    "lastRefreshed": null
+  },
+  "events": [
+    { "date": "2029-01-01", "name": "New Year", "type": "observance", "color": "#3B82F6" },
+    { "date": "2029-02-14", "name": "Valentine's Day", "type": "observance", "color": "#EC4899" },
+    { "date": "2029-10-31", "name": "Halloween", "type": "observance", "color": "#F97316" },
+    { "date": "2029-12-25", "name": "Christmas", "type": "religious", "color": "#10B981" },
+    { "date": "2029-12-31", "name": "New Year's Eve", "type": "observance", "color": "#3B82F6" }
+  ]
+}

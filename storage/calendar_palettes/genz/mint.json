@@ -1,0 +1,11 @@
+{
+  "name": "mint",
+  "label": "Mint & Hot Pink",
+  "bg": "#ECFDF5",
+  "month": "#DB2777",
+  "weekday": "#DB2777",
+  "grid": "#FCE7F3",
+  "date": "#0F172A",
+  "pill": "#FEF3C7",
+  "dotCycle": ["#DB2777", "#F59E0B", "#10B981"]
+}

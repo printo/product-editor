@@ -1,0 +1,11 @@
+{
+  "name": "lilac",
+  "label": "Lilac & Coral",
+  "bg": "#FAF5FF",
+  "month": "#F97316",
+  "weekday": "#F97316",
+  "grid": "#E9D5FF",
+  "date": "#1E1B4B",
+  "pill": "#FED7AA",
+  "dotCycle": ["#F97316", "#A855F7", "#0EA5E9"]
+}

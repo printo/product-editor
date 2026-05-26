@@ -1,0 +1,11 @@
+{
+  "name": "modern-genz",
+  "label": "Modern · Gen-Z",
+  "description": "Parameterised by 4 coordinated palettes. Customer picks ONE palette swatch — that's the only Gen-Z customisation control. The palette sets all 6 color roles together (PRD §10.3 + §6.3) plus a 3-slot dotCycle for user-entry rotation. New palettes ship as additional files under storage/calendar_palettes/genz/ — no code change.",
+  "defaultPalette": "butter",
+  "palettesDir": "calendar_palettes/genz",
+  "_meta": {
+    "version": 1,
+    "rationale": "Per PRD §4.0 (minimal customer controls), Gen-Z customers see one segmented palette picker, not six separate colour pickers. Coordinated palettes prevent the 'ugly mix' failure mode that an open-ended picker would invite."
+  }
+}

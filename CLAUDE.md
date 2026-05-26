@@ -89,10 +89,13 @@ All exports go through one unified server-side pipeline. The previous client-sid
 
 ### Backend Structure
 - `api/views.py` — `GenerateLayoutView`, `RenderStatusView`, `EditorRenderView` (chunked-upload render submission), `ChunkedUploadInitView/ChunkView/CompleteView`, `EmbedSessionView/ValidateView`, `RenderJobDownloadView`, `HealthView` (`GET /api/health`, public, used by Docker healthchecks), `SKULayoutView` (`GET/PUT /api/sku-layouts/[<sku>/]` — see Storage Files below)
-- `api/tasks.py` — `render_canvas_task` (calls `_extract_frame_transforms` → `LayoutEngine`), `notify_caller_webhook_task` (only dispatched when `canvas.callback_url` is set; signs payload with HMAC-SHA256 of api_key), `garbage_collector_task` (has `soft_time_limit=3300` / `time_limit=3600`)
+- `api/tasks.py` — `render_canvas_task` (calls `_extract_frame_transforms` + `_extract_overlays_per_canvas` + `_build_uploaded_files_map` → `LayoutEngine`), `notify_caller_webhook_task` (only dispatched when `canvas.callback_url` is set; signs payload with HMAC-SHA256 of api_key), `garbage_collector_task` (has `soft_time_limit=3300` / `time_limit=3600`)
 - `api/models.py` — `APIKey`, `EmbedSession` (+ `order_id` + `callback_url` fields), `CanvasData` (+ `editor_state` JSON, + `callback_url` propagated from EmbedSession), `RenderJob`, `UploadedFile` (+ `upload_session_id`), `ExportedResult`
 - `api/validators.py` — `MAX_FILE_SIZE_MB` reads from `settings.MAX_UPLOAD_FILE_SIZE_MB` (single source via env)
-- `layout_engine/engine.py` — Pillow-based high-res PNG/PDF renderer at 300 DPI; `_smart_downscale()` pre-shrinks source images to 2× frame target (BOX resample); 90/180/270° rotation fast-path via `Image.transpose`; per-frame pan/zoom/rotation from `frame_transforms`; explicit `Image.close()` + `gc.collect()` between canvases. CMYK/soft-proof pipeline removed in v1.8.
+- `layout_engine/engine.py` — Pillow-based high-res PNG/PDF renderer at 300 DPI; `_smart_downscale()` pre-shrinks source images to 2× frame target (BOX resample); 90/180/270° rotation fast-path via `Image.transpose`; per-frame pan/zoom/rotation from `frame_transforms`; explicit `Image.close()` + `gc.collect()` between canvases. CMYK/soft-proof pipeline removed in v1.8. **As of CALENDAR_FEATURE_PRD Phase 1**: `_composite_canvas` now also accepts `overlays` + `uploaded_files` and invokes `services.overlay_renderer.render_overlays` after frame compositing and before the layout mask, so text/shape/image overlays appear in the 300 DPI output (previously preview-only).
+- `services/overlay_renderer.py` — `render_overlays(canvas, overlays, canvas_w_px, canvas_h_px, uploaded_files)` draws text / shape / image overlays via Pillow `ImageDraw`. Single bundled font (Inter Variable) per PRD §11.7 — no font picker. Phase 1 deliverable; foundation for Phase 4 (calendar renderer).
+- `services/fonts.py` — `get_font(size_px, weight)` returns a cached `PIL.ImageFont` for the bundled `services/fonts_assets/Inter-Variable.ttf`. Uses the variable axis to serve any weight from a single 859 KB .ttf. Falls back to PIL default on missing-font (logged once). Boot-time `startup_check()` warns if the font is absent.
+- `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. README in the same dir documents the install convention.
 - `product_editor/celery.py` — Queue routing (priority vs. standard), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
 - `product_editor/settings.py` — `csp.middleware.CSPMiddleware` is wired in after `SecurityMiddleware`; CSP starts in report-only mode via `CSP_REPORT_ONLY`
 - **Backend Dockerfile** is multi-stage — builder installs `build-essential` + `libpq-dev` to compile wheels; runner ships only `libpq5` + the venv. Drops ~250 MB from the final image.
@@ -364,6 +367,76 @@ Some configuration lives as JSON on disk (under `STORAGE_ROOT`, default `./stora
 | `storage/layouts/*.json` | per-layout layout def | `GET /api/layouts`, `GET/PUT/DELETE /api/ops/layouts/<name>` | ops team |
 
 For SKU mapping: PUT validates that every `layout_name` exists on disk before persisting, so the file never holds a broken pointer. GET resolution returns 410 Gone if the disk file has since been deleted.
+
+## Calendar product type (v1.13)
+
+A calendar layout is a regular multi-surface layout PLUS `productType: "calendar"` and a `monthRange + calendars[] + calendar` style block. The ops authoring UI is at `/editor/layouts/calendar/[name]`; the customer-facing preview lives at `/dev/calendar-preview` until the embed integration replaces it.
+
+### Render path
+
+1. `LayoutEngine.generate()` detects `productType === "calendar"` and calls `services/calendar_layout.py::materialize_surfaces()` to expand the single template into 12 per-month surface dicts (auto-derived `displayLabel`, `year`, `month`, `holidays`, `activePalette`).
+2. **Poster aggregation** (P7.3): when `monthRange.count == 1`, the 12 surfaces are merged into ONE aggregate surface before rendering so all 12 calendars composite onto a single physical page.
+3. Each surface routes through `_generate_for_surface` → `_composite_canvas` → `services/calendar_renderer.py::render_calendar()`.
+4. Output filenames come from `displayLabel` (P7.1, PRD §11.6): `January 2026.png`, `February 2026.png`, …, `December 2026.png`. Non-calendar multi-surface products also use their ops-set displayLabel when present.
+5. Partial-failure handling (P7.2, PRD §11.5): if any 1 of N surfaces fails, partial outputs are cleaned up from disk and a tagged `RuntimeError("Render failed on March 2026 (surface 3 of 12): …")` is raised. Customer-facing retry re-renders all N.
+
+### Calendar-specific storage
+
+All under `STORAGE_ROOT` (env-driven). See [`services/CALENDAR_S3_READINESS.md`](backend/django/services/CALENDAR_S3_READINESS.md) for the full audit.
+
+| Path | Owner | Purpose |
+|---|---|---|
+| `storage/holidays/<locale>/<year>.json` | `services/calendar_holidays.py` | Auto-loaded holidays. Locales seeded: `en-IN`, `generic`. Years seeded: 2026–2030. Refresh script: `scripts/refresh-holidays.py` (annual ops task). |
+| `storage/calendar_palettes/genz/<name>.json` | `services/calendar_layout.py::_resolve_genz_palette` | Gen-Z palette swatches. Customer picks ONE per render. |
+| `storage/calendar_styles/<name>.json` | `api/views.py::CalendarStylesView` | Theme preset metadata (modern-minimalist / modern-genz / weekday-highlight). |
+
+### Calendar-feature components
+
+- **Server**:
+  - `backend/django/services/calendar_layout.py` — `materialize_surfaces()` expands one template into 12 surfaces; honours `surfaceOverrides` per PRD §10.2.1.
+  - `backend/django/services/calendar_renderer.py` — `render_calendar()` draws the grid + pills + holidays; Pillow `ImageFont` binary-search auto-fit for pill text per §4.4.
+  - `backend/django/services/calendar_holidays.py` — locale/year file loader.
+  - `backend/django/api/validators.py::validate_calendar_layout` — server-side schema validation. Mirrors `validateDraft` in `CalendarLayoutEditor.tsx`.
+- **Client**:
+  - `frontend/nextjs/src/lib/calendar.ts` — shared month-grid math (TypeScript twin of the Python renderer's grid logic, with parity tests).
+  - `frontend/nextjs/src/lib/fabric-calendar.ts` — `buildCalendarFabricGroup()` for in-editor preview.
+  - `frontend/nextjs/src/lib/calendar-cell-upload.ts` — cell-image upload orchestrator (chunked upload + IDB persist + optional auto-orient, Phase 8).
+  - `frontend/nextjs/src/components/CalendarProductPreview.tsx` — customer-facing 12-tile grid with theme/palette/calendarType controls.
+  - `frontend/nextjs/src/components/CalendarEditPanel.tsx` — per-cell editor (text/image/hide overrides). Renders as side rail on `md+`, bottom sheet on narrow viewports (P9.3).
+  - `frontend/nextjs/src/components/CalendarLayoutEditor.tsx` — ops authoring UI with per-month override modal.
+
+### Editor → ZIP delivery (calendar variant)
+
+Identical to the standard editor flow except:
+- `editor_state.cells_per_canvas` is a list of `{ iso_date: [CellOverride] }` maps (one per surface) instead of frame transforms.
+- `tasks.py::_extract_calendar_state()` pulls customer-side calendar choices (themePreset / calendarType / palette) and passes them to engine.generate as `calendar_state`.
+- ZIP filenames embed `displayLabel` (above).
+
+### Customer-facing fail-safes (PRD §11)
+
+- **Feb 29 toast** (P9.2, §11.8): when the customer has Feb 29 entries but the resolved render year is non-leap, the preview shows a dismissible amber banner "X entries on Feb 29 won't appear in YYYY." The entries are NOT deleted — they reappear if the customer flips back to a leap year.
+- **Image expired prompt** (P8.2, §11.3): when the server can't resolve an `image` cell-override's uploadId (GC'd, session lapsed, manually purged), the cell editor surfaces an amber "Image expired — please re-upload" banner with Re-upload + Clear actions.
+- **Calendar-type flip warning** (P5.2, §11.4): switching English ↔ Financial pops a modal if any existing entries would orphan under the new range. Orphan count is computed by `countOrphanedEntries`.
+- **Partial render-failure cleanup** (P7.2, §11.5): see Render path above.
+
+### Embed proxy allowlist for calendar
+
+`frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts` allowlists these calendar-related paths so the customer-facing editor can load palettes/holidays from inside the iframe:
+
+```
+holidays
+calendar-styles
+```
+
+(In addition to `layouts`, `editor/init`, `editor/render`, `upload`, `render-status`, `jobs`, `canvas-state`, `fonts`, `sku-layouts`, `embed/session` — the universal set.)
+
+### Smoke test
+
+`scripts/smoke-test-calendar.sh` — covers list endpoint, layout schema, style presets, palettes, holidays, SKU mapping, validator gate, and (with `EMBED_BASE` set) the embed-proxy allowlist. 19 checks; runs in ~3 s against the local stack. Negative test confirms `/ops/layouts` is still rejected with 403 through the proxy.
+
+### Performance
+
+12-surface multi-surface calendar render: **~1.8 s** wall time on the dev Docker container (P9.5 baseline, May 24 2026). Target was ≤ 90 s; current margin is 88 s. Per-surface mean ~150 ms; RSS delta < 1 MB. Re-run `/tmp/p9-perf-bench.py` (Phase 9 artifact) to check for regressions when the engine changes.
 
 ## Auto-orientation (server-side MediaPipe Pose)
 

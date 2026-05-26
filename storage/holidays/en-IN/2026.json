@@ -1,0 +1,21 @@
+{
+  "year": 2026,
+  "locale": "en-IN",
+  "_meta": {
+    "source": "Hand-curated seed (matches the visual mockup); refresh via scripts/refresh-holidays.py to sync with Nager.Date.",
+    "version": 1,
+    "lastRefreshed": null
+  },
+  "events": [
+    { "date": "2026-01-01", "name": "New Year", "type": "observance", "color": "#3B82F6" },
+    { "date": "2026-01-14", "name": "Pongal", "type": "festival", "color": "#F59E0B" },
+    { "date": "2026-01-26", "name": "Republic Day", "type": "national", "color": "#DC2626" },
+    { "date": "2026-03-04", "name": "Holi", "type": "festival", "color": "#EC4899" },
+    { "date": "2026-04-03", "name": "Good Friday", "type": "religious", "color": "#7C3AED" },
+    { "date": "2026-05-01", "name": "Labour Day", "type": "observance", "color": "#0EA5E9" },
+    { "date": "2026-08-15", "name": "Independence Day", "type": "national", "color": "#DC2626" },
+    { "date": "2026-10-02", "name": "Gandhi Jayanti", "type": "national", "color": "#10B981" },
+    { "date": "2026-11-04", "name": "Diwali", "type": "festival", "color": "#F59E0B" },
+    { "date": "2026-12-25", "name": "Christmas", "type": "religious", "color": "#10B981" }
+  ]
+}

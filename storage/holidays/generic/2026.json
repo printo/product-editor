@@ -1,0 +1,19 @@
+{
+  "year": 2026,
+  "locale": "generic",
+  "_meta": {
+    "source": "Universal observances opt-in via calendar.holidaySource.locale = 'generic'. Ops can replace via PUT /api/ops/holidays/generic/2026.",
+    "version": 1,
+    "lastRefreshed": null
+  },
+  "events": [
+    { "date": "2026-01-01", "name": "New Year", "type": "observance", "color": "#3B82F6" },
+    { "date": "2026-02-14", "name": "Valentine's Day", "type": "observance", "color": "#EC4899" },
+    { "date": "2026-04-05", "name": "Easter Sunday", "type": "religious", "color": "#7C3AED" },
+    { "date": "2026-05-10", "name": "Mother's Day", "type": "observance", "color": "#EC4899" },
+    { "date": "2026-06-21", "name": "Father's Day", "type": "observance", "color": "#0EA5E9" },
+    { "date": "2026-10-31", "name": "Halloween", "type": "observance", "color": "#F97316" },
+    { "date": "2026-12-25", "name": "Christmas", "type": "religious", "color": "#10B981" },
+    { "date": "2026-12-31", "name": "New Year's Eve", "type": "observance", "color": "#3B82F6" }
+  ]
+}
