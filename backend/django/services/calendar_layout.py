@@ -327,17 +327,19 @@ def _resolve_genz_palette(style: dict) -> Optional[dict]:
         logger.warning("Bogus genz palette name %r — falling back to defaults", name)
         return None
 
-    path = os.path.join(
-        settings.STORAGE_ROOT, "calendar_palettes", "genz", f"{name}.json"
-    )
-    if not os.path.exists(path):
+    # S3-readiness (PRD §11.17 / audit fix #10): use Django's default_storage
+    # instead of raw open() so the v2 swap to S3 is a contained config change
+    # rather than a code change. The storage path is relative to STORAGE_ROOT.
+    storage_path = os.path.join("calendar_palettes", "genz", f"{name}.json")
+    from django.core.files.storage import default_storage
+    if not default_storage.exists(storage_path):
         logger.warning(
-            "Gen-Z palette file missing: %s — renderer will use theme defaults", path,
+            "Gen-Z palette file missing: %s — renderer will use theme defaults", storage_path,
         )
         return None
     try:
-        with open(path, "r") as f:
+        with default_storage.open(storage_path, "r") as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to load palette %s: %s", path, exc)
+        logger.warning("Failed to load palette %s: %s", storage_path, exc)
         return None

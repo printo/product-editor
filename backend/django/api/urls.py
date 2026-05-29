@@ -59,8 +59,14 @@ urlpatterns = [
     path("sku-layouts/<str:sku>/", SKULayoutView.as_view(), name="sku-layouts-detail"),
 
     # Calendar style presets (PRD §10.3 + §6.3 + Phase 3)
+    # Public GETs — customer preview page fetches these through the embed proxy.
     path("calendar-styles/", CalendarStylesView.as_view(), name="calendar-styles-list"),
     path("calendar-styles/<str:name>", CalendarStylesView.as_view(), name="calendar-styles-detail"),
+    # Ops mutation path — PUT /api/ops/calendar-styles/<name> (audit fix #5).
+    # Mirrors the /api/ops/layouts/<name> and /api/ops/holidays/... convention
+    # so the embed proxy allowlist (which allows "calendar-styles" for GETs)
+    # never forwards a mutation without an explicit ops-path allow entry.
+    path("ops/calendar-styles/<str:name>", CalendarStylesView.as_view(), name="ops-calendar-styles-detail"),
 
     # Holiday data (PRD §11.9 / §11.11 / Phase 3)
     path("holidays/<str:locale>/<str:year>", HolidaysView.as_view(), name="holidays-detail"),

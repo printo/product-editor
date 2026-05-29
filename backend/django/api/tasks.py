@@ -217,6 +217,12 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
 
     logger.info("Starting render job %s for canvas %s", job_id, canvas_data_id)
 
+    # Initialise job_exports_dir to None so the except handler below can
+    # safely reference it even when the try block fails before line 226.
+    # (CanvasData.objects.get / get_storage can raise before the variable
+    # is assigned, which would cause a NameError in the cleanup logic.)
+    job_exports_dir = None
+
     try:
         canvas = CanvasData.objects.get(id=canvas_data_id)
         storage = get_storage()
@@ -328,6 +334,20 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
 
         job.retry_count = retry_number + 1
         job.error_message = str(exc)
+
+        # PRD §11.5 — fail-all-or-nothing cleanup: remove any partial output
+        # files written by this attempt before retrying or giving up, so a
+        # retry starts from a clean slate and the customer never downloads a
+        # partial ZIP. engine.py's internal _cleanup_partial_outputs() handles
+        # within-generate() failures; this covers the case where generate()
+        # raises all the way out to the task level.
+        import shutil as _shutil
+        try:
+            if job_exports_dir and os.path.isdir(job_exports_dir):
+                _shutil.rmtree(job_exports_dir, ignore_errors=True)
+                logger.info("Cleaned up partial outputs at %s after task failure", job_exports_dir)
+        except Exception as cleanup_exc:
+            logger.warning("Could not clean partial outputs at %s: %s", job_exports_dir, cleanup_exc)
 
         if exhausted:
             job.status = 'failed'

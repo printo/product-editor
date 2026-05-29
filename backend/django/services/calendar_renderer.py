@@ -58,16 +58,20 @@ _IST = ZoneInfo("Asia/Kolkata")
 # Theme color defaults — used when the layout's calendar.style block omits a role.
 # These intentionally match the storage/calendar_styles/modern-minimalist.json.
 _DEFAULT_COLORS = {
-    "background":       "#FFFFFF",
-    "monthText":        "#18181B",
-    "weekdayText":      "#71717A",
-    "weekdaySunday":    "#71717A",
-    "dateNumber":       "#18181B",
-    "dateNumberSunday": "#18181B",
-    "outOfMonth":       "#CCCCCC",
-    "grid":             "#E5E5E5",
-    "pillBackground":   "#F7F7F7",
-    "pillText":         "#1A1A1A",
+    "background":           "#FFFFFF",
+    "monthText":            "#18181B",
+    "weekdayText":          "#71717A",
+    "weekdaySunday":        "#71717A",
+    "dateNumber":           "#18181B",
+    "dateNumberSunday":     "#18181B",
+    "outOfMonth":           "#CCCCCC",
+    "grid":                 "#E5E5E5",
+    "pillBackground":       "#F7F7F7",
+    "pillText":             "#1A1A1A",
+    # weekday-highlight theme — Sunday cell background fills (§11 audit fix).
+    # Default to transparent (no fill) so minimalist + gen-z themes are unaffected.
+    "sundayCellFill":       "",
+    "outOfMonthSundayFill": "",
 }
 
 
@@ -204,14 +208,26 @@ def render_calendar(
         cx1 = int((col + 1) * cell_w)
         cy1 = int(grid_top + (row + 1) * cell_h)
 
+        is_sunday = gc["dayOfWeek"] == 0
+        in_month = gc["inMonth"]
+
+        # ── Sunday cell background fill (weekday-highlight theme, §11 audit fix) ──
+        # MUST be drawn BEFORE grid lines so the fill doesn't overwrite them.
+        # fabric-calendar.ts applies sundayCellFill / outOfMonthSundayFill as a
+        # background rect in the editor preview. Mirror that here so the printed
+        # 300 DPI output matches the preview (parity bug found in audit).
+        # An empty string means "no fill" — minimalist + gen-z themes default to "".
+        if is_sunday:
+            fill_hex = colors["sundayCellFill"] if in_month else colors["outOfMonthSundayFill"]
+            if fill_hex:
+                draw.rectangle([cx0, cy0, cx1, cy1], fill=_hex_to_rgba(fill_hex))
+
         # Grid lines (right + bottom of each cell — top + left covered by neighbour).
+        # Drawn AFTER the Sunday fill so grid lines are visible on top of fills.
         if col < 6:
             draw.line([(cx1, cy0), (cx1, cy1)], fill=_hex_to_rgba(colors["grid"]), width=1)
         if row < rows - 1:
             draw.line([(cx0, cy1), (cx1, cy1)], fill=_hex_to_rgba(colors["grid"]), width=1)
-
-        is_sunday = gc["dayOfWeek"] == 0
-        in_month = gc["inMonth"]
 
         # ── Customer override check FIRST ─────────────────────────────────
         # Image / hide overrides blank the cell entirely (§4.2.2). Checking
@@ -356,6 +372,7 @@ def _resolve_colors(style: dict, palette: Optional[dict]) -> dict:
     if isinstance(style_colors, dict):
         out.update({k: v for k, v in style_colors.items() if isinstance(v, str)})
     # 2) Active Gen-Z palette maps swatch roles → our color roles.
+    #    Gen-Z uses a solid bg so no per-cell Sunday fill is needed.
     if palette:
         if "bg" in palette:
             out["background"] = palette["bg"]
@@ -370,6 +387,9 @@ def _resolve_colors(style: dict, palette: Optional[dict]) -> dict:
             out["dateNumberSunday"] = palette["date"]
         if "pill" in palette:
             out["pillBackground"] = palette["pill"]
+        # Gen-Z has no per-cell Sunday background fill — clear any theme value.
+        out["sundayCellFill"] = ""
+        out["outOfMonthSundayFill"] = ""
     return out
 
 
@@ -547,7 +567,13 @@ def _autofit_text(text: str, font, max_w: int):
         return text, chosen_font
 
     truncated = text
-    while truncated and chosen_font.getbbox(truncated + "…")[2] > max_w:
+    while truncated:
+        b = chosen_font.getbbox(truncated + "…")
+        # Subtract left bearing ([0]) so the comparison is consistent with the
+        # binary-search path above. Without this, truncation decisions are off
+        # by the left-bearing pixels (audit finding #18).
+        if b[2] - b[0] <= max_w:
+            break
         truncated = truncated[:-1]
     return truncated + "…", chosen_font
 

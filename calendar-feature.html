@@ -548,6 +548,202 @@
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     AUDIT FINDINGS — PRD Compliance Report (May 29, 2026)
+     31-agent deep audit of all 10 phases + 17 §11 edge cases against the
+     actual codebase. Use this section as a reference for the fix session.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="legend" id="audit-findings" style="margin-top:32px; border-left: 4px solid #4F46E5;">
+  <h3 style="color:#4F46E5; font-size:16px; margin-bottom:6px;">
+    Audit Findings — PRD Compliance Report
+    <span style="font-size:11px; font-weight:400; color:var(--muted); margin-left:8px;">May 29, 2026 · 31-agent audit · 10 phases + 17 edge cases</span>
+  </h3>
+
+  <!-- Executive Summary -->
+  <div style="background:#EEF2FF; border-radius:8px; padding:14px 16px; margin-bottom:20px;">
+    <b style="font-size:13px;">Executive Summary</b>
+    <ul style="margin-top:8px; padding-left:18px;">
+      <li style="font-size:13px; margin-bottom:4px; color:var(--text);">Core backend infra (Phases 1–4, 8) is solid — font caching, overlay pipeline, calendar grid math, cell-image uploads all correct.</li>
+      <li style="font-size:13px; margin-bottom:4px; color:#DC2626;"><b>3 hard FAILs in editor integration:</b> <code>CalendarProductPreview</code> + <code>CalendarEditPanel</code> not mounted in <code>page.tsx</code> (no customer entry point); <code>hasCalendar</code> badge absent from layout list; <code>ListLayoutsView</code> missing the flag.</li>
+      <li style="font-size:13px; margin-bottom:4px; color:#DC2626;"><b>1 print/preview parity bug:</b> <code>weekday-highlight</code> Sunday cell background fill (<code>#FEE2E2</code>) drawn in editor preview by <code>fabric-calendar.ts</code> but never rendered by <code>calendar_renderer.py</code> — printed output diverges.</li>
+      <li style="font-size:13px; margin-bottom:4px; color:#DC2626;"><b>2 missing test deliverables:</b> <code>test_engine_filenames.py</code> and <code>scripts/smoke-test-calendar.sh</code> do not exist.</li>
+      <li style="font-size:13px; color:#D97706;"><b>14 partial implementations</b> including URL path mismatch, tasks.py cleanup gap, missing product-type picker, and a left-bearing bug in text auto-fit.</li>
+    </ul>
+  </div>
+
+  <!-- Hard Failures -->
+  <h3 style="font-size:14px; color:#DC2626; margin-bottom:10px;">❌ Hard Failures (8)</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:20px;">
+    <thead>
+      <tr style="background:#FEE2E2;">
+        <th style="text-align:left; padding:7px 10px; border-bottom:1px solid #FECACA; width:3%">#</th>
+        <th style="text-align:left; padding:7px 10px; border-bottom:1px solid #FECACA; width:50%">Issue</th>
+        <th style="text-align:left; padding:7px 10px; border-bottom:1px solid #FECACA;">File / Location</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">1</td>
+        <td style="padding:8px 10px;"><b><code>CalendarProductPreview</code> + <code>CalendarEditPanel</code> never mounted in <code>page.tsx</code></b> — calendar product has zero customer-facing entry point in the editor</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#DC2626;">src/app/editor/layout/[name]/page.tsx</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">2</td>
+        <td style="padding:8px 10px;"><b><code>hasCalendar</code> flag + "🗓 Calendar" badge absent from <code>ListLayoutsView</code></b> — ops cannot distinguish calendar layouts from regular layouts in the list view</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#DC2626;">api/views.py</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">3</td>
+        <td style="padding:8px 10px;"><b><code>weekday-highlight</code> Sunday cell fill (#FEE2E2) not drawn by Python renderer</b> — <code>sundayCellFill</code> / <code>outOfMonthSundayFill</code> read by <code>fabric-calendar.ts</code> for preview but <code>_resolve_colors()</code> has no mapping; printed output diverges from editor preview</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#DC2626;">services/calendar_renderer.py — _resolve_colors(), cell drawing loop</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">4</td>
+        <td style="padding:8px 10px;"><b><code>test_engine_filenames.py</code> does not exist</b> — no dedicated test for <code>displayLabel</code> filename convention / ZIP filename behavior (§11.6)</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#DC2626;">backend/django/tests/test_engine_filenames.py (missing)</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">5</td>
+        <td style="padding:8px 10px;"><b><code>scripts/smoke-test-calendar.sh</code> does not exist</b> — the 19-check end-to-end smoke test shell script is absent</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#DC2626;">scripts/smoke-test-calendar.sh (missing)</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">6</td>
+        <td style="padding:8px 10px;"><b>§11.5 — <code>tasks.py</code> does no partial output cleanup on failure/retry</b> — <code>engine.py</code>'s internal cleanup runs within <code>generate()</code> but if <code>generate()</code> raises, <code>tasks.py</code> never calls <code>shutil.rmtree(job_exports_dir)</code>. Month name also missing from retry log message</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#DC2626;">api/tasks.py — render_canvas_task retry/except block</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">7</td>
+        <td style="padding:8px 10px;"><b>§11.9 — no ops runbook for annual holiday list refresh</b> — only a code comment; no documented procedure, scheduled task, or RUNBOOK anywhere</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#DC2626;">scripts/refresh-holidays.py (missing) · CLAUDE.md ops section</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 10px; color:var(--muted);">8</td>
+        <td style="padding:8px 10px;"><b>Phase 9 docs unverifiable</b> — <code>CLAUDE.md</code> Calendar section and <code>.env.example</code> updates from Phase 9 could not be confirmed as completed</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#DC2626;">CLAUDE.md · .env.example</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Partial Implementations -->
+  <h3 style="font-size:14px; color:#D97706; margin-bottom:10px;">⚠️ Partial Implementations (14)</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:20px;">
+    <thead>
+      <tr style="background:#FFF7ED;">
+        <th style="text-align:left; padding:7px 10px; border-bottom:1px solid #FED7AA; width:3%">#</th>
+        <th style="text-align:left; padding:7px 10px; border-bottom:1px solid #FED7AA; width:50%">Issue</th>
+        <th style="text-align:left; padding:7px 10px; border-bottom:1px solid #FED7AA;">File / Location</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">9</td>
+        <td style="padding:8px 10px;"><b><code>PUT /api/ops/calendar-styles/&lt;name&gt;</code> URL path mismatch</b> — registered as <code>/api/calendar-styles/&lt;name&gt;</code> (no <code>/ops/</code> prefix), embed proxy would forward PUTs relying solely on the inline auth gate</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">api/urls.py:63</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">10</td>
+        <td style="padding:8px 10px;"><b>No 3-way product type picker in <code>CalendarLayoutEditor</code></b> — PRD specifies Single / Multi-surface / Calendar picker; current UI is Calendar-only with a redirect link for other types</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">CalendarLayoutEditor.tsx</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">11</td>
+        <td style="padding:8px 10px;"><b>Drag-and-drop reordering deferred</b> — explicit "Day 2+" code comment; listed as Phase 6 deliverable</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">CalendarLayoutEditor.tsx</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">12</td>
+        <td style="padding:8px 10px;"><b>Retry warning month name not surfaced to customer</b> — <code>engine.py</code> tags the <code>RuntimeError</code> correctly; <code>tasks.py</code> stores it in <code>job.error_message</code> but does not include it in webhook payload or render-status response. PRD §11.5 requires this on the retry button</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">api/tasks.py — render_canvas_task error handling</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">13</td>
+        <td style="padding:8px 10px;"><b><code>date-fns</code> absent from <code>package.json</code></b> — PRD says "date-fns based" math; implementation uses vanilla <code>Date</code>+<code>Intl</code> (functionally correct). Any parity-test importing <code>date-fns</code> would fail at install time</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">frontend/nextjs/package.json</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">14</td>
+        <td style="padding:8px 10px;"><b><code>buildCalendarFabricGroup</code> in wrong file</b> — lives in <code>fabric-calendar.ts</code>, not as an extension of <code>fabric-renderer.ts</code> as the PRD specifies. Functionally equivalent</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">src/lib/fabric-calendar.ts</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">15</td>
+        <td style="padding:8px 10px;"><b>§11.3 banner wording deviation</b> — renders "Image expired — please re-upload" vs PRD's "Image expired — re-upload". Re-upload + Clear actions correctly implemented</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">CalendarEditPanel.tsx</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">16</td>
+        <td style="padding:8px 10px;"><b>§11.17 — <code>_resolve_genz_palette()</code> uses raw <code>open()</code>, not S3-compatible</b> — uses <code>settings.STORAGE_ROOT + open()</code> directly instead of Django's <code>default_storage</code> abstraction</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">services/calendar_layout.py — _resolve_genz_palette()</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">17</td>
+        <td style="padding:8px 10px;"><b><code>modern-minimalist.json</code> missing <code>dateNumberSunday</code> color key</b> — runtime <code>_DEFAULT_COLORS</code> fallback prevents crash but schema is inconsistent with other style files</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">storage/calendar_styles/modern-minimalist.json</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">18</td>
+        <td style="padding:8px 10px;"><b><code>_autofit_text()</code> truncation loop omits left-bearing subtraction</b> — condition is <code>getbbox(truncated + "…")[2] &gt; max_w</code> instead of <code>[2] - [0] &gt; max_w</code>; off by left-bearing pixels on every truncation decision</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">services/calendar_renderer.py — _autofit_text() while-loop</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">19</td>
+        <td style="padding:8px 10px;"><b>No automated 90-second render-time guard</b> — CLAUDE.md states ~1.8s/surface target but no <code>@pytest.mark.timeout</code> or benchmark assertion enforces it</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">services/tests/ (no perf test)</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5; background:#FAFAFA;">
+        <td style="padding:8px 10px; color:var(--muted);">20</td>
+        <td style="padding:8px 10px;"><b>Year derivation comment inconsistency</b> — <code>CalendarProductPreview</code> header says Financial uses <code>month &gt;= 4</code>; PRD says <code>&gt;= 3</code>. Need to cross-check <code>resolveBaseYear</code> (correct value is <code>&gt;= 3</code> for April, zero-indexed)</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">CalendarProductPreview.tsx — header comment</td>
+      </tr>
+      <tr style="border-bottom:1px solid #F4F4F5;">
+        <td style="padding:8px 10px; color:var(--muted);">21</td>
+        <td style="padding:8px 10px;"><b><code>_draw_text</code> ignores <code>fontWeight</code> field</b> — always passes <code>weight=400</code> to <code>get_font()</code>; frontend bold/semibold text overlays silently render as normal weight</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">services/overlay_renderer.py — _draw_text()</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 10px; color:var(--muted);">22</td>
+        <td style="padding:8px 10px;"><b>ZIP assembly not auditable</b> — <code>displayLabel</code> correctly set on surfaces; actual ZIP-packaging code in <code>tasks.py</code> not fully reachable in audit to confirm literal <code>"January 2026.png"</code> filenames</td>
+        <td style="padding:8px 10px; font-family:monospace; font-size:11px; color:#D97706;">api/tasks.py — download/zip path</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Fully Passing -->
+  <h3 style="font-size:14px; color:#10B981; margin-bottom:10px;">✅ Fully Passing</h3>
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:8px; font-size:12px; color:var(--text); margin-bottom:16px;">
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 1 — Server-side overlay rendering (fonts, text, shape, image, engine wiring)</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 2 — Calendar schema, validator (<code>count × length === 12</code>, banned surfaceOverrides fields), TypeScript types</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 3 — All 3 calendar_styles JSONs, all 4 Gen-Z palette JSONs, holidays en-IN + generic 2026–2030, holiday CRUD endpoints</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 4 — calendar.ts month-grid math, IST todayInIST, calendar_renderer.py user-first precedence, cap=3, out-of-month, getbbox auto-fit, engine wiring</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 5 — ThemePreset toggle, Gen-Z palette swatches, CalendarType toggle, year badge, 12-month grid, flip warning modal §11.4, CalendarEditPanel text/image/reset</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 7 — N-surface handling, displayLabel filename derivation, poster-mode aggregation P7.3, embed flow</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 8 — Cell-image uploads, IDB persistence (B1), expiry UI §11.3, auto-orientation MediaPipe reuse</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 9 — Feb 29 amber toast §11.8, mobile bottom-sheet P9.3, CalendarLayoutEditor 12-tile pane + Customized badge + Reset</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Phase 10 — test_calendar_renderer, test_calendar_layout, test_calendar_validator all pass</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">§11.1 monthRange×calendars===12 · §11.2 banned theme override · §11.4 flip modal · §11.8 Feb29 toast · §11.10 no +N badge · §11.11 generic locale · §11.12 out-of-month · §11.13 IST/ISO · §11.14 user-first · §11.15 banned fields validator · §11.16 no versioning</div>
+    <div style="background:#ECFDF5; border-radius:6px; padding:8px 12px;">Embed proxy allowlist includes <code>holidays</code> + <code>calendar-styles</code> (§ embed proxy §)</div>
+  </div>
+
+  <!-- Fix Priority -->
+  <h3 style="font-size:14px; margin-bottom:8px;">Recommended Fix Order</h3>
+  <ol style="padding-left:18px; font-size:13px; color:var(--text);">
+    <li style="margin-bottom:4px;"><b style="color:#DC2626;">#1</b> — Mount <code>CalendarProductPreview</code> + <code>CalendarEditPanel</code> in <code>page.tsx</code> (customer has no entry point)</li>
+    <li style="margin-bottom:4px;"><b style="color:#DC2626;">#3</b> — Fix Sunday cell fill parity bug in <code>calendar_renderer.py</code></li>
+    <li style="margin-bottom:4px;"><b style="color:#DC2626;">#6</b> — Add partial output cleanup + month name to <code>tasks.py</code> retry path</li>
+    <li style="margin-bottom:4px;"><b style="color:#DC2626;">#2</b> — Add <code>hasCalendar</code> flag to <code>ListLayoutsView</code></li>
+    <li style="margin-bottom:4px;"><b style="color:#D97706;">#9</b> — Fix <code>/api/ops/calendar-styles/</code> URL path</li>
+    <li style="margin-bottom:4px;"><b style="color:#D97706;">#18</b> — Fix <code>_autofit_text()</code> left-bearing bug</li>
+    <li style="margin-bottom:4px;"><b style="color:#D97706;">#21</b> — Fix <code>_draw_text</code> ignoring <code>fontWeight</code></li>
+    <li style="margin-bottom:4px;"><b style="color:#D97706;">#17</b> — Add <code>dateNumberSunday</code> to <code>modern-minimalist.json</code></li>
+    <li style="margin-bottom:4px;"><b style="color:#D97706;">#4, #5</b> — Write <code>test_engine_filenames.py</code> + <code>smoke-test-calendar.sh</code></li>
+    <li style="margin-bottom:4px;"><b style="color:#D97706;">#16</b> — Replace raw <code>open()</code> in <code>_resolve_genz_palette()</code> with <code>default_storage</code></li>
+    <li style="margin-bottom:4px;"><b style="color:var(--muted);">#7</b> — Document annual holiday refresh ops task</li>
+    <li style="margin-bottom:4px;"><b style="color:var(--muted);">#12</b> — Surface month name in <code>tasks.py</code> retry error to webhook/render-status</li>
+    <li style="margin-bottom:4px;"><b style="color:var(--muted);">#10, #11</b> — Product type picker + drag-and-drop in <code>CalendarLayoutEditor</code> (deferred by design)</li>
+  </ol>
+</div>
+
 <script>
   // ────────────────────────────────────────────────────────────────────────
   // Sample holiday data — matches the structure of storage/holidays/en-IN/<year>.json

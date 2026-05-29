@@ -108,9 +108,19 @@ interface SurfaceEditorState {
   maskOnExport: boolean;
 }
 
+// Product-category tags — one per SKU family (not format/style descriptors).
+// These drive the clickable filter chips in the ops layout list and the
+// "Primary Tag" dropdown on the create-layout form.
 const AVAILABLE_TAGS = [
-  'Polaroid', 'Square', 'Landscape', 'Portrait', 'Portfolio',
-  'Vintage', 'Modern', 'Grid', 'Strip', 'Business Card', 'Postcard'
+  'Photo Prints',   // standard prints: 4×6, 5×7, polaroid, square, instant
+  'Canvas Prints',  // stretched canvas, gallery wraps
+  'Magnets',        // fridge magnets (48 mm circle, rect)
+  'Coasters',       // photo coasters
+  'Mugs',           // photo mugs
+  'Stationery',     // business cards, postcards, passport prints, stamps
+  'Gifts',          // laptop sleeves, custom gifts
+  'Calendar',       // productType=calendar layouts
+  'Photobook',      // productType=photobook (future)
 ];
 
 // Pure mm/px helpers — hoisted to module scope so they're stable references
@@ -167,6 +177,9 @@ export default function LayoutCreatorPage() {
   const [layoutName, setLayoutName] = useState('');
   const [tags, setTags] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  // Tag filter: clicking a chip sets this; '' means "All". Independent of
+  // the text search so ops can type "5x7" while filtered to Photo Prints.
+  const [activeTagFilter, setActiveTagFilter] = useState('');
 
   const [dpi, setDpi] = useState(300);
   const [widthMm, setWidthMm] = useState(101.6);
@@ -875,13 +888,38 @@ export default function LayoutCreatorPage() {
           </div>
         )}
 
+        {/* ── Tag filter chips ────────────────────────────────────────────── */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {['', ...AVAILABLE_TAGS].map(tag => {
+            const isActive = activeTagFilter === tag;
+            return (
+              <button
+                key={tag || '__all__'}
+                onClick={() => setActiveTagFilter(isActive ? '' : tag)}
+                className={[
+                  'px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide border transition-all',
+                  isActive
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400 hover:text-indigo-600',
+                ].join(' ')}
+              >
+                {tag || 'All'}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {layouts
             .filter((l: any) => {
               const q = searchQuery.toLowerCase();
               const name = typeof l === 'string' ? l : (l.name || '');
-              const tags = l.tags || [];
-              return name.toLowerCase().includes(q) || tags.some((t: string) => t.toLowerCase().includes(q));
+              const layoutTags: string[] = l.tags || [];
+              // Text search matches name OR any tag.
+              const matchesSearch = !q || name.toLowerCase().includes(q) || layoutTags.some((t: string) => t.toLowerCase().includes(q));
+              // Tag chip filter: '' means All, otherwise must include that tag.
+              const matchesTag = !activeTagFilter || layoutTags.includes(activeTagFilter);
+              return matchesSearch && matchesTag;
             })
             .map((layoutObj: any) => {
               const layoutStr = typeof layoutObj === 'string' ? layoutObj : layoutObj.name;

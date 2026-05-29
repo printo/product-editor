@@ -70,6 +70,19 @@ export interface CalendarEditPanelProps {
    * customer can recover with one tap. PRD §11.3 (Phase 8).
    */
   imageExpired?: boolean;
+  /**
+   * Blob URL for the currently-active image override thumbnail.
+   * Set by the host page immediately after a successful upload so the
+   * customer sees their photo without waiting for a server round-trip.
+   * Revoked by the host when the override is removed.
+   */
+  imagePreviewUrl?: string;
+  /**
+   * True while the host page is uploading an image via the chunked-upload
+   * API (Phase 8). The panel shows a loading state and disables the image
+   * override button so the customer doesn't double-submit.
+   */
+  isImageUploading?: boolean;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -102,6 +115,8 @@ export function CalendarEditPanel({
   onReset,
   onClose,
   imageExpired = false,
+  imagePreviewUrl,
+  isImageUploading = false,
 }: CalendarEditPanelProps) {
   const [inputText, setInputText] = useState('');
 
@@ -342,6 +357,28 @@ export function CalendarEditPanel({
                    visible CTA.
               2) active                → indigo "click to remove" pill.
               3) absent                → dashed-border "Replace with image" CTA. */}
+          {/* Image preview thumbnail — shown when an active (non-expired) override
+              has a blob URL cached by the host page (Phase 8). Gives the customer
+              instant visual confirmation of what photo is assigned to this cell. */}
+          {imageOverride && !imageExpired && imagePreviewUrl && (
+            <img
+              src={imagePreviewUrl}
+              alt="Cell image override preview"
+              className="w-full h-28 object-cover rounded-md mb-2 border border-zinc-200"
+            />
+          )}
+
+          {/* Upload in-progress state — shown while chunked upload is running. */}
+          {isImageUploading && (
+            <div className="flex items-center gap-2 py-2 px-3 mb-2 rounded-md bg-indigo-50 text-indigo-700 text-sm">
+              <svg className="w-4 h-4 animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Uploading image…
+            </div>
+          )}
+
           {imageOverride && imageExpired ? (
             <div
               data-testid="cell-editor-image-expired"
@@ -396,7 +433,7 @@ export function CalendarEditPanel({
             <button
               type="button"
               onClick={onRequestImageOverride}
-              disabled={hasHideOverride}
+              disabled={hasHideOverride || isImageUploading}
               data-testid="cell-editor-replace-image"
               className="
                 w-full px-3 py-2 text-sm font-medium rounded-md
@@ -405,7 +442,7 @@ export function CalendarEditPanel({
                 disabled:opacity-40 disabled:cursor-not-allowed
               "
             >
-              📷 Replace with image
+              {isImageUploading ? '⏳ Uploading…' : '📷 Replace with image'}
             </button>
           )}
 

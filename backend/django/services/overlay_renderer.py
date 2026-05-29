@@ -134,7 +134,9 @@ def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     color = _parse_color(o.get("color") or "#000000")
 
     # fontFamily field is ignored per PRD §11.7 — always Inter.
-    font = get_font(font_size_px, weight=400)
+    # fontWeight is honoured so bold/semibold text overlays render correctly.
+    font_weight = int(o.get("fontWeight") or 400)
+    font = get_font(font_size_px, weight=font_weight)
 
     x_pct = float(o.get("x") or 0)
     y_pct = float(o.get("y") or 0)

@@ -162,6 +162,11 @@ class ListLayoutsView(APIView):
                                 data = json.load(f)
                                 if "name" not in data:
                                     data["name"] = name
+                                # Explicit flag for the ops layout list badge (PRD §6
+                                # Phase 6 / audit fix #4). Frontend can also check
+                                # `productType` directly but hasCalendar is the
+                                # canonical field per the PRD spec.
+                                data["hasCalendar"] = data.get("productType") == "calendar"
                                 layouts_data.append(data)
                         except Exception:
                             layouts_data.append({"name": name})
@@ -1029,6 +1034,7 @@ class LayoutManagementView(APIView):
                                 data = json.load(f)
                                 if "name" not in data:
                                     data["name"] = name
+                                data["hasCalendar"] = data.get("productType") == "calendar"
                                 layouts_data.append(data)
                         except Exception:
                             layouts_data.append({"name": name})

@@ -31,6 +31,13 @@ import { detectFileOrientation, type OrientationOutcome } from '@/lib/ml-orienta
 import type { StaticCanvas as FabricStaticCanvas } from 'fabric';
 import { MM_TO_IN, computeImpositionLayout, resolveSheetSize } from './imposition';
 import { CanvasEditorModal } from './CanvasEditorModal';
+import { CalendarProductPreview } from '@/components/CalendarProductPreview';
+import { CalendarEditPanel } from '@/components/CalendarEditPanel';
+import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/types/calendar';
+import {
+  uploadCalendarCellImage,
+  CalendarCellUploadError,
+} from '@/lib/calendar-cell-upload';
 
 // ─── Fabric-based imposition / export ─────────────────────────────────────
 
@@ -281,6 +288,30 @@ export default function LayoutEditorPage() {
   useEffect(() => { activeSurfaceKeyRef.current = activeSurfaceKey; }, [activeSurfaceKey]);
   const [normalizedLayoutState, setNormalizedLayoutState] = useState<NormalizedLayout | null>(null);
 
+  // ── Calendar product state (PRD §10.3 / audit fix #1) ────────────────────
+  // These only matter when layout.productType === 'calendar'. Initialised
+  // with the layout-level defaults; customer overrides are tracked here.
+  const isCalendarProduct = layout?.productType === 'calendar';
+  const [calendarTheme, setCalendarTheme] = useState<CalendarTheme>('modern-minimalist');
+  const [calendarType, setCalendarType] = useState<CalendarType>('english');
+  const [genzPalette, setGenzPalette] = useState<string | undefined>(undefined);
+  const [genzPalettes, setGenzPalettes] = useState<GenzPalette[]>([]);
+  const [calendarHolidays, setCalendarHolidays] = useState<HolidayEntry[]>([]);
+  // 12 per-surface cell maps, indexed by surface order (0..11).
+  const [cellsPerCanvas, setCellsPerCanvas] = useState<Record<string, any[]>[]>(
+    () => Array.from({ length: 12 }, () => ({}))
+  );
+  const [selectedCalendarCell, setSelectedCalendarCell] = useState<{
+    surfaceIndex: number; year: number; month: number; iso: string;
+  } | null>(null);
+  // Phase 8 — cell image upload (calendar-cell-upload.ts orchestrator).
+  // Hidden file input ref; result stored as blobUrl for instant preview.
+  const calendarCellFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [calendarImageUploading, setCalendarImageUploading] = useState(false);
+  // Key: `${surfaceIndex}-${iso}`, value: blobUrl for preview thumbnail.
+  // Blob URLs are revoked when the override is cleared or the page unmounts.
+  const [calendarCellImagePreviews, setCalendarCellImagePreviews] = useState<Record<string, string>>({});
+
   const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
   const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
@@ -366,6 +397,7 @@ export default function LayoutEditorPage() {
         setLayout({
           id: item.name,
           name: item.name,
+          productType: item.productType || null,
           dimensions: firstSurface?.canvas?.widthMm && firstSurface?.canvas?.heightMm
             ? `${firstSurface.canvas.widthMm.toFixed(2)}x${firstSurface.canvas.heightMm.toFixed(2)}mm` : null,
           height: firstSurface?.canvas?.height || 0,
@@ -379,6 +411,8 @@ export default function LayoutEditorPage() {
           createdBy: item.createdBy || 'System',
           updatedBy: item.updatedBy || 'System',
           metadata: item.metadata || [],
+          weekStart: item.calendar?.weekStart || 'sunday',
+          holidayLocale: item.calendar?.holidaySource?.locale || 'en-IN',
         });
       } catch {
         setError('Failed to load layout.');
@@ -503,7 +537,7 @@ export default function LayoutEditorPage() {
         const latestActiveKey = activeSurfaceKeyRef.current;
 
         // The backend stores `editor_state` as an opaque JSON blob.
-        const editorState = {
+        const editorState: Record<string, any> = {
           surfaces: latestSurfaces.map(s => ({
             key: s.key,
             canvases: serializeCanvasState(s.canvases),
@@ -512,6 +546,16 @@ export default function LayoutEditorPage() {
           activeSurfaceKey: latestActiveKey,
           layoutName,
         };
+        // Calendar products persist the customer's theme/type/palette/cell
+        // choices so they survive page refresh (PRD §10.3 / audit fix #1).
+        if (isCalendarProduct) {
+          editorState.calendarState = {
+            themePreset: calendarTheme,
+            calendarType,
+            genzPalette,
+            cellsPerCanvas,
+          };
+        }
 
         const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
           method: 'PUT',
@@ -615,6 +659,15 @@ export default function LayoutEditorPage() {
           };
         }));
 
+        // Restore calendar state (theme, type, palette, cells) if present.
+        const savedCalendar = data.editor_state.calendarState;
+        if (savedCalendar && isCalendarProduct) {
+          if (savedCalendar.themePreset) setCalendarTheme(savedCalendar.themePreset as CalendarTheme);
+          if (savedCalendar.calendarType) setCalendarType(savedCalendar.calendarType as CalendarType);
+          if (savedCalendar.genzPalette) setGenzPalette(savedCalendar.genzPalette);
+          if (Array.isArray(savedCalendar.cellsPerCanvas)) setCellsPerCanvas(savedCalendar.cellsPerCanvas);
+        }
+
         // Activate the surface that was open when the user last saved.
         const savedActiveKey: string | undefined = data.editor_state.activeSurfaceKey;
         if (savedActiveKey) setActiveSurfaceKey(savedActiveKey);
@@ -708,6 +761,90 @@ export default function LayoutEditorPage() {
 
     return () => { cancelled = true; };
   }, [surfaceStates, orderId]);
+
+  // ── Calendar auto-save: trigger save when calendar state changes ─────────
+  // The main auto-save effect keys on `canvases`. For calendar products the
+  // primary interaction (changing theme / adding cell entries) never touches
+  // `canvases`, so cell edits would never auto-save without this separate
+  // effect. We set canvases to a dummy value increment to piggyback on the
+  // main debounce — simpler than duplicating the full save logic.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isCalendarProduct || !orderId || !layout) return;
+    // Touch the save trigger by calling the existing save path directly.
+    // We do this by firing the saveTimeoutRef path — same debounce, same logic.
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    setIsSaving('saving');
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const latestSurfaces = surfaceStatesRef.current;
+        const latestActiveKey = activeSurfaceKeyRef.current;
+        const editorState: Record<string, any> = {
+          surfaces: latestSurfaces.map(s => ({
+            key: s.key,
+            canvases: serializeCanvasState(s.canvases),
+            globalFitMode: s.globalFitMode,
+          })),
+          activeSurfaceKey: latestActiveKey,
+          layoutName,
+          calendarState: {
+            themePreset: calendarTheme,
+            calendarType,
+            genzPalette,
+            cellsPerCanvas,
+          },
+        };
+        const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
+          method: 'PUT',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ layout_name: layoutName, editor_state: editorState }),
+        });
+        if (res.ok) {
+          setIsSaving('saved');
+          if (saveIdleTimeoutRef.current) clearTimeout(saveIdleTimeoutRef.current);
+          saveIdleTimeoutRef.current = setTimeout(() => setIsSaving('idle'), 3000);
+        } else {
+          setIsSaving('idle');
+        }
+      } catch { setIsSaving('idle'); }
+    }, 2000);
+  // Calendar state changes trigger this save; layout/orderId guard against
+  // firing before the session is ready.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calendarTheme, calendarType, genzPalette, cellsPerCanvas]);
+
+  // ── Calendar: fetch Gen-Z palettes + holidays on layout mount ────────────
+  // Only runs for productType='calendar' layouts. Gen-Z palettes are needed
+  // for the palette swatch picker. Holidays are fetched for the resolved
+  // year range (current year + next year covers FY mode straddling years).
+  useEffect(() => {
+    if (!isCalendarProduct || !layout) return;
+    const locale = layout.holidayLocale || 'en-IN';
+    const today = new Date();
+    const yr1 = today.getFullYear();
+    const yr2 = yr1 + 1;
+
+    // Apply layout-level ops defaults for customer-controllable fields.
+    const rawCalendar = (normalizedLayoutState as any)?._raw?.calendar;
+    if (rawCalendar?.themePreset) setCalendarTheme(rawCalendar.themePreset as CalendarTheme);
+    if (rawCalendar?.calendarType) setCalendarType(rawCalendar.calendarType as CalendarType);
+
+    // Fetch Gen-Z palettes if theme default is modern-genz.
+    fetch(`${apiBase}/calendar-styles/modern-genz`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.palettes?.length) setGenzPalettes(d.palettes); })
+      .catch(() => {});
+
+    // Fetch holidays for current + next year so FY calendars (Apr..Mar) have
+    // holiday data for both calendar years in their range.
+    Promise.all([yr1, yr2].map(yr =>
+      fetch(`${apiBase}/holidays/${locale}/${yr}`, { headers: getAuthHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => (d?.events as HolidayEntry[]) || [])
+        .catch(() => [] as HolidayEntry[])
+    )).then(([h1, h2]) => setCalendarHolidays([...h1, ...h2]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCalendarProduct, layout?.id]);
 
   const generateCanvasesForLayout = useCallback(async (
     layoutDef: any, surfaceFiles: File[], fitMode: FitMode,
@@ -1598,6 +1735,21 @@ export default function LayoutEditorPage() {
         }),
       }));
 
+      // For calendar products, attach per-surface cell data to each canvas
+      // entry so _extract_calendar_state in tasks.py can read it. Product-wide
+      // fields (themePreset, calendarType, genzPalette) are written into every
+      // canvas entry; per-canvas cells are indexed by surfaceIndex.
+      if (isCalendarProduct) {
+        canvasesPayload.forEach((c, idx) => {
+          (c as any).calendar = {
+            themePreset: calendarTheme,
+            calendarType,
+            genzPalette,
+            cells: cellsPerCanvas[idx] || {},
+          };
+        });
+      }
+
       const renderRes = await fetch(`${apiBase}/editor/render`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -1800,6 +1952,66 @@ export default function LayoutEditorPage() {
       setShowImpositionModal(false); 
       setRenderProgress(null);
     }
+  };
+
+  // ── Calendar cell editing helpers (PRD §10.3 / audit fix #1) ─────────────
+
+  const calendarCellEntries = (surfaceIdx: number, iso: string): any[] =>
+    (cellsPerCanvas[surfaceIdx] || {})[iso] || [];
+
+  const updateCellEntries = (surfaceIdx: number, iso: string, updater: (prev: any[]) => any[]) => {
+    setCellsPerCanvas(prev => {
+      const next = [...prev];
+      const surfaceCells = { ...(next[surfaceIdx] || {}) };
+      const updated = updater(surfaceCells[iso] || []);
+      if (updated.length === 0) {
+        delete surfaceCells[iso];
+      } else {
+        surfaceCells[iso] = updated;
+      }
+      next[surfaceIdx] = surfaceCells;
+      return next;
+    });
+  };
+
+  const handleCalendarCellClick = (surfaceIndex: number, year: number, month: number, iso: string) => {
+    setSelectedCalendarCell({ surfaceIndex, year, month, iso });
+  };
+
+  // Phase 8 — cell image override upload
+  const handleCellImageFileSelected = useCallback(async (file: File) => {
+    if (!selectedCalendarCell || !orderId) return;
+    const { surfaceIndex, iso } = selectedCalendarCell;
+    setCalendarImageUploading(true);
+    try {
+      const result = await uploadCalendarCellImage(file, {
+        apiBase,
+        orderId,
+        getAuthHeaders,
+      });
+      // Replace any existing entries on this cell with the image override.
+      updateCellEntries(surfaceIndex, iso, () => [{ type: 'image', uploadId: result.uploadId }]);
+      // Cache the blob URL for the panel preview.
+      const key = `${surfaceIndex}-${iso}`;
+      setCalendarCellImagePreviews(prev => {
+        if (prev[key]) URL.revokeObjectURL(prev[key]);
+        return { ...prev, [key]: result.blobUrl };
+      });
+    } catch (err) {
+      if (err instanceof CalendarCellUploadError) {
+        setError(err.message);
+      } else {
+        setError('Failed to upload image for this date. Please try again.');
+      }
+    } finally {
+      setCalendarImageUploading(false);
+    }
+  }, [selectedCalendarCell, orderId, apiBase, getAuthHeaders, updateCellEntries]);
+
+  const handleCalendarMonthTileClick = (surfaceIndex: number, year: number, month: number) => {
+    // Open the first day of the month by default — customer can tap a specific cell after.
+    const firstIso = `${year}-${String(month).padStart(2, '0')}-01`;
+    setSelectedCalendarCell({ surfaceIndex, year, month, iso: firstIso });
   };
 
   // Embed Save & Continue: always server-render. The Celery render task
@@ -2284,6 +2496,89 @@ export default function LayoutEditorPage() {
                   ))}
                 </div>
               )}
+            </section>
+          )}
+
+          {/* ── Calendar product: 12-month preview + cell editor ─────────── */}
+          {isCalendarProduct && (
+            <section className="space-y-4 pt-2">
+              <CalendarProductPreview
+                themePreset={calendarTheme}
+                onThemePresetChange={setCalendarTheme}
+                genzPalette={genzPalette}
+                genzPalettes={genzPalettes}
+                onGenzPaletteChange={setGenzPalette}
+                calendarType={calendarType}
+                onCalendarTypeChange={setCalendarType}
+                onMonthTileClick={handleCalendarMonthTileClick}
+                cellsPerCanvas={cellsPerCanvas}
+                holidays={calendarHolidays}
+                weekStart={layout?.weekStart as any || 'sunday'}
+              />
+              {selectedCalendarCell && (
+                <div className="fixed inset-y-0 right-0 z-[50000] flex">
+                  <CalendarEditPanel
+                    iso={selectedCalendarCell.iso}
+                    cellEntries={calendarCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso)}
+                    holidaysForCell={calendarHolidays.filter(h => h.date === selectedCalendarCell.iso)}
+                    imagePreviewUrl={calendarCellImagePreviews[`${selectedCalendarCell.surfaceIndex}-${selectedCalendarCell.iso}`]}
+                    isImageUploading={calendarImageUploading}
+                    onAddTextEntry={text =>
+                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, prev => [
+                        ...prev, { type: 'text', text },
+                      ])
+                    }
+                    onRemoveTextEntryByIndex={idx =>
+                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, prev =>
+                        prev.filter((_, i) => i !== idx)
+                      )
+                    }
+                    onRequestImageOverride={() => calendarCellFileInputRef.current?.click()}
+                    onRemoveImageOverride={() => {
+                      const key = `${selectedCalendarCell.surfaceIndex}-${selectedCalendarCell.iso}`;
+                      setCalendarCellImagePreviews(prev => {
+                        if (prev[key]) URL.revokeObjectURL(prev[key]);
+                        const next = { ...prev };
+                        delete next[key];
+                        return next;
+                      });
+                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, prev =>
+                        prev.filter(o => o.type !== 'image')
+                      );
+                    }}
+                    onToggleHide={() =>
+                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, prev => {
+                        const hasHide = prev.some(o => o.type === 'hide');
+                        return hasHide ? prev.filter(o => o.type !== 'hide') : [{ type: 'hide' }];
+                      })
+                    }
+                    onReset={() => {
+                      const key = `${selectedCalendarCell.surfaceIndex}-${selectedCalendarCell.iso}`;
+                      setCalendarCellImagePreviews(prev => {
+                        if (prev[key]) URL.revokeObjectURL(prev[key]);
+                        const next = { ...prev };
+                        delete next[key];
+                        return next;
+                      });
+                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, () => []);
+                    }}
+                    onClose={() => setSelectedCalendarCell(null)}
+                  />
+                </div>
+              )}
+              {/* Hidden file input for cell image override (Phase 8) */}
+              <input
+                ref={calendarCellFileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                aria-hidden
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) handleCellImageFileSelected(file);
+                  e.target.value = '';  // reset so same file can be re-picked
+                }}
+              />
             </section>
           )}
 

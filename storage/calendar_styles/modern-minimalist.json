@@ -8,10 +8,13 @@
     "weekdayText": "#71717A",
     "weekdaySunday": "#71717A",
     "dateNumber": "#18181B",
+    "dateNumberSunday": "#18181B",
     "outOfMonth": "#CCCCCC",
     "grid": "#E5E5E5",
     "pillBackground": "#F7F7F7",
-    "pillText": "#1A1A1A"
+    "pillText": "#1A1A1A",
+    "sundayCellFill": "",
+    "outOfMonthSundayFill": ""
   },
   "dotCycle": ["#F59E0B", "#EC4899", "#3B82F6"],
   "_meta": {
