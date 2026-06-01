@@ -878,54 +878,55 @@ export default function LayoutCreatorPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Generic layout — opens the inline modal editor */}
-          <button
-            data-testid="create-generic-layout-btn"
-            onClick={() => {
-              setIsEditMode(false);
-              setLayoutName('');
-              setTags('');
-              setFrames([]);
-              setSurfaces([]);
-              setLayoutType('single');
-              setMaskUrl(null);
-              setMaskFile(null);
-              setMaskOnExport(false);
-              setIsModalOpen(true);
-            }}
-            className="group bg-white border-2 border-dashed border-indigo-200 rounded-2xl p-6 hover:border-indigo-400 hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 min-h-[200px] text-left w-full cursor-pointer"
-          >
-            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
-              <Layout className="w-7 h-7 text-indigo-600" />
-            </div>
-            <div className="text-center">
-              <p className="font-bold text-slate-800 group-hover:text-indigo-700 transition-colors">New Generic Layout</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Photo prints, stickers, custom products</p>
-            </div>
-            <span className="flex items-center gap-1 px-3 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-bold uppercase rounded-full border border-indigo-200 group-hover:bg-indigo-100 transition-colors">
-              <Plus className="w-3 h-3" /> Create
-            </span>
-          </button>
+          {/* Single card split into two creation options */}
+          <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl overflow-hidden min-h-[200px] flex flex-col md:flex-row col-span-1 md:col-span-2 lg:col-span-1">
+            {/* Left half — Generic */}
+            <button
+              data-testid="create-generic-layout-btn"
+              onClick={() => {
+                setIsEditMode(false);
+                setLayoutName('');
+                setTags('');
+                setFrames([]);
+                setSurfaces([]);
+                setLayoutType('single');
+                setMaskUrl(null);
+                setMaskFile(null);
+                setMaskOnExport(false);
+                setIsModalOpen(true);
+              }}
+              className="group flex-1 flex flex-col items-center justify-center gap-3 p-6 hover:bg-indigo-50 transition-all cursor-pointer border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-200 hover:border-indigo-300"
+            >
+              <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
+                <Layout className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div className="text-center">
+                <p className="font-bold text-sm text-slate-800 group-hover:text-indigo-700 transition-colors">Generic Layout</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Prints, stickers, products</p>
+              </div>
+              <span className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-bold uppercase rounded-full border border-indigo-200 group-hover:bg-indigo-100 transition-colors">
+                <Plus className="w-3 h-3" /> Create
+              </span>
+            </button>
 
-          {/* Calendar product type uses a dedicated authoring page since the
-              schema diverges from the regular layout JSON shape (productType,
-              monthRange, calendars[], surfaceOverrides). */}
-          <Link
-            href="/editor/layouts/calendar/new"
-            data-testid="create-calendar-layout-link"
-            className="group bg-white border-2 border-dashed border-emerald-200 rounded-2xl p-6 hover:border-emerald-400 hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 min-h-[200px]"
-          >
-            <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
-              <CalendarDays className="w-7 h-7 text-emerald-600" />
-            </div>
-            <div className="text-center">
-              <p className="font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">New Calendar Layout</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Month-grid product with holiday support</p>
-            </div>
-            <span className="flex items-center gap-1 px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded-full border border-emerald-200 group-hover:bg-emerald-100 transition-colors">
-              <Plus className="w-3 h-3" /> Create
-            </span>
-          </Link>
+            {/* Right half — Calendar */}
+            <Link
+              href="/editor/layouts/calendar/new"
+              data-testid="create-calendar-layout-link"
+              className="group flex-1 flex flex-col items-center justify-center gap-3 p-6 hover:bg-emerald-50 transition-all hover:border-emerald-300"
+            >
+              <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+                <CalendarDays className="w-6 h-6 text-emerald-600" />
+              </div>
+              <div className="text-center">
+                <p className="font-bold text-sm text-slate-800 group-hover:text-emerald-700 transition-colors">Calendar Layout</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Month-grid with holidays</p>
+              </div>
+              <span className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded-full border border-emerald-200 group-hover:bg-emerald-100 transition-colors">
+                <Plus className="w-3 h-3" /> Create
+              </span>
+            </Link>
+          </div>
 
           {layouts
             .filter((l: any) => {
