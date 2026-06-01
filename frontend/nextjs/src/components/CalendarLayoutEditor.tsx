@@ -1334,6 +1334,8 @@ export function CalendarLayoutEditor({
                 posterCustomLayout={posterCustomLayout}
                 onFramesChange={(f) => patch({ frames: f })}
                 onCalendarsChange={(c) => patch({ calendars: c })}
+                maskFile={maskFile}
+                maskUrl={draft.maskUrl}
               />
             </div>
           </div>

@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useEffect, useCallback } from 'react';
-import { Canvas, Rect, FabricText, type FabricObject } from 'fabric';
+import { Canvas, Rect, FabricText, FabricImage, type FabricObject } from 'fabric';
 import {
   createCenterGuides,
   createGridLines,
@@ -48,6 +48,8 @@ interface CalendarFabricPreviewProps {
   posterCustomLayout: boolean;
   onFramesChange: (f: CalFrame[]) => void;
   onCalendarsChange: (c: CalBlock[]) => void;
+  maskFile?: File | null;
+  maskUrl?: string | null;
   snapGrid?: boolean;
   zoom?: number;
 }
@@ -69,6 +71,8 @@ export function CalendarFabricPreview({
   posterCustomLayout,
   onFramesChange,
   onCalendarsChange,
+  maskFile = null,
+  maskUrl = null,
   snapGrid = false,
   zoom = 1,
 }: CalendarFabricPreviewProps) {
@@ -423,6 +427,40 @@ export function CalendarFabricPreview({
       fc.off('object:scaling',  handleScaling);
     };
   }, [widthMm, heightMm, snapGrid, onFramesChange, onCalendarsChange, getScale]);
+
+  // ── Mask overlay (paper shape) ───────────────────────────────────────────
+
+  useEffect(() => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+
+    // Remove any existing mask layer
+    const existing = fc.getObjects().find((o: any) => o.__calPreview && o.__fabricEditor === 'mask');
+    if (existing) fc.remove(existing);
+
+    const src = maskFile ? URL.createObjectURL(maskFile) : maskUrl ?? null;
+    if (!src) return;
+
+    const scale = getScale();
+    const cw = widthMm * scale;
+    const ch = heightMm * scale;
+
+    FabricImage.fromURL(src).then((img) => {
+      if (!fabricRef.current) return;
+      img.scaleToWidth(cw);
+      img.scaleToHeight(ch);
+      img.set({ left: 0, top: 0, originX: 'left', originY: 'top',
+        selectable: false, evented: false, opacity: 0.55 });
+      img.__calPreview = true;
+      img.__fabricEditor = 'mask';
+      fabricRef.current.add(img);
+      fabricRef.current.renderAll();
+    }).catch(() => {/* silently ignore broken URLs */});
+
+    return () => {
+      if (maskFile && src) URL.revokeObjectURL(src);
+    };
+  }, [maskFile, maskUrl, widthMm, heightMm, getScale]);
 
   return (
     <div
