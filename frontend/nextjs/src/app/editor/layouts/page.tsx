@@ -294,33 +294,13 @@ export default function LayoutCreatorPage() {
       setDescription('Manage reusable designs');
       setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter templates for ${layouts.length} templates...`} />);
       setRightActions(
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowFontModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded border border-slate-200 hover:border-slate-300 transition-colors"
-          >
-            <Type className="w-3.5 h-3.5" />
-            Fonts ({selectedFonts.length})
-          </button>
-          <button
-            onClick={() => {
-              setIsEditMode(false);
-              setLayoutName('');
-              setTags('');
-              setFrames([]);
-              setSurfaces([]);
-              setLayoutType('single');
-              setMaskUrl(null);
-              setMaskFile(null);
-              setMaskOnExport(false);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded hover:bg-indigo-700 transition-colors shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Create
-          </button>
-        </div>
+        <button
+          onClick={() => setShowFontModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded border border-slate-200 hover:border-slate-300 transition-colors"
+        >
+          <Type className="w-3.5 h-3.5" />
+          Fonts ({selectedFonts.length})
+        </button>
       );
     }
   }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, selectedFonts.length, layouts.length]);
@@ -898,6 +878,35 @@ export default function LayoutCreatorPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Generic layout — opens the inline modal editor */}
+          <button
+            data-testid="create-generic-layout-btn"
+            onClick={() => {
+              setIsEditMode(false);
+              setLayoutName('');
+              setTags('');
+              setFrames([]);
+              setSurfaces([]);
+              setLayoutType('single');
+              setMaskUrl(null);
+              setMaskFile(null);
+              setMaskOnExport(false);
+              setIsModalOpen(true);
+            }}
+            className="group bg-white border-2 border-dashed border-indigo-200 rounded-2xl p-6 hover:border-indigo-400 hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 min-h-[200px] text-left w-full cursor-pointer"
+          >
+            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
+              <Layout className="w-7 h-7 text-indigo-600" />
+            </div>
+            <div className="text-center">
+              <p className="font-bold text-slate-800 group-hover:text-indigo-700 transition-colors">New Generic Layout</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Photo prints, stickers, custom products</p>
+            </div>
+            <span className="flex items-center gap-1 px-3 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-bold uppercase rounded-full border border-indigo-200 group-hover:bg-indigo-100 transition-colors">
+              <Plus className="w-3 h-3" /> Create
+            </span>
+          </button>
+
           {/* Calendar product type uses a dedicated authoring page since the
               schema diverges from the regular layout JSON shape (productType,
               monthRange, calendars[], surfaceOverrides). */}
