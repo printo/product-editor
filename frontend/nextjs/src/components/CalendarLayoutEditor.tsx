@@ -1473,10 +1473,39 @@ export function CalendarLayoutEditor({
                           </span>
                         )}
                       </div>
-                      <div className="aspect-square">
-                        <MonthTileThumb year={tile.year} month={tile.month} weekStart={draft.style.weekStart}
-                          cells={{}} holidays={previewHolidays} colors={previewColors} dotCycle={previewDotCycle}
-                          ariaLabel={`${tile.label} thumbnail`} />
+                      {/* Canvas-accurate thumbnail: matches the frame/calendar
+                          fractions configured in Step 2. Photo frame = green
+                          tint; calendar grid rendered at primaryCalendar's
+                          y-offset, not full-height. */}
+                      <div
+                        className="relative bg-white border border-zinc-100 rounded overflow-hidden w-full"
+                        style={{ aspectRatio: `${draft.canvasWidthMm} / ${draft.canvasHeightMm}` }}
+                      >
+                        {draft.frames.map((fr, fi) => (
+                          <div
+                            key={fi}
+                            className="absolute rounded-sm bg-emerald-50 border border-dashed border-emerald-300"
+                            style={{
+                              left:   `${fr.x * 100}%`,
+                              top:    `${fr.y * 100}%`,
+                              width:  `${fr.width * 100}%`,
+                              height: `${fr.height * 100}%`,
+                            }}
+                          />
+                        ))}
+                        <div
+                          className="absolute overflow-hidden"
+                          style={{
+                            left:   `${primaryCalendar.x * 100}%`,
+                            top:    `${primaryCalendar.y * 100}%`,
+                            width:  `${primaryCalendar.width * 100}%`,
+                            height: `${primaryCalendar.height * 100}%`,
+                          }}
+                        >
+                          <MonthTileThumb year={tile.year} month={tile.month} weekStart={draft.style.weekStart}
+                            cells={{}} holidays={previewHolidays} colors={previewColors} dotCycle={previewDotCycle}
+                            ariaLabel={`${tile.label} thumbnail`} />
+                        </div>
                       </div>
                     </button>
                   );
