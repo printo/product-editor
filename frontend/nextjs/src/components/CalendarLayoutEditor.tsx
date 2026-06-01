@@ -25,6 +25,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   MONTH_NAMES_EN,
   displayLabelFor,
@@ -33,6 +34,19 @@ import {
   resolveThemeColors,
 } from '@/lib/calendar';
 import { MonthTileThumb } from '@/components/MonthTileThumb';
+
+// Fabric.js references `window` at module load time — skip SSR.
+const CalendarFabricPreview = dynamic(
+  () => import('@/components/CalendarFabricPreview').then((m) => ({
+    default: m.CalendarFabricPreview,
+  })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full min-h-[400px] rounded-2xl bg-slate-100 animate-pulse" />
+    ),
+  },
+);
 import type {
   CalendarTheme,
   CalendarType,
@@ -734,6 +748,65 @@ function NumberField({
   );
 }
 
+// ─── Step indicator ─────────────────────────────────────────────────────────
+
+type WizardStep = 1 | 2 | 3 | 4;
+
+const STEP_LABELS: Record<WizardStep, string> = {
+  1: 'Basics',
+  2: 'Layout',
+  3: 'Style',
+  4: 'Review',
+};
+
+function StepIndicator({
+  step,
+  onStep,
+}: {
+  step: WizardStep;
+  onStep: (s: WizardStep) => void;
+}) {
+  return (
+    <nav
+      className="flex items-center gap-1 mb-6"
+      aria-label="Wizard steps"
+      data-testid="step-indicator"
+    >
+      {([1, 2, 3, 4] as WizardStep[]).map((s) => {
+        const active = s === step;
+        const done   = s < step;
+        return (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onStep(s)}
+            aria-current={active ? 'step' : undefined}
+            data-testid={`step-${s}`}
+            className={[
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all',
+              active
+                ? 'bg-zinc-900 text-white shadow'
+                : done
+                  ? 'bg-zinc-200 text-zinc-600 hover:bg-zinc-300'
+                  : 'bg-zinc-100 text-zinc-400 hover:bg-zinc-200',
+            ].join(' ')}
+          >
+            <span
+              className={[
+                'w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold',
+                active ? 'bg-white text-zinc-900' : 'bg-zinc-400 text-white',
+              ].join(' ')}
+            >
+              {done ? '✓' : s}
+            </span>
+            {STEP_LABELS[s]}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function CalendarLayoutEditor({
@@ -751,21 +824,13 @@ export function CalendarLayoutEditor({
   }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // When true, the serializer uses draft.calendars[] verbatim in poster mode
-  // instead of auto-tiling 12 cells from the first entry. Lets ops author
-  // asymmetric arrangements. Fix #3 from P6.1 review.
+  const [step, setStep] = useState<WizardStep>(1);
   const [posterCustomLayout, setPosterCustomLayout] = useState(false);
-  // Which month is currently open in the per-month override modal (P6.2).
-  // null → modal closed.
   const [openMonthKey, setOpenMonthKey] = useState<string | null>(null);
-  // String buffer for the fixed-year input so the customer can clear it
-  // without the controlled `value={draft.defaultYear}` re-filling on every
-  // keystroke. Committed back to draft.defaultYear only when parseable.
   const [yearInputBuffer, setYearInputBuffer] = useState<string>(
     typeof draft.defaultYear === 'number' ? String(draft.defaultYear) : ''
   );
 
-  // Patch helpers — keep the setDraft body terse below.
   const patch = (next: Partial<CalendarLayoutDraft>) =>
     setDraft((d) => ({ ...d, ...next }));
   const patchStyle = (next: Partial<LayoutCalendarStyle>) =>
@@ -777,27 +842,17 @@ export function CalendarLayoutEditor({
       return { ...d, calendars: arr };
     });
 
-  // ── Frame editing (P6.1-review fix #2 + #10) ────────────────────────────
-  // Without these, ops can only ship layouts with the single default frame.
-  // Now ops can add up to 12, remove any but the last, and edit each one.
   const addFrame = () =>
     setDraft((d) => {
-      // Offset new frames by index*0.04 in both axes so consecutive adds
-      // don't stack on top of each other. Wraps at 0.5 to stay in-bounds.
       const offset = (d.frames.length * 0.04) % 0.5;
       return {
         ...d,
-        frames: [
-          ...d.frames,
-          { x: 0.1 + offset, y: 0.1 + offset, width: 0.3, height: 0.3 },
-        ],
+        frames: [...d.frames, { x: 0.1 + offset, y: 0.1 + offset, width: 0.3, height: 0.3 }],
       };
     });
   const removeFrame = (index: number) =>
     setDraft((d) =>
-      d.frames.length <= 1
-        ? d
-        : { ...d, frames: d.frames.filter((_, i) => i !== index) }
+      d.frames.length <= 1 ? d : { ...d, frames: d.frames.filter((_, i) => i !== index) }
     );
   const patchFrame = (
     index: number,
@@ -809,13 +864,9 @@ export function CalendarLayoutEditor({
       return { ...d, frames: arr };
     });
 
-  // Safe alias for the primary calendar primitive — protects against
-  // an `initial={ calendars: [] }` prop that would otherwise crash the
-  // render with `draft.calendars[0].x`. (Fix #4 from P6.1 review.)
   const primaryCalendar: LayoutCalendar = draft.calendars[0]
     ?? { x: 0, y: 0, width: 1, height: 1 };
 
-  // Resolve preview colours from the current style + selected palette.
   const previewPalette = useMemo(
     () => draft.style.themePreset === 'modern-genz'
       ? genzPalettes.find((p) => p.name === draft.style.defaultGenzPalette) ?? genzPalettes[0]
@@ -827,18 +878,12 @@ export function CalendarLayoutEditor({
     [draft.style.themePreset, previewPalette],
   );
 
-  // Memoise the 12-tile list — only re-runs when the inputs the helper
-  // actually reads (mode, calendarType, defaultYear) change. Keystrokes in
-  // canvas mm / frames / mask / palette etc. don't trigger the recompute.
-  // Review fix L4 (perf). `now` defaults to new Date() inside the helper.
   const monthTiles = useMemo(
     () => surfaceMonthList(draft),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [draft.mode, draft.style.calendarType, draft.defaultYear],
   );
 
-  // Same year math as the customer side so the preview matches what
-  // customers see when they land on the layout.
   const previewYear = draft.defaultYear === 'current'
     ? new Date().getFullYear()
     : draft.defaultYear;
@@ -860,552 +905,86 @@ export function CalendarLayoutEditor({
     }
   };
 
-  return (
-    <div
-      className="max-w-5xl mx-auto p-6 grid gap-6 lg:grid-cols-[1fr_320px]"
-      data-testid="calendar-layout-editor"
+  // ── Poster custom-layout toggle handler (kept as a named fn for clarity) ──
+  const handlePosterCustomToggle = (enable: boolean) => {
+    setPosterCustomLayout(enable);
+    if (enable && draft.calendars.length < 12) {
+      const base = primaryCalendar;
+      const maxCellW = Math.max(0.01, (1 - base.x) / 4);
+      const maxCellH = Math.max(0.01, (1 - base.y) / 3);
+      const cellW = Math.min(base.width, maxCellW);
+      const cellH = Math.min(base.height, maxCellH);
+      const seeded: LayoutCalendar[] = Array.from({ length: 12 }, (_, i) => ({
+        x: base.x + (i % 4) * cellW,
+        y: base.y + Math.floor(i / 4) * cellH,
+        width: cellW,
+        height: cellH,
+        monthOffset: i,
+      }));
+      patch({ calendars: seeded });
+    } else if (!enable) {
+      patch({ calendars: [draft.calendars[0] ?? primaryCalendar] });
+    }
+  };
+
+  // ── Shared aside: MonthTileThumb for steps 1 / 3 / 4 ───────────────────
+  const MonthPreviewAside = (
+    <aside
+      className="sticky top-6 self-start flex flex-col gap-2"
+      data-testid="live-preview"
     >
-      {/* ── Left: field controls ─────────────────────────────────────── */}
-      <div className="flex flex-col gap-6">
-        {/* Layout name + product type */}
-        <section>
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">Layout basics</h2>
-          <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700">Layout name</span>
-              <input
-                type="text"
-                value={draft.name}
-                onChange={(e) => patch({ name: e.target.value })}
-                data-testid="layout-name"
-                className="rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono"
-              />
-            </label>
-            <div className="text-xs text-zinc-500">
-              Product type: <strong>Calendar</strong>. Single / Multi-surface products
-              use the{' '}
-              <a
-                href="/editor/layouts"
-                className="underline hover:text-zinc-900"
-                data-testid="regular-editor-link"
-              >
-                regular layout editor →
-              </a>
-            </div>
-          </div>
-        </section>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        Preview · January {previewYear}
+      </h3>
+      <div
+        className="rounded border border-zinc-200 p-2 bg-white"
+        style={{ aspectRatio: `${draft.canvasWidthMm} / ${draft.canvasHeightMm}` }}
+      >
+        <MonthTileThumb
+          year={previewYear}
+          month={1}
+          weekStart={draft.style.weekStart}
+          cells={{}}
+          holidays={previewHolidays}
+          colors={previewColors}
+          dotCycle={previewDotCycle}
+          ariaLabel={`Preview of ${MONTH_NAMES_EN[0]} ${previewYear}`}
+        />
+      </div>
+      <p className="text-xs text-zinc-500">
+        Grid math matches the 300 DPI render.
+        {previewHolidays.length > 0 && <> {previewHolidays.length} holidays shown.</>}
+      </p>
+    </aside>
+  );
 
-        {/* Mode toggle */}
-        <section data-testid="mode-toggle">
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">Calendar mode</h2>
-          <div className="flex gap-2 flex-wrap">
-            {(['multi-surface', 'poster'] as CalendarMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => patch({ mode: m })}
-                aria-pressed={draft.mode === m}
-                className={
-                  'px-3 py-2 text-sm rounded-md border ' +
-                  (draft.mode === m
-                    ? 'bg-zinc-900 text-white border-zinc-900'
-                    : 'bg-white text-zinc-700 border-zinc-300 hover:border-zinc-400')
-                }
-              >
-                {m === 'multi-surface' ? '12 pages · desk / wall' : '1 page · poster'}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* Canvas */}
-        <section>
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">Canvas</h2>
-          <div className="grid grid-cols-3 gap-3">
-            <NumberField label="Width (mm)" value={draft.canvasWidthMm}
-              step={1} min={1} suffix="mm"
-              onChange={(n) => patch({ canvasWidthMm: n })} />
-            <NumberField label="Height (mm)" value={draft.canvasHeightMm}
-              step={1} min={1} suffix="mm"
-              onChange={(n) => patch({ canvasHeightMm: n })} />
-            <NumberField label="DPI" value={draft.dpi}
-              step={1} min={1}
-              onChange={(n) => patch({ dpi: n })} />
-          </div>
-          <p className="mt-2 text-xs text-zinc-500">
-            Pixels at render time:{' '}
-            <strong>
-              {Math.round((draft.canvasWidthMm * draft.dpi) / 25.4)} ×{' '}
-              {Math.round((draft.canvasHeightMm * draft.dpi) / 25.4)} px
-            </strong>
-          </p>
-        </section>
-
-        {/* Photo frames (P6.1-review fix #2) */}
-        <section data-testid="frames-section">
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-lg font-semibold text-zinc-900">Photo frames</h2>
-            <button
-              type="button"
-              onClick={addFrame}
-              data-testid="add-frame-btn"
-              className="text-xs px-2 py-1 rounded border border-zinc-300 hover:border-zinc-900"
-            >
-              + Add frame
-            </button>
-          </div>
-          <div className="flex flex-col gap-3">
-            {draft.frames.map((frame, i) => (
-              <div
-                key={i}
-                className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 items-end"
-                data-testid={`frame-row-${i}`}
-              >
-                <NumberField label={`#${i + 1} X`} value={frame.x}
-                  step={0.01} min={0} max={1}
-                  onChange={(n) => patchFrame(i, { x: n })} />
-                <NumberField label="Y" value={frame.y}
-                  step={0.01} min={0} max={1}
-                  onChange={(n) => patchFrame(i, { y: n })} />
-                <NumberField label="Width" value={frame.width}
-                  step={0.01} min={0.01} max={1}
-                  onChange={(n) => patchFrame(i, { width: n })} />
-                <NumberField label="Height" value={frame.height}
-                  step={0.01} min={0.01} max={1}
-                  onChange={(n) => patchFrame(i, { height: n })} />
-                <button
-                  type="button"
-                  onClick={() => removeFrame(i)}
-                  disabled={draft.frames.length <= 1}
-                  aria-label={`Remove frame ${i + 1}`}
-                  data-testid={`remove-frame-${i}`}
-                  className="
-                    self-end mb-0.5 text-zinc-400 hover:text-red-600 text-lg
-                    disabled:opacity-30 disabled:cursor-not-allowed
-                  "
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-zinc-500">
-            Frames are stored as canvas fractions (0..1). At least one frame is
-            required. Frame extents are validated server-side per PRD §10.2.1.
-          </p>
-        </section>
-
-        {/* Calendar primitive position */}
-        <section>
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">
-            Calendar primitive {draft.mode === 'poster' ? '(cell size — 4×3 grid)' : '(position)'}
-          </h2>
-          <div className="grid grid-cols-4 gap-3" data-testid="calendar-primitive-fields">
-            <NumberField label="X (0..1)" value={primaryCalendar.x}
-              step={0.01} min={0} max={1}
-              onChange={(n) => patchCalendar(0, { x: n })} />
-            <NumberField label="Y (0..1)" value={primaryCalendar.y}
-              step={0.01} min={0} max={1}
-              onChange={(n) => patchCalendar(0, { y: n })} />
-            <NumberField label="Width (0..1)" value={primaryCalendar.width}
-              step={0.01} min={0.01} max={1}
-              onChange={(n) => patchCalendar(0, { width: n })} />
-            <NumberField label="Height (0..1)" value={primaryCalendar.height}
-              step={0.01} min={0.01} max={1}
-              onChange={(n) => patchCalendar(0, { height: n })} />
-          </div>
-          {/* mm + px readback so ops doesn't have to translate fractions in
-              their head. Fix #12 from P6.1 review. */}
-          <p className="mt-2 text-xs text-zinc-500" data-testid="calendar-primitive-readback">
-            In mm: <strong>{(primaryCalendar.x * draft.canvasWidthMm).toFixed(1)} /{' '}
-            {(primaryCalendar.y * draft.canvasHeightMm).toFixed(1)}</strong>{' '}
-            (origin), <strong>{(primaryCalendar.width * draft.canvasWidthMm).toFixed(1)} ×{' '}
-            {(primaryCalendar.height * draft.canvasHeightMm).toFixed(1)}</strong> mm
-            {' · '}
-            In px: <strong>{Math.round(primaryCalendar.width * draft.canvasWidthMm * draft.dpi / 25.4)} ×{' '}
-            {Math.round(primaryCalendar.height * draft.canvasHeightMm * draft.dpi / 25.4)}</strong>
-          </p>
-          {draft.mode === 'poster' && (
-            <p className="mt-2 text-xs text-zinc-500">
-              In poster mode each value is the size of <em>one</em> mini-calendar;
-              we auto-tile 12 of them in a 4×3 grid starting at (x, y). Use the
-              per-calendar editor below to customise the tiling.
-            </p>
-          )}
-        </section>
-
-        {/* Poster per-calendar positioning (P6.1-review fix #3) ──────────── */}
-        {draft.mode === 'poster' && (
-          <section data-testid="poster-custom-layout-section">
-            <div className="flex items-baseline justify-between mb-3">
-              <h2 className="text-lg font-semibold text-zinc-900">
-                Per-calendar positioning (poster mode)
-              </h2>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={posterCustomLayout}
-                  data-testid="poster-custom-toggle"
-                  onChange={(e) => {
-                    const enable = e.target.checked;
-                    setPosterCustomLayout(enable);
-                    if (enable && draft.calendars.length < 12) {
-                      // Seed draft.calendars with 12 auto-tiled entries.
-                      // Clamp cell size so a 4-wide × 3-tall grid fits inside
-                      // the available canvas area (anchored at the primary
-                      // calendar's origin). Without this, a primary calendar
-                      // of e.g. 0.9 × 0.42 (sensible for multi-surface) would
-                      // produce overflowing tiles when ops first toggles to
-                      // poster mode.
-                      const base = primaryCalendar;
-                      const maxCellW = Math.max(0.01, (1 - base.x) / 4);
-                      const maxCellH = Math.max(0.01, (1 - base.y) / 3);
-                      const cellW = Math.min(base.width, maxCellW);
-                      const cellH = Math.min(base.height, maxCellH);
-                      const seeded: LayoutCalendar[] = Array.from({ length: 12 }, (_, i) => ({
-                        x: base.x + (i % 4) * cellW,
-                        y: base.y + Math.floor(i / 4) * cellH,
-                        width: cellW,
-                        height: cellH,
-                        monthOffset: i,
-                      }));
-                      patch({ calendars: seeded });
-                    } else if (!enable) {
-                      // Collapsing back — keep only the first entry so the
-                      // 4×3 auto-tile re-derives next save.
-                      patch({ calendars: [draft.calendars[0] ?? primaryCalendar] });
-                    }
-                  }}
-                />
-                <span>Custom layout (override auto-tile)</span>
-              </label>
-            </div>
-            {posterCustomLayout ? (
-              <div className="flex flex-col gap-3">
-                {draft.calendars.slice(0, 12).map((cal, i) => (
-                  <div
-                    key={i}
-                    className="grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-3 items-end"
-                    data-testid={`poster-cal-row-${i}`}
-                  >
-                    <span className="text-xs font-medium text-zinc-700 self-end mb-2 w-12">
-                      Cal {i + 1}
-                    </span>
-                    <NumberField label="X" value={cal.x}
-                      step={0.01} min={0} max={1}
-                      onChange={(n) => patchCalendar(i, { x: n })} />
-                    <NumberField label="Y" value={cal.y}
-                      step={0.01} min={0} max={1}
-                      onChange={(n) => patchCalendar(i, { y: n })} />
-                    <NumberField label="W" value={cal.width}
-                      step={0.01} min={0.01} max={1}
-                      onChange={(n) => patchCalendar(i, { width: n })} />
-                    <NumberField label="H" value={cal.height}
-                      step={0.01} min={0.01} max={1}
-                      onChange={(n) => patchCalendar(i, { height: n })} />
-                  </div>
-                ))}
-                <p className="text-xs text-zinc-500">
-                  Each row corresponds to one month (Cal 1 = first month of the
-                  range, Cal 12 = last). monthOffset is auto-assigned by row order.
-                </p>
-              </div>
-            ) : (
-              <p className="text-xs text-zinc-500">
-                Auto-tiling 12 mini-calendars in a 4×3 grid. Toggle above to
-                position each one individually (e.g. for an asymmetric layout
-                like 6+6 or a single column).
-              </p>
-            )}
-          </section>
-        )}
-
-        {/* Style controls */}
-        <section>
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">Style defaults</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700">Theme preset (default)</span>
-              <select
-                value={draft.style.themePreset}
-                onChange={(e) => patchStyle({ themePreset: e.target.value as CalendarTheme })}
-                data-testid="style-theme"
-                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              >
-                <option value="modern-minimalist">Modern · Minimalist</option>
-                <option value="modern-genz">Modern · Gen-Z</option>
-                <option value="weekday-highlight">Weekday Highlight</option>
-              </select>
-            </label>
-
-            {draft.style.themePreset === 'modern-genz' && (
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="font-medium text-zinc-700">Default Gen-Z palette</span>
-                <select
-                  value={draft.style.defaultGenzPalette ?? genzPalettes[0]?.name ?? ''}
-                  onChange={(e) => patchStyle({ defaultGenzPalette: e.target.value })}
-                  data-testid="style-genz-palette"
-                  className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-                >
-                  {genzPalettes.map((p) => (
-                    <option key={p.name} value={p.name}>{p.label}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700">Calendar type (customer default)</span>
-              <select
-                value={draft.style.calendarType}
-                onChange={(e) => patchStyle({ calendarType: e.target.value as CalendarType })}
-                data-testid="style-calendar-type"
-                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              >
-                <option value="english">English · Jan–Dec</option>
-                <option value="financial">Financial · Apr–Mar</option>
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700">Week start</span>
-              <select
-                value={draft.style.weekStart}
-                onChange={(e) => patchStyle({ weekStart: e.target.value as WeekStart })}
-                data-testid="style-week-start"
-                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              >
-                <option value="sunday">Sunday</option>
-                <option value="monday">Monday</option>
-              </select>
-            </label>
-          </div>
-        </section>
-
-        {/* Holiday source */}
-        <section data-testid="holiday-source">
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">Holidays</h2>
-          <div className="flex flex-wrap gap-4 items-center">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={draft.style.holidaySource.enabled}
-                onChange={(e) =>
-                  patchStyle({
-                    holidaySource: {
-                      ...draft.style.holidaySource,
-                      enabled: e.target.checked,
-                    },
-                  })
-                }
-                data-testid="holiday-enabled"
-              />
-              <span>Auto-load holidays</span>
-            </label>
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700">Locale</span>
-              <select
-                value={draft.style.holidaySource.locale}
-                onChange={(e) =>
-                  patchStyle({
-                    holidaySource: {
-                      ...draft.style.holidaySource,
-                      locale: e.target.value as HolidayLocale,
-                    },
-                  })
-                }
-                data-testid="holiday-locale"
-                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              >
-                <option value="en-IN">en-IN (India)</option>
-                <option value="generic">generic (universal observances)</option>
-              </select>
-            </label>
-            {/* showInCells = whether holiday pills render on the corresponding
-                cell. Off → holiday data still loaded for the editor sidebar
-                but not painted on the calendar grid. Fix #6 from review. */}
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={draft.style.holidaySource.showInCells}
-                disabled={!draft.style.holidaySource.enabled}
-                onChange={(e) =>
-                  patchStyle({
-                    holidaySource: {
-                      ...draft.style.holidaySource,
-                      showInCells: e.target.checked,
-                    },
-                  })
-                }
-                data-testid="holiday-show-in-cells"
-              />
-              <span>Show holiday pills on cells</span>
-            </label>
-          </div>
-        </section>
-
-        {/* Paper mask (review fix #5) — layout-global per PRD §10.2.1.
-            Calendar layouts that need a cut-shape paper overlay set
-            maskUrl + maskOnExport; the engine composites it on top of
-            the calendar grid + frames at render time. */}
-        <section data-testid="mask-section">
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">Paper mask</h2>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-xs flex-1 min-w-[200px]">
-              <span className="font-medium text-zinc-700">Mask path (under storage/masks/)</span>
-              <input
-                type="text"
-                value={draft.maskUrl ?? ''}
-                placeholder="e.g. desk_calendar_mask.png"
-                onChange={(e) => patch({ maskUrl: e.target.value || null })}
-                data-testid="mask-url"
-                className="rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={!!draft.maskOnExport}
-                disabled={!draft.maskUrl}
-                onChange={(e) => patch({ maskOnExport: e.target.checked })}
-                data-testid="mask-on-export"
-              />
-              <span>Apply on export</span>
-            </label>
-          </div>
-          <p className="mt-2 text-xs text-zinc-500">
-            Drop the mask PNG into <code>storage/masks/</code> via the regular
-            layout editor or out-of-band. Calendar layouts inherit the mask on
-            every month (per-surface mask overrides are not supported in v1).
-          </p>
-        </section>
-
-        {/* Year anchor */}
-        <section>
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">Year anchor</h2>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                checked={draft.defaultYear === 'current'}
-                onChange={() => {
-                  patch({ defaultYear: 'current' });
-                  setYearInputBuffer('');
-                }}
-                data-testid="year-current"
-              />
-              <span>Auto-roll (use the current year at render time)</span>
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                checked={draft.defaultYear !== 'current'}
-                onChange={() => {
-                  const y = new Date().getFullYear();
-                  patch({ defaultYear: y });
-                  setYearInputBuffer(String(y));
-                }}
-                data-testid="year-fixed-radio"
-              />
-              <span>Fixed year:</span>
-              <input
-                type="number"
-                // String buffer ↓ — uncontrolled in spirit so clear() works.
-                value={draft.defaultYear === 'current' ? '' : yearInputBuffer}
-                disabled={draft.defaultYear === 'current'}
-                min={2000}
-                max={2100}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setYearInputBuffer(raw);
-                  // Commit to the draft only when parseable; otherwise keep the
-                  // last-known good year so validation has something to chew on.
-                  const n = parseInt(raw, 10);
-                  if (Number.isFinite(n)) patch({ defaultYear: n });
-                }}
-                data-testid="year-fixed-input"
-                className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm
-                           disabled:bg-zinc-50 disabled:text-zinc-400"
-              />
-            </label>
-          </div>
-        </section>
-
-        {/* Per-month tile pane (P6.2) — 12 cards, one per resolved month.
-            Click a card to open the override modal. Cards with an existing
-            override show a "Customized" badge. */}
-        <section data-testid="month-tile-pane">
-          <h2 className="text-lg font-semibold text-zinc-900 mb-3">
-            Per-month review &amp; customisation
-          </h2>
-          <p className="text-xs text-zinc-500 mb-3">
-            Each tile previews how the template renders for that month. Click
-            to override frames or calendar position for that specific month
-            (e.g. a winter-themed December with shifted frames). Untouched
-            months inherit the template at render time.
-          </p>
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-            {monthTiles.map((tile) => {
-              const isOverridden = Boolean(draft.surfaceOverrides?.[tile.key]);
-              return (
-                <button
-                  key={tile.key}
-                  type="button"
-                  onClick={() => setOpenMonthKey(tile.key)}
-                  data-testid={`month-tile-${tile.key}`}
-                  data-month-customized={isOverridden ? 'true' : 'false'}
-                  className="
-                    relative flex flex-col gap-1.5 rounded-lg border bg-white p-2 text-left
-                    transition-shadow hover:shadow-md focus:outline-none focus:ring-2
-                    focus:ring-zinc-900 focus:ring-offset-1
-                  "
-                  style={{
-                    borderColor: isOverridden ? '#A855F7' : '#E5E7EB',
-                    borderWidth: isOverridden ? 2 : 1,
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                      {tile.label}
-                    </span>
-                    {isOverridden && (
-                      <span
-                        className="text-[9px] font-semibold uppercase tracking-wide
-                                   rounded bg-purple-100 text-purple-800 px-1 py-0.5"
-                        data-testid={`customized-badge-${tile.key}`}
-                      >
-                        Customized
-                      </span>
-                    )}
-                  </div>
-                  <div className="aspect-square">
-                    <MonthTileThumb
-                      year={tile.year}
-                      month={tile.month}
-                      weekStart={draft.style.weekStart}
-                      cells={{}}
-                      holidays={previewHolidays}
-                      colors={previewColors}
-                      dotCycle={previewDotCycle}
-                      ariaLabel={`${tile.label} thumbnail`}
-                    />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Actions */}
-        <section className="flex items-center gap-3 pt-2 border-t border-zinc-200">
+  // ── Nav buttons ──────────────────────────────────────────────────────────
+  const NavButtons = (
+    <div className="flex items-center justify-between pt-4 border-t border-zinc-200 mt-4">
+      <button
+        type="button"
+        onClick={() => setStep((s) => Math.max(1, s - 1) as WizardStep)}
+        disabled={step === 1}
+        className="px-4 py-2 text-sm text-zinc-600 hover:text-zinc-900 disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        ← Back
+      </button>
+      {step < 4 ? (
+        <button
+          type="button"
+          onClick={() => setStep((s) => Math.min(4, s + 1) as WizardStep)}
+          className="px-5 py-2 text-sm font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800"
+        >
+          Next →
+        </button>
+      ) : (
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={handleSave}
             disabled={busy}
             data-testid="save-btn"
-            className="px-4 py-2 text-sm font-medium rounded-md
-                       bg-zinc-900 text-white hover:bg-zinc-800
-                       disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-5 py-2 text-sm font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {busy ? 'Saving…' : 'Save layout'}
           </button>
@@ -1424,48 +1003,450 @@ export function CalendarLayoutEditor({
               {error}
             </span>
           )}
-        </section>
-      </div>
-
-      {/* ── Right: live preview thumb ─────────────────────────────────── */}
-      <aside
-        className="sticky top-6 self-start flex flex-col gap-2"
-        data-testid="live-preview"
-      >
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          Live preview (January {previewYear})
-        </h3>
-        <div
-          className="rounded border border-zinc-200 p-2 bg-white"
-          style={{ aspectRatio: `${draft.canvasWidthMm} / ${draft.canvasHeightMm}` }}
-        >
-          <MonthTileThumb
-            year={previewYear}
-            month={1}
-            weekStart={draft.style.weekStart}
-            cells={{}}
-            holidays={previewHolidays}
-            colors={previewColors}
-            dotCycle={previewDotCycle}
-            ariaLabel={`Preview of ${MONTH_NAMES_EN[0]} ${previewYear}`}
-          />
         </div>
-        <p className="text-xs text-zinc-500">
-          Thumb uses the same grid math as the 300 DPI render.
-          {previewHolidays.length > 0 && (
-            <> {previewHolidays.length} holidays in this month.</>
-          )}
-        </p>
-      </aside>
+      )}
+    </div>
+  );
+
+  return (
+    <div
+      className={`max-w-5xl mx-auto p-6 ${step === 2 ? '' : 'grid gap-6 lg:grid-cols-[1fr_320px]'}`}
+      data-testid="calendar-layout-editor"
+    >
+      {/* Step indicator spans full width */}
+      {step !== 2 && (
+        <div className="lg:col-span-2">
+          <StepIndicator step={step} onStep={setStep} />
+        </div>
+      )}
+
+      {/* ── Step 1: Basics ─────────────────────────────────────────────── */}
+      {step === 1 && (
+        <>
+          <div className="flex flex-col gap-6">
+            <section>
+              <h2 className="text-lg font-semibold text-zinc-900 mb-1">Layout basics</h2>
+              <p className="text-xs text-zinc-500 mb-3">Name this layout and choose what kind of calendar product it is.</p>
+              <div className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-zinc-700">Layout name</span>
+                  <input
+                    type="text"
+                    value={draft.name}
+                    onChange={(e) => patch({ name: e.target.value })}
+                    data-testid="layout-name"
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono"
+                  />
+                </label>
+                <div className="text-xs text-zinc-500">
+                  Product type: <strong>Calendar</strong>. For non-calendar layouts use the{' '}
+                  <a href="/editor/layouts" className="underline hover:text-zinc-900" data-testid="regular-editor-link">
+                    regular layout editor →
+                  </a>
+                </div>
+              </div>
+            </section>
+
+            <section data-testid="mode-toggle">
+              <h2 className="text-lg font-semibold text-zinc-900 mb-1">Calendar mode</h2>
+              <p className="text-xs text-zinc-500 mb-3">Desk/wall calendars get one page per month. Posters print all 12 months on a single page.</p>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {(['multi-surface', 'poster'] as CalendarMode[]).map((m) => {
+                  const active = draft.mode === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => patch({ mode: m })}
+                      aria-pressed={active}
+                      className={[
+                        'px-4 py-3 text-sm rounded-lg border text-left transition-all',
+                        active
+                          ? 'bg-zinc-900 text-white border-zinc-900 shadow'
+                          : 'bg-white text-zinc-700 border-zinc-300 hover:border-zinc-500',
+                      ].join(' ')}
+                    >
+                      <span className="font-semibold block">
+                        {m === 'multi-surface' ? '12 pages' : '1 page (poster)'}
+                      </span>
+                      <span className="text-xs opacity-70">
+                        {m === 'multi-surface' ? 'Desk / wall — one month per surface' : 'All 12 months on a single sheet'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-lg font-semibold text-zinc-900 mb-1">Canvas size</h2>
+              <p className="text-xs text-zinc-500 mb-3">Physical dimensions of the print area. 300 DPI is standard for print.</p>
+              <div className="grid grid-cols-3 gap-3">
+                <NumberField label="Width (mm)" value={draft.canvasWidthMm} step={1} min={1} suffix="mm"
+                  onChange={(n) => patch({ canvasWidthMm: n })} />
+                <NumberField label="Height (mm)" value={draft.canvasHeightMm} step={1} min={1} suffix="mm"
+                  onChange={(n) => patch({ canvasHeightMm: n })} />
+                <NumberField label="DPI" value={draft.dpi} step={1} min={1}
+                  onChange={(n) => patch({ dpi: n })} />
+              </div>
+              <p className="mt-2 text-xs text-zinc-500">
+                Renders at{' '}
+                <strong>
+                  {Math.round((draft.canvasWidthMm * draft.dpi) / 25.4)} ×{' '}
+                  {Math.round((draft.canvasHeightMm * draft.dpi) / 25.4)} px
+                </strong>
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-lg font-semibold text-zinc-900 mb-1">Year anchor</h2>
+              <p className="text-xs text-zinc-500 mb-3">Auto-roll updates automatically each year. Fixed year locks the calendar to a specific year.</p>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" checked={draft.defaultYear === 'current'}
+                    onChange={() => { patch({ defaultYear: 'current' }); setYearInputBuffer(''); }}
+                    data-testid="year-current" />
+                  <span>Auto-roll (current year at render time)</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" checked={draft.defaultYear !== 'current'}
+                    onChange={() => { const y = new Date().getFullYear(); patch({ defaultYear: y }); setYearInputBuffer(String(y)); }}
+                    data-testid="year-fixed-radio" />
+                  <span>Fixed year:</span>
+                  <input
+                    type="number"
+                    value={draft.defaultYear === 'current' ? '' : yearInputBuffer}
+                    disabled={draft.defaultYear === 'current'}
+                    min={2000} max={2100}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setYearInputBuffer(raw);
+                      const n = parseInt(raw, 10);
+                      if (Number.isFinite(n)) patch({ defaultYear: n });
+                    }}
+                    data-testid="year-fixed-input"
+                    className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
+                  />
+                </label>
+              </div>
+            </section>
+
+            {NavButtons}
+          </div>
+
+          {MonthPreviewAside}
+        </>
+      )}
+
+      {/* ── Step 2: Layout (full-width with Fabric canvas) ─────────────── */}
+      {step === 2 && (
+        <div className="flex flex-col gap-4">
+          <StepIndicator step={step} onStep={setStep} />
+
+          <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+            {/* Left: controls */}
+            <div className="flex flex-col gap-5">
+              {/* Photo frames */}
+              <section data-testid="frames-section">
+                <div className="flex items-baseline justify-between mb-2">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-900">Photo frames</h2>
+                    <p className="text-xs text-zinc-500">Drag green blocks on canvas to reposition.</p>
+                  </div>
+                  <button type="button" onClick={addFrame}
+                    data-testid="add-frame-btn"
+                    className="text-xs px-2 py-1 rounded border border-zinc-300 hover:border-zinc-900 shrink-0">
+                    + Add
+                  </button>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {draft.frames.map((_, i) => (
+                    <div key={i} className="flex items-center justify-between px-2 py-1.5 rounded bg-emerald-50 border border-emerald-200 text-xs">
+                      <span className="font-medium text-emerald-800">Frame {i + 1}</span>
+                      <button type="button" onClick={() => removeFrame(i)}
+                        disabled={draft.frames.length <= 1}
+                        aria-label={`Remove frame ${i + 1}`}
+                        data-testid={`remove-frame-${i}`}
+                        className="text-zinc-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none">
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {/* Calendar block controls */}
+              <section>
+                <div>
+                  <h2 className="text-sm font-semibold text-zinc-900">Calendar block</h2>
+                  <p className="text-xs text-zinc-500 mb-2">
+                    {draft.mode === 'multi-surface'
+                      ? 'Drag the teal block on the canvas to position the calendar grid.'
+                      : 'Poster: 12 mini-calendars in a 4×3 grid. Enable custom layout to position each one.'}
+                  </p>
+                </div>
+                {draft.mode === 'poster' && (
+                  <label className="flex items-center gap-2 text-sm" data-testid="poster-custom-layout-section">
+                    <input
+                      type="checkbox"
+                      checked={posterCustomLayout}
+                      data-testid="poster-custom-toggle"
+                      onChange={(e) => handlePosterCustomToggle(e.target.checked)}
+                    />
+                    <span>Custom layout (drag each month independently)</span>
+                  </label>
+                )}
+              </section>
+
+              {/* Paper mask */}
+              <section data-testid="mask-section">
+                <h2 className="text-sm font-semibold text-zinc-900 mb-1">Paper mask <span className="text-zinc-400 font-normal">(optional)</span></h2>
+                <input
+                  type="text"
+                  value={draft.maskUrl ?? ''}
+                  placeholder="e.g. desk_calendar_mask.png"
+                  onChange={(e) => patch({ maskUrl: e.target.value || null })}
+                  data-testid="mask-url"
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-xs font-mono mb-1.5"
+                />
+                <label className="flex items-center gap-2 text-xs text-zinc-600">
+                  <input type="checkbox" checked={!!draft.maskOnExport} disabled={!draft.maskUrl}
+                    onChange={(e) => patch({ maskOnExport: e.target.checked })} data-testid="mask-on-export" />
+                  Apply mask on export
+                </label>
+              </section>
+
+              {/* Precise values disclosure */}
+              <details className="text-xs text-zinc-600">
+                <summary className="cursor-pointer font-medium text-zinc-700 hover:text-zinc-900 select-none">
+                  Precise values (fractions 0..1)
+                </summary>
+                <div className="mt-3 flex flex-col gap-4">
+                  <div data-testid="frames-precise">
+                    <p className="font-medium text-zinc-700 mb-2">Frames</p>
+                    {draft.frames.map((frame, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-2 mb-2" data-testid={`frame-row-${i}`}>
+                        <NumberField label={`#${i+1} X`} value={frame.x} step={0.01} min={0} max={1} onChange={(n) => patchFrame(i, { x: n })} />
+                        <NumberField label="Y" value={frame.y} step={0.01} min={0} max={1} onChange={(n) => patchFrame(i, { y: n })} />
+                        <NumberField label="W" value={frame.width} step={0.01} min={0.01} max={1} onChange={(n) => patchFrame(i, { width: n })} />
+                        <NumberField label="H" value={frame.height} step={0.01} min={0.01} max={1} onChange={(n) => patchFrame(i, { height: n })} />
+                      </div>
+                    ))}
+                  </div>
+                  <div data-testid="calendar-primitive-fields-wrapper">
+                    <p className="font-medium text-zinc-700 mb-2">
+                      Calendar {draft.mode === 'poster' ? '(seed position)' : '(position)'}
+                    </p>
+                    <div className="grid grid-cols-4 gap-2" data-testid="calendar-primitive-fields">
+                      <NumberField label="X" value={primaryCalendar.x} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(0, { x: n })} />
+                      <NumberField label="Y" value={primaryCalendar.y} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(0, { y: n })} />
+                      <NumberField label="W" value={primaryCalendar.width} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(0, { width: n })} />
+                      <NumberField label="H" value={primaryCalendar.height} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(0, { height: n })} />
+                    </div>
+                    <p className="mt-1 text-zinc-500" data-testid="calendar-primitive-readback">
+                      {(primaryCalendar.width * draft.canvasWidthMm).toFixed(1)} ×{' '}
+                      {(primaryCalendar.height * draft.canvasHeightMm).toFixed(1)} mm
+                    </p>
+                    {posterCustomLayout && draft.mode === 'poster' && (
+                      <div className="mt-3 flex flex-col gap-2">
+                        {draft.calendars.slice(0, 12).map((cal, i) => (
+                          <div key={i} className="grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-2 items-end" data-testid={`poster-cal-row-${i}`}>
+                            <span className="text-zinc-500 self-end mb-1 w-8">Cal {i+1}</span>
+                            <NumberField label="X" value={cal.x} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(i, { x: n })} />
+                            <NumberField label="Y" value={cal.y} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(i, { y: n })} />
+                            <NumberField label="W" value={cal.width} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(i, { width: n })} />
+                            <NumberField label="H" value={cal.height} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(i, { height: n })} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            {/* Right: Interactive Fabric canvas */}
+            <div className="min-h-[500px]" data-testid="live-preview-canvas">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Canvas layout — drag to reposition
+                </h3>
+                <span className="text-xs text-zinc-400">
+                  <span className="inline-block w-3 h-3 rounded-sm bg-emerald-200 border border-emerald-500 mr-1" />Frame
+                  <span className="inline-block w-3 h-3 rounded-sm bg-sky-200 border border-sky-400 ml-3 mr-1" />Calendar
+                </span>
+              </div>
+              <CalendarFabricPreview
+                widthMm={draft.canvasWidthMm}
+                heightMm={draft.canvasHeightMm}
+                frames={draft.frames}
+                calendars={draft.calendars}
+                mode={draft.mode}
+                posterCustomLayout={posterCustomLayout}
+                onFramesChange={(f) => patch({ frames: f })}
+                onCalendarsChange={(c) => patch({ calendars: c })}
+              />
+            </div>
+          </div>
+
+          {NavButtons}
+        </div>
+      )}
+
+      {/* ── Step 3: Style ──────────────────────────────────────────────── */}
+      {step === 3 && (
+        <>
+          <div className="flex flex-col gap-6">
+            <section>
+              <h2 className="text-lg font-semibold text-zinc-900 mb-1">Theme</h2>
+              <p className="text-xs text-zinc-500 mb-3">Sets the default visual style. Customers can change it on their end.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-zinc-700">Theme preset</span>
+                  <select
+                    value={draft.style.themePreset}
+                    onChange={(e) => patchStyle({ themePreset: e.target.value as CalendarTheme })}
+                    data-testid="style-theme"
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                  >
+                    <option value="modern-minimalist">Modern · Minimalist</option>
+                    <option value="modern-genz">Modern · Gen-Z</option>
+                    <option value="weekday-highlight">Weekday Highlight</option>
+                  </select>
+                </label>
+                {draft.style.themePreset === 'modern-genz' && (
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="font-medium text-zinc-700">Default Gen-Z palette</span>
+                    <select
+                      value={draft.style.defaultGenzPalette ?? genzPalettes[0]?.name ?? ''}
+                      onChange={(e) => patchStyle({ defaultGenzPalette: e.target.value })}
+                      data-testid="style-genz-palette"
+                      className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                    >
+                      {genzPalettes.map((p) => (
+                        <option key={p.name} value={p.name}>{p.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-zinc-700">Calendar type</span>
+                  <select
+                    value={draft.style.calendarType}
+                    onChange={(e) => patchStyle({ calendarType: e.target.value as CalendarType })}
+                    data-testid="style-calendar-type"
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                  >
+                    <option value="english">English · Jan–Dec</option>
+                    <option value="financial">Financial · Apr–Mar</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-zinc-700">Week start</span>
+                  <select
+                    value={draft.style.weekStart}
+                    onChange={(e) => patchStyle({ weekStart: e.target.value as WeekStart })}
+                    data-testid="style-week-start"
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                  >
+                    <option value="sunday">Sunday</option>
+                    <option value="monday">Monday</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section data-testid="holiday-source">
+              <h2 className="text-lg font-semibold text-zinc-900 mb-1">Holidays</h2>
+              <p className="text-xs text-zinc-500 mb-3">Auto-loaded from storage. Shown as coloured dots on matching dates.</p>
+              <div className="flex flex-wrap gap-4 items-center">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={draft.style.holidaySource.enabled}
+                    onChange={(e) => patchStyle({ holidaySource: { ...draft.style.holidaySource, enabled: e.target.checked } })}
+                    data-testid="holiday-enabled" />
+                  <span>Auto-load holidays</span>
+                </label>
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-zinc-700">Locale</span>
+                  <select value={draft.style.holidaySource.locale}
+                    onChange={(e) => patchStyle({ holidaySource: { ...draft.style.holidaySource, locale: e.target.value as HolidayLocale } })}
+                    data-testid="holiday-locale"
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm">
+                    <option value="en-IN">en-IN (India)</option>
+                    <option value="generic">generic (universal)</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={draft.style.holidaySource.showInCells}
+                    disabled={!draft.style.holidaySource.enabled}
+                    onChange={(e) => patchStyle({ holidaySource: { ...draft.style.holidaySource, showInCells: e.target.checked } })}
+                    data-testid="holiday-show-in-cells" />
+                  <span>Show holiday pills on cells</span>
+                </label>
+              </div>
+            </section>
+
+            {NavButtons}
+          </div>
+
+          {MonthPreviewAside}
+        </>
+      )}
+
+      {/* ── Step 4: Review & Save ──────────────────────────────────────── */}
+      {step === 4 && (
+        <>
+          <div className="flex flex-col gap-6">
+            <section data-testid="month-tile-pane">
+              <h2 className="text-lg font-semibold text-zinc-900 mb-1">Per-month review</h2>
+              <p className="text-xs text-zinc-500 mb-3">
+                Click a month to override its frames or calendar position. Purple border = already customised.
+              </p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                {monthTiles.map((tile) => {
+                  const isOverridden = Boolean(draft.surfaceOverrides?.[tile.key]);
+                  return (
+                    <button
+                      key={tile.key}
+                      type="button"
+                      onClick={() => setOpenMonthKey(tile.key)}
+                      data-testid={`month-tile-${tile.key}`}
+                      data-month-customized={isOverridden ? 'true' : 'false'}
+                      className="relative flex flex-col gap-1.5 rounded-lg border bg-white p-2 text-left transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-1"
+                      style={{ borderColor: isOverridden ? '#A855F7' : '#E5E7EB', borderWidth: isOverridden ? 2 : 1 }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{tile.label}</span>
+                        {isOverridden && (
+                          <span className="text-[9px] font-semibold uppercase tracking-wide rounded bg-purple-100 text-purple-800 px-1 py-0.5"
+                            data-testid={`customized-badge-${tile.key}`}>
+                            Customized
+                          </span>
+                        )}
+                      </div>
+                      <div className="aspect-square">
+                        <MonthTileThumb year={tile.year} month={tile.month} weekStart={draft.style.weekStart}
+                          cells={{}} holidays={previewHolidays} colors={previewColors} dotCycle={previewDotCycle}
+                          ariaLabel={`${tile.label} thumbnail`} />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            {NavButtons}
+          </div>
+
+          {MonthPreviewAside}
+        </>
+      )}
 
       {/* Per-month override modal (P6.2). Mounted at the document level so
           it floats above the tile pane regardless of grid placement. */}
       {openMonthKey && (() => {
         const tile = monthTiles.find(t => t.key === openMonthKey);
         if (!tile) {
-          // Defensive — clears the open state if the resolved key isn't
-          // in the current draft's month list (could happen after a
-          // calendarType flip).
           setOpenMonthKey(null);
           return null;
         }

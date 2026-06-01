@@ -22,6 +22,7 @@ import {
   Maximize2,
   AlignCenter,
   AlignJustify,
+  CalendarDays,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -319,19 +320,6 @@ export default function LayoutCreatorPage() {
             <Plus className="w-3.5 h-3.5" />
             Create
           </button>
-          {/* Calendar product type uses a dedicated authoring page since the
-              schema diverges from the regular layout JSON shape (productType,
-              monthRange, calendars[], surfaceOverrides). Phase 6 review fix
-              Gap C — without this link ops can't reach the calendar editor
-              from the standard layouts page. */}
-          <Link
-            href="/editor/layouts/calendar/new"
-            data-testid="create-calendar-layout-link"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-[10px] font-bold uppercase rounded hover:bg-emerald-700 transition-colors shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Create Calendar
-          </Link>
         </div>
       );
     }
@@ -910,6 +898,26 @@ export default function LayoutCreatorPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Calendar product type uses a dedicated authoring page since the
+              schema diverges from the regular layout JSON shape (productType,
+              monthRange, calendars[], surfaceOverrides). */}
+          <Link
+            href="/editor/layouts/calendar/new"
+            data-testid="create-calendar-layout-link"
+            className="group bg-white border-2 border-dashed border-emerald-200 rounded-2xl p-6 hover:border-emerald-400 hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 min-h-[200px]"
+          >
+            <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+              <CalendarDays className="w-7 h-7 text-emerald-600" />
+            </div>
+            <div className="text-center">
+              <p className="font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">New Calendar Layout</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Month-grid product with holiday support</p>
+            </div>
+            <span className="flex items-center gap-1 px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded-full border border-emerald-200 group-hover:bg-emerald-100 transition-colors">
+              <Plus className="w-3 h-3" /> Create
+            </span>
+          </Link>
+
           {layouts
             .filter((l: any) => {
               const q = searchQuery.toLowerCase();

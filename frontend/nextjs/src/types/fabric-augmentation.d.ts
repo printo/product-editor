@@ -32,8 +32,15 @@ declare module 'fabric' {
      *
      * - FabricEditor sets: 'frame' | 'text' | 'shape' | 'image' | 'mask'
      * - LayoutFabricPreview sets: 'frame' | 'guide' | 'grid' | 'bleed' | 'label' | 'mask'
+     * - CalendarFabricPreview sets: 'frame' | 'calendar' | 'calendarLabel' | 'guide' | 'grid' | 'label'
      */
-    __fabricEditor?: 'frame' | 'text' | 'shape' | 'image' | 'mask' | 'guide' | 'grid' | 'bleed' | 'label'
+    __fabricEditor?: 'frame' | 'text' | 'shape' | 'image' | 'mask' | 'guide' | 'grid' | 'bleed' | 'label' | 'calendar' | 'calendarLabel'
+
+    /** Index into the calendars[] array for CalendarFabricPreview objects. */
+    __calendarIdx?: number
+
+    /** True on objects owned by CalendarFabricPreview (analogous to __layoutPreview). */
+    __calPreview?: boolean
 
     // Layer markers — all booleans, set on objects that act as decoration
     // / scaffolding rather than user content. Used by the rebuild logic
