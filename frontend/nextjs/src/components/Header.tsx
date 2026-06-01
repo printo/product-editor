@@ -13,7 +13,9 @@ export const Header = () => {
   const { data: session } = useSession();
   const isOpsTeam = session?.is_ops_team;
   const pathname = usePathname();
-  const isLayoutEditor = pathname === '/editor/layouts';
+  // Highlight "Templates" tab for the layouts list AND any sub-editor pages
+  // (e.g. /editor/layouts/calendar/new, /editor/layouts/calendar/[name])
+  const isLayoutEditor = pathname === '/editor/layouts' || pathname.startsWith('/editor/layouts/');
 
   React.useEffect(() => {
     setMounted(true);

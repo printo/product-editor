@@ -18,6 +18,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useHeader } from '@/context/HeaderContext';
 import { CalendarLayoutEditor, type CalendarLayoutDraft } from '@/components/CalendarLayoutEditor';
 import type {
   LayoutCalendarStyle,
@@ -72,6 +73,20 @@ export default function CalendarLayoutEditorPage() {
   const params = useParams<{ name: string }>();
   const routeName = String(params?.name ?? 'new');
   const isNew = routeName === 'new';
+
+  const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
+  useEffect(() => {
+    setTitle('Calendar Editor');
+    setDescription(isNew ? 'New calendar layout' : `Editing ${routeName}`);
+    setCenterActions(null);
+    setRightActions(null);
+    return () => {
+      setTitle('');
+      setDescription('');
+      setCenterActions(null);
+      setRightActions(null);
+    };
+  }, [isNew, routeName, setTitle, setDescription, setCenterActions, setRightActions]);
 
   const [initial, setInitial] = useState<Partial<CalendarLayoutDraft> | null>(null);
   const [originalName, setOriginalName] = useState<string | null>(null);
