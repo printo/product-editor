@@ -86,14 +86,17 @@ export function CalendarFabricPreview({
   framesRef.current    = frames;
   calendarsRef.current = calendars;
 
-  // Stable scale tracked by ResizeObserver — avoids zoom jumps when the
-  // parent's left panel changes height (which shifts available width).
+  // Stable scale: only update when the container width changes by more than
+  // 8 px so micro-layout shifts (left panel growing/shrinking by a few px
+  // when posterCustomLayout toggles) don't rescale the canvas and look like
+  // a zoom.
   const [containerW, setContainerW] = useState(0);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
-      setContainerW(entry.contentRect.width);
+      const w = Math.round(entry.contentRect.width);
+      setContainerW(prev => (Math.abs(prev - w) > 8 ? w : prev));
     });
     ro.observe(el);
     setContainerW(el.clientWidth);
@@ -408,13 +411,42 @@ export function CalendarFabricPreview({
       }
       constrainToCanvas(target, cw, ch);
 
-      // Keep the associated label glued to the block.
-      // The auto-tile group handle has no label — skip label sync for it.
-      if (!(target as any).__isAutoTileHandle) {
-        const isFrame    = target.__fabricEditor === 'frame';
-        const labelType  = isFrame ? 'label' : 'calendarLabel';
-        const idxKey     = isFrame ? '__frameIdx' : '__calendarIdx';
-        const targetIdx  = (target as any)[idxKey];
+      if ((target as any).__isAutoTileHandle) {
+        // Co-move all 12 non-interactive cells + their labels to follow
+        // the group handle during drag so the visual stays coherent.
+        const { cols, rows } = (target as any).__cellColsRows ?? { cols: 4, rows: 3 };
+        const hLeft = target.left ?? 0;
+        const hTop  = target.top  ?? 0;
+        const hW    = (target.width  ?? 0) * (target.scaleX ?? 1);
+        const hH    = (target.height ?? 0) * (target.scaleY ?? 1);
+        const cellW = hW / cols;
+        const cellH = hH / rows;
+
+        // cells are stored with calIdx === -1
+        const cells = fc.getObjects().filter((o: any) =>
+          o.__calPreview && o.__fabricEditor === 'calendar' &&
+          !(o as any).__isAutoTileHandle && (o as any).__calendarIdx === -1
+        );
+        const lbls = fc.getObjects().filter((o: any) =>
+          o.__calPreview && o.__fabricEditor === 'calendarLabel' &&
+          (o as any).__calendarIdx === -1
+        );
+        cells.forEach((cell: any, i: number) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          cell.set({ left: hLeft + col * cellW, top: hTop + row * cellH });
+        });
+        lbls.forEach((lbl: any, i: number) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          lbl.set({ left: hLeft + col * cellW + 4, top: hTop + row * cellH + 4 });
+        });
+      } else {
+        // Keep the associated label glued to a normal frame or calendar block.
+        const isFrame   = target.__fabricEditor === 'frame';
+        const labelType = isFrame ? 'label' : 'calendarLabel';
+        const idxKey    = isFrame ? '__frameIdx' : '__calendarIdx';
+        const targetIdx = (target as any)[idxKey];
 
         fc.getObjects().filter((o: any) =>
           o.__calPreview && o.__fabricEditor === labelType && (o as any)[idxKey] === targetIdx
@@ -436,6 +468,36 @@ export function CalendarFabricPreview({
       if (w < minPx) target.set({ scaleX: minPx / (target.width  ?? 1) });
       if (h < minPx) target.set({ scaleY: minPx / (target.height ?? 1) });
       constrainToCanvas(target, cw, ch);
+
+      // Resize 12 cells live when scaling the group handle
+      if ((target as any).__isAutoTileHandle) {
+        const { cols, rows } = (target as any).__cellColsRows ?? { cols: 4, rows: 3 };
+        const hLeft = target.left ?? 0;
+        const hTop  = target.top  ?? 0;
+        const hW    = (target.width  ?? 0) * (target.scaleX ?? 1);
+        const hH    = (target.height ?? 0) * (target.scaleY ?? 1);
+        const cellW = hW / cols;
+        const cellH = hH / rows;
+
+        const cells = fc.getObjects().filter((o: any) =>
+          o.__calPreview && o.__fabricEditor === 'calendar' &&
+          !(o as any).__isAutoTileHandle && (o as any).__calendarIdx === -1
+        );
+        const lbls = fc.getObjects().filter((o: any) =>
+          o.__calPreview && o.__fabricEditor === 'calendarLabel' &&
+          (o as any).__calendarIdx === -1
+        );
+        cells.forEach((cell: any, i: number) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          cell.set({ left: hLeft + col * cellW, top: hTop + row * cellH, width: cellW, height: cellH, scaleX: 1, scaleY: 1 });
+        });
+        lbls.forEach((lbl: any, i: number) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          lbl.set({ left: hLeft + col * cellW + 4, top: hTop + row * cellH + 4 });
+        });
+      }
     };
 
     fc.on('object:modified', handleModified);
