@@ -56,7 +56,7 @@ interface CalendarFabricPreviewProps {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const GRID_SNAP_MM = 2;
+const GRID_SNAP_MM = 5;   // 5mm grid — same visual density as the generic layout editor
 const SNAP_THRESHOLD_PX = 6;
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -155,9 +155,8 @@ export function CalendarFabricPreview({
       g.__fabricEditor = 'guide';
       fc.add(g);
     });
-    // Always show light grid lines for spatial reference; snap-to-grid uses
-    // the same grid step when snapGrid=true (see handleMoving below).
-    {
+    // Show grid lines only when snapGrid is enabled — mirrors LayoutFabricPreview
+    if (snapGrid) {
       const gridPx = GRID_SNAP_MM * scale;
       createGridLines(cw, ch, gridPx).forEach(l => {
         l.__calPreview = true;

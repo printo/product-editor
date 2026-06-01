@@ -826,6 +826,7 @@ export function CalendarLayoutEditor({
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<WizardStep>(1);
   const [posterCustomLayout, setPosterCustomLayout] = useState(false);
+  const [snapGrid, setSnapGrid] = useState(true);
   const [maskFile, setMaskFile] = useState<File | null>(null);
   const [openMonthKey, setOpenMonthKey] = useState<string | null>(null);
   const [yearInputBuffer, setYearInputBuffer] = useState<string>(
@@ -1333,10 +1334,21 @@ export function CalendarLayoutEditor({
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Canvas layout — drag to reposition
                 </h3>
-                <span className="text-xs text-zinc-400">
-                  <span className="inline-block w-3 h-3 rounded-sm bg-emerald-200 border border-emerald-500 mr-1" />Frame
-                  <span className="inline-block w-3 h-3 rounded-sm bg-sky-200 border border-sky-400 ml-3 mr-1" />Calendar
-                </span>
+                <div className="flex items-center gap-3 text-xs text-zinc-400">
+                  <span>
+                    <span className="inline-block w-3 h-3 rounded-sm bg-emerald-200 border border-emerald-500 mr-1" />Frame
+                    <span className="inline-block w-3 h-3 rounded-sm bg-sky-200 border border-sky-400 ml-3 mr-1" />Calendar
+                  </span>
+                  <label className="flex items-center gap-1 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={snapGrid}
+                      onChange={(e) => setSnapGrid(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    Snap grid
+                  </label>
+                </div>
               </div>
               <CalendarFabricPreview
                 widthMm={draft.canvasWidthMm}
@@ -1349,6 +1361,7 @@ export function CalendarLayoutEditor({
                 onCalendarsChange={(c) => patch({ calendars: c })}
                 maskFile={maskFile}
                 maskUrl={draft.maskUrl}
+                snapGrid={snapGrid}
               />
             </div>
           </div>
