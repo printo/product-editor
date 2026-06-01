@@ -1477,12 +1477,21 @@ export function CalendarLayoutEditor({
                       className="relative flex flex-col gap-1.5 rounded-lg border bg-white p-2 text-left transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-1"
                       style={{ borderColor: isOverridden ? '#A855F7' : '#E5E7EB', borderWidth: isOverridden ? 2 : 1 }}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{tile.label}</span>
+                      <div className="flex items-start justify-between gap-1 min-w-0">
+                        <div className="min-w-0">
+                          {/* Split into month + year so both stay on one line at
+                              a fixed size regardless of month name length */}
+                          <p className="text-[9px] font-bold uppercase tracking-wide text-zinc-600 whitespace-nowrap truncate leading-tight">
+                            {tile.label.replace(/\s+\d{4}$/, '')}
+                          </p>
+                          <p className="text-[9px] font-medium text-zinc-400 leading-tight">
+                            {tile.label.match(/\d{4}$/)?.[0] ?? ''}
+                          </p>
+                        </div>
                         {isOverridden && (
-                          <span className="text-[9px] font-semibold uppercase tracking-wide rounded bg-purple-100 text-purple-800 px-1 py-0.5"
+                          <span className="text-[8px] font-semibold uppercase rounded bg-purple-100 text-purple-700 px-1 py-0.5 shrink-0"
                             data-testid={`customized-badge-${tile.key}`}>
-                            Customized
+                            ✎
                           </span>
                         )}
                       </div>
