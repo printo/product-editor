@@ -200,15 +200,17 @@ export function CalendarFabricPreview({
         toRender.push({ block: cal, calIdx: i, label: MONTH_SHORT[i], interactive: true });
       });
     } else {
-      // Auto-tile: clamp cell size so 4×3 grid stays inside [0,1] bounds.
-      // Without clamping, multi-surface defaults (width=0.9) tile as 4×0.9=3.6
-      // and overflow the canvas preview. Mirrors the clamping in
-      // CalendarLayoutEditor's handlePosterCustomToggle.
+      // Auto-tile poster mode: draw 12 non-interactive preview cells, then a
+      // single transparent "group handle" rect over the whole 4×3 bounding box.
+      // Dragging/resizing the handle updates calendars[0] (the seed); the sync
+      // effect rebuilds all 12 cells from the new seed.
       const base = calendars[0] ?? { x: 0, y: 0, width: 0.25, height: 0.2 };
       const maxCellW = Math.max(0.01, (1 - base.x) / 4);
       const maxCellH = Math.max(0.01, (1 - base.y) / 3);
       const cellW = Math.min(base.width, maxCellW);
       const cellH = Math.min(base.height, maxCellH);
+
+      // 12 preview cells (non-interactive)
       for (let i = 0; i < 12; i++) {
         const col = i % 4;
         const row = Math.floor(i / 4);
@@ -219,11 +221,45 @@ export function CalendarFabricPreview({
             width:  cellW,
             height: cellH,
           },
-          calIdx: i === 0 ? 0 : -1,
+          calIdx: -1,
           label: MONTH_SHORT[i],
-          interactive: i === 0,
+          interactive: false,
         });
       }
+
+      // Single group handle spanning the full 4×3 grid — stored as calIdx=0
+      // so the modified handler knows to update calendars[0]. The handle stores
+      // cellW/cellH via __cellW/__cellH so the handler can back-compute the
+      // new seed dimensions from the resized rect.
+      const gridW = cellW * 4;
+      const gridH = cellH * 3;
+      const handle = new Rect({
+        left: base.x * cw,
+        top:  base.y * ch,
+        width:  gridW * cw,
+        height: gridH * ch,
+        originX: 'left', originY: 'top',
+        fill: 'transparent',
+        stroke: '#0ea5e9',
+        strokeWidth: 2,
+        strokeDashArray: [6, 4],
+        selectable: true,
+        hasControls: true,
+        lockRotation: true,
+        cornerColor: '#0ea5e9',
+        cornerSize: 10,
+        cornerStyle: 'circle' as const,
+        transparentCorners: false,
+        borderColor: '#0ea5e9',
+        borderDashArray: [4, 3],
+      });
+      handle.__calPreview = true;
+      handle.__fabricEditor = 'calendar';
+      handle.__calendarIdx = 0;
+      (handle as any).__isAutoTileHandle = true;
+      (handle as any).__cellColsRows = { cols: 4, rows: 3 };
+      handle.setControlsVisibility({ mtr: false });
+      fc.add(handle);
     }
 
     toRender.forEach(({ block, calIdx, label, interactive }) => {
@@ -314,10 +350,18 @@ export function CalendarFabricPreview({
       } else if (target.__fabricEditor === 'calendar') {
         const idx = target.__calendarIdx as number;
         if (idx >= 0) {
-          const updated = calendarsRef.current.map((c, i) =>
-            i !== idx ? c : { ...c, x: nx, y: ny, width: nw, height: nh },
-          );
-          onCalendarsChange(updated);
+          if ((target as any).__isAutoTileHandle) {
+            // Handle covers the full 4×3 grid; back-compute per-cell seed
+            const { cols, rows } = (target as any).__cellColsRows ?? { cols: 4, rows: 3 };
+            const seedW = round3(nw / cols);
+            const seedH = round3(nh / rows);
+            onCalendarsChange([{ x: nx, y: ny, width: seedW, height: seedH }]);
+          } else {
+            const updated = calendarsRef.current.map((c, i) =>
+              i !== idx ? c : { ...c, x: nx, y: ny, width: nw, height: nh },
+            );
+            onCalendarsChange(updated);
+          }
         }
       }
 
@@ -340,17 +384,20 @@ export function CalendarFabricPreview({
       }
       constrainToCanvas(target, cw, ch);
 
-      // Keep the associated label glued to the block
-      const isFrame    = target.__fabricEditor === 'frame';
-      const labelType  = isFrame ? 'label' : 'calendarLabel';
-      const idxKey     = isFrame ? '__frameIdx' : '__calendarIdx';
-      const targetIdx  = (target as any)[idxKey];
+      // Keep the associated label glued to the block.
+      // The auto-tile group handle has no label — skip label sync for it.
+      if (!(target as any).__isAutoTileHandle) {
+        const isFrame    = target.__fabricEditor === 'frame';
+        const labelType  = isFrame ? 'label' : 'calendarLabel';
+        const idxKey     = isFrame ? '__frameIdx' : '__calendarIdx';
+        const targetIdx  = (target as any)[idxKey];
 
-      fc.getObjects().filter((o: any) =>
-        o.__calPreview && o.__fabricEditor === labelType && (o as any)[idxKey] === targetIdx
-      ).forEach((lbl: any) => {
-        lbl.set({ left: (target.left ?? 0) + 4, top: (target.top ?? 0) + 4 });
-      });
+        fc.getObjects().filter((o: any) =>
+          o.__calPreview && o.__fabricEditor === labelType && (o as any)[idxKey] === targetIdx
+        ).forEach((lbl: any) => {
+          lbl.set({ left: (target.left ?? 0) + 4, top: (target.top ?? 0) + 4 });
+        });
+      }
     };
 
     const handleScaling = (e: any) => {
