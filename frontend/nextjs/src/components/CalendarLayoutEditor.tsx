@@ -826,6 +826,7 @@ export function CalendarLayoutEditor({
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<WizardStep>(1);
   const [posterCustomLayout, setPosterCustomLayout] = useState(false);
+  const [maskFile, setMaskFile] = useState<File | null>(null);
   const [openMonthKey, setOpenMonthKey] = useState<string | null>(null);
   const [yearInputBuffer, setYearInputBuffer] = useState<string>(
     typeof draft.defaultYear === 'number' ? String(draft.defaultYear) : ''
@@ -927,7 +928,9 @@ export function CalendarLayoutEditor({
     }
   };
 
-  // ── Shared aside: MonthTileThumb for steps 1 / 3 / 4 ───────────────────
+  // ── Shared aside: canvas-accurate preview for steps 1 / 3 / 4 ──────────
+  // Renders the photo frame area (green) and calendar block (positioned at
+  // the correct fraction offset) so the aside stays in sync with Step 2.
   const MonthPreviewAside = (
     <aside
       className="sticky top-6 self-start flex flex-col gap-2"
@@ -936,20 +939,45 @@ export function CalendarLayoutEditor({
       <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
         Preview · January {previewYear}
       </h3>
+      {/* Outer wrapper matches canvas aspect ratio */}
       <div
-        className="rounded border border-zinc-200 p-2 bg-white"
+        className="relative rounded border border-zinc-200 bg-white overflow-hidden"
         style={{ aspectRatio: `${draft.canvasWidthMm} / ${draft.canvasHeightMm}` }}
       >
-        <MonthTileThumb
-          year={previewYear}
-          month={1}
-          weekStart={draft.style.weekStart}
-          cells={{}}
-          holidays={previewHolidays}
-          colors={previewColors}
-          dotCycle={previewDotCycle}
-          ariaLabel={`Preview of ${MONTH_NAMES_EN[0]} ${previewYear}`}
-        />
+        {/* Photo frame zone — just a tinted rect so context is visible */}
+        {draft.frames.map((fr, i) => (
+          <div
+            key={i}
+            className="absolute rounded-sm bg-emerald-50 border border-dashed border-emerald-400"
+            style={{
+              left:   `${fr.x * 100}%`,
+              top:    `${fr.y * 100}%`,
+              width:  `${fr.width * 100}%`,
+              height: `${fr.height * 100}%`,
+            }}
+          />
+        ))}
+        {/* Calendar block — positioned at the fraction given by primaryCalendar */}
+        <div
+          className="absolute overflow-hidden"
+          style={{
+            left:   `${primaryCalendar.x * 100}%`,
+            top:    `${primaryCalendar.y * 100}%`,
+            width:  `${primaryCalendar.width * 100}%`,
+            height: `${primaryCalendar.height * 100}%`,
+          }}
+        >
+          <MonthTileThumb
+            year={previewYear}
+            month={1}
+            weekStart={draft.style.weekStart}
+            cells={{}}
+            holidays={previewHolidays}
+            colors={previewColors}
+            dotCycle={previewDotCycle}
+            ariaLabel={`Preview of ${MONTH_NAMES_EN[0]} ${previewYear}`}
+          />
+        </div>
       </div>
       <p className="text-xs text-zinc-500">
         Grid math matches the 300 DPI render.
@@ -958,67 +986,65 @@ export function CalendarLayoutEditor({
     </aside>
   );
 
-  // ── Nav buttons ──────────────────────────────────────────────────────────
-  const NavButtons = (
-    <div className="flex items-center justify-between pt-4 border-t border-zinc-200 mt-4">
+  // ── Unified step bar: ← Back | step pills | Next → (always visible) ─────
+  const StepBar = (
+    <div className="flex items-center justify-between py-3 border-b border-zinc-200 mb-6">
       <button
         type="button"
         onClick={() => setStep((s) => Math.max(1, s - 1) as WizardStep)}
         disabled={step === 1}
-        className="px-4 py-2 text-sm text-zinc-600 hover:text-zinc-900 disabled:opacity-30 disabled:cursor-not-allowed"
+        className="px-3 py-1.5 text-sm text-zinc-600 hover:text-zinc-900 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
       >
         ← Back
       </button>
+
+      <StepIndicator step={step} onStep={setStep} />
+
       {step < 4 ? (
         <button
           type="button"
           onClick={() => setStep((s) => Math.min(4, s + 1) as WizardStep)}
-          className="px-5 py-2 text-sm font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800"
+          className="px-4 py-1.5 text-sm font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800"
         >
           Next →
         </button>
       ) : (
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={busy}
-            data-testid="save-btn"
-            className="px-5 py-2 text-sm font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {busy ? 'Saving…' : 'Save layout'}
-          </button>
+        <div className="flex items-center gap-2">
+          {error && (
+            <span className="text-xs text-red-600" data-testid="save-error">
+              {error}
+            </span>
+          )}
           {onCancel && (
             <button
               type="button"
               onClick={onCancel}
-              className="px-4 py-2 text-sm text-zinc-600 hover:text-zinc-900"
+              className="px-3 py-1.5 text-sm text-zinc-600 hover:text-zinc-900"
               data-testid="cancel-btn"
             >
               Cancel
             </button>
           )}
-          {error && (
-            <span className="text-sm text-red-600" data-testid="save-error">
-              {error}
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={busy}
+            data-testid="save-btn"
+            className="px-4 py-1.5 text-sm font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {busy ? 'Saving…' : 'Save layout'}
+          </button>
         </div>
       )}
     </div>
   );
 
   return (
-    <div
-      className={`max-w-5xl mx-auto p-6 ${step === 2 ? '' : 'grid gap-6 lg:grid-cols-[1fr_320px]'}`}
-      data-testid="calendar-layout-editor"
-    >
-      {/* Step indicator spans full width */}
-      {step !== 2 && (
-        <div className="lg:col-span-2">
-          <StepIndicator step={step} onStep={setStep} />
-        </div>
-      )}
+    <div className="max-w-5xl mx-auto px-6 pb-6" data-testid="calendar-layout-editor">
+      {/* ── Unified step bar — always visible at the top ─────────────────── */}
+      {StepBar}
+
+      <div className={step === 2 ? '' : 'grid gap-6 lg:grid-cols-[1fr_320px]'}>
 
       {/* ── Step 1: Basics ─────────────────────────────────────────────── */}
       {step === 1 && (
@@ -1131,7 +1157,6 @@ export function CalendarLayoutEditor({
               </div>
             </section>
 
-            {NavButtons}
           </div>
 
           {MonthPreviewAside}
@@ -1141,7 +1166,6 @@ export function CalendarLayoutEditor({
       {/* ── Step 2: Layout (full-width with Fabric canvas) ─────────────── */}
       {step === 2 && (
         <div className="flex flex-col gap-4">
-          <StepIndicator step={step} onStep={setStep} />
 
           <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
             {/* Left: controls */}
@@ -1200,12 +1224,34 @@ export function CalendarLayoutEditor({
 
               {/* Paper mask */}
               <section data-testid="mask-section">
-                <h2 className="text-sm font-semibold text-zinc-900 mb-1">Paper mask <span className="text-zinc-400 font-normal">(optional)</span></h2>
+                <h2 className="text-sm font-semibold text-zinc-900 mb-1">
+                  Paper mask <span className="text-zinc-400 font-normal">(optional)</span>
+                </h2>
+                {/* File picker — sets filename as URL hint; ops can later reconcile with storage path */}
+                <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                  <span className="px-2 py-1 text-xs rounded border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 shrink-0">
+                    Choose file
+                  </span>
+                  <span className="text-xs text-zinc-400 truncate">
+                    {maskFile ? maskFile.name : 'No file chosen'}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    data-testid="mask-file-input"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setMaskFile(f);
+                      if (f) patch({ maskUrl: f.name });
+                    }}
+                  />
+                </label>
                 <input
                   type="text"
                   value={draft.maskUrl ?? ''}
                   placeholder="e.g. desk_calendar_mask.png"
-                  onChange={(e) => patch({ maskUrl: e.target.value || null })}
+                  onChange={(e) => { patch({ maskUrl: e.target.value || null }); if (!e.target.value) setMaskFile(null); }}
                   data-testid="mask-url"
                   className="w-full rounded border border-zinc-300 px-2 py-1.5 text-xs font-mono mb-1.5"
                 />
@@ -1225,11 +1271,14 @@ export function CalendarLayoutEditor({
                   <div data-testid="frames-precise">
                     <p className="font-medium text-zinc-700 mb-2">Frames</p>
                     {draft.frames.map((frame, i) => (
-                      <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-2 mb-2" data-testid={`frame-row-${i}`}>
-                        <NumberField label={`#${i+1} X`} value={frame.x} step={0.01} min={0} max={1} onChange={(n) => patchFrame(i, { x: n })} />
-                        <NumberField label="Y" value={frame.y} step={0.01} min={0} max={1} onChange={(n) => patchFrame(i, { y: n })} />
-                        <NumberField label="W" value={frame.width} step={0.01} min={0.01} max={1} onChange={(n) => patchFrame(i, { width: n })} />
-                        <NumberField label="H" value={frame.height} step={0.01} min={0.01} max={1} onChange={(n) => patchFrame(i, { height: n })} />
+                      <div key={i} className="mb-3" data-testid={`frame-row-${i}`}>
+                        <p className="text-zinc-500 mb-1">#{i + 1}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <NumberField label="X" value={frame.x} step={0.01} min={0} max={1} onChange={(n) => patchFrame(i, { x: n })} />
+                          <NumberField label="Y" value={frame.y} step={0.01} min={0} max={1} onChange={(n) => patchFrame(i, { y: n })} />
+                          <NumberField label="W" value={frame.width} step={0.01} min={0.01} max={1} onChange={(n) => patchFrame(i, { width: n })} />
+                          <NumberField label="H" value={frame.height} step={0.01} min={0.01} max={1} onChange={(n) => patchFrame(i, { height: n })} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1237,7 +1286,7 @@ export function CalendarLayoutEditor({
                     <p className="font-medium text-zinc-700 mb-2">
                       Calendar {draft.mode === 'poster' ? '(seed position)' : '(position)'}
                     </p>
-                    <div className="grid grid-cols-4 gap-2" data-testid="calendar-primitive-fields">
+                    <div className="grid grid-cols-2 gap-2" data-testid="calendar-primitive-fields">
                       <NumberField label="X" value={primaryCalendar.x} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(0, { x: n })} />
                       <NumberField label="Y" value={primaryCalendar.y} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(0, { y: n })} />
                       <NumberField label="W" value={primaryCalendar.width} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(0, { width: n })} />
@@ -1289,7 +1338,6 @@ export function CalendarLayoutEditor({
             </div>
           </div>
 
-          {NavButtons}
         </div>
       )}
 
@@ -1386,7 +1434,6 @@ export function CalendarLayoutEditor({
               </div>
             </section>
 
-            {NavButtons}
           </div>
 
           {MonthPreviewAside}
@@ -1435,12 +1482,13 @@ export function CalendarLayoutEditor({
               </div>
             </section>
 
-            {NavButtons}
           </div>
 
           {MonthPreviewAside}
         </>
       )}
+
+      </div>{/* end inner grid wrapper */}
 
       {/* Per-month override modal (P6.2). Mounted at the document level so
           it floats above the tile pane regardless of grid placement. */}
