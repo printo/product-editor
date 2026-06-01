@@ -1227,26 +1227,39 @@ export function CalendarLayoutEditor({
                 <h2 className="text-sm font-semibold text-zinc-900 mb-1">
                   Paper mask <span className="text-zinc-400 font-normal">(optional)</span>
                 </h2>
-                {/* File picker — sets filename as URL hint; ops can later reconcile with storage path */}
-                <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
-                  <span className="px-2 py-1 text-xs rounded border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 shrink-0">
-                    Choose file
-                  </span>
-                  <span className="text-xs text-zinc-400 truncate">
-                    {maskFile ? maskFile.name : 'No file chosen'}
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    data-testid="mask-file-input"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] ?? null;
-                      setMaskFile(f);
-                      if (f) patch({ maskUrl: f.name });
-                    }}
-                  />
-                </label>
+                {/* File picker row */}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                    <span className="px-2 py-1 text-xs rounded border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 shrink-0">
+                      Choose file
+                    </span>
+                    <span className="text-xs text-zinc-400 truncate">
+                      {maskFile ? maskFile.name : 'No file chosen'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      data-testid="mask-file-input"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] ?? null;
+                        setMaskFile(f);
+                        if (f) patch({ maskUrl: f.name });
+                      }}
+                    />
+                  </label>
+                  {(maskFile || draft.maskUrl) && (
+                    <button
+                      type="button"
+                      data-testid="mask-clear-btn"
+                      onClick={() => { setMaskFile(null); patch({ maskUrl: null, maskOnExport: false }); }}
+                      className="text-xs text-zinc-400 hover:text-red-500 shrink-0 px-1"
+                      title="Clear mask"
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={draft.maskUrl ?? ''}

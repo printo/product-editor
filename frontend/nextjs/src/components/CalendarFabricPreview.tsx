@@ -18,7 +18,7 @@
  *    individually draggable.
  */
 
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { Canvas, Rect, FabricText, FabricImage, type FabricObject } from 'fabric';
 import {
   createCenterGuides,
@@ -86,14 +86,28 @@ export function CalendarFabricPreview({
   framesRef.current    = frames;
   calendarsRef.current = calendars;
 
+  // Stable scale tracked by ResizeObserver — avoids zoom jumps when the
+  // parent's left panel changes height (which shifts available width).
+  const [containerW, setContainerW] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setContainerW(entry.contentRect.width);
+    });
+    ro.observe(el);
+    setContainerW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
   // px per mm on the preview canvas
   const getScale = useCallback(() => {
     const c = containerRef.current;
     if (!c) return 1;
-    const maxW = c.clientWidth  - 48;
-    const maxH = c.clientHeight - 48;
-    return Math.min(maxW / widthMm, maxH / heightMm, 4) * zoom;
-  }, [widthMm, heightMm, zoom]);
+    const availW = (containerW || c.clientWidth) - 48;
+    const availH = c.clientHeight - 48;
+    return Math.min(availW / widthMm, availH / heightMm, 4) * zoom;
+  }, [containerW, widthMm, heightMm, zoom]);
 
   // ── Initialize Fabric canvas ─────────────────────────────────────────────
 
@@ -138,7 +152,9 @@ export function CalendarFabricPreview({
       g.__fabricEditor = 'guide';
       fc.add(g);
     });
-    if (snapGrid) {
+    // Always show light grid lines for spatial reference; snap-to-grid uses
+    // the same grid step when snapGrid=true (see handleMoving below).
+    {
       const gridPx = GRID_SNAP_MM * scale;
       createGridLines(cw, ch, gridPx).forEach(l => {
         l.__calPreview = true;
@@ -214,7 +230,8 @@ export function CalendarFabricPreview({
       const cellW = Math.min(base.width, maxCellW);
       const cellH = Math.min(base.height, maxCellH);
 
-      // 12 preview cells (non-interactive)
+      // 12 preview cells (non-interactive) — queued; handle added AFTER so it
+      // sits on top in Fabric's z-order and receives pointer events first.
       for (let i = 0; i < 12; i++) {
         const col = i % 4;
         const row = Math.floor(i / 4);
@@ -230,40 +247,6 @@ export function CalendarFabricPreview({
           interactive: false,
         });
       }
-
-      // Single group handle spanning the full 4×3 grid — stored as calIdx=0
-      // so the modified handler knows to update calendars[0]. The handle stores
-      // cellW/cellH via __cellW/__cellH so the handler can back-compute the
-      // new seed dimensions from the resized rect.
-      const gridW = cellW * 4;
-      const gridH = cellH * 3;
-      const handle = new Rect({
-        left: base.x * cw,
-        top:  base.y * ch,
-        width:  gridW * cw,
-        height: gridH * ch,
-        originX: 'left', originY: 'top',
-        fill: 'transparent',
-        stroke: '#0ea5e9',
-        strokeWidth: 2,
-        strokeDashArray: [6, 4],
-        selectable: true,
-        hasControls: true,
-        lockRotation: true,
-        cornerColor: '#0ea5e9',
-        cornerSize: 10,
-        cornerStyle: 'circle' as const,
-        transparentCorners: false,
-        borderColor: '#0ea5e9',
-        borderDashArray: [4, 3],
-      });
-      handle.__calPreview = true;
-      handle.__fabricEditor = 'calendar';
-      handle.__calendarIdx = 0;
-      (handle as any).__isAutoTileHandle = true;
-      (handle as any).__cellColsRows = { cols: 4, rows: 3 };
-      handle.setControlsVisibility({ mtr: false });
-      fc.add(handle);
     }
 
     toRender.forEach(({ block, calIdx, label, interactive }) => {
@@ -310,6 +293,43 @@ export function CalendarFabricPreview({
       lbl.__calendarIdx = calIdx;
       fc.add(lbl);
     });
+
+    // Auto-tile group handle — added last so it sits on TOP of the 12 cells
+    // in Fabric's z-order and receives pointer events correctly.
+    if (mode === 'poster' && !posterCustomLayout) {
+      const base = calendars[0] ?? { x: 0, y: 0, width: 0.25, height: 0.2 };
+      const maxCellW = Math.max(0.01, (1 - base.x) / 4);
+      const maxCellH = Math.max(0.01, (1 - base.y) / 3);
+      const cellW = Math.min(base.width, maxCellW);
+      const cellH = Math.min(base.height, maxCellH);
+      const gridW = cellW * 4;
+      const gridH = cellH * 3;
+      const handle = new Rect({
+        left: base.x * cw, top: base.y * ch,
+        width: gridW * cw, height: gridH * ch,
+        originX: 'left', originY: 'top',
+        fill: 'transparent',
+        stroke: '#0ea5e9',
+        strokeWidth: 2,
+        strokeDashArray: [6, 4],
+        selectable: true,
+        hasControls: true,
+        lockRotation: true,
+        cornerColor: '#0ea5e9',
+        cornerSize: 10,
+        cornerStyle: 'circle' as const,
+        transparentCorners: false,
+        borderColor: '#0ea5e9',
+        borderDashArray: [4, 3],
+      });
+      handle.__calPreview = true;
+      handle.__fabricEditor = 'calendar';
+      handle.__calendarIdx = 0;
+      (handle as any).__isAutoTileHandle = true;
+      (handle as any).__cellColsRows = { cols: 4, rows: 3 };
+      handle.setControlsVisibility({ mtr: false });
+      fc.add(handle);
+    }
 
     fc.renderAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
