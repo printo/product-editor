@@ -7,6 +7,7 @@ import { ColorPicker } from '@/components/ColorPicker';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
+import { isAllowedImageFile, IMAGE_ACCEPT_ATTR } from '@/lib/upload-utils';
 import type { CanvasItem, FitMode, Overlay, TextOverlay, ImageOverlay } from './types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -523,12 +524,15 @@ export function CanvasEditorSidebar({
                       <p className="text-[11px] font-medium uppercase">Add Photo</p>
                       <p className="text-[10px] text-slate-400 uppercase tracking-tight opacity-80">Floating overlay</p>
                     </div>
-                    <input type="file" multiple accept="image/*" className="hidden"
+                    <input type="file" multiple accept={IMAGE_ACCEPT_ATTR} className="hidden"
                       onChange={async e => {
                         if (!e.target.files?.length) return;
-                        pushUndo(editingCanvas, true);
-                        const files = Array.from(e.target.files);
+                        // Drop unsupported types (e.g. .svg) — they'd preview in
+                        // the browser but fail to render server-side.
+                        const files = Array.from(e.target.files).filter(isAllowedImageFile);
                         e.target.value = '';
+                        if (files.length === 0) return;
+                        pushUndo(editingCanvas, true);
                         let updated = { ...editingCanvas };
                         for (const file of files) {
                           const newOverlay: Overlay = {

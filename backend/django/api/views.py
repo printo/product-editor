@@ -2609,7 +2609,14 @@ class RenderJobDownloadView(APIView):
         # worker RAM flat regardless of archive size.
         # PNG files are already DEFLATE-compressed — ZIP_STORED skips the
         # redundant pass and saves CPU for marginal size savings.
-        zip_name = f"job-{job_id}.zip"
+        # Human-friendly, short download name: the layout name plus an 8-char
+        # job suffix. The full job UUID produced an unwieldy 40-char filename
+        # ("job-e557aa7d-3d4f-…-50e9c43bef23.zip"); the short suffix keeps the
+        # name compact while still disambiguating repeated downloads of the
+        # same layout. layout_name is sanitised for safe use in the
+        # Content-Disposition header.
+        safe_layout = re.sub(r'[^A-Za-z0-9_.\-]+', '-', (canvas.layout_name or 'design')).strip('-._') or 'design'
+        zip_name = f"{safe_layout[:48]}-{str(job_id)[:8]}.zip"
         tmp = tempfile.NamedTemporaryFile(
             mode='w+b', suffix='.zip', delete=False, dir=exports_root,
         )

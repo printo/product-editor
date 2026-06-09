@@ -17,7 +17,13 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
-import { uploadFiles } from '@/lib/upload-utils';
+import {
+  uploadFiles,
+  partitionByAllowedType,
+  unsupportedFilesMessage,
+  isAllowedImageFile,
+  IMAGE_ACCEPT_ATTR,
+} from '@/lib/upload-utils';
 import { saveFile, getFilesForOrder } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
@@ -223,6 +229,10 @@ export default function LayoutEditorPage() {
   const [serverRenderLabel, setServerRenderLabel] = useState<string | null>(null);
   const [uploadWarning, setUploadWarning] = useState<string | null>(null);
   const [colorWarning, setColorWarning] = useState<string | null>(null);
+  // Unsupported-file (e.g. .svg) notice. Its own channel — NOT `error` — so a
+  // partial selection's "skipped" message survives generateCanvases()'s
+  // setError(null). Self-clears on the next clean selection.
+  const [unsupportedWarning, setUnsupportedWarning] = useState<string | null>(null);
   // Qty enforcement state
   const [qtyUnder, setQtyUnder] = useState<{ uploaded: number; needed: number } | null>(null);
   const [pendingOverFiles, setPendingOverFiles] = useState<File[] | null>(null);
@@ -1347,9 +1357,14 @@ export default function LayoutEditorPage() {
     
     if (droppedFiles.length > 0) {
       // ── Handle external files ──────────────────────────────────────────────
-      const firstFile = droppedFiles[0];
-      if (!firstFile.type.startsWith('image/')) return;
-      
+      // Validate by extension (matches the backend). A plain
+      // `type.startsWith('image/')` check would let .svg through —
+      // image/svg+xml is an image MIME the renderer can't accept.
+      const { accepted: okFiles, rejected } = partitionByAllowedType(droppedFiles);
+      setUnsupportedWarning(rejected.length > 0 ? unsupportedFilesMessage(rejected) : null);
+      if (okFiles.length === 0) return;
+      const firstFile = okFiles[0];
+
       if (surfaceKey) {
         // Multi-surface: update that specific surface's file
         const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
@@ -1380,7 +1395,7 @@ export default function LayoutEditorPage() {
         
         const nextFiles = [...files];
         // Replace/Insert files starting at the target index
-        nextFiles.splice(fileIdx, droppedFiles.length, ...droppedFiles);
+        nextFiles.splice(fileIdx, okFiles.length, ...okFiles);
         setFiles(nextFiles);
       }
     } else {
@@ -1465,11 +1480,21 @@ export default function LayoutEditorPage() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
+
+    // Reject unsupported types up-front (e.g. .svg) and name them, so the
+    // customer learns which file is wrong here — not via a cryptic failure at
+    // render time. Supported files still proceed. Done before the URL-revoke
+    // below so an only-unsupported selection leaves existing previews intact.
+    // Routed through unsupportedWarning (not `error`) so the notice isn't wiped
+    // by generateCanvases() when a partial selection still produces canvases.
+    const { accepted: allFiles, rejected } = partitionByAllowedType(Array.from(e.target.files));
+    setUnsupportedWarning(rejected.length > 0 ? unsupportedFilesMessage(rejected) : null);
+    if (allFiles.length === 0) return;
+
     // Revoke any URLs from the previous batch — start the new selection clean.
     createdObjectURLs.current.forEach(url => URL.revokeObjectURL(url));
     createdObjectURLs.current.clear();
     fileUrlCache.current = new WeakMap();
-    const allFiles = Array.from(e.target.files);
 
     // ── CMYK color space detection ──────────────────────────────────────────
     setColorWarning(null);
@@ -1703,6 +1728,15 @@ export default function LayoutEditorPage() {
         return;
       }
 
+      // Block unsupported types before uploading so the failure names the file
+      // (e.g. a .svg restored from a prior session) instead of surfacing the
+      // backend's cryptic "Upload complete failed for …" mid-batch.
+      const badFiles = allFiles.filter(f => !isAllowedImageFile(f));
+      if (badFiles.length > 0) {
+        setError(unsupportedFilesMessage(badFiles));
+        return;
+      }
+
       // 3. Upload files — progress 0–60%
       setServerRenderLabel('Uploading files…');
       const uploadResults = await uploadFiles(
@@ -1820,7 +1854,8 @@ export default function LayoutEditorPage() {
           a.href = downloadUrl;
           a.rel = 'noopener';
           // download attr is a hint — Content-Disposition from upstream wins
-          // when present (it's `attachment; filename="job-<uuid>.zip"`).
+          // when present (Django sends "<layout>-<short-id>.zip"). This is just
+          // the fallback name if that header is ever stripped.
           a.download = `${layout?.name || layoutName}.zip`;
           document.body.appendChild(a);
           a.click();
@@ -1981,6 +2016,10 @@ export default function LayoutEditorPage() {
   // Phase 8 — cell image override upload
   const handleCellImageFileSelected = useCallback(async (file: File) => {
     if (!selectedCalendarCell || !orderId) return;
+    if (!isAllowedImageFile(file)) {
+      setUnsupportedWarning(unsupportedFilesMessage([file]));
+      return;
+    }
     const { surfaceIndex, iso } = selectedCalendarCell;
     setCalendarImageUploading(true);
     try {
@@ -2066,6 +2105,23 @@ export default function LayoutEditorPage() {
           </div>
           <button onClick={() => setColorWarning(null)} className="p-2 mt-0.5 hover:bg-orange-50 rounded-xl transition-all shrink-0">
             <X className="w-3.5 h-3.5 text-orange-400" />
+          </button>
+        </div>
+      )}
+      {unsupportedWarning && (
+        <div className={clsx(
+          'fixed right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-rose-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-rose-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group',
+          ['top-24', 'top-44', 'top-64'][(uploadWarning ? 1 : 0) + (colorWarning ? 1 : 0)],
+        )}>
+          <div className="w-7 h-7 mt-0.5 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+            <span className="text-[13px] font-black">!</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-black text-rose-900/90 uppercase tracking-tight leading-none mb-1">Unsupported file</p>
+            <p className="text-[10px] font-medium text-rose-800/70 leading-snug">{unsupportedWarning}</p>
+          </div>
+          <button onClick={() => setUnsupportedWarning(null)} className="p-2 mt-0.5 hover:bg-rose-50 rounded-xl transition-all shrink-0">
+            <X className="w-3.5 h-3.5 text-rose-400" />
           </button>
         </div>
       )}
@@ -2250,7 +2306,7 @@ export default function LayoutEditorPage() {
             </div>
             <div className="flex-1 max-w-md relative group">
               <div className={clsx("relative flex items-center gap-3 px-4 py-2 rounded-2xl border-2 border-dashed transition-all", (files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'border-emerald-200 bg-emerald-50/30' : 'border-indigo-200 bg-indigo-50/30 hover:border-indigo-400')}>
-                <input ref={uploadInputRef} type="file" multiple onChange={handleFileChange} accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                <input ref={uploadInputRef} type="file" multiple onChange={handleFileChange} accept={IMAGE_ACCEPT_ATTR} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                 <div className={clsx("w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm", totalUploadedCount > 0 ? 'bg-emerald-500 text-white' : 'bg-indigo-600 text-white')}>
                   <Upload className="w-4 h-4" />
                 </div>
@@ -2570,7 +2626,7 @@ export default function LayoutEditorPage() {
               <input
                 ref={calendarCellFileInputRef}
                 type="file"
-                accept="image/*"
+                accept={IMAGE_ACCEPT_ATTR}
                 className="hidden"
                 aria-hidden
                 onChange={e => {

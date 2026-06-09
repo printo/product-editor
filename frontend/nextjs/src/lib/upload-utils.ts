@@ -13,6 +13,52 @@
 const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB — matches backend CHUNK_SIZE
 const MAX_PARALLEL_FILES = 4;        // saturates ~10 Mbps uplink without flooding
 
+// ─── Allowed image types ────────────────────────────────────────────────────
+// Mirror of the backend validator (api/validators.py → ALLOWED_IMAGE_TYPES).
+// The server rejects anything outside this set, so we filter client-side to
+// fail fast with a clear, file-named message instead of a late, cryptic
+// "Upload complete failed for …" surfaced from Django at render time.
+export const ALLOWED_IMAGE_EXTENSIONS = [
+  'jpg', 'jpeg', 'jpe', 'jfif', 'png', 'webp', 'tiff', 'tif', 'gif',
+] as const;
+
+// `accept` value for <input type="file">. Explicit extensions + MIME types so
+// the OS picker greys out unsupported files. Plain `image/*` lets through SVG,
+// BMP, AVIF, HEIC, etc. — none of which the renderer accepts (this is how a
+// stray favicon.svg slipped in and only failed at render time).
+export const IMAGE_ACCEPT_ATTR =
+  '.jpg,.jpeg,.jpe,.jfif,.png,.webp,.tiff,.tif,.gif,' +
+  'image/jpeg,image/png,image/webp,image/tiff,image/gif';
+
+// Short, human-readable form for error copy.
+export const ALLOWED_IMAGE_LABEL = 'JPG, PNG, WEBP, TIFF, or GIF';
+
+function fileExtension(name: string): string {
+  return name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
+}
+
+export function isAllowedImageFile(file: File): boolean {
+  return (ALLOWED_IMAGE_EXTENSIONS as readonly string[]).includes(fileExtension(file.name));
+}
+
+/** Split files into supported vs unsupported by extension (backend-matching). */
+export function partitionByAllowedType(files: File[]): { accepted: File[]; rejected: File[] } {
+  const accepted: File[] = [];
+  const rejected: File[] = [];
+  for (const f of files) (isAllowedImageFile(f) ? accepted : rejected).push(f);
+  return { accepted, rejected };
+}
+
+/** User-facing message naming the unsupported file(s) so they can be found and removed. */
+export function unsupportedFilesMessage(rejected: File[]): string {
+  const names = rejected.map(f => `"${f.name}"`).join(', ');
+  const isOne = rejected.length === 1;
+  return (
+    `${names} ${isOne ? 'is' : 'are'} not a supported image type and ` +
+    `${isOne ? 'was' : 'were'} skipped. Allowed types: ${ALLOWED_IMAGE_LABEL}.`
+  );
+}
+
 export interface UploadResult {
   uploadId: string;   // upload_id from init — used as frame identifier
   filePath: string;   // assembled server path returned by complete
