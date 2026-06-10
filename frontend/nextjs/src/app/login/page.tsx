@@ -11,7 +11,7 @@ import { loginAction, googleLoginAction } from '@/app/actions/auth';
 // NEXT_PUBLIC_GOOGLE_CLIENT_ID, which Next.js inlines at build time.
 const GOOGLE_CLIENT_ID =
   process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
-  '113607233592-0lrokk43kls28mo8q1di67bi2kohp2ja.apps.googleusercontent.com';
+  '875434468582-2a7h0gahc6sq6jm3gfmre9cca1lhh0p7.apps.googleusercontent.com';
 
 const LoginForm = () => {
   const [username, setUsername] = useState('');

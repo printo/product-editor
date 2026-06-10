@@ -150,7 +150,7 @@ services:
       args:
         - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
         - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY:-}
-        - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-113607233592-0lrokk43kls28mo8q1di67bi2kohp2ja.apps.googleusercontent.com}
+        - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-875434468582-2a7h0gahc6sq6jm3gfmre9cca1lhh0p7.apps.googleusercontent.com}
     ports:
       - "${FRONTEND_HOST_PORT:-5004}:3000"  # can override with FRONTEND_HOST_PORT in .env if occupied
     env_file:
