@@ -23,7 +23,7 @@
  *   Financial → today.month >= 4 ? today.year : today.year − 1
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   MONTH_NAMES_EN,
   resolveBaseYear,
@@ -465,12 +465,15 @@ export function CalendarProductPreview({
     [cellsPerCanvas, calendarType, now],
   );
   const [leapDayToastDismissed, setLeapDayToastDismissed] = useState(false);
-  // Re-arm the toast when the orphan count goes from 0 to >0 (e.g. customer
-  // adds an entry on Feb 29). Keeps the message visible until they dismiss
-  // it again, instead of silently swallowed.
-  useEffect(() => {
+  // Re-arm the toast when the orphan count changes to >0 (e.g. customer adds an
+  // entry on Feb 29). Done during render via previous-value tracking rather than
+  // in an effect, so it doesn't trigger an extra commit/cascade — React applies
+  // the adjustment within the same render. See "You Might Not Need an Effect".
+  const [prevLeapOrphanCount, setPrevLeapOrphanCount] = useState(leapDayOrphans.count);
+  if (leapDayOrphans.count !== prevLeapOrphanCount) {
+    setPrevLeapOrphanCount(leapDayOrphans.count);
     if (leapDayOrphans.count > 0) setLeapDayToastDismissed(false);
-  }, [leapDayOrphans.count]);
+  }
 
   return (
     <div className="w-full max-w-5xl mx-auto p-4 sm:p-6" data-testid="calendar-product-preview">
@@ -511,7 +514,7 @@ export function CalendarProductPreview({
                 ? `1 entry on Feb 29 won't appear in ${leapDayOrphans.renderYear}.`
                 : `${leapDayOrphans.count} entries on Feb 29 won't appear in ${leapDayOrphans.renderYear}.`}
             </strong>{' '}
-            They're saved with the original date and will reappear if you switch back to a leap year.
+            They&apos;re saved with the original date and will reappear if you switch back to a leap year.
           </div>
           <button
             type="button"

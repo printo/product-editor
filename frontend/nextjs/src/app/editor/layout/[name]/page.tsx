@@ -944,7 +944,7 @@ export default function LayoutEditorPage() {
       newCanvases.push(item);
     }
     return newCanvases;
-  }, [renderCanvas]);
+  }, [renderCanvas, apiBase, getAuthHeaders]);
 
   const generateCanvases = useCallback(async () => {
     if (!layout || files.length === 0 || isProcessing) return;
@@ -1994,7 +1994,7 @@ export default function LayoutEditorPage() {
   const calendarCellEntries = (surfaceIdx: number, iso: string): any[] =>
     (cellsPerCanvas[surfaceIdx] || {})[iso] || [];
 
-  const updateCellEntries = (surfaceIdx: number, iso: string, updater: (prev: any[]) => any[]) => {
+  const updateCellEntries = useCallback((surfaceIdx: number, iso: string, updater: (prev: any[]) => any[]) => {
     setCellsPerCanvas(prev => {
       const next = [...prev];
       const surfaceCells = { ...(next[surfaceIdx] || {}) };
@@ -2007,7 +2007,7 @@ export default function LayoutEditorPage() {
       next[surfaceIdx] = surfaceCells;
       return next;
     });
-  };
+  }, []);
 
   const handleCalendarCellClick = (surfaceIndex: number, year: number, month: number, iso: string) => {
     setSelectedCalendarCell({ surfaceIndex, year, month, iso });
