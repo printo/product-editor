@@ -304,6 +304,15 @@ The dashboard side is auth-gated; the embed iframe is **not** (it uses an embed 
 
 PIA fetches use `AbortSignal.timeout(10_000)` (10 s) on both `/auth/` and `/auth/token/refresh/`.
 
+### Google Sign-In
+
+A second `Credentials` provider (`id: "google"`) in `pia-auth.ts` handles "Sign in with Google". The login page renders a Google Identity Services (GIS) button — client-id only, **no client secret** — which returns a Google **ID token** to the browser. `googleLoginAction` (`app/actions/auth.ts`, same per-IP rate limit as the password flow) dispatches `signIn("google", { id_token })`; the provider POSTs `{ id_token }` to **`{PIA_API_BASE_URL}/auth/google/login/`**, which returns the *same* `{ access, refresh, employee_id, full_name, is_super_user, is_ops_team }` payload as `/auth/`. So the `jwt`/`session` callbacks, token refresh, and Django Bearer auth are all identical to the password flow — Google is just a different way to obtain PIA tokens.
+
+- **Domain gate (`@printo.in`)**: enforced server-side in `authorize`. After PIA validates the token (proving its claims genuine), the ID token is decoded and rejected unless `hd === 'printo.in'` or the verified email ends in `@printo.in` → throws `GoogleDomainNotAllowedError` (code `GoogleDomainNotAllowed` → "Please sign in with your @printo.in Google account."). The client `hd` hint is advisory only.
+- **Client ID**: public; read from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (inlined at build time, so set it before `npm run build`) with printo.in's ID as a hardcoded fallback in `login/page.tsx`. The endpoint path is the const `PIA_GOOGLE_AUTH_PATH` in `pia-auth.ts`.
+- **No CSP/COOP changes**: `/login` carries no CSP from `next.config.mjs` (only the embed/layout routes get `frame-ancestors`), and there are no COOP headers, so the GIS script + popup load freely. If CSP is ever enforced on `/login`, the GIS button needs `script-src`/`frame-src`/`connect-src https://accounts.google.com`.
+- GIS types live in `src/types/google-gsi.d.ts` (minimal `window.google.accounts.id` surface — no `as any`).
+
 ### Open-redirect protection
 
 The `redirect` callback in `pia-auth.ts` clamps `callbackUrl`: relative paths join to `baseUrl`; absolute URLs only allowed if same origin; malformed URLs fall back to `baseUrl`. So `?callbackUrl=https://evil.com` is harmless.

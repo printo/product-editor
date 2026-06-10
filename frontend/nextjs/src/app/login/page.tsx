@@ -1,9 +1,17 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import Script from 'next/script';
 import { Lock, User, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { loginAction } from '@/app/actions/auth';
+import { loginAction, googleLoginAction } from '@/app/actions/auth';
+
+// Public OAuth client ID for printo.in's Google project — safe to expose to the
+// browser (it is embedded in the page for any GIS integration). Override via
+// NEXT_PUBLIC_GOOGLE_CLIENT_ID, which Next.js inlines at build time.
+const GOOGLE_CLIENT_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+  '113607233592-0lrokk43kls28mo8q1di67bi2kohp2ja.apps.googleusercontent.com';
 
 const LoginForm = () => {
   const [username, setUsername] = useState('');
@@ -13,6 +21,52 @@ const LoginForm = () => {
   const [isLoading, setIsLoading] = useState(false);
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const [gsiReady, setGsiReady] = useState(false);
+
+  const handleGoogleCredential = useCallback(async (response: { credential?: string }) => {
+    if (!response.credential) {
+      setError('Google sign-in was cancelled. Please try again.');
+      return;
+    }
+    setError(null);
+    setIsLoading(true);
+    try {
+      // On success the server action redirects (navigation happens); a returned
+      // object means failure.
+      const result = await googleLoginAction(response.credential, callbackUrl);
+      if (result?.error) {
+        setError(result.error);
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.error('Google login action error:', err);
+      setError('An error occurred during Google sign-in.');
+      setIsLoading(false);
+    }
+  }, [callbackUrl]);
+
+  useEffect(() => {
+    const el = googleBtnRef.current;
+    const gid = window.google?.accounts?.id;
+    if (!gsiReady || !el || !gid) return;
+    gid.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleCredential,
+      hd: 'printo.in', // account-chooser hint; domain is enforced server-side
+      ux_mode: 'popup',
+    });
+    gid.renderButton(el, {
+      type: 'standard',
+      theme: 'outline',
+      size: 'large',
+      text: 'signin_with',
+      shape: 'rectangular',
+      logo_alignment: 'left',
+      width: 320,
+    });
+  }, [gsiReady, handleGoogleCredential]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +95,11 @@ const LoginForm = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <Script
+        src="https://accounts.google.com/gsi/client"
+        strategy="afterInteractive"
+        onReady={() => setGsiReady(true)}
+      />
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-6 sm:p-8">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-100 mb-4">
@@ -119,6 +178,24 @@ const LoginForm = () => {
             {isLoading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+            <div className="w-full border-t border-slate-200" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-white px-3 text-xs font-medium uppercase tracking-wider text-slate-400">
+              or
+            </span>
+          </div>
+        </div>
+
+        <div className="flex justify-center">
+          <div
+            ref={googleBtnRef}
+            className={isLoading ? 'pointer-events-none opacity-60' : ''}
+          />
+        </div>
       </div>
     </div>
   );

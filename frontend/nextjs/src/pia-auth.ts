@@ -9,6 +9,14 @@ interface DecodedToken {
 
 const PIA_AUTH_TIMEOUT_MS = 10_000;
 
+// Google sign-in is restricted to this Workspace domain. Enforced server-side
+// (the client `hd` hint is only advisory and can be bypassed).
+const ALLOWED_GOOGLE_DOMAIN = "printo.in";
+
+// PIA endpoint that exchanges a Google ID token for PIA access/refresh tokens.
+// Same response shape as POST /auth/. Path is relative to PIA_API_BASE_URL.
+const PIA_GOOGLE_AUTH_PATH = "/auth/google/login/";
+
 // Refresh the access token this many ms before its `exp`. Without a buffer,
 // every concurrent request that lands at the exact instant of expiry sees an
 // expired token and independently fires its own refresh against PIA. With
@@ -40,6 +48,12 @@ class PiaServiceUnavailableError extends CredentialsSignin {
 
 class PiaTimeoutError extends CredentialsSignin {
   code = "PiaTimeout";
+}
+
+// Raised when a Google sign-in succeeds against PIA but the account is outside
+// the allowed Workspace domain. Surfaced to the UI as a specific message.
+class GoogleDomainNotAllowedError extends CredentialsSignin {
+  code = "GoogleDomainNotAllowed";
 }
 
 const nextAuth = NextAuth({
@@ -99,6 +113,88 @@ const nextAuth = NextAuth({
           id: data.employee_id ? String(data.employee_id) : "unknown",
           name: data.full_name || (credentials.username as string),
           email: credentials.username as string,
+          role: isAdmin ? 'admin' : 'user',
+          accessToken: data.access,
+          refreshToken: data.refresh,
+          accessTokenExpires: decoded.exp * 1000,
+          is_ops_team: data.is_ops_team || false,
+        }
+      },
+    }),
+    // Google sign-in. The browser obtains a Google ID token via the Google
+    // Identity Services button (client-id only, no secret) and hands it here.
+    // PIA validates the token (signature/audience/expiry) and returns the same
+    // access/refresh payload as the password flow, so everything downstream
+    // (jwt/session callbacks, refresh, Django Bearer auth) is identical.
+    Credentials({
+      id: "google",
+      name: "Google",
+      credentials: {
+        id_token: { label: "Google ID Token", type: "text" },
+      },
+      authorize: async (credentials) => {
+        const idToken = credentials?.id_token as string | undefined
+        if (!idToken) return null
+        const piaUrl = process.env.PIA_API_BASE_URL || "https://pia.printo.in/api/v1"
+
+        let res: Response;
+        try {
+          res = await fetch(`${piaUrl}${PIA_GOOGLE_AUTH_PATH}`, {
+            method: 'POST',
+            body: JSON.stringify({ id_token: idToken }),
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(PIA_AUTH_TIMEOUT_MS),
+          })
+        } catch (e: unknown) {
+          if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+            console.error("PIA google auth timed out after", PIA_AUTH_TIMEOUT_MS, "ms")
+            throw new PiaTimeoutError()
+          }
+          console.error("PIA google auth network error", e)
+          throw new PiaServiceUnavailableError()
+        }
+
+        if (res.status >= 500) {
+          console.error("PIA google auth returned", res.status)
+          throw new PiaServiceUnavailableError()
+        }
+        // 4xx → PIA rejected the token / unknown user. Return null so NextAuth
+        // surfaces a generic credential failure.
+        if (!res.ok) {
+          return null
+        }
+
+        const data = await res.json()
+        if (!data.access) {
+          return null
+        }
+
+        // PIA has now validated the Google token's authenticity, so claims
+        // decoded from it are trustworthy. Enforce the Workspace-domain policy
+        // on top — PIA may not gate the domain itself. Fail closed if the token
+        // can't be parsed (this gate must never be skipped).
+        let claims: { email?: string; email_verified?: boolean; hd?: string; name?: string }
+        try {
+          claims = decodeJwt(idToken) as unknown as typeof claims
+        } catch {
+          console.warn("Google sign-in rejected: unparseable ID token")
+          throw new GoogleDomainNotAllowedError()
+        }
+        const email = (claims.email || "").toLowerCase()
+        const domainOk =
+          claims.hd === ALLOWED_GOOGLE_DOMAIN || email.endsWith(`@${ALLOWED_GOOGLE_DOMAIN}`)
+        if (claims.email_verified === false || !domainOk) {
+          console.warn("Google sign-in rejected (domain not allowed):", email || "(no email)")
+          throw new GoogleDomainNotAllowedError()
+        }
+
+        const decoded = decodeJwt(data.access) as unknown as DecodedToken
+        const isAdmin = data.is_super_user || data.is_ops_team
+
+        return {
+          id: data.employee_id ? String(data.employee_id) : "unknown",
+          name: data.full_name || claims.name || email,
+          email: email,
           role: isAdmin ? 'admin' : 'user',
           accessToken: data.access,
           refreshToken: data.refresh,

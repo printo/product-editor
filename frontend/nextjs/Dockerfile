@@ -30,8 +30,10 @@ COPY frontend/nextjs/ ./
 
 ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_DIRECT_API_KEY
+ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_DIRECT_API_KEY=$NEXT_PUBLIC_DIRECT_API_KEY
+ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
 # Build the app. Persist .next/cache between builds so SWC + Webpack module
 # graph survive across `docker compose build` runs. Cuts incremental

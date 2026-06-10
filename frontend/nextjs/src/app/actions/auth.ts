@@ -86,3 +86,47 @@ export async function loginAction(formData: FormData) {
     return { error: "An unexpected error occurred. Please try again later." };
   }
 }
+
+// Google sign-in: the browser obtains a Google ID token via the GIS button and
+// passes it here. Same rate limit + error mapping as the password flow.
+export async function googleLoginAction(idToken: string, callbackUrl?: string) {
+  const ip = await clientIp();
+  pruneRateLimit();
+  if (!checkRateLimit(ip)) {
+    return { error: "Too many login attempts. Please wait a minute and try again." };
+  }
+
+  if (!idToken) {
+    return { error: "Google sign-in failed. Please try again." };
+  }
+
+  try {
+    await signIn("google", {
+      id_token: idToken,
+      redirectTo: callbackUrl || "/dashboard",
+    });
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+
+    if (error instanceof CredentialsSignin) {
+      switch (error.code) {
+        case "PiaTimeout":
+          return { error: "Login is taking too long. The auth service may be slow — please try again in a moment." };
+        case "PiaServiceUnavailable":
+          return { error: "The authentication service is temporarily unavailable. Please try again shortly." };
+        case "GoogleDomainNotAllowed":
+          return { error: "Please sign in with your @printo.in Google account." };
+        default:
+          return { error: "This Google account isn't authorized. Please contact your administrator." };
+      }
+    }
+
+    if (error instanceof AuthError) {
+      return { error: "Something went wrong. Please try again." };
+    }
+
+    return { error: "An unexpected error occurred. Please try again later." };
+  }
+}
