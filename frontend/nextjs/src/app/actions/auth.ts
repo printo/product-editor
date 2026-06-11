@@ -3,9 +3,6 @@
 import { headers } from "next/headers";
 import { signIn } from "@/pia-auth";
 import { AuthError, CredentialsSignin } from "next-auth";
-// next/navigation no longer exports isRedirectError in Next.js 16 —
-// it moved to the internal redirect-error module.
-import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 // Per-IP login rate limiter — fixed-window in-memory.
 // Single-process limit; if frontend is scaled horizontally, replace with Redis.
@@ -57,16 +54,19 @@ export async function loginAction(formData: FormData) {
   const callbackUrl = (formData.get("callbackUrl") as string) || "/dashboard";
 
   try {
+    // redirect:false → signIn sets the session cookie and RETURNS (no thrown
+    // NEXT_REDIRECT). The client then does a full-page navigation so the
+    // destination renders with a fresh server session — a soft client-side
+    // redirect would keep the stale logged-out SessionProvider and the
+    // dashboard's layout fetch (gated on useSession status) wouldn't fire.
     await signIn("credentials", {
       username,
       password,
+      redirect: false,
       redirectTo: callbackUrl,
     });
+    return { ok: true, url: callbackUrl };
   } catch (error) {
-    if (isRedirectError(error)) {
-      throw error;
-    }
-
     if (error instanceof CredentialsSignin) {
       switch (error.code) {
         case "PiaTimeout":
@@ -101,15 +101,14 @@ export async function googleLoginAction(idToken: string, callbackUrl?: string) {
   }
 
   try {
+    // redirect:false → cookie is set, no NEXT_REDIRECT thrown; client hard-navs.
     await signIn("google", {
       id_token: idToken,
+      redirect: false,
       redirectTo: callbackUrl || "/dashboard",
     });
+    return { ok: true, url: callbackUrl || "/dashboard" };
   } catch (error) {
-    if (isRedirectError(error)) {
-      throw error;
-    }
-
     if (error instanceof CredentialsSignin) {
       switch (error.code) {
         case "PiaTimeout":

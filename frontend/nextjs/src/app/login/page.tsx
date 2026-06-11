@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import Script from 'next/script';
 import { Lock, User, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { loginAction, googleLoginAction } from '@/app/actions/auth';
 
 // Public OAuth client ID for printo.in's Google project — safe to expose to the
@@ -33,13 +33,14 @@ const LoginForm = () => {
     setError(null);
     setIsLoading(true);
     try {
-      // On success the server action redirects (navigation happens); a returned
-      // object means failure.
       const result = await googleLoginAction(response.credential, callbackUrl);
       if (result?.error) {
         setError(result.error);
         setIsLoading(false);
+        return;
       }
+      // Full-page navigation so the dashboard loads with a fresh server session.
+      window.location.href = result?.url || callbackUrl;
     } catch (err) {
       console.error('Google login action error:', err);
       setError('An error occurred during Google sign-in.');
@@ -83,10 +84,13 @@ const LoginForm = () => {
       if (result?.error) {
         setError(result.error);
         setIsLoading(false);
+        return;
       }
+      // Full-page navigation so the dashboard loads with a fresh server session
+      // (a soft client-side redirect leaves the SessionProvider logged-out and
+      // the dashboard's layout fetch never fires until a manual refresh).
+      window.location.href = result?.url || callbackUrl;
     } catch (err) {
-      // In Next.js, if the server action redirects (success), this catch won't hit
-      // unless it's a real error.
       console.error('Login action error:', err);
       setError('An error occurred during login.');
       setIsLoading(false);
