@@ -128,6 +128,48 @@ class ConfigView(APIView):
         return response
 
 
+def _summarize_layout(data):
+    """Trim a full layout def down to the fields an external catalog/picker needs.
+
+    Handles both layout shapes: root-`canvas` (single-surface) and `surfaces[]`
+    (multi-surface). Only exposes fields that actually exist on disk — there is
+    no displayLabel/thumbnail in the layout JSON, so we don't fabricate them.
+    """
+    canvas = data.get("canvas")
+    surfaces = data.get("surfaces")
+
+    dim_src = canvas if isinstance(canvas, dict) else None
+    if dim_src is None and isinstance(surfaces, list) and surfaces and isinstance(surfaces[0], dict):
+        dim_src = surfaces[0].get("canvas")
+    dim_src = dim_src if isinstance(dim_src, dict) else {}
+
+    if isinstance(surfaces, list):
+        surface_count = len(surfaces)
+        frame_count = sum(
+            len(s.get("frames", [])) for s in surfaces if isinstance(s, dict)
+        )
+    else:
+        surface_count = 1
+        frame_count = len(data.get("frames", [])) if isinstance(data.get("frames"), list) else 0
+
+    return {
+        "name": data.get("name"),
+        "productType": data.get("productType"),
+        "hasCalendar": data.get("productType") == "calendar",
+        "tags": data.get("tags", []),
+        "surfaceCount": surface_count,
+        "frameCount": frame_count,
+        "dimensions": {
+            "widthMm": dim_src.get("widthMm"),
+            "heightMm": dim_src.get("heightMm"),
+            "widthPx": dim_src.get("width"),
+            "heightPx": dim_src.get("height"),
+            "dpi": dim_src.get("dpi"),
+        },
+        "updatedAt": data.get("updatedAt"),
+    }
+
+
 class ListLayoutsView(APIView):
     """List available layouts - requires API key."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanListLayouts]
@@ -135,7 +177,20 @@ class ListLayoutsView(APIView):
     @extend_schema(
         tags=["layouts"],
         summary="List all available layouts",
-        description="Returns all layout definitions the API key is permitted to use.",
+        description=(
+            "Returns all layout definitions the API key is permitted to use.\n\n"
+            "Pass `?fields=summary` to get a slim catalog (name, productType, "
+            "hasCalendar, tags, surfaceCount, frameCount, dimensions, updatedAt) "
+            "instead of the full layout defs — intended for external systems that "
+            "auto-pull the catalog to render a picker."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "fields", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                required=False,
+                description="Set to `summary` for the slim catalog. Omit for full layout defs.",
+            ),
+        ],
         responses={
             200: inline_serializer(
                 name="LayoutListResponse",
@@ -177,7 +232,15 @@ class ListLayoutsView(APIView):
             else:
                 logger.info(f"Layouts cache hit — serving {len(layouts_data)} layouts")
 
-            response = Response({"layouts": layouts_data})
+            # ?fields=summary → slim catalog (name, productType, tags, dimensions,
+            # surface/frame counts, updatedAt) instead of the full layout defs.
+            # Derived from the same cached full list so one cache serves both.
+            if request.query_params.get('fields') == 'summary':
+                payload = [_summarize_layout(d) for d in layouts_data]
+            else:
+                payload = layouts_data
+
+            response = Response({"layouts": payload})
             response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
             return response
         except Exception as e:
