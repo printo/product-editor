@@ -6,7 +6,7 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 
 # Enable corepack so pnpm is available without a separate install step
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 COPY frontend/nextjs/package.json frontend/nextjs/pnpm-lock.yaml ./
 # pnpm store cache survives between builds, dropping cold-install time from
@@ -20,7 +20,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 # Copy node_modules from deps stage
 COPY --from=deps /app/node_modules ./node_modules

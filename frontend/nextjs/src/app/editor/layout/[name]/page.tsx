@@ -239,6 +239,8 @@ export default function LayoutEditorPage() {
   const [showAutoFillPicker, setShowAutoFillPicker] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [disclaimerChecked, setDisclaimerChecked] = useState(false);
+  const [showEmbedDisclaimer, setShowEmbedDisclaimer] = useState(false);
   const [showImpositionModal, setShowImpositionModal] = useState(false);
   const [isImposing, setIsImposing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -2326,11 +2328,11 @@ export default function LayoutEditorPage() {
                 ))}
               </div>
               {embedToken ? (
-                <button onClick={handleSubmitDesign} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} className="flex items-center gap-2 text-[11px] font-black text-white bg-indigo-600 px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">
+                <button onClick={() => { setDisclaimerChecked(false); setShowEmbedDisclaimer(true); }} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} className="flex items-center gap-2 text-[11px] font-black text-white bg-indigo-600 px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">
                   {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SendHorizonal className="w-3.5 h-3.5" />} Save &amp; Continue
                 </button>
               ) : (
-                <button onClick={() => setShowDownloadModal(true)} disabled={files.length === 0 && !surfaceStates.some(s => s.files.length > 0)} className="flex items-center gap-2 text-[11px] font-black text-white bg-slate-900 px-5 py-2.5 rounded-xl hover:bg-slate-800 transition-all uppercase tracking-widest">
+                <button onClick={() => { setDisclaimerChecked(false); setShowDownloadModal(true); }} disabled={files.length === 0 && !surfaceStates.some(s => s.files.length > 0)} className="flex items-center gap-2 text-[11px] font-black text-white bg-slate-900 px-5 py-2.5 rounded-xl hover:bg-slate-800 transition-all uppercase tracking-widest">
                   <Archive className="w-3.5 h-3.5" /> Download
                 </button>
               )}
@@ -2638,25 +2640,92 @@ export default function LayoutEditorPage() {
             </section>
           )}
 
+          {/* Dashboard: combined disclaimer + download options modal */}
           {showDownloadModal && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setShowDownloadModal(false)} />
-              <div className="relative w-full max-w-xs bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                  <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Download</h3>
+              <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                  <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Ready to Download?</h3>
                   <button onClick={() => setShowDownloadModal(false)} className="p-1 hover:bg-slate-100 rounded-full transition-colors">
                     <X className="w-3.5 h-3.5 text-slate-400" />
                   </button>
                 </div>
-                <div className="px-3 pb-3 flex gap-2">
-                  <button onClick={executeBatchDownload} className="flex-1 group flex flex-col items-center gap-1.5 p-3 rounded-xl border border-slate-100 hover:border-indigo-400 hover:bg-indigo-50/40 transition-all">
+                <div className="px-4 pb-3">
+                  <p className="text-[10px] text-slate-500 mb-3">Please confirm before generating print-ready files.</p>
+                  <label className="flex items-start gap-2.5 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={disclaimerChecked}
+                      onChange={(e) => setDisclaimerChecked(e.target.checked)}
+                      className="mt-0.5 w-3.5 h-3.5 rounded accent-indigo-600 shrink-0 cursor-pointer"
+                    />
+                    <span className="text-[10px] text-slate-700 leading-relaxed group-hover:text-slate-900 transition-colors">
+                      I have previewed my design, images are correctly placed in all frames, and I am ready to generate final print-ready files.
+                    </span>
+                  </label>
+                </div>
+                <div className="px-3 pb-4 flex gap-2">
+                  <button
+                    onClick={executeBatchDownload}
+                    disabled={!disclaimerChecked}
+                    className="flex-1 group flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all disabled:opacity-40 disabled:cursor-not-allowed border-slate-100 hover:border-indigo-400 hover:bg-indigo-50/40 enabled:hover:border-indigo-400 enabled:hover:bg-indigo-50/40"
+                  >
                     <Archive className="w-5 h-5 text-indigo-600" />
                     <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">ZIP</span>
                   </button>
-                  <button onClick={() => { setShowDownloadModal(false); setShowImpositionModal(true); }} className="flex-1 group flex flex-col items-center gap-1.5 p-3 rounded-xl border border-slate-100 hover:border-emerald-400 hover:bg-emerald-50/40 transition-all">
+                  <button
+                    onClick={() => { setShowDownloadModal(false); setShowImpositionModal(true); }}
+                    disabled={!disclaimerChecked}
+                    className="flex-1 group flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all disabled:opacity-40 disabled:cursor-not-allowed border-slate-100 enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50/40"
+                  >
                     <FileText className="w-5 h-5 text-emerald-600" />
                     <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">Imposition</span>
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Embed: disclaimer-only modal before Save & Continue */}
+          {showEmbedDisclaimer && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setShowEmbedDisclaimer(false)} />
+              <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                  <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Ready to Submit?</h3>
+                  <button onClick={() => setShowEmbedDisclaimer(false)} className="p-1 hover:bg-slate-100 rounded-full transition-colors">
+                    <X className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </div>
+                <div className="px-4 pb-4">
+                  <p className="text-[10px] text-slate-500 mb-3">Please confirm before sending your design for production.</p>
+                  <label className="flex items-start gap-2.5 cursor-pointer group mb-4">
+                    <input
+                      type="checkbox"
+                      checked={disclaimerChecked}
+                      onChange={(e) => setDisclaimerChecked(e.target.checked)}
+                      className="mt-0.5 w-3.5 h-3.5 rounded accent-indigo-600 shrink-0 cursor-pointer"
+                    />
+                    <span className="text-[10px] text-slate-700 leading-relaxed group-hover:text-slate-900 transition-colors">
+                      I have previewed my design, images are correctly placed in all frames, and I am ready to send for production.
+                    </span>
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowEmbedDisclaimer(false)}
+                      className="flex-1 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
+                    >
+                      Go Back
+                    </button>
+                    <button
+                      onClick={() => { setShowEmbedDisclaimer(false); handleSubmitDesign(); }}
+                      disabled={!disclaimerChecked}
+                      className="flex-1 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Yes, Proceed
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
