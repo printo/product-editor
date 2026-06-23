@@ -2718,43 +2718,58 @@ export default function LayoutEditorPage() {
 
           {/* Embed: disclaimer-only modal before Save & Continue */}
           {showEmbedDisclaimer && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setShowEmbedDisclaimer(false)} />
-              <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                <div className="flex items-center justify-between px-4 pt-4 pb-2">
-                  <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Ready to Submit?</h3>
-                  <button onClick={() => setShowEmbedDisclaimer(false)} className="p-1 hover:bg-slate-100 rounded-full transition-colors">
-                    <X className="w-3.5 h-3.5 text-slate-400" />
-                  </button>
-                </div>
-                <div className="px-4 pb-4">
-                  <p className="text-[10px] text-slate-500 mb-3">Please confirm before sending your design for production.</p>
-                  <label className="flex items-start gap-2.5 cursor-pointer group mb-4">
-                    <input
-                      type="checkbox"
-                      checked={disclaimerChecked}
-                      onChange={(e) => setDisclaimerChecked(e.target.checked)}
-                      className="mt-0.5 w-3.5 h-3.5 rounded accent-indigo-600 shrink-0 cursor-pointer"
-                    />
-                    <span className="text-[10px] text-slate-700 leading-relaxed group-hover:text-slate-900 transition-colors">
-                      I have previewed my design, images are correctly placed in all frames, and I am ready to send for production.
-                    </span>
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowEmbedDisclaimer(false)}
-                      className="flex-1 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
-                    >
-                      Go Back
-                    </button>
-                    <button
-                      onClick={() => { setShowEmbedDisclaimer(false); handleSubmitDesign(); }}
-                      disabled={!disclaimerChecked}
-                      className="flex-1 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Yes, Proceed
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={() => setShowEmbedDisclaimer(false)} />
+              <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200">
+                {/* Header */}
+                <div className="px-7 pt-7 pb-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2.5 mb-1.5">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
+                          <SendHorizonal className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <h3 className="text-base font-bold text-slate-900 tracking-tight">Ready to Submit?</h3>
+                      </div>
+                      <p className="text-sm text-slate-500 leading-relaxed">Please confirm before sending your design for production.</p>
+                    </div>
+                    <button onClick={() => setShowEmbedDisclaimer(false)} className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-xl transition-colors shrink-0">
+                      <X className="w-4 h-4 text-slate-400" />
                     </button>
                   </div>
+                </div>
+                <div className="mx-7 border-t border-slate-100" />
+                {/* Confirmation checkbox */}
+                <div className="px-7 py-5">
+                  <label className="flex items-start gap-3.5 cursor-pointer group">
+                    <div className="relative mt-0.5 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={disclaimerChecked}
+                        onChange={(e) => setDisclaimerChecked(e.target.checked)}
+                        className="peer w-4.5 h-4.5 rounded-md accent-indigo-600 cursor-pointer"
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed group-hover:text-slate-800 transition-colors">
+                      I have previewed my design, all images are correctly placed in their frames, and I&apos;m ready to send for production.
+                    </span>
+                  </label>
+                </div>
+                {/* Actions */}
+                <div className="px-7 pb-7 flex gap-3">
+                  <button
+                    onClick={() => setShowEmbedDisclaimer(false)}
+                    className="flex-1 text-sm font-semibold px-5 py-3 rounded-2xl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all"
+                  >
+                    Go Back
+                  </button>
+                  <button
+                    onClick={() => { setShowEmbedDisclaimer(false); handleSubmitDesign(); }}
+                    disabled={!disclaimerChecked}
+                    className="flex-1 text-sm font-semibold px-5 py-3 rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-35 disabled:cursor-not-allowed shadow-md shadow-indigo-200 enabled:hover:shadow-indigo-300"
+                  >
+                    Yes, Proceed
+                  </button>
                 </div>
               </div>
             </div>
