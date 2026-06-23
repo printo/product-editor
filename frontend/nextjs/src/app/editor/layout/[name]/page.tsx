@@ -2642,45 +2642,74 @@ export default function LayoutEditorPage() {
 
           {/* Dashboard: combined disclaimer + download options modal */}
           {showDownloadModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setShowDownloadModal(false)} />
-              <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                <div className="flex items-center justify-between px-4 pt-4 pb-2">
-                  <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Ready to Download?</h3>
-                  <button onClick={() => setShowDownloadModal(false)} className="p-1 hover:bg-slate-100 rounded-full transition-colors">
-                    <X className="w-3.5 h-3.5 text-slate-400" />
-                  </button>
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={() => setShowDownloadModal(false)} />
+              <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200">
+                {/* Header */}
+                <div className="px-7 pt-7 pb-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2.5 mb-1.5">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
+                          <Archive className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <h3 className="text-base font-bold text-slate-900 tracking-tight">Ready to Download?</h3>
+                      </div>
+                      <p className="text-sm text-slate-500 leading-relaxed">Please review and confirm before generating your print-ready files.</p>
+                    </div>
+                    <button onClick={() => setShowDownloadModal(false)} className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-xl transition-colors shrink-0">
+                      <X className="w-4 h-4 text-slate-400" />
+                    </button>
+                  </div>
                 </div>
-                <div className="px-4 pb-3">
-                  <p className="text-[10px] text-slate-500 mb-3">Please confirm before generating print-ready files.</p>
-                  <label className="flex items-start gap-2.5 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={disclaimerChecked}
-                      onChange={(e) => setDisclaimerChecked(e.target.checked)}
-                      className="mt-0.5 w-3.5 h-3.5 rounded accent-indigo-600 shrink-0 cursor-pointer"
-                    />
-                    <span className="text-[10px] text-slate-700 leading-relaxed group-hover:text-slate-900 transition-colors">
-                      I have previewed my design, images are correctly placed in all frames, and I am ready to generate final print-ready files.
+
+                {/* Divider */}
+                <div className="mx-7 border-t border-slate-100" />
+
+                {/* Confirmation checkbox */}
+                <div className="px-7 py-5">
+                  <label className="flex items-start gap-3.5 cursor-pointer group">
+                    <div className="relative mt-0.5 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={disclaimerChecked}
+                        onChange={(e) => setDisclaimerChecked(e.target.checked)}
+                        className="peer w-4.5 h-4.5 rounded-md accent-indigo-600 cursor-pointer"
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed group-hover:text-slate-800 transition-colors">
+                      I have previewed my design, all images are correctly placed in their frames, and I&apos;m ready to generate the final print-ready files.
                     </span>
                   </label>
                 </div>
-                <div className="px-3 pb-4 flex gap-2">
+
+                {/* Download options */}
+                <div className="px-7 pb-7 flex gap-3">
                   <button
                     onClick={executeBatchDownload}
                     disabled={!disclaimerChecked}
-                    className="flex-1 group flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all disabled:opacity-40 disabled:cursor-not-allowed border-slate-100 hover:border-indigo-400 hover:bg-indigo-50/40 enabled:hover:border-indigo-400 enabled:hover:bg-indigo-50/40"
+                    className="flex-1 group flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed border-slate-100 bg-slate-50/50 enabled:hover:border-indigo-300 enabled:hover:bg-indigo-50 enabled:hover:shadow-md enabled:hover:shadow-indigo-100/60"
                   >
-                    <Archive className="w-5 h-5 text-indigo-600" />
-                    <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">ZIP</span>
+                    <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-sm group-enabled:group-hover:border-indigo-200 group-enabled:group-hover:shadow-indigo-100 transition-all">
+                      <Archive className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm font-bold text-slate-800 tracking-tight">ZIP Archive</div>
+                      <div className="text-xs text-slate-400 mt-0.5">All files packed</div>
+                    </div>
                   </button>
                   <button
                     onClick={() => { setShowDownloadModal(false); setShowImpositionModal(true); }}
                     disabled={!disclaimerChecked}
-                    className="flex-1 group flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all disabled:opacity-40 disabled:cursor-not-allowed border-slate-100 enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50/40"
+                    className="flex-1 group flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed border-slate-100 bg-slate-50/50 enabled:hover:border-emerald-300 enabled:hover:bg-emerald-50 enabled:hover:shadow-md enabled:hover:shadow-emerald-100/60"
                   >
-                    <FileText className="w-5 h-5 text-emerald-600" />
-                    <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">Imposition</span>
+                    <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-sm group-enabled:group-hover:border-emerald-200 group-enabled:group-hover:shadow-emerald-100 transition-all">
+                      <FileText className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm font-bold text-slate-800 tracking-tight">Imposition</div>
+                      <div className="text-xs text-slate-400 mt-0.5">Print sheet layout</div>
+                    </div>
                   </button>
                 </div>
               </div>
