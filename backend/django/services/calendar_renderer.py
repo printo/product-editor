@@ -37,7 +37,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 from services.fonts import get_font
 
@@ -468,6 +468,8 @@ def _draw_cell_image(
 
     try:
         with Image.open(src_path) as _src:
+            # Match the browser's display orientation (see engine.py).
+            ImageOps.exif_transpose(_src, in_place=True)
             img = _src.convert("RGBA")
     except (OSError, ValueError) as exc:
         logger.warning(

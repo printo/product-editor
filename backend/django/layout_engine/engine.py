@@ -7,7 +7,7 @@ import tempfile
 import logging
 from typing import List, Optional
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +282,13 @@ class LayoutEngine:
 
         for idx, frame in enumerate(frames):
             with Image.open(batch[idx]) as _src:
+                # Apply EXIF orientation so the render starts from the same
+                # "display upright" pixels the browser editor and the
+                # orientation detector (services/orientation.py) both see.
+                # Without this, EXIF-tagged camera photos (orientation 6/8)
+                # render sideways even though the editor preview was upright —
+                # the frame.rotation we receive is relative to the display view.
+                ImageOps.exif_transpose(_src, in_place=True)
                 img = _src.convert("RGBA")
             target_w = frame["width"]
             target_h = frame["height"]

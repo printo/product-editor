@@ -45,7 +45,7 @@ import math
 import os
 from typing import Optional
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 from services.fonts import get_font
 
@@ -258,6 +258,8 @@ def _paste_image(
 
     try:
         with Image.open(path) as _src:
+            # Match the browser's display orientation (see engine.py).
+            ImageOps.exif_transpose(_src, in_place=True)
             img = _src.convert("RGBA")
     except (OSError, ValueError) as exc:
         logger.warning("Failed to open image overlay at %s: %s — skipping", path, exc)
