@@ -27,7 +27,7 @@ import {
 import { saveFile, getFilesForOrder } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
-import { getImageMetadata, detectJpegColorSpace } from '@/lib/image-utils';
+import { getImageMetadata, detectJpegColorSpace, isImageComplete } from '@/lib/image-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { detectFileOrientation, type OrientationOutcome } from '@/lib/ml-orientation';
@@ -236,6 +236,9 @@ export default function LayoutEditorPage() {
   // Qty enforcement state
   const [qtyUnder, setQtyUnder] = useState<{ uploaded: number; needed: number } | null>(null);
   const [pendingOverFiles, setPendingOverFiles] = useState<File[] | null>(null);
+  // Files flagged as truncated/incomplete by the client-side completeness check,
+  // held pending the customer's Keep-anyway / Remove decision (see handleFileChange).
+  const [pendingTruncated, setPendingTruncated] = useState<{ all: File[]; bad: File[] } | null>(null);
   const [showAutoFillPicker, setShowAutoFillPicker] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -1493,6 +1496,26 @@ export default function LayoutEditorPage() {
     setUnsupportedWarning(rejected.length > 0 ? unsupportedFilesMessage(rejected) : null);
     if (allFiles.length === 0) return;
 
+    // Catch truncated / incomplete photos up-front. A file cut off during
+    // transfer (common with phone & WhatsApp images) still decodes leniently in
+    // the browser preview, but would print with a missing/grey edge and fails
+    // the strict server decode. Name them and let the customer choose
+    // Keep-anyway vs Remove BEFORE we compose anything — not at render time.
+    const completeness = await Promise.all(allFiles.map(f => isImageComplete(f)));
+    const truncated = allFiles.filter((_, i) => !completeness[i]);
+    if (truncated.length > 0) {
+      setPendingTruncated({ all: allFiles, bad: truncated });
+      return; // wait for the decision, which re-enters via processSelectedFiles()
+    }
+
+    await processSelectedFiles(allFiles);
+  };
+
+  // Process a vetted set of selected files: reset previews, run CMYK + quantity
+  // checks, then build canvases (single- or multi-surface). Split out of
+  // handleFileChange so the truncated-image prompt can re-enter it with the
+  // customer's chosen subset.
+  const processSelectedFiles = async (allFiles: File[]) => {
     // Revoke any URLs from the previous batch — start the new selection clean.
     createdObjectURLs.current.forEach(url => URL.revokeObjectURL(url));
     createdObjectURLs.current.clear();
@@ -1593,6 +1616,21 @@ export default function LayoutEditorPage() {
       setFiles(pendingOverFiles);
     }
     setPendingOverFiles(null);
+  };
+
+  // ── Incomplete/truncated images — customer chose Keep-anyway or Remove ─────
+  const handleTruncatedDecision = (decision: 'keep' | 'remove') => {
+    if (!pendingTruncated) return;
+    const { all, bad } = pendingTruncated;
+    setPendingTruncated(null);
+    const chosen = decision === 'keep' ? all : all.filter(f => !bad.includes(f));
+    if (chosen.length === 0) {
+      setUnsupportedWarning(
+        `All selected image${bad.length > 1 ? 's were' : ' was'} incomplete and removed — please re-upload.`
+      );
+      return;
+    }
+    void processSelectedFiles(chosen);
   };
 
   const impositionResult = useMemo(() => {
@@ -2255,6 +2293,36 @@ export default function LayoutEditorPage() {
                 className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
               >
                 Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingTruncated && (
+        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
+            <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">
+              {pendingTruncated.bad.length === 1 ? 'Incomplete image detected' : `${pendingTruncated.bad.length} incomplete images detected`}
+            </p>
+            <p className="text-[10px] text-slate-500 leading-snug mb-3">
+              {pendingTruncated.bad.length === 1 ? 'This file looks cut off (often from an interrupted download or transfer) and may print with a missing or grey edge:' : 'These files look cut off (often from an interrupted download or transfer) and may print with a missing or grey edge:'}
+            </p>
+            <ul className="text-[10px] text-slate-700 font-semibold max-h-24 overflow-y-auto mb-4 space-y-0.5">
+              {pendingTruncated.bad.map((f, i) => <li key={i} className="truncate">• {f.name}</li>)}
+            </ul>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleTruncatedDecision('remove')}
+                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+              >
+                Remove {pendingTruncated.bad.length > 1 ? 'them' : 'it'}
+              </button>
+              <button
+                onClick={() => handleTruncatedDecision('keep')}
+                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+              >
+                Keep anyway
               </button>
             </div>
           </div>

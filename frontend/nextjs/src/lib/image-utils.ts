@@ -80,3 +80,55 @@ export async function detectJpegColorSpace(file: File): Promise<string | null> {
   } catch { /* ignore */ }
   return null;
 }
+
+/**
+ * Fast client-side completeness check. Reads only the file's head + a short
+ * tail and looks for the format's terminating marker — so a photo cut off
+ * mid-transfer (the common truncated iOS/WhatsApp JPEG) is caught instantly,
+ * before upload, without decoding the pixels. Browsers render such files
+ * leniently in the editor preview, but they would print with a missing/grey
+ * edge, and the strict server-side Pillow decode fails on them.
+ *
+ * Returns true when the file looks complete (or is a type we can't cheaply
+ * marker-check → don't block), false when it's detectably truncated/empty.
+ */
+export async function isImageComplete(file: File): Promise<boolean> {
+  try {
+    if (file.size === 0) return false;
+    const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+
+    // JPEG: starts FF D8, must end with the EOI marker FF D9. A few cameras
+    // append padding/thumbnail bytes after EOI, so scan a short tail for it.
+    if (head[0] === 0xFF && head[1] === 0xD8) {
+      const tail = new Uint8Array(await file.slice(Math.max(0, file.size - 64)).arrayBuffer());
+      for (let i = tail.length - 2; i >= 0; i--) {
+        if (tail[i] === 0xFF && tail[i + 1] === 0xD9) return true;
+      }
+      return false;
+    }
+
+    // PNG: 89 50 4E 47 … ends with the IEND chunk (49 45 4E 44) + its 4-byte CRC.
+    if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4E && head[3] === 0x47) {
+      const tail = new Uint8Array(await file.slice(Math.max(0, file.size - 8)).arrayBuffer());
+      return tail[0] === 0x49 && tail[1] === 0x45 && tail[2] === 0x4E && tail[3] === 0x44;
+    }
+
+    // GIF: terminated by the trailer byte 0x3B (';').
+    if (head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46) {
+      const tail = new Uint8Array(await file.slice(Math.max(0, file.size - 1)).arrayBuffer());
+      return tail[0] === 0x3B;
+    }
+
+    // WEBP (RIFF): bytes 4..7 are the little-endian payload size; the whole
+    // file must be at least that + 8 (the RIFF header). A short file is truncated.
+    if (head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46) {
+      const declared = head[4] | (head[5] << 8) | (head[6] << 16) | (head[7] << 24);
+      return file.size >= declared + 8;
+    }
+  } catch {
+    // Can't read the file — don't block here; the server stays the backstop.
+    return true;
+  }
+  // TIFF and anything else: no cheap end-marker — treat as complete.
+  return true;
+}
