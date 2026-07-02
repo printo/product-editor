@@ -6,6 +6,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Product Editor is a full-stack print-file generator for Printo.in. Customers upload and compose photos on an interactive canvas editor; the system asynchronously renders 300-DPI print files (PNG, with PDF as an alternate format) and delivers them either via direct download (dashboard users fetch the ZIP) or via a signed webhook to the embed caller's `callback_url` (printo.in's storefront then pulls the same download URL from its backend). The app does NOT push files to any internal OMS — it's a standalone generator.
 
+## Knowledge Graph
+
+A knowledge graph of this codebase lives in `graphify-out/`. Before investigating architecture questions, tracing data flows, or understanding how components interact, query it first — it's much faster than grepping.
+
+```bash
+# Ask a question about the codebase
+graphify query "how does the render pipeline work"
+graphify query "what calls LayoutEngine"
+graphify query "how does the embed session flow work"
+
+# Trace the path between two concepts
+graphify path "EditorRenderView" "notify_caller_webhook_task"
+graphify path "FabricEditor" "LayoutEngine"
+
+# Explain a specific node
+graphify explain "render_canvas_task"
+graphify explain "CalendarState"
+```
+
+The graph covers all 210 source files (175 code + 24 docs + 11 images). Key communities:
+- **Canvas Data & Render Jobs** — Django models, CanvasData, RenderJob
+- **Pillow Layout Engine** — engine.py, _composite_canvas, smart downscale
+- **Calendar Layout Engine** — materialize_surfaces, calendar_layout.py
+- **Pillow Calendar Cell Renderer** — calendar_renderer.py, draw_cell_image
+- **Auth & API Key Auth** — BearerTokenAuthentication, PIAAuthentication
+- **Canvas Editor UI** — CanvasEditorModal, FabricEditor, ColorPicker
+- **Storage & Chunked Upload** — services/storage.py, chunk assembly
+- **Login & Rate Limiting** — actions/auth.ts, per-IP rate limit
+
+God nodes (highest connectivity): `LayoutEngine` (46 edges), `APIKeyUser` (39), `BearerTokenAuthentication` / `PIAAuthentication` / `UploadedFile` / `ExportedResult` (35 each).
+
+To update the graph after significant code changes:
+```bash
+graphify . --update
+```
+
+Open `graphify-out/graph.html` in a browser for the interactive visualisation.
+
+---
+
 ## Commands
 
 ### Frontend (Next.js)
