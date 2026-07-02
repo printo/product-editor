@@ -110,3 +110,8 @@ frontend/nextjs/next-env.d.ts
 
 # Claude Code per-developer state (settings, locks, plans)
 .claude/
+
+# graphify — local machine state (not project artifacts)
+graphify-out/cache/
+graphify-out/.graphify_python
+graphify-out/.graphify_root
