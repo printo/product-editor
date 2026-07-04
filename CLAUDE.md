@@ -579,6 +579,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 |---|---|---|
 | `DEBUG` | `0` | Defaults off — production-safe even when var is missing |
 | `MAX_UPLOAD_FILE_SIZE_MB` | `50` | Single source of truth — read by `settings.py`, `validators.py`, and chunked-upload init |
+| `MAX_IMAGE_DIMENSION_PX` | `16384` | Max allowed image side (px) at upload validation (`validators.py`). Raised from 8192 so high-res photos (48–65 MP) upload. Decompression-bomb guard only — engine caps total pixels at `Image.MAX_IMAGE_PIXELS` (500 MP) and smart-downscales sources |
 | `DB_CONN_MAX_AGE` | `600` | Persistent DB connection age in seconds; raise / set to `0` if PgBouncer is in front |
 | `CSP_REPORT_ONLY` | `True` | django-csp emits headers but enforces nothing — flip to `False` once policy is validated |
 | `CELERY_CONCURRENCY` | unset | Celery auto-detects from CPU count; set to cap on shared servers |
