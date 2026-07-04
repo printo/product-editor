@@ -213,6 +213,14 @@ os.makedirs(EXPORTS_DIR, exist_ok=True)
 MAX_UPLOAD_FILE_SIZE_MB = int(os.getenv("MAX_UPLOAD_FILE_SIZE_MB", "50"))
 MAX_UPLOAD_FILE_SIZE = MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
 
+# Max allowed image side (px) at upload validation. This is a print-file
+# generator, so high-res camera/phone photos (48–65 MP routinely exceed the
+# old 8192 cap) are desirable input. The render engine already caps total
+# pixels at Image.MAX_IMAGE_PIXELS (500 MP) and smart-downscales every source
+# to ~2× the frame target, so this is just a decompression-bomb guard, not a
+# quality limit. 16384 covers ~200 MP long-edge sensors; 16384² = 268 MP < 500 MP.
+MAX_IMAGE_DIMENSION_PX = int(os.getenv("MAX_IMAGE_DIMENSION_PX", "16384"))
+
 # Auto-orientation detection mode — see .env.example for the full block.
 # - "mediapipe": client-side BlazeFace only (recommended for ≤ 2 cores)
 # - "hybrid":    client MediaPipe + server-side MoveNet pose fallback
