@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical } from 'lucide-react';
+import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical, Lock, Move } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
@@ -225,6 +225,33 @@ export function CanvasEditorSidebar({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Reposition (drag) lock — off by default so the photo can't be
+                  dragged out of the frame by accident. Enable to pan on canvas. */}
+              <div className="flex items-center gap-4 py-2 bg-transparent">
+                <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">Reposition</label>
+                <button
+                  onClick={() => {
+                    pushUndo(editingCanvas, true);
+                    const updatedFrames = editingCanvas.frames.map((f, i) =>
+                      i === fIdx ? { ...f, dragEnabled: !f.dragEnabled } : f,
+                    );
+                    debouncedRender({ ...editingCanvas, frames: updatedFrames });
+                  }}
+                  className={clsx(
+                    'flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[10px] font-medium rounded-lg transition-all uppercase border shadow-inner',
+                    frame.dragEnabled
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-slate-50 text-slate-400 border-slate-100 hover:text-slate-600',
+                  )}
+                  title={frame.dragEnabled
+                    ? 'Photo can be dragged on the canvas — click to lock'
+                    : 'Photo is locked — click to enable dragging'}>
+                  {frame.dragEnabled
+                    ? <><Move className="w-3 h-3" /> Drag on</>
+                    : <><Lock className="w-3 h-3" /> Locked</>}
+                </button>
               </div>
 
               {/* Rotation */}

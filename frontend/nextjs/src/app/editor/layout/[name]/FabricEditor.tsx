@@ -558,11 +558,15 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           });
         }
 
+        const dragOn = frameState.dragEnabled === true;
         img.set({
           left: imgX + (imgW * scale) / 2,
           top: imgY + (imgH * scale) / 2,
           scaleX: scale, scaleY: scale,
           angle: frameState.rotation,
+          hasControls: dragOn,
+          lockMovementX: !dragOn, lockMovementY: !dragOn,
+          hoverCursor: dragOn ? 'move' : 'default',
         });
         updateRelativeClipPath(img, clip.fx, clip.fy, clip.fw, clip.fh);
         img.setCoords();
@@ -733,11 +737,17 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           rx: fr, ry: fr,
         });
 
+        // Drag is opt-in per frame (default locked) so the photo can't be
+        // dragged out of its frame by accident. Selection stays enabled so
+        // the sidebar still reflects the frame; only movement is gated.
+        const dragOn = frameState.dragEnabled === true;
         img.set({
           left: imgX + w / 2, top: imgY + h / 2,
           originX: 'center', originY: 'center',
           scaleX: scale, scaleY: scale, angle: rot,
-          selectable: true, hasControls: true,
+          selectable: true, hasControls: dragOn,
+          lockMovementX: !dragOn, lockMovementY: !dragOn,
+          hoverCursor: dragOn ? 'move' : 'default',
           cornerColor: '#6366f1', cornerSize: 12, cornerStyle: 'circle',
           transparentCorners: false, borderColor: '#6366f1',
           clipPath: clipRect,
