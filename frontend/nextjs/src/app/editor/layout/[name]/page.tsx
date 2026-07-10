@@ -14,6 +14,7 @@ import {
   Upload, Loader2, CheckCircle2, X,
   Archive, FileText, Layout,
   SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
+  Move, Lock,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
@@ -222,6 +223,23 @@ export default function LayoutEditorPage() {
   useEffect(() => {
     globalFitModeRef.current = globalFitMode;
   }, [globalFitMode]);
+
+  // ── Reposition mode: drag-to-pan the photo inside a grid card ──────────────
+  // Off by default so a stray drag can't shift a photo. Global (all canvases),
+  // matching the Fit/Cover control it sits next to.
+  const [repositionMode, setRepositionMode] = useState(false);
+  /** Live drag state, captured on pointerdown so pointermove stays synchronous. */
+  const panRef = useRef<{
+    pointerId: number; idx: number; surfaceKey: string | null; frameIdx: number;
+    startX: number; startY: number; startOffset: { x: number; y: number };
+    ratioX: number; ratioY: number; panRoomX: number; panRoomY: number; moved: boolean;
+  } | null>(null);
+  /** Serialises re-renders so out-of-order thumbnails can't land. */
+  const panQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const panPendingRef = useRef<{ x: number; y: number } | null>(null);
+  const panFlushScheduledRef = useRef(false);
+  /** Set when a drag actually moved, so the card's onClick doesn't open the editor. */
+  const panSuppressClickRef = useRef(false);
 
   const [activeCanvasIdx, setActiveCanvasIdx] = useState<number | null>(null);
   const [editingCanvas, setEditingCanvas] = useState<CanvasItem | null>(null);
@@ -1270,6 +1288,132 @@ export default function LayoutEditorPage() {
       }));
       return { ...c, frames: updatedFrames };
     });
+  };
+
+  // ── Drag-to-pan on grid cards (gated by repositionMode) ────────────────────
+
+  /** Resolve the layout def + canvas dims + frame specs for a card. */
+  const panGeometry = (surfaceKey: string | null) => {
+    const layoutDef = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.def : layout;
+    const canvasW = layoutDef?.canvas?.width || (layoutDef as any)?.surfaces?.[0]?.canvas?.width || 1200;
+    const canvasH = layoutDef?.canvas?.height || (layoutDef as any)?.surfaces?.[0]?.canvas?.height || 1800;
+    const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames)
+      || [{ x: 0, y: 0, width: 1, height: 1 }];
+    return { canvasW, canvasH, frames };
+  };
+
+  /** Push the latest offset, coalesced to one re-render per frame and serialised. */
+  const commitPan = (p: NonNullable<typeof panRef.current>, x: number, y: number, immediate = false) => {
+    panPendingRef.current = { x, y };
+    const flush = () => {
+      const pending = panPendingRef.current;
+      panPendingRef.current = null;
+      if (!pending) return;
+      panQueueRef.current = panQueueRef.current
+        .then(() => updateCanvasState(p.idx, p.surfaceKey, c => ({
+          ...c,
+          frames: c.frames.map((f, i) => i === p.frameIdx ? { ...f, offset: { x: pending.x, y: pending.y } } : f),
+        })))
+        .catch(() => {});
+    };
+    if (immediate) { flush(); return; }
+    if (panFlushScheduledRef.current) return;
+    panFlushScheduledRef.current = true;
+    requestAnimationFrame(() => { panFlushScheduledRef.current = false; flush(); });
+  };
+
+  const handlePanStart = async (e: React.PointerEvent<HTMLDivElement>, idx: number, surfaceKey: string | null = null) => {
+    if (!repositionMode || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const host = e.currentTarget;
+    const rect = host.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const canvas = surfaceKey
+      ? surfaceStates.find(s => s.key === surfaceKey)?.canvases[idx]
+      : canvases[idx];
+    if (!canvas) return;
+
+    const { canvasW, canvasH, frames } = panGeometry(surfaceKey);
+    const ratioX = canvasW / rect.width;
+    const ratioY = canvasH / rect.height;
+
+    // Which frame is under the pointer? (single-frame layouts always hit 0)
+    const px = (e.clientX - rect.left) * ratioX;
+    const py = (e.clientY - rect.top) * ratioY;
+    let frameIdx = 0;
+    frames.forEach((fs: any, i: number) => {
+      const isPct = fs.width <= 1 && fs.height <= 1;
+      const fx = isPct ? fs.x * canvasW : fs.x;
+      const fy = isPct ? fs.y * canvasH : fs.y;
+      const fw = isPct ? fs.width * canvasW : fs.width;
+      const fh = isPct ? fs.height * canvasH : fs.height;
+      if (px >= fx && px <= fx + fw && py >= fy && py <= fy + fh) frameIdx = i;
+    });
+
+    const frame = canvas.frames[frameIdx];
+    if (!frame?.originalFile) return; // nothing to pan (state restored without the File)
+
+    const { width: iw, height: ih } = await getImageMetadata(frame.originalFile);
+    const rad = ((frame.rotation || 0) * Math.PI) / 180;
+    const effW = Math.abs(iw * Math.cos(rad)) + Math.abs(ih * Math.sin(rad));
+    const effH = Math.abs(iw * Math.sin(rad)) + Math.abs(ih * Math.cos(rad));
+
+    const fs = frames[frameIdx] || { x: 0, y: 0, width: 1, height: 1 };
+    const isPct = fs.width <= 1 && fs.height <= 1;
+    const fw = isPct ? fs.width * canvasW : fs.width;
+    const fh = isPct ? fs.height * canvasH : fs.height;
+
+    const base = frame.fitMode === 'contain'
+      ? Math.min(fw / effW, fh / effH)
+      : Math.max(fw / effW, fh / effH);
+    const scale = base * (frame.scale || 1);
+
+    // Pan room is the half-difference between the scaled image and the frame.
+    // cover  → image overflows, pan reveals hidden edges (never exposes bg).
+    // contain → image is inset, pan slides it to the frame edge (never leaves).
+    const panRoomX = Math.abs(effW * scale - fw) / 2;
+    const panRoomY = Math.abs(effH * scale - fh) / 2;
+
+    try { host.setPointerCapture(e.pointerId); } catch { /* capture unsupported */ }
+    panRef.current = {
+      pointerId: e.pointerId, idx, surfaceKey, frameIdx,
+      startX: e.clientX, startY: e.clientY, startOffset: { ...frame.offset },
+      ratioX, ratioY, panRoomX, panRoomY, moved: false,
+    };
+  };
+
+  const handlePanMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = panRef.current;
+    if (!p || e.pointerId !== p.pointerId) return;
+    const dx = (e.clientX - p.startX) * p.ratioX;
+    const dy = (e.clientY - p.startY) * p.ratioY;
+    if (!p.moved && (Math.abs(e.clientX - p.startX) > 3 || Math.abs(e.clientY - p.startY) > 3)) p.moved = true;
+    const nx = Math.max(-p.panRoomX, Math.min(p.panRoomX, p.startOffset.x + dx));
+    const ny = Math.max(-p.panRoomY, Math.min(p.panRoomY, p.startOffset.y + dy));
+    commitPan(p, nx, ny);
+  };
+
+  const handlePanEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = panRef.current;
+    if (!p || e.pointerId !== p.pointerId) return;
+    panRef.current = null;
+    try { e.currentTarget.releasePointerCapture(p.pointerId); } catch { /* already released */ }
+    if (!p.moved) return;
+    panSuppressClickRef.current = true; // swallow the click that follows a drag
+    const dx = (e.clientX - p.startX) * p.ratioX;
+    const dy = (e.clientY - p.startY) * p.ratioY;
+    const nx = Math.max(-p.panRoomX, Math.min(p.panRoomX, p.startOffset.x + dx));
+    const ny = Math.max(-p.panRoomY, Math.min(p.panRoomY, p.startOffset.y + dy));
+    commitPan(p, nx, ny, true); // final position always lands
+  };
+
+  /** Card click guard — a completed pan must not open the editor modal. */
+  const handleCardClick = (idx: number, surfaceKey: string | null = null) => {
+    if (panSuppressClickRef.current) { panSuppressClickRef.current = false; return; }
+    openEditor(idx, surfaceKey ?? undefined);
   };
 
   const handleQuickCycleBg = (idx: number, surfaceKey: string | null = null) => {
@@ -2395,6 +2539,20 @@ export default function LayoutEditorPage() {
                   <button key={mode} onClick={() => setGlobalFitMode(mode)} className={clsx('px-3 py-1.5 text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
                 ))}
               </div>
+              <button
+                onClick={() => setRepositionMode(v => !v)}
+                title={repositionMode
+                  ? 'Reposition on — drag a photo inside its card. Click to lock.'
+                  : 'Photos are locked. Click to drag-reposition them.'}
+                className={clsx(
+                  'hidden md:flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
+                  repositionMode
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                    : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
+                )}>
+                {repositionMode ? <Move className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                {repositionMode ? 'Reposition' : 'Locked'}
+              </button>
               {embedToken ? (
                 <button onClick={() => { setDisclaimerChecked(false); setShowEmbedDisclaimer(true); }} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} className="flex items-center gap-2 text-[11px] font-black text-white bg-indigo-600 px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">
                   {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SendHorizonal className="w-3.5 h-3.5" />} Save &amp; Continue
@@ -2502,9 +2660,9 @@ export default function LayoutEditorPage() {
                     return (
                       <div 
                         key={surface.key} 
-                        className="shrink-0 flex flex-col gap-3" 
+                        className="shrink-0 flex flex-col gap-3"
                         style={{ width: cw > ch ? '400px' : '280px' }}
-                        draggable
+                        draggable={!repositionMode}
                         onDragStart={(e) => handleDragStart(e, 0, surface.key)}
                         onDragOver={(e) => handleDragOver(e, 0, surface.key)}
                         onDragLeave={() => setDragOverIdx(null)}
@@ -2519,8 +2677,18 @@ export default function LayoutEditorPage() {
                           dragOverIdx?.idx === 0 && dragOverIdx?.surfaceKey === surface.key 
                             ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100" 
                             : "border-slate-100 hover:border-indigo-400"
-                        )} onClick={() => openEditor(0, surface.key)}>
-                          <div className="relative overflow-hidden bg-slate-100" style={{ aspectRatio: `${cw} / ${ch}` }}>
+                        )} onClick={() => handleCardClick(0, surface.key)}>
+                          <div
+                            className={clsx(
+                              'relative overflow-hidden bg-slate-100',
+                              repositionMode && 'cursor-grab active:cursor-grabbing touch-none',
+                            )}
+                            style={{ aspectRatio: `${cw} / ${ch}` }}
+                            onPointerDown={(e) => handlePanStart(e, 0, surface.key)}
+                            onPointerMove={handlePanMove}
+                            onPointerUp={handlePanEnd}
+                            onPointerCancel={handlePanEnd}
+                          >
                             {surfaceCanvas?.dataUrl ? <img src={surfaceCanvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={surface.label} /> : <div className="absolute inset-0 flex items-center justify-center text-slate-300"><Layout className="w-10 h-10 opacity-20" /></div>}
 
                             <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
@@ -2569,14 +2737,24 @@ export default function LayoutEditorPage() {
                           ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100" 
                           : "border-slate-200 hover:border-indigo-400"
                       )}
-                      onClick={() => openEditor(idx)}
-                      draggable
+                      onClick={() => handleCardClick(idx)}
+                      draggable={!repositionMode}
                       onDragStart={(e) => handleDragStart(e, idx)}
                       onDragOver={(e) => handleDragOver(e, idx)}
                       onDragLeave={() => setDragOverIdx(null)}
                       onDrop={(e) => handleDrop(e, idx)}
                     >
-                      <div className="relative rounded-t-2xl overflow-hidden bg-slate-100" style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}>
+                      <div
+                        className={clsx(
+                          'relative rounded-t-2xl overflow-hidden bg-slate-100',
+                          repositionMode && 'cursor-grab active:cursor-grabbing touch-none',
+                        )}
+                        style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}
+                        onPointerDown={(e) => handlePanStart(e, idx)}
+                        onPointerMove={handlePanMove}
+                        onPointerUp={handlePanEnd}
+                        onPointerCancel={handlePanEnd}
+                      >
                         {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
 
                         <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
