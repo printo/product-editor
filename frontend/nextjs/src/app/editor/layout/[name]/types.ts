@@ -12,11 +12,6 @@ export interface FrameState {
   scale: number;
   rotation: number; // 0, 90, 180, 270
   fitMode: FitMode;
-  /** When true the photo can be dragged/panned directly on the canvas.
-   *  Undefined/false = locked (default) so users can't accidentally drag
-   *  the image out of the frame. Editor-only UI state; ignored by the
-   *  server renderer, which reads offset/scale for position. */
-  dragEnabled?: boolean;
 }
 
 export interface TextOverlay {
