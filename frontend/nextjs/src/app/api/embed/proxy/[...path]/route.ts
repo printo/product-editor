@@ -128,6 +128,15 @@ const ALLOWED_PATH_PREFIXES = [
   // backend separately enforces ops auth for PUT/DELETE.
   'holidays',          // GET holidays for locale + year
   'calendar-styles',   // GET style presets + Gen-Z palettes
+  // v1.11 auto-orientation. Customer-facing; POST-only stateless inference
+  // that reads the uploaded image and returns {rotation, confidence, source}.
+  // Persists nothing and exposes no auth surface beyond the api_key the proxy
+  // already injects. Returns 503 when AUTO_ORIENTATION_MODE=off.
+  'orientation',       // POST orientation/detect — auto-orient uploaded photos
+  // Public (AllowAny) read-only flags the editor reads on mount to decide
+  // whether to call orientation/detect at all. Carries no secrets by contract
+  // — see ConfigView's docstring before adding fields to it.
+  'config',            // GET runtime feature flags (autoOrientationMode)
 ] as const;
 
 function isPathAllowed(p: string): boolean {

@@ -274,11 +274,14 @@ Headers: `Content-Type: application/json`, `X-Signature: sha256=<hex>`. Caller v
 **Embed proxy path allowlist** ([route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts:124)) — only these prefixes pass through:
 
 ```
-layouts, canvas-state, editor/render, render-status, jobs,
-upload, fonts, sku-layouts, embed/session
+layouts, canvas-state, editor/render, editor/init, render-status, jobs,
+upload, fonts, sku-layouts, embed/session, orientation, config,
+holidays, calendar-styles
 ```
 
 Anything else returns 403 *before* token resolution, so an attacker can't probe Django auth surfaces with a stolen embed token.
+
+`orientation` covers `POST /api/orientation/detect` (v1.11 auto-orient). Stateless inference — reads the posted image, returns `{rotation, confidence, source}`, persists nothing. Returns 503 when `AUTO_ORIENTATION_MODE=off`. `config` is the public `AllowAny` flags endpoint the editor reads on mount to decide whether to call `orientation/detect` at all — keep secrets out of it.
 
 **Sliding session TTL** — sessions are created with a 2-hour expiry, but `EmbedSessionValidateView` extends by 1 hour whenever the remaining lifetime drops below 30 min. Active editing sessions stay alive without a hard cutoff; idle sessions still expire on schedule. One DB write per hour of activity in the worst case.
 
@@ -477,7 +480,7 @@ holidays
 calendar-styles
 ```
 
-(In addition to `layouts`, `editor/init`, `editor/render`, `upload`, `render-status`, `jobs`, `canvas-state`, `fonts`, `sku-layouts`, `embed/session` — the universal set.)
+(In addition to `layouts`, `editor/init`, `editor/render`, `upload`, `render-status`, `jobs`, `canvas-state`, `fonts`, `sku-layouts`, `embed/session`, `orientation` — the universal set.)
 
 ### Smoke test
 
@@ -500,7 +503,7 @@ AUTO_ORIENTATION_MODE=mediapipe   # BlazePose Lite, ~5 MB, recommended for ≤ 2
 # AUTO_ORIENTATION_MODE=hybrid    # BlazePose Full, ~9 MB, recommended for ≥ 4 cores
 # AUTO_ORIENTATION_MODE=off       # disable ML; aspect heuristic only
 ```
-Changing the mode only needs `docker compose restart backend` (no image rebuild). The `/api/config` endpoint exposes the active mode to the frontend so the client skips the detect call when `off`.
+Changing the mode only needs `docker compose restart backend` (no image rebuild). The `/api/config` endpoint exposes the active mode to the frontend so the client skips the detect call when `off`. `detectFileOrientation` in `src/lib/ml-orientation.ts` fetches it once per session (memoised in `getRuntimeConfig`) and short-circuits to the aspect heuristic without uploading. If `/api/config` is unreachable it falls through to the detect request, so the server stays authoritative — a 503 there produces the same outcome.
 
 **Model files** live in [`backend/django/services/ml_models/`](backend/django/services/ml_models/) — both Lite (5.5 MB) and Full (9 MB) `.task` files are committed (Apache 2.0, downloaded from Google's public MediaPipe model store). The service module ([`services/orientation.py`](backend/django/services/orientation.py)) lazy-loads the variant matching `AUTO_ORIENTATION_MODE` once per gunicorn worker process, then reuses it.
 
