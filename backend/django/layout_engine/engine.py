@@ -7,7 +7,7 @@ import tempfile
 import logging
 from typing import List, Optional
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw, ImageChops
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +248,48 @@ class LayoutEngine:
             img.thumbnail((max_w, max_h), Image.Resampling.BOX)
         return img
 
+    @staticmethod
+    def _apply_frame_shape_mask(layer: Image.Image, frame: dict, surface_def: dict) -> None:
+        """
+        Clip a frame-sized RGBA layer in place to the frame's rounded-rectangle
+        shape, so circle/rounded products print in shape (e.g. circle_48mm
+        magnets) instead of as white-cornered squares.
+
+        Matches the browser preview exactly (fabric-renderer.ts):
+            radius_px = min(w/2, h/2, borderRadiusMm * pxPerMm)
+        where pxPerMm = canvas_width_px / canvas_width_mm (falls back to
+        dpi / 25.4). No-op when borderRadiusMm is 0 or absent (square frames),
+        so square layouts are byte-for-byte unaffected.
+
+        The rounded-rect alpha mask is intersected with the layer's existing
+        alpha (multiply), so already-transparent image regions stay transparent.
+        """
+        border_mm = float(frame.get("borderRadiusMm") or 0)
+        if border_mm <= 0:
+            return
+        w, h = layer.size
+        if w <= 0 or h <= 0:
+            return
+        canvas = surface_def.get("canvas", {}) or {}
+        canvas_w_px = canvas.get("width") or w
+        canvas_w_mm = canvas.get("widthMm")
+        if canvas_w_mm:
+            px_per_mm = canvas_w_px / canvas_w_mm
+        else:
+            px_per_mm = (canvas.get("dpi") or 300) / 25.4
+        radius = min(w / 2.0, h / 2.0, border_mm * px_per_mm)
+        if radius <= 0:
+            return
+
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            [0, 0, w - 1, h - 1], radius=radius, fill=255,
+        )
+        # Intersect with the layer's own alpha so transparent areas stay clear.
+        alpha = ImageChops.multiply(layer.getchannel("A"), mask)
+        layer.putalpha(alpha)
+        mask.close()
+
     def _composite_canvas(
         self,
         surface_def: dict,
@@ -341,10 +383,19 @@ class LayoutEngine:
             new_h = max(1, int(img.height * final_scale))
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
+            # Assemble this frame's pixels into a frame-sized RGBA layer, then
+            # paste the layer onto the canvas. Compositing through a frame-sized
+            # layer (rather than straight onto the canvas) does two things:
+            #   1. Clips contain-mode pan/zoom to the frame box, so a zoomed or
+            #      panned image can no longer bleed into a neighbouring frame.
+            #   2. Lets us apply the frame's rounded/circular shape mask, so
+            #      circle/rounded products (e.g. circle_48mm magnets) print in
+            #      shape instead of as a white-cornered square.
+            layer = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
             if frame_fit == "contain":
-                paste_x = frame["x"] + (target_w - new_w) // 2 + int(pan_x)
-                paste_y = frame["y"] + (target_h - new_h) // 2 + int(pan_y)
-                canvas.paste(img, (paste_x, paste_y), img)
+                rel_x = (target_w - new_w) // 2 + int(pan_x)
+                rel_y = (target_h - new_h) // 2 + int(pan_y)
+                layer.paste(img, (rel_x, rel_y), img)
             else:
                 # Cover: crop to frame, then shift by editor pan offset.
                 offset_x = max(0, (new_w - target_w) // 2 - int(pan_x))
@@ -357,7 +408,14 @@ class LayoutEngine:
                 # every cover-fit frame whose source already aligned.
                 if crop_box != (0, 0, img.width, img.height):
                     img = img.crop(crop_box)
-                canvas.paste(img, (frame["x"], frame["y"]), img)
+                layer.paste(img, (0, 0), img)
+
+            # Clip to the frame's rounded/circular shape (no-op for square frames),
+            # matching the browser preview so print == what the customer saw.
+            self._apply_frame_shape_mask(layer, frame, surface_def)
+            canvas.paste(layer, (frame["x"], frame["y"]), layer)
+            layer.close()
+            del layer
             img.close()
             del img
 
