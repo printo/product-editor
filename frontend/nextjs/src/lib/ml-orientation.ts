@@ -155,6 +155,13 @@ export async function detectFileOrientation(
 
   const promise = (async (): Promise<OrientationOutcome> => {
     try {
+      // AUTO_ORIENTATION_MODE=off → the detect endpoint would 503 anyway.
+      // Ask once per session and skip the downscale + upload entirely.
+      // A null config (endpoint unreachable) falls through to the request:
+      // the server stays authoritative and the 503 branch below still fires.
+      const cfg = await getRuntimeConfig(apiBase, fetchHeaders);
+      if (cfg?.autoOrientationMode === 'off') return 'use-heuristic';
+
       // Prefer a downscaled JPEG (~50 KB); fall back to the raw file only
       // if we couldn't produce one.
       let payload: Blob = file;
