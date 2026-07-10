@@ -40,6 +40,7 @@ import { MM_TO_IN, computeImpositionLayout, resolveSheetSize } from './impositio
 import { CanvasEditorModal } from './CanvasEditorModal';
 import { CalendarProductPreview } from '@/components/CalendarProductPreview';
 import { CalendarEditPanel } from '@/components/CalendarEditPanel';
+import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/types/calendar';
 import {
   uploadCalendarCellImage,
@@ -346,7 +347,7 @@ export default function LayoutEditorPage() {
   const [calendarCellImagePreviews, setCalendarCellImagePreviews] = useState<Record<string, string>>({});
 
   const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
-  const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
+  const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
 
@@ -373,15 +374,6 @@ export default function LayoutEditorPage() {
 
   // (Fonts are no longer fetched here — they're batched with the layout JSON
   //  in the single /editor/init request below.)
-
-  const loadGoogleFont = useCallback((fontName: string) => {
-    if (fontsLoaded.has(fontName) || ['sans-serif', 'serif', 'monospace', 'cursive'].includes(fontName)) return;
-    const link = document.createElement('link');
-    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;700&display=swap`;
-    link.rel = 'stylesheet';
-    document.head.appendChild(link);
-    setFontsLoaded(prev => new Set(prev).add(fontName));
-  }, [fontsLoaded]);
 
   useEffect(() => {
     selectedFonts.forEach(f => loadGoogleFont(f));
@@ -2267,6 +2259,7 @@ export default function LayoutEditorPage() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col">
+      <GoogleFontLinks fonts={fontsLoaded} />
       {uploadWarning && (
         <div className="fixed top-24 right-8 z-[200000] max-w-xs bg-white/80 backdrop-blur-2xl border border-amber-200/50 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-amber-900/5 flex items-center gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
           <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">

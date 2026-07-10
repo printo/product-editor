@@ -27,6 +27,7 @@ import {
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { LayoutSVG } from '@/components/LayoutSVG';
+import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { useHeader } from '@/context/HeaderContext';
 
@@ -268,7 +269,7 @@ export default function LayoutCreatorPage() {
   }, [isModalOpen]);
 
   const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
-  const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
+  const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const [showFontModal, setShowFontModal] = useState(false);
   const [fontSearch, setFontSearch] = useState('');
 
@@ -317,15 +318,6 @@ export default function LayoutCreatorPage() {
     'Archivo', 'Source Sans 3', 'DM Sans', 'Space Grotesk', 'Outfit',
     'Sora', 'Manrope', 'Plus Jakarta Sans', 'Lexend',
   ];
-
-  const loadGoogleFont = useCallback((fontName: string) => {
-    if (fontsLoaded.has(fontName) || ['sans-serif', 'serif', 'monospace', 'cursive'].includes(fontName)) return;
-    const link = document.createElement('link');
-    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;700&display=swap`;
-    link.rel = 'stylesheet';
-    document.head.appendChild(link);
-    setFontsLoaded(prev => new Set(prev).add(fontName));
-  }, [fontsLoaded]);
 
   // Fetch selected fonts from the backend on mount
   useEffect(() => {
@@ -840,6 +832,7 @@ export default function LayoutCreatorPage() {
 
   return (
     <div className="min-h-screen bg-transparent flex flex-col">
+      <GoogleFontLinks fonts={fontsLoaded} />
       <main className="max-w-[1440px] mx-auto px-8 py-8 w-full">
 
         {error && (

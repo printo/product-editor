@@ -93,6 +93,42 @@ export default function DevCalendarPreviewPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Holds blob: URLs from in-session uploads so we can revoke them on unmount.
   const cellBlobUrlsRef = useRef<Map<string, string>>(new Map());
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // P8.3 — real file-picker → chunked-upload → IDB persistence. The dev page
+  // hits the backend through the internal proxy (Bearer-key path); in the
+  // customer-facing route this becomes the embed proxy. Errors surface inline
+  // via setUploadError so the integration smoke is informative when the
+  // backend's unavailable (the dev page often runs without docker compose).
+  const handleCellImageSelected = async (file: File) => {
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const result = await uploadCalendarCellImage(file, {
+        apiBase: '/api/internal/proxy',
+        orderId: DEV_ORDER_ID,
+        getAuthHeaders: () => ({}),
+      });
+      updateActiveCellEntries(c => {
+        const kept: CalendarCellOverride[] = c.filter(o => o.type !== 'image');
+        const next: CalendarCellOverride = { type: 'image', uploadId: result.uploadId };
+        return [...kept, next];
+      });
+      // Track the cell's blob URL so the renderer (Phase 9 work) can show an
+      // immediate preview without re-fetching.
+      cellBlobUrlsRef.current.set(result.uploadId, result.blobUrl);
+    } catch (err) {
+      setUploadError(
+        err instanceof CalendarCellUploadError
+          ? err.message
+          : err instanceof Error
+            ? `Upload failed: ${err.message}`
+            : 'Upload failed for an unknown reason.',
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
   useEffect(
     () => () => {
       cellBlobUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
@@ -126,6 +162,18 @@ export default function DevCalendarPreviewPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 flex">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0];
+          // Reset so picking the same file twice still fires onChange.
+          e.target.value = '';
+          if (file) void handleCellImageSelected(file);
+        }}
+      />
       <div className="flex-1">
         <div className="px-6 py-4 bg-amber-50 border-b border-amber-200 text-xs text-amber-900">
           <strong>Dev-only route</strong> — calendar feature integration target.
@@ -187,48 +235,8 @@ export default function DevCalendarPreviewPage() {
             updateActiveCellEntries(c => c.filter((_, i) => i !== idx))
           }
           onRequestImageOverride={() => {
-            // P8.3 — real file-picker → chunked-upload → IDB persistence.
-            // The dev page hits the backend through the internal proxy
-            // (Bearer-key path); in the customer-facing route this becomes
-            // the embed proxy. Errors surface inline via setUploadError so
-            // the integration smoke is informative when the backend's
-            // unavailable (the dev page often runs without docker compose).
             if (!activeCell) return;
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.onchange = async () => {
-              const file = input.files?.[0];
-              if (!file) return;
-              setUploadError(null);
-              setUploading(true);
-              try {
-                const result = await uploadCalendarCellImage(file, {
-                  apiBase: '/api/internal/proxy',
-                  orderId: DEV_ORDER_ID,
-                  getAuthHeaders: () => ({}),
-                });
-                updateActiveCellEntries(c => {
-                  const kept: CalendarCellOverride[] = c.filter(o => o.type !== 'image');
-                  const next: CalendarCellOverride = { type: 'image', uploadId: result.uploadId };
-                  return [...kept, next];
-                });
-                // Track the cell's blob URL so the renderer (Phase 9 work)
-                // can show an immediate preview without re-fetching.
-                cellBlobUrlsRef.current.set(result.uploadId, result.blobUrl);
-              } catch (err) {
-                setUploadError(
-                  err instanceof CalendarCellUploadError
-                    ? err.message
-                    : err instanceof Error
-                      ? `Upload failed: ${err.message}`
-                      : 'Upload failed for an unknown reason.',
-                );
-              } finally {
-                setUploading(false);
-              }
-            };
-            input.click();
+            fileInputRef.current?.click();
           }}
           onRemoveImageOverride={() =>
             updateActiveCellEntries(c => c.filter(o => o.type !== 'image'))
