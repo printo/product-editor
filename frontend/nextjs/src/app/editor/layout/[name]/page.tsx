@@ -1899,6 +1899,34 @@ export default function LayoutEditorPage() {
         }
       }
 
+      // Guard: a frame that once held a photo (it carries a persisted fileId)
+      // but whose File did not rehydrate this session (originalFile === null)
+      // would submit an empty slot. Rather than silently ship an incomplete
+      // design, block the submit and name the photos to re-upload. This closes
+      // the client side of the silent wrong-print bug (the backend now renders
+      // such a slot blank instead of shifting other photos into it).
+      const lostFrames: string[] = [];
+      allCanvases.forEach((c, ci) => {
+        c.frames.forEach((frame, fi) => {
+          if (frame.fileId && !frame.originalFile) {
+            lostFrames.push(
+              allCanvases.length > 1 ? `page ${ci + 1}, photo ${fi + 1}` : `photo ${fi + 1}`,
+            );
+          }
+        });
+      });
+      if (lostFrames.length > 0) {
+        const shown = lostFrames.slice(0, 3).join('; ');
+        const more = lostFrames.length > 3 ? `, and ${lostFrames.length - 3} more` : '';
+        setError(
+          `${lostFrames.length} photo${lostFrames.length > 1 ? 's' : ''} could not be ` +
+          `recovered (${shown}${more}). Please re-upload ` +
+          `${lostFrames.length > 1 ? 'them' : 'it'} before continuing so your print ` +
+          `matches your design.`,
+        );
+        return;
+      }
+
       if (allFiles.length === 0) {
         setError('No files to upload for server render.');
         return;

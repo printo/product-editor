@@ -1658,11 +1658,32 @@ class EmbedSessionValidateView(APIView):
     )
     def get(self, request):
         import os
+        import hmac as _hmac
+        # This endpoint returns the partner's REAL api_key, so it must only be
+        # reachable by the trusted embed proxy — never by an arbitrary embed
+        # token holder (a token rides in the iframe URL and is not itself a
+        # secret). Access is gated by a shared X-Internal-Secret that only the
+        # proxy knows; frontend + backend both read EMBED_INTERNAL_SECRET from
+        # .env via env_file.
         expected_secret = os.getenv('EMBED_INTERNAL_SECRET', '')
+        provided = request.headers.get('X-Internal-Secret', '')
         if expected_secret:
-            provided = request.headers.get('X-Internal-Secret', '')
-            if provided != expected_secret:
+            # Constant-time compare so a wrong guess can't be timing-probed.
+            if not _hmac.compare_digest(provided, expected_secret):
                 return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        elif not settings.DEBUG:
+            # Fail closed in production: an unset secret would hand the partner
+            # api_key to any token holder. Refuse rather than leak. Dev (DEBUG)
+            # keeps working on localhost without the secret for convenience.
+            logger.error(
+                "EMBED_INTERNAL_SECRET is not set — refusing to serve api_key "
+                "for an embed token in production. Set it in .env (read by both "
+                "the backend and frontend containers via env_file)."
+            )
+            return Response(
+                {'detail': 'Embed validation is not configured.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         token = request.query_params.get('token', '').strip()
         if not token:
@@ -1895,13 +1916,23 @@ class EditorRenderView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Build flat image_paths list (canvas0_frame0, canvas0_frame1, …) ─
+        # ── Build position-explicit image_paths (canvas0_frame0, canvas0_frame1, …) ─
+        # One entry per frame, in canvas/frame order, so this list indexes
+        # IDENTICALLY to the per-frame transforms the engine reads back from
+        # editor_state (_extract_frame_transforms walks the same nested order).
+        # A frame whose photo is missing (null upload_id — the file was lost
+        # client-side) gets an empty-string slot instead of being dropped.
+        # Dropping it collapsed the list and shifted every later photo one
+        # frame to the left, so photos printed in the wrong windows with no
+        # error — the silent wrong-print bug. The engine renders an empty slot
+        # as a blank frame (layout_engine.engine._composite_canvas). Present-
+        # but-unresolved upload_ids were already rejected with 400 above, so
+        # the only '' entries here are genuinely-missing photos.
         image_paths = []
         for canvas in canvases_payload:
             for frame in canvas.get('frames', []):
                 uid = str(frame.get('upload_id', '') or '').strip()
-                if uid in upload_id_to_path:
-                    image_paths.append(upload_id_to_path[uid])
+                image_paths.append(upload_id_to_path.get(uid, ''))
 
         # ── Persist CanvasData + RenderJob atomically ───────────────────────
         # Soft-proof + CMYK pipelines retired; everything routes to 'standard'.

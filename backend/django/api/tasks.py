@@ -285,6 +285,12 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             job.error_message = error_msg
             job.retry_count = self.max_retries  # prevent any further retry
             job.save(update_fields=['status', 'completed_at', 'error_message', 'retry_count'])
+            # Tell the embed caller the render failed so their order flow does
+            # not stall forever waiting on a success webhook that never comes.
+            if canvas.callback_url:
+                notify_caller_render_failed_task.apply_async(
+                    args=[str(canvas.id), error_msg], queue='standard', countdown=0,
+                )
             return
 
         except SoftTimeLimitExceeded:
@@ -295,6 +301,10 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             job.error_message = error_msg
             job.retry_count = self.max_retries  # timeouts are not worth retrying
             job.save(update_fields=['status', 'completed_at', 'error_message', 'retry_count'])
+            if canvas.callback_url:
+                notify_caller_render_failed_task.apply_async(
+                    args=[str(canvas.id), error_msg], queue='standard', countdown=0,
+                )
             return
 
         generation_time_ms = int((time.time() - start_time) * 1000)
@@ -361,6 +371,14 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                 exc_info=True,
             )
             job.save(update_fields=['status', 'retry_count', 'error_message', 'completed_at'])
+            # Notify the embed caller of the terminal failure (defensive
+            # locals() lookup: canvas may be undefined if the failure happened
+            # before it was fetched).
+            _canvas = locals().get('canvas')
+            if _canvas is not None and getattr(_canvas, 'callback_url', None):
+                notify_caller_render_failed_task.apply_async(
+                    args=[str(_canvas.id), str(exc)], queue='standard', countdown=0,
+                )
         else:
             job.status = 'queued'
             job.save(update_fields=['status', 'retry_count', 'error_message'])
@@ -375,7 +393,8 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
 
 @shared_task(
     bind=True,
-    max_retries=5,
+    max_retries=8,   # ~3 min total window (see capped backoff below) so a brief
+                     # callback outage doesn't permanently lose delivery.
     acks_late=True,
 )
 def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
@@ -542,12 +561,86 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
             except Exception:
                 pass  # Manual review flag will catch it.
         else:
-            delay = 2 ** retry_number  # 1s, 2s, 4s, 8s, 16s
+            delay = min(2 ** retry_number, 60)  # 1,2,4,8,16,32,60,60 → ~3 min total
             logger.warning(
                 "Webhook attempt %d/%d failed for order %s: %s. Retry in %ds.",
                 retry_number + 1, self.max_retries + 1, canvas.order_id, exc, delay,
             )
             raise self.retry(exc=exc, countdown=delay)
+
+
+@shared_task(
+    bind=True,
+    max_retries=8,   # ~3 min total window (capped backoff below).
+    acks_late=True,
+)
+def notify_caller_render_failed_task(self, canvas_data_id: str, error_message: str = ''):
+    """
+    Notify the embed caller that a RENDER failed, so their order flow does not
+    stall forever waiting on the success webhook (which never fires on a failed
+    render). Mirrors ``notify_caller_webhook_task`` but sends ``status='failed'``
+    with no ``download_url``. Dispatched from ``render_canvas_task``'s terminal
+    failure paths, gated on ``canvas.callback_url``.
+
+    Signed the same way as the success webhook — HMAC-SHA256(api_key, raw_body)
+    in the ``X-Signature`` header — so the caller verifies it identically.
+    """
+    import hmac
+    import hashlib
+    import json as _json
+    import requests
+    from api.models import CanvasData, RenderJob
+
+    canvas = CanvasData.objects.select_related('api_key').get(id=canvas_data_id)
+    if not canvas.callback_url:
+        logger.info("Skipping failure webhook for order %s — callback_url empty", canvas.order_id)
+        return
+
+    rjob = RenderJob.objects.filter(canvas_data=canvas).order_by('-created_at').first()
+    job_id = str(rjob.id) if rjob else None
+
+    fail_payload = {
+        'order_id':      canvas.order_id,
+        'job_id':        job_id,
+        'status':        'failed',
+        'error':         (error_message or 'Render failed')[:500],
+        'layout_name':   canvas.layout_name,
+        'export_format': canvas.export_format,
+    }
+    raw_body = _json.dumps(fail_payload, separators=(',', ':')).encode('utf-8')
+    signature = hmac.new(
+        canvas.api_key.key.encode('utf-8'), raw_body, hashlib.sha256,
+    ).hexdigest()
+
+    try:
+        response = requests.post(
+            canvas.callback_url,
+            data=raw_body,
+            headers={'Content-Type': 'application/json', 'X-Signature': f'sha256={signature}'},
+            timeout=10,
+        )
+        response.raise_for_status()
+        logger.info(
+            "Failure webhook delivered to %s for order %s (job=%s, attempt %d)",
+            canvas.callback_url, canvas.order_id, job_id, self.request.retries + 1,
+        )
+    except Exception as exc:
+        retry_number = self.request.retries
+        if retry_number >= self.max_retries:
+            logger.error(
+                "Failure webhook to %s exhausted for order %s after %d attempts: %s",
+                canvas.callback_url, canvas.order_id, self.max_retries + 1, exc,
+                exc_info=True,
+            )
+            canvas.requires_manual_review = True
+            canvas.save(update_fields=['requires_manual_review'])
+            return
+        delay = min(2 ** retry_number, 60)  # 1,2,4,8,16,32,60,60 → ~3 min total
+        logger.warning(
+            "Failure webhook attempt %d/%d failed for order %s: %s. Retry in %ds.",
+            retry_number + 1, self.max_retries + 1, canvas.order_id, exc, delay,
+        )
+        raise self.retry(exc=exc, countdown=delay)
 
 
 @shared_task(

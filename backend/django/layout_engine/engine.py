@@ -281,7 +281,17 @@ class LayoutEngine:
         canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
 
         for idx, frame in enumerate(frames):
-            with Image.open(batch[idx]) as _src:
+            # Position-explicit contract: batch[idx] pairs with frames[idx] and
+            # frame_transforms[idx] by index. An empty/absent slot means the
+            # customer left this frame without a resolvable photo — render it
+            # blank instead of pulling the next image in and desynchronising
+            # every later frame (the silent wrong-print bug). Guards both the
+            # '' sentinel written by EditorRenderView for missing uploads and a
+            # short batch from the legacy wrap-pad path.
+            src_path = batch[idx] if idx < len(batch) else ""
+            if not src_path:
+                continue
+            with Image.open(src_path) as _src:
                 # Apply EXIF orientation so the render starts from the same
                 # "display upright" pixels the browser editor and the
                 # orientation detector (services/orientation.py) both see.
