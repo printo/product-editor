@@ -3,7 +3,7 @@
 /**
  * /dashboard  —  Layout picker
  *
- * Clicking a layout card navigates to /layout/[name] where the full
+ * Clicking a layout card navigates to /editor/layout/[name] where the full
  * canvas editor lives.
  */
 

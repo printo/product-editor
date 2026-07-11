@@ -32,26 +32,12 @@ const nextConfig = {
       || "'self' https://printo.in https://*.printo.in";
     return [
       {
-        // Layout preview page (uses ?apiKey=, separate from the embed editor).
-        source: '/layout/:name*',
-        headers: [
-          { key: 'Content-Security-Policy', value: `frame-ancestors ${frameAncestors}` },
-        ],
-      },
-      {
         // Embed editor entry — printo.in iframes /editor/layout/<name>?token=...
         // X-Frame-Options is the legacy fallback; modern browsers use CSP
         // frame-ancestors which lets us scope to printo.in (X-Frame-Options
         // ALLOW-FROM is deprecated and unsupported in most browsers, so the
         // frame-ancestors directive is the real gate).
         source: '/editor/layout/:name*',
-        headers: [
-          { key: 'Content-Security-Policy', value: `frame-ancestors ${frameAncestors}` },
-        ],
-      },
-      {
-        // Layout preview path under /embed/
-        source: '/embed/layout/:name*',
         headers: [
           { key: 'Content-Security-Policy', value: `frame-ancestors ${frameAncestors}` },
         ],
