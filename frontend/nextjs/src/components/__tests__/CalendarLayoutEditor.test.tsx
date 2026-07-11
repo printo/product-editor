@@ -1,15 +1,23 @@
 /**
  * Component + serializer tests for CalendarLayoutEditor
- * (CALENDAR_FEATURE_PRD §5 Phase 6 Day 1).
+ * (CALENDAR_FEATURE_PRD §5 Phase 6 Day 1; updated for the 4-step wizard UI).
+ *
+ * The editor is a wizard since cb80036 — sections render one step at a time:
+ *   Step 1 – Basics (name, mode toggle, canvas size, year anchor)
+ *   Step 2 – Layout (frames, calendar position, mask, Fabric canvas)
+ *   Step 3 – Style (theme, palette gating, calendarType, weekStart, holidays)
+ *   Step 4 – Review & Save (month tiles, override modal, Save/Cancel)
+ * Tests jump between steps via the always-visible step-indicator pills
+ * (`step-1`..`step-4`), which navigate without gating.
  *
  * Covers:
- *   - Field rendering + edit → state updates
+ *   - Field rendering + edit → state updates (per wizard step)
  *   - Mode toggle: multi-surface (12×1) vs poster (1×12) JSON shape
  *   - Style controls (theme, palette gating, calendarType default, weekStart)
  *   - Holiday source toggle + locale
  *   - Year anchor — current vs fixed
  *   - draftToLayoutJson serialization → shape matches validate_calendar_layout
- *   - validateDraft catches bounds-out-of-range
+ *   - validateDraft catches bounds-out-of-range + override frame-count drift
  *   - Save button gates on validation + fires onSave with serialized JSON
  */
 import { render, screen, within } from '@testing-library/react';
@@ -21,6 +29,13 @@ import {
   type CalendarLayoutDraft,
 } from '@/components/CalendarLayoutEditor';
 import type { GenzPalette, HolidayEntry } from '@/types/calendar';
+
+// Step 2 mounts the Fabric.js canvas preview via next/dynamic. Fabric can't
+// run under happy-dom (no real canvas 2D context) and none of these tests
+// assert on the canvas itself — stub the module out.
+jest.mock('@/components/CalendarFabricPreview', () => ({
+  CalendarFabricPreview: () => null,
+}));
 
 const PALETTES: GenzPalette[] = [
   { name: 'butter', label: 'Butter & Purple', bg: '#FEF3C7', month: '#A855F7',
@@ -50,20 +65,56 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof CalendarLayout
   return { ...utils, onSave, onCancel };
 }
 
+/** Jump to a wizard step via the step-indicator pills (no gating). */
+async function goToStep(step: 1 | 2 | 3 | 4) {
+  await userEvent.click(screen.getByTestId(`step-${step}`));
+}
+
+/** Switch the mode toggle (step 1) to poster mode. */
+async function switchToPoster() {
+  const toggle = screen.getByTestId('mode-toggle');
+  await userEvent.click(within(toggle).getByText(/1 page/));
+}
+
+/**
+ * Inside the open override modal, reposition frame #1's X so the override
+ * differs from the template. Repositioning (not adding a frame) keeps the
+ * frame COUNT equal to the template — required since the Phase 2 hardening
+ * rule in validateDraft pins override frame counts to the template.
+ * X=0.1 keeps the default 0.9-wide frame inside the canvas (0.1 + 0.9 = 1).
+ */
+async function repositionModalFrame() {
+  const frameRow = screen.getByTestId('month-override-frame-0');
+  const xInput = within(frameRow).getAllByRole('spinbutton')[0];
+  await userEvent.clear(xInput);
+  await userEvent.type(xInput, '0.1');
+}
+
 // ─── Initial render ─────────────────────────────────────────────────────────
 
 describe('CalendarLayoutEditor — initial render', () => {
-  it('mounts with all primary sections present', () => {
+  it('mounts with all primary sections present across the wizard steps', async () => {
     setup();
+    // Step 1 — Basics (default step)
     expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument();
+    expect(screen.getByTestId('step-indicator')).toBeInTheDocument();
     expect(screen.getByTestId('layout-name')).toBeInTheDocument();
     expect(screen.getByTestId('mode-toggle')).toBeInTheDocument();
+    expect(screen.getByTestId('live-preview')).toBeInTheDocument();
+    // Step 2 — Layout
+    await goToStep(2);
+    expect(screen.getByTestId('frames-section')).toBeInTheDocument();
+    expect(screen.getByTestId('mask-section')).toBeInTheDocument();
     expect(screen.getByTestId('calendar-primitive-fields')).toBeInTheDocument();
+    // Step 3 — Style
+    await goToStep(3);
     expect(screen.getByTestId('style-theme')).toBeInTheDocument();
     expect(screen.getByTestId('style-calendar-type')).toBeInTheDocument();
     expect(screen.getByTestId('style-week-start')).toBeInTheDocument();
     expect(screen.getByTestId('holiday-source')).toBeInTheDocument();
-    expect(screen.getByTestId('live-preview')).toBeInTheDocument();
+    // Step 4 — Review & Save
+    await goToStep(4);
+    expect(screen.getByTestId('month-tile-pane')).toBeInTheDocument();
     expect(screen.getByTestId('save-btn')).toBeInTheDocument();
   });
 
@@ -74,8 +125,10 @@ describe('CalendarLayoutEditor — initial render', () => {
     expect(active).toHaveTextContent(/12 pages/);
   });
 
-  it('hides Gen-Z palette picker when theme is NOT modern-genz', () => {
+  it('hides Gen-Z palette picker when theme is NOT modern-genz', async () => {
     setup();
+    await goToStep(3);
+    expect(screen.getByTestId('style-theme')).toBeInTheDocument();
     expect(screen.queryByTestId('style-genz-palette')).not.toBeInTheDocument();
   });
 
@@ -85,6 +138,7 @@ describe('CalendarLayoutEditor — initial render', () => {
       holidaySource: { enabled: true, locale: 'en-IN', showInCells: true },
       defaultGenzPalette: 'butter',
     } } });
+    await goToStep(3);
     expect(screen.getByTestId('style-genz-palette')).toBeInTheDocument();
   });
 });
@@ -161,8 +215,10 @@ describe('CalendarLayoutEditor — mode toggle', () => {
 describe('CalendarLayoutEditor — style controls', () => {
   it('switches calendarType default via the dropdown', async () => {
     const { onSave } = setup();
+    await goToStep(3);
     const sel = screen.getByTestId('style-calendar-type');
     await userEvent.selectOptions(sel, 'financial');
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect((json.calendar as Record<string, unknown>).calendarType).toBe('financial');
@@ -170,7 +226,9 @@ describe('CalendarLayoutEditor — style controls', () => {
 
   it('switches weekStart via the dropdown', async () => {
     const { onSave } = setup();
+    await goToStep(3);
     await userEvent.selectOptions(screen.getByTestId('style-week-start'), 'monday');
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect((json.calendar as Record<string, unknown>).weekStart).toBe('monday');
@@ -178,6 +236,7 @@ describe('CalendarLayoutEditor — style controls', () => {
 
   it('switches theme to Gen-Z and reveals palette picker', async () => {
     setup();
+    await goToStep(3);
     await userEvent.selectOptions(screen.getByTestId('style-theme'), 'modern-genz');
     expect(screen.getByTestId('style-genz-palette')).toBeInTheDocument();
   });
@@ -188,7 +247,9 @@ describe('CalendarLayoutEditor — style controls', () => {
 describe('CalendarLayoutEditor — holiday source', () => {
   it('toggles auto-load on/off', async () => {
     const { onSave } = setup();
+    await goToStep(3);
     await userEvent.click(screen.getByTestId('holiday-enabled'));
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect(((json.calendar as Record<string, unknown>).holidaySource as Record<string, unknown>).enabled).toBe(false);
@@ -196,7 +257,9 @@ describe('CalendarLayoutEditor — holiday source', () => {
 
   it('switches locale via the dropdown', async () => {
     const { onSave } = setup();
+    await goToStep(3);
     await userEvent.selectOptions(screen.getByTestId('holiday-locale'), 'generic');
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect(((json.calendar as Record<string, unknown>).holidaySource as Record<string, unknown>).locale).toBe('generic');
@@ -208,6 +271,7 @@ describe('CalendarLayoutEditor — holiday source', () => {
 describe('CalendarLayoutEditor — year anchor', () => {
   it('defaults to current (auto-roll)', async () => {
     const { onSave } = setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect((json.monthRange as Record<string, unknown>).defaultYear).toBe('current');
@@ -219,6 +283,7 @@ describe('CalendarLayoutEditor — year anchor', () => {
     const input = screen.getByTestId('year-fixed-input') as HTMLInputElement;
     await userEvent.clear(input);
     await userEvent.type(input, '2027');
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect((json.monthRange as Record<string, unknown>).defaultYear).toBe(2027);
@@ -273,8 +338,9 @@ describe('validateDraft', () => {
 // ─── P6.1-review fixes — additional coverage ────────────────────────────────
 
 describe('CalendarLayoutEditor — review fix #2 (frame editing UI)', () => {
-  it('renders the frames section with one default frame', () => {
+  it('renders the frames section with one default frame', async () => {
     setup();
+    await goToStep(2);
     expect(screen.getByTestId('frames-section')).toBeInTheDocument();
     expect(screen.getByTestId('frame-row-0')).toBeInTheDocument();
     expect(screen.queryByTestId('frame-row-1')).not.toBeInTheDocument();
@@ -282,28 +348,33 @@ describe('CalendarLayoutEditor — review fix #2 (frame editing UI)', () => {
 
   it('adds a second frame when the Add button is clicked', async () => {
     setup();
+    await goToStep(2);
     await userEvent.click(screen.getByTestId('add-frame-btn'));
     expect(screen.getByTestId('frame-row-1')).toBeInTheDocument();
   });
 
   it('removes a non-last frame', async () => {
     setup();
+    await goToStep(2);
     await userEvent.click(screen.getByTestId('add-frame-btn'));
     expect(screen.getByTestId('frame-row-1')).toBeInTheDocument();
     await userEvent.click(screen.getByTestId('remove-frame-1'));
     expect(screen.queryByTestId('frame-row-1')).not.toBeInTheDocument();
   });
 
-  it('disables remove on the LAST remaining frame', () => {
+  it('disables remove on the LAST remaining frame', async () => {
     setup();
+    await goToStep(2);
     const removeBtn = screen.getByTestId('remove-frame-0');
     expect(removeBtn).toBeDisabled();
   });
 
   it('serialises multiple frames into the layout JSON', async () => {
     const { onSave } = setup();
+    await goToStep(2);
     await userEvent.click(screen.getByTestId('add-frame-btn'));
     await userEvent.click(screen.getByTestId('add-frame-btn'));
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect((json.frames as unknown[]).length).toBe(3);
@@ -313,14 +384,18 @@ describe('CalendarLayoutEditor — review fix #2 (frame editing UI)', () => {
 describe('CalendarLayoutEditor — review fix #3 (poster per-calendar positioning)', () => {
   it('poster custom layout toggle only renders in poster mode', async () => {
     setup();
+    await goToStep(2);
     expect(screen.queryByTestId('poster-custom-toggle')).not.toBeInTheDocument();
-    await userEvent.click(within(screen.getByTestId('mode-toggle')).getByText(/1 page/));
+    await goToStep(1);
+    await switchToPoster();
+    await goToStep(2);
     expect(screen.getByTestId('poster-custom-toggle')).toBeInTheDocument();
   });
 
   it('expands to 12 per-calendar rows when custom layout is enabled', async () => {
     setup();
-    await userEvent.click(within(screen.getByTestId('mode-toggle')).getByText(/1 page/));
+    await switchToPoster();
+    await goToStep(2);
     expect(screen.queryByTestId('poster-cal-row-0')).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId('poster-custom-toggle'));
     expect(screen.getByTestId('poster-cal-row-0')).toBeInTheDocument();
@@ -330,8 +405,10 @@ describe('CalendarLayoutEditor — review fix #3 (poster per-calendar positionin
 
   it('passes through custom positions verbatim in the serialised JSON', async () => {
     const { onSave } = setup();
-    await userEvent.click(within(screen.getByTestId('mode-toggle')).getByText(/1 page/));
+    await switchToPoster();
+    await goToStep(2);
     await userEvent.click(screen.getByTestId('poster-custom-toggle'));
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     const cals = json.calendars as Array<Record<string, unknown>>;
@@ -341,24 +418,28 @@ describe('CalendarLayoutEditor — review fix #3 (poster per-calendar positionin
 });
 
 describe('CalendarLayoutEditor — review fix #4 (defensive calendars[0])', () => {
-  it('does not crash when initial.calendars is an empty array', () => {
+  it('does not crash when initial.calendars is an empty array', async () => {
     setup({ initial: { calendars: [] } });
     expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument();
     // Fields should still render (with their defensive defaults).
+    await goToStep(2);
     expect(screen.getByTestId('calendar-primitive-fields')).toBeInTheDocument();
   });
 });
 
 describe('CalendarLayoutEditor — review fix #6 (showInCells toggle)', () => {
-  it('renders the toggle, defaulting to checked', () => {
+  it('renders the toggle, defaulting to checked', async () => {
     setup();
+    await goToStep(3);
     const cb = screen.getByTestId('holiday-show-in-cells') as HTMLInputElement;
     expect(cb.checked).toBe(true);
   });
 
   it('serialises showInCells: false when toggled off', async () => {
     const { onSave } = setup();
+    await goToStep(3);
     await userEvent.click(screen.getByTestId('holiday-show-in-cells'));
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     const src = (json.calendar as Record<string, unknown>).holidaySource as Record<string, unknown>;
@@ -367,50 +448,54 @@ describe('CalendarLayoutEditor — review fix #6 (showInCells toggle)', () => {
 
   it('disables the toggle when holiday auto-load is disabled', async () => {
     setup();
+    await goToStep(3);
     await userEvent.click(screen.getByTestId('holiday-enabled'));
     expect(screen.getByTestId('holiday-show-in-cells')).toBeDisabled();
   });
 });
 
-describe('CalendarLayoutEditor — review fix #12 (mm/px readback)', () => {
-  it('renders a readback line showing mm origin/size + px dimensions', () => {
+describe('CalendarLayoutEditor — review fix #12 (mm readback)', () => {
+  it('renders a readback line showing the calendar size in mm', async () => {
     setup({ initial: {
       canvasWidthMm: 100, canvasHeightMm: 200, dpi: 300,
       calendars: [{ x: 0.1, y: 0.2, width: 0.5, height: 0.4 }],
     } });
+    await goToStep(2);
     const readback = screen.getByTestId('calendar-primitive-readback');
-    // 0.1 × 100 mm = 10 mm origin x; 0.2 × 200 = 40 mm origin y
-    expect(readback).toHaveTextContent(/10\.0 \/ 40\.0/);
-    // 0.5 × 100 = 50 mm; 0.4 × 200 = 80 mm
+    // Wizard UI simplified the readback to W × H mm only (origin + px were
+    // dropped): 0.5 × 100 = 50 mm; 0.4 × 200 = 80 mm.
     expect(readback).toHaveTextContent(/50\.0 × 80\.0 mm/);
-    // px: 50 mm × 300 / 25.4 ≈ 591
-    expect(readback).toHaveTextContent(/591 ×/);
   });
 });
 
 describe('CalendarLayoutEditor — review fix #5 (mask UI) [Gap A]', () => {
-  it('renders the mask section with empty URL by default', () => {
+  it('renders the mask section with empty URL by default', async () => {
     setup();
+    await goToStep(2);
     expect(screen.getByTestId('mask-section')).toBeInTheDocument();
     const urlField = screen.getByTestId('mask-url') as HTMLInputElement;
     expect(urlField.value).toBe('');
   });
 
-  it('disables maskOnExport when maskUrl is empty', () => {
+  it('disables maskOnExport when maskUrl is empty', async () => {
     setup();
+    await goToStep(2);
     expect(screen.getByTestId('mask-on-export')).toBeDisabled();
   });
 
   it('enables maskOnExport once a mask URL is typed', async () => {
     setup();
+    await goToStep(2);
     await userEvent.type(screen.getByTestId('mask-url'), 'desk_mask.png');
     expect(screen.getByTestId('mask-on-export')).not.toBeDisabled();
   });
 
   it('serialises maskUrl + maskOnExport when set', async () => {
     const { onSave } = setup();
+    await goToStep(2);
     await userEvent.type(screen.getByTestId('mask-url'), 'my_mask.png');
     await userEvent.click(screen.getByTestId('mask-on-export'));
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect(json.maskUrl).toBe('my_mask.png');
@@ -419,6 +504,7 @@ describe('CalendarLayoutEditor — review fix #5 (mask UI) [Gap A]', () => {
 
   it('omits maskUrl + maskOnExport when no mask is set', async () => {
     const { onSave } = setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect(json).not.toHaveProperty('maskUrl');
@@ -488,21 +574,24 @@ describe('CalendarLayoutEditor — review fix #13 (regular-editor link)', () => 
 // ─── P6.2 — Per-month tile pane + override modal ────────────────────────────
 
 describe('CalendarLayoutEditor — P6.2 tile pane', () => {
-  it('renders exactly 12 month tiles', () => {
+  it('renders exactly 12 month tiles', async () => {
     setup();
+    await goToStep(4);
     const pane = screen.getByTestId('month-tile-pane');
     const tiles = within(pane).getAllByRole('button');
     expect(tiles).toHaveLength(12);
   });
 
-  it('labels tiles in English-mode order (January..December)', () => {
+  it('labels tiles in English-mode order (January..December)', async () => {
     setup();
+    await goToStep(4);
     expect(screen.getByTestId('month-tile-month_01')).toBeInTheDocument();
     expect(screen.getByTestId('month-tile-month_12')).toBeInTheDocument();
   });
 
-  it('marks all tiles as not-customized by default', () => {
+  it('marks all tiles as not-customized by default', async () => {
     setup();
+    await goToStep(4);
     for (let m = 1; m <= 12; m++) {
       const key = `month_${String(m).padStart(2, '0')}`;
       const tile = screen.getByTestId(`month-tile-${key}`);
@@ -513,6 +602,7 @@ describe('CalendarLayoutEditor — P6.2 tile pane', () => {
 
   it('opens the override modal when a tile is clicked', async () => {
     setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_03'));
     expect(screen.getByTestId('month-override-modal')).toBeInTheDocument();
     expect(screen.getByText(/Per-month override/)).toBeInTheDocument();
@@ -521,6 +611,7 @@ describe('CalendarLayoutEditor — P6.2 tile pane', () => {
 
   it('closes the modal on Cancel without setting an override', async () => {
     const { onSave } = setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_06'));
     await userEvent.click(screen.getByTestId('month-override-cancel'));
     expect(screen.queryByTestId('month-override-modal')).not.toBeInTheDocument();
@@ -532,6 +623,7 @@ describe('CalendarLayoutEditor — P6.2 tile pane', () => {
 
   it('closes the modal on × close button', async () => {
     setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_07'));
     await userEvent.click(screen.getByTestId('month-override-close'));
     expect(screen.queryByTestId('month-override-modal')).not.toBeInTheDocument();
@@ -541,9 +633,11 @@ describe('CalendarLayoutEditor — P6.2 tile pane', () => {
 describe('CalendarLayoutEditor — P6.2 override modal & badge', () => {
   it('shows "Customized" badge after saving an override that differs from template', async () => {
     setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_12'));
-    // Add a second frame inside the modal so the override differs from template.
-    await userEvent.click(screen.getByTestId('month-override-add-frame'));
+    // Reposition frame #1 inside the modal so the override differs from the
+    // template (frame count must stay equal — Phase 2 hardening rule).
+    await repositionModalFrame();
     await userEvent.click(screen.getByTestId('month-override-save'));
     // Modal closes + tile shows customised badge.
     expect(screen.queryByTestId('month-override-modal')).not.toBeInTheDocument();
@@ -554,6 +648,7 @@ describe('CalendarLayoutEditor — P6.2 override modal & badge', () => {
 
   it('does NOT customise the tile when the modal saves with no diffs', async () => {
     setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_04'));
     // Save without changes — modal computes diff vs template, finds nothing.
     await userEvent.click(screen.getByTestId('month-override-save'));
@@ -563,9 +658,10 @@ describe('CalendarLayoutEditor — P6.2 override modal & badge', () => {
 
   it('Reset-to-template clears an existing override', async () => {
     setup();
+    await goToStep(4);
     // First customise.
     await userEvent.click(screen.getByTestId('month-tile-month_02'));
-    await userEvent.click(screen.getByTestId('month-override-add-frame'));
+    await repositionModalFrame();
     await userEvent.click(screen.getByTestId('month-override-save'));
     expect(screen.getByTestId('customized-badge-month_02')).toBeInTheDocument();
 
@@ -578,15 +674,17 @@ describe('CalendarLayoutEditor — P6.2 override modal & badge', () => {
 
   it('Reset button is disabled when there is no current override', async () => {
     setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_09'));
     expect(screen.getByTestId('month-override-reset')).toBeDisabled();
   });
 
   it('serialises surfaceOverrides into the layout JSON only when at least one is set', async () => {
     const { onSave } = setup();
+    await goToStep(4);
     // Customise one month
     await userEvent.click(screen.getByTestId('month-tile-month_05'));
-    await userEvent.click(screen.getByTestId('month-override-add-frame'));
+    await repositionModalFrame();
     await userEvent.click(screen.getByTestId('month-override-save'));
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
@@ -603,10 +701,9 @@ describe('CalendarLayoutEditor — P6.2 override modal & badge', () => {
 describe('CalendarLayoutEditor — P6.2 remediation: poster-mode modal gating', () => {
   it('hides the frames editor in the modal when in poster mode (review fix A)', async () => {
     setup();
-    // Switch to poster mode.
-    const toggle = screen.getByTestId('mode-toggle');
-    await userEvent.click(within(toggle).getByText(/1 page/));
-    // Open any month tile's modal.
+    // Switch to poster mode (step 1), then open a tile on step 4.
+    await switchToPoster();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_03'));
     // Frames editor should be HIDDEN; the placeholder section should be shown.
     expect(screen.queryByTestId('month-override-frames-section')).not.toBeInTheDocument();
@@ -616,6 +713,7 @@ describe('CalendarLayoutEditor — P6.2 remediation: poster-mode modal gating', 
   it('shows the frames editor in the modal when in multi-surface mode', async () => {
     setup();
     // Multi-surface is default. Open a tile.
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_04'));
     expect(screen.getByTestId('month-override-frames-section')).toBeInTheDocument();
     expect(screen.queryByTestId('month-override-frames-section-hidden')).not.toBeInTheDocument();
@@ -624,10 +722,11 @@ describe('CalendarLayoutEditor — P6.2 remediation: poster-mode modal gating', 
   it('filters calendars to just the matching monthOffset in poster custom layout (review fix B)', async () => {
     setup();
     // Poster + custom layout → 12 calendars each with monthOffset 0..11.
-    const toggle = screen.getByTestId('mode-toggle');
-    await userEvent.click(within(toggle).getByText(/1 page/));
+    await switchToPoster();
+    await goToStep(2);
     await userEvent.click(screen.getByTestId('poster-custom-toggle'));
     // Open the modal for month_03 (i.e. cellIndex 2 → monthOffset=2).
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_03'));
     // Only the calendar with monthOffset=2 (index 2 in the calendars array)
     // should be editable — all others should be hidden from the modal.
@@ -642,15 +741,17 @@ describe('CalendarLayoutEditor — P6.2 remediation: poster-mode modal gating', 
 describe('CalendarLayoutEditor — P6.2 remediation: active-override banner (review fix L3)', () => {
   it('does NOT show the active-override banner on a fresh month tile', async () => {
     setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_08'));
     expect(screen.queryByTestId('month-override-active-banner')).not.toBeInTheDocument();
   });
 
   it('shows the active-override banner when re-opening a customised tile', async () => {
     setup();
+    await goToStep(4);
     // Customise month_07 first.
     await userEvent.click(screen.getByTestId('month-tile-month_07'));
-    await userEvent.click(screen.getByTestId('month-override-add-frame'));
+    await repositionModalFrame();
     await userEvent.click(screen.getByTestId('month-override-save'));
     // Re-open the same tile — banner should now be visible.
     await userEvent.click(screen.getByTestId('month-tile-month_07'));
@@ -661,6 +762,7 @@ describe('CalendarLayoutEditor — P6.2 remediation: active-override banner (rev
 describe('CalendarLayoutEditor — P6.2 remediation: live preview pane (review fix L5)', () => {
   it('renders the live-preview pane inside the modal', async () => {
     setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_11'));
     expect(screen.getByTestId('month-override-live-preview')).toBeInTheDocument();
   });
@@ -708,6 +810,18 @@ describe('CalendarLayoutEditor — P6.2 remediation: override-bounds validation 
     expect(err).toMatch(/must have positive dimensions/);
   });
 
+  it('rejects an override that changes the frame count (Phase 2 hardening)', () => {
+    // Template has 1 frame; the override supplies 2 — per-month overrides may
+    // reposition frames but never add/remove them (photo slicing would desync).
+    const err = validateDraft(makeDraftWithOverride({
+      month_04: { frames: [
+        { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
+      ] },
+    }));
+    expect(err).toMatch(/may reposition frames but not change their count/);
+  });
+
   it('rejects an override calendar extending past the right edge', () => {
     const err = validateDraft(makeDraftWithOverride({
       month_09: { calendars: [{ x: 0.8, y: 0.1, width: 0.5, height: 0.2 }] },
@@ -742,10 +856,11 @@ describe('CalendarLayoutEditor — P6.2 remediation: override-bounds validation 
 describe('CalendarLayoutEditor — P6.2 remediation: multi-month override save', () => {
   it('serialises ALL customised months when 3 months are customised', async () => {
     const { onSave } = setup();
-    // Customise three different months — each gets one extra frame.
+    await goToStep(4);
+    // Customise three different months — each gets frame #1 repositioned.
     for (const m of ['month_01', 'month_05', 'month_12']) {
       await userEvent.click(screen.getByTestId(`month-tile-${m}`));
-      await userEvent.click(screen.getByTestId('month-override-add-frame'));
+      await repositionModalFrame();
       await userEvent.click(screen.getByTestId('month-override-save'));
     }
     await userEvent.click(screen.getByTestId('save-btn'));
@@ -768,10 +883,11 @@ describe('CalendarLayoutEditor — P6 holistic audit: poster override single-cal
   it('emits only the calendar with matching monthOffset in poster mode (not all 12)', async () => {
     const { onSave } = setup();
     // Switch to poster + enable custom layout (so calendars[] has all 12).
-    const toggle = screen.getByTestId('mode-toggle');
-    await userEvent.click(within(toggle).getByText(/1 page/));
+    await switchToPoster();
+    await goToStep(2);
     await userEvent.click(screen.getByTestId('poster-custom-toggle'));
     // Open month_03 (cellIndex=2 → monthOffset=2).
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_03'));
     // Edit the calendar visible to the user (the one with monthOffset=2).
     const calRow = screen.getByTestId('month-override-cal-2');
@@ -792,6 +908,7 @@ describe('CalendarLayoutEditor — P6 holistic audit: poster override single-cal
   it('still emits all calendars in multi-surface mode (single template calendar)', async () => {
     const { onSave } = setup();
     // Multi-surface is default. Open month_03, change calendar 0's x.
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('month-tile-month_03'));
     const calRow = screen.getByTestId('month-override-cal-0');
     const xInput = within(calRow).getAllByRole('spinbutton')[0];
@@ -817,6 +934,7 @@ describe('CalendarLayoutEditor — P6 holistic audit: surfaceOverrides round-tri
         surfaceOverrides: seedOverrides,
       },
     });
+    await goToStep(4);
     // No further edits — just save.
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
@@ -832,6 +950,7 @@ describe('CalendarLayoutEditor — P6 holistic audit: surfaceOverrides round-tri
 describe('CalendarLayoutEditor — save flow', () => {
   it('fires onSave with the serialised JSON when the draft is valid', async () => {
     const { onSave } = setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     expect(onSave).toHaveBeenCalledTimes(1);
     const json = onSave.mock.calls[0][0];
@@ -845,6 +964,7 @@ describe('CalendarLayoutEditor — save flow', () => {
     const { onSave } = setup({
       initial: { name: '' },          // empty name fails validation
     });
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByTestId('save-error')).toHaveTextContent(/name is required/);
@@ -852,6 +972,7 @@ describe('CalendarLayoutEditor — save flow', () => {
 
   it('fires onCancel when Cancel clicked', async () => {
     const { onCancel } = setup();
+    await goToStep(4);
     await userEvent.click(screen.getByTestId('cancel-btn'));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });

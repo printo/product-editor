@@ -5,10 +5,16 @@
  * Covers the load + save + rename + error states that connect the
  * controlled `CalendarLayoutEditor` to real `/api/internal/proxy/*`
  * endpoints. Uses jest.mock for fetch + next/navigation.
+ *
+ * The page calls useHeader() (wizard step bar lives in the app header), so
+ * every render is wrapped in the real HeaderProvider. The editor itself is
+ * a 4-step wizard — Save/Cancel only render on step 4, reached by clicking
+ * the `step-4` indicator pill.
  */
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Page from '@/app/editor/layouts/calendar/[name]/page';
+import { HeaderProvider } from '@/context/HeaderContext';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -79,6 +85,19 @@ const EXISTING_LAYOUT = {
   monthRange: { count: 12, defaultYear: 'current' },
 };
 
+function renderPage() {
+  return render(
+    <HeaderProvider>
+      <Page />
+    </HeaderProvider>
+  );
+}
+
+/** Jump to the wizard's Review step, where Save/Cancel live. */
+async function goToReviewStep() {
+  await userEvent.click(screen.getByTestId('step-4'));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockParams.name = 'new';  // default; individual tests override
@@ -97,7 +116,7 @@ describe('CalendarLayoutEditor wrapper — new route', () => {
       'calendar-styles/modern-genz': { body: STYLE_RESPONSE },
       'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
     });
-    render(<Page />);
+    renderPage();
     expect(screen.getByText(/Loading calendar layout editor/i)).toBeInTheDocument();
   });
 
@@ -106,7 +125,7 @@ describe('CalendarLayoutEditor wrapper — new route', () => {
       'calendar-styles/modern-genz': { body: STYLE_RESPONSE },
       'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
     });
-    render(<Page />);
+    renderPage();
     await waitFor(() =>
       expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument()
     );
@@ -129,7 +148,7 @@ describe('CalendarLayoutEditor wrapper — existing route', () => {
       'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
       'layouts/family_calendar': { body: EXISTING_LAYOUT },
     });
-    render(<Page />);
+    renderPage();
     await waitFor(() =>
       expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument()
     );
@@ -143,7 +162,7 @@ describe('CalendarLayoutEditor wrapper — existing route', () => {
       'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
       'layouts/family_calendar': { status: 404, body: { detail: 'not found' } },
     });
-    render(<Page />);
+    renderPage();
     await waitFor(() => expect(screen.getByText(/not found/i)).toBeInTheDocument());
   });
 
@@ -154,7 +173,7 @@ describe('CalendarLayoutEditor wrapper — existing route', () => {
       'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
       'layouts/family_calendar': { body: nonCalendar },
     });
-    render(<Page />);
+    renderPage();
     await waitFor(() =>
       expect(screen.getByText(/regular layout editor/i)).toBeInTheDocument()
     );
@@ -171,10 +190,11 @@ describe('CalendarLayoutEditor wrapper — save flow', () => {
       'ops/layouts': { body: { ok: true } },
     });
     global.fetch = fetchStub;
-    render(<Page />);
+    renderPage();
     await waitFor(() =>
       expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument()
     );
+    await goToReviewStep();
     await userEvent.click(screen.getByTestId('save-btn'));
     await waitFor(() => {
       // Find the ops POST call.
@@ -197,15 +217,16 @@ describe('CalendarLayoutEditor wrapper — save flow', () => {
       'ops/layouts': { body: { ok: true } },
     });
     global.fetch = fetchStub;
-    render(<Page />);
+    renderPage();
     await waitFor(() =>
       expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument()
     );
 
-    // Rename: clear + retype the name field.
+    // Rename: clear + retype the name field (step 1), then save (step 4).
     const nameInput = screen.getByTestId('layout-name');
     await userEvent.clear(nameInput);
     await userEvent.type(nameInput, 'family_calendar_v2');
+    await goToReviewStep();
     await userEvent.click(screen.getByTestId('save-btn'));
 
     await waitFor(() => {
@@ -226,10 +247,11 @@ describe('CalendarLayoutEditor wrapper — save flow', () => {
       'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
       'ops/layouts': { status: 400, body: { detail: 'layout name conflict' } },
     });
-    render(<Page />);
+    renderPage();
     await waitFor(() =>
       expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument()
     );
+    await goToReviewStep();
     await userEvent.click(screen.getByTestId('save-btn'));
     await waitFor(() =>
       expect(screen.getByTestId('save-error')).toHaveTextContent(/layout name conflict/i)
@@ -241,10 +263,11 @@ describe('CalendarLayoutEditor wrapper — save flow', () => {
       'calendar-styles/modern-genz': { body: STYLE_RESPONSE },
       'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
     });
-    render(<Page />);
+    renderPage();
     await waitFor(() =>
       expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument()
     );
+    await goToReviewStep();
     await userEvent.click(screen.getByTestId('cancel-btn'));
     expect(mockPush).toHaveBeenCalledWith('/editor/layouts');
   });
