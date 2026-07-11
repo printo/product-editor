@@ -40,7 +40,15 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY backend/django /app
 
-RUN python manage.py collectstatic --noinput \
+# collectstatic runs at BUILD time, before any runtime .env exists. It only needs
+# settings to import — not a real signing key. settings.py fail-fasts under DEBUG=0
+# when DJANGO_SECRET_KEY is the dev default, which would otherwise abort the build.
+# Supply a throwaway key for THIS command only (inline prefix → applies solely to
+# collectstatic, never baked into the image ENV). The runtime container still gets
+# its real DJANGO_SECRET_KEY from env_file, and the guard still refuses to serve
+# production traffic without one.
+RUN DJANGO_SECRET_KEY="build-time-collectstatic-not-used-at-runtime" \
+        python manage.py collectstatic --noinput \
     && chmod +x /app/entrypoint.sh \
     && sed -i 's/\r$//' /app/entrypoint.sh \
     && adduser --disabled-password --gecos '' --uid 1000 appuser \
