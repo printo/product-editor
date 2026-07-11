@@ -319,7 +319,12 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
   print_action "Ensuring db is up..."
   docker-compose up -d db redis
   print_action "Running migrations with the freshly built image..."
-  if docker-compose run --rm backend python manage.py migrate --noinput; then
+  # --entrypoint bypasses entrypoint.sh here on PURPOSE. The web entrypoint
+  # ignores its "$@" and always ends in `exec gunicorn`, so a plain
+  # `run ... backend python manage.py migrate` starts a full server that never
+  # exits — hanging the deploy. Invoking the venv python directly runs migrate
+  # and returns, preserving the fail-fast-before-swap intent.
+  if docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py migrate --noinput; then
     print_status "Migrations applied"
   else
     print_error "Migrations FAILED — aborting before swapping containers (old code still running)"
