@@ -10,6 +10,7 @@ const logGroupCollapsed = _DEV ? (...a: unknown[]) => console.groupCollapsed(...
 const logGroupEnd      = _DEV ? () => console.groupEnd()                       : () => {};
 
 import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { computePinch, pointerDistance, pointerMidpoint, type PinchStart } from './pinch-utils';
 import {
   Canvas, FabricImage, Textbox, Point, Path,
   Rect,
@@ -54,6 +55,9 @@ interface FabricEditorProps {
   getFileUrl: (file: File) => string;
   canvasWidth?: number;
   canvasHeight?: number;
+  /** Two-finger pinch commits a frame scale+pan through this (Phase 3 —
+   *  mobile). Wired by CanvasEditorModal to handleUpdateTransform. */
+  onPinchTransform?: (frameIdx: number, updates: { scale: number; x: number; y: number }) => void;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -165,6 +169,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   getFileUrl,
   canvasWidth,
   canvasHeight,
+  onPinchTransform,
 }, ref) {
   const canvasElRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -185,6 +190,72 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const interactingRef = useRef(false);
   const isEditingRef = useRef(false);       // TRUE while Fabric inline text editing is active
   const buildGenRef = useRef(0);
+
+  // ── Pinch-zoom (Phase 3 — mobile) ─────────────────────────────────────────
+  // Fabric 7 discards the second touch entirely (mainTouchId gate), so pinch
+  // did nothing on phones. We track pointers ourselves via React props on the
+  // container (pointer events bubble up from Fabric's canvas); when two land,
+  // Fabric's own drag is suspended and the gesture drives FrameState through
+  // onPinchTransform — the same state path as the sidebar Zoom slider.
+  const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ frameIdx: number; start: PinchStart } | null>(null);
+  const pinchRafRef = useRef<number | null>(null);
+  const gestureActiveRef = useRef(false);
+
+  const handlePinchPointerDown = (e: React.PointerEvent) => {
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (activePointersRef.current.size === 2 && onPinchTransform) {
+      const [p1, p2] = Array.from(activePointersRef.current.values());
+      // Target: the selected frame, else frame 0 (single-frame products are
+      // the dominant mobile case).
+      const frameIdx = selectedLayer?.type === 'frame' ? selectedLayer.index : 0;
+      const frame = editingCanvasRef.current.frames[frameIdx];
+      if (!frame) return;
+      const fc = fabricRef.current;
+      // Stop Fabric's primary-pointer object drag from fighting the gesture.
+      fc?.discardActiveObject();
+      if (fc) fc.selection = false;
+      gestureActiveRef.current = true;
+      pinchRef.current = {
+        frameIdx,
+        start: {
+          distance: pointerDistance(p1, p2),
+          midpoint: pointerMidpoint(p1, p2),
+          frameScale: frame.scale,
+          frameOffset: { ...frame.offset },
+        },
+      };
+    }
+  };
+
+  const handlePinchPointerMove = (e: React.PointerEvent) => {
+    if (!activePointersRef.current.has(e.pointerId)) return;
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!pinchRef.current || activePointersRef.current.size < 2 || !onPinchTransform) return;
+    if (pinchRafRef.current != null) return; // one commit per animation frame
+    pinchRafRef.current = requestAnimationFrame(() => {
+      pinchRafRef.current = null;
+      const pts = Array.from(activePointersRef.current.values());
+      const pinch = pinchRef.current;
+      if (pts.length < 2 || !pinch) return;
+      const result = computePinch(
+        pinch.start,
+        { distance: pointerDistance(pts[0], pts[1]), midpoint: pointerMidpoint(pts[0], pts[1]) },
+        fabricRef.current?.getZoom() || viewZoom || 1,
+      );
+      onPinchTransform(pinch.frameIdx, result);
+    });
+  };
+
+  const endPinchPointer = (e: React.PointerEvent) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (activePointersRef.current.size < 2 && pinchRef.current) {
+      pinchRef.current = null;
+      gestureActiveRef.current = false;
+      const fc = fabricRef.current;
+      if (fc) fc.selection = true;
+    }
+  };
   const fitZoomRef = useRef(1);
   const spacePressedRef = useRef(false);
   // TRUE during toDataURL export — suppresses selection:cleared so the active object is not lost
@@ -924,6 +995,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     if (!fc) return;
 
     const handleModified = (e: any) => {
+      // A pinch owns the transform — Fabric's stale object:modified from the
+      // abandoned single-finger drag must not clobber the gesture result.
+      if (gestureActiveRef.current) return;
       const target = e.target as FabricObject;
       if (!target || !target.__fabricEditor) return;
       const type = target.__fabricEditor as string;
@@ -1091,7 +1165,14 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   }));
 
   return (
-        <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-[#f1f5f9] select-none">
+        <div
+      ref={containerRef}
+      className="w-full h-full relative overflow-hidden bg-[#f1f5f9] select-none touch-none"
+      onPointerDown={handlePinchPointerDown}
+      onPointerMove={handlePinchPointerMove}
+      onPointerUp={endPinchPointer}
+      onPointerCancel={endPinchPointer}
+    >
       <canvas ref={canvasElRef} />
     </div>
   );

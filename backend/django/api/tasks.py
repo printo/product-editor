@@ -171,6 +171,27 @@ def _extract_calendar_state(editor_state: dict | None):
     }
 
 
+def _extract_canvases_meta(editor_state: dict | None) -> list | None:
+    """
+    Per-payload-canvas metadata for the engine's per-surface grouping
+    (Phase 3): [{'surface_key': str|None, 'frame_count': int}, ...] in canvas
+    order. Returns None when the payload carries no canvases — the engine
+    then keeps its legacy whole-list behaviour.
+    """
+    if not editor_state:
+        return None
+    canvases = editor_state.get('canvases') or []
+    if not canvases:
+        return None
+    return [
+        {
+            'surface_key': cv.get('surface_key') if isinstance(cv, dict) else None,
+            'frame_count': len(cv.get('frames') or []) if isinstance(cv, dict) else 0,
+        }
+        for cv in canvases
+    ]
+
+
 def _resolve_render_inputs(canvas_data) -> tuple:
     """
     Pick the render contract source and image paths for a render job.
@@ -318,6 +339,11 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         # materialize time; per-canvas cells override at render time.
         calendar_state = _extract_calendar_state(render_source)
 
+        # Phase 3 — per-surface grouping metadata so multi-surface products
+        # render each surface with ITS OWN photos (previously every surface
+        # rendered the whole flattened list).
+        canvases_meta = _extract_canvases_meta(render_source)
+
         try:
             logger.info(
                 "Job %s: rendering layout '%s' format '%s' (overlays: %s, calendar_state: %s)",
@@ -335,6 +361,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                 uploaded_files=uploaded_files,
                 calendar_state=calendar_state,
                 backgrounds_per_canvas=backgrounds_per_canvas,
+                canvases_meta=canvases_meta,
             )
             output_paths = outputs
 

@@ -8,6 +8,12 @@ export interface FrameState {
   /** UUID assigned when the File is first persisted to IndexedDB so the blob
    *  can be recovered after a page refresh. Persists in canvas_state JSON. */
   fileId?: string;
+  /** Lightweight fingerprint of the placed photo (Phase 3). Unlike fileId it
+   *  survives even when IndexedDB persistence FAILED (quota) — after a
+   *  refresh the lost-photo submit guard can still tell "this frame should
+   *  have a photo" instead of letting it print blank. */
+  fileName?: string;
+  fileSize?: number;
   offset: { x: number; y: number };
   scale: number;
   rotation: number; // 0, 90, 180, 270

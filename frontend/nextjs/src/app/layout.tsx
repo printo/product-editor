@@ -1,9 +1,19 @@
 import "./globals.css"
 import { ReactNode } from "react"
+import type { Viewport } from "next"
 import { AuthProvider } from "@/components/AuthProvider"
 import { AppWrapper } from "@/components/AppWrapper"
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration"
 import { auth } from "@/pia-auth"
+
+// viewportFit:'cover' makes env(safe-area-inset-*) live on notched phones —
+// without it the CSS safe-area padding on the editor's mobile bottom sheet
+// evaluates to 0 and the home indicator overlaps the Save button (Phase 3).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+}
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   // Resolve the NextAuth session server-side and pass it into SessionProvider

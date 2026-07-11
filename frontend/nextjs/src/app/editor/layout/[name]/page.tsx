@@ -14,7 +14,7 @@ import {
   Upload, Loader2, CheckCircle2, X,
   Archive, FileText, Layout,
   SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
-  Move, Lock, AlertTriangle,
+  Move, Lock, AlertTriangle, ImagePlus, ArrowLeftRight,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
@@ -25,12 +25,17 @@ import {
   isAllowedImageFile,
   IMAGE_ACCEPT_ATTR,
 } from '@/lib/upload-utils';
-import { saveFile, getFilesForOrder } from '@/lib/file-store';
+import { saveFile, getFilesForOrder, pruneStaleOrders, FileStoreQuotaError, getPersistenceMode } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import { getImageMetadata, getImageSize, detectJpegColorSpace, isImageComplete } from '@/lib/image-utils';
 import { collectLowDpiFrames, type LowDpiFrame } from '@/lib/dpi-utils';
-import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
+import { planCanvasReuse, countCanvasesLosingEdits } from './canvas-merge';
+import {
+  collectEmptySurfaces, collectDuplicateFills, duplicateFingerprint,
+  type EmptySurface, type DuplicateFill,
+} from '@/lib/submit-guards';
+import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState, Overlay } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { detectFileOrientation, type OrientationOutcome } from '@/lib/ml-orientation';
 // Type-only import — erased at compile time, zero bundle impact.
@@ -131,6 +136,153 @@ function resolveRotation(
   if (typeof outcome === 'object') return outcome.rotation;
   // 3. ML off / declined → as-is.
   return 0;
+}
+
+/** "~30 s" / "~2 min" for the honest render-wait label (Phase 3). */
+function formatWait(seconds: number): string {
+  if (seconds < 90) return `~${Math.max(5, Math.round(seconds / 5) * 5)} s`;
+  return `~${Math.round(seconds / 60)} min`;
+}
+
+/** Embed post-submit status panel (Phase 3 — no more dead-end): polls
+ *  render-status through the embed proxy and surfaces queued / rendering /
+ *  done / failed honestly, with a way back into the editor. */
+function EmbedSubmittedOverlay({
+  jobId, apiBase, getAuthHeaders, onBackToEditor,
+}: {
+  jobId: string;
+  apiBase: string;
+  getAuthHeaders: () => Record<string, string>;
+  onBackToEditor: () => void;
+}) {
+  const [state, setState] = useState<{
+    status: 'queued' | 'processing' | 'completed' | 'failed';
+    waitSeconds: number | null;
+    error: string | null;
+  }>({ status: 'queued', waitSeconds: null, error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    let delay = 2000;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`${apiBase}/render-status/${jobId}/`, { headers: getAuthHeaders() });
+        if (res.ok) {
+          const s = await res.json();
+          if (cancelled) return;
+          setState({
+            status: s.status === 'processing' ? 'processing'
+              : s.status === 'completed' ? 'completed'
+              : s.status === 'failed' ? 'failed' : 'queued',
+            waitSeconds: typeof s.estimated_wait_seconds === 'number' ? s.estimated_wait_seconds : null,
+            error: s.error || null,
+          });
+          if (s.status === 'completed' || s.status === 'failed') return; // stop polling
+        }
+      } catch {
+        // Transient poll failure — keep the last known state and retry.
+      }
+      delay = Math.min(delay * 1.5, 10000);
+      timer = setTimeout(poll, Math.round(delay * (0.8 + Math.random() * 0.4)));
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [jobId, apiBase, getAuthHeaders]);
+
+  return (
+    <div className="fixed inset-0 z-[300000] flex items-center justify-center bg-white/85 backdrop-blur-sm" role="status" aria-live="polite">
+      <div className="text-center p-10 max-w-md">
+        {state.status === 'failed' ? (
+          <>
+            <X className="w-14 h-14 text-rose-500 mx-auto mb-4 p-2.5 rounded-full bg-rose-50" />
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Something went wrong preparing your design</h2>
+            <p className="text-sm text-slate-500 mb-6">
+              {state.error || 'The print files could not be generated.'} Your design is safe — you can go back, check it, and submit again.
+            </p>
+            <button
+              onClick={onBackToEditor}
+              className="px-6 py-3 text-sm font-semibold rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+            >
+              Back to editor
+            </button>
+          </>
+        ) : state.status === 'completed' ? (
+          <>
+            <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Your design is ready</h2>
+            <p className="text-sm text-slate-500 mb-6">The print files are prepared. You can close this window and continue with your order.</p>
+            <button
+              onClick={onBackToEditor}
+              className="px-5 py-2.5 text-xs font-semibold rounded-2xl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
+            >
+              Edit design again
+            </button>
+          </>
+        ) : (
+          <>
+            <Loader2 className="w-14 h-14 text-indigo-500 mx-auto mb-4 animate-spin" />
+            <h2 className="text-xl font-bold text-slate-900 mb-2">
+              {state.status === 'queued'
+                ? (state.waitSeconds != null ? `Queued — about ${formatWait(state.waitSeconds)} wait` : 'Design submitted — queued…')
+                : 'Preparing your print files…'}
+            </h2>
+            <p className="text-sm text-slate-500 mb-6">You can keep this window open, or close it — your design is submitted either way.</p>
+            <button
+              onClick={onBackToEditor}
+              className="px-5 py-2.5 text-xs font-semibold rounded-2xl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
+            >
+              Edit design
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Amber pre-submit notice for surfaces that will print without a photo
+ *  (Phase 3 guard). Warn-and-proceed — never blocks. */
+function EmptySurfaceWarning({ surfaces }: { surfaces: EmptySurface[] }) {
+  if (surfaces.length === 0) return null;
+  return (
+    <div className="mx-7 mb-5 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        {surfaces.length === 1 ? 'One side has no photo' : 'Some sides have no photo'}
+      </div>
+      <p className="text-xs mt-1 leading-relaxed">
+        {surfaces.map(s => s.label).join(', ')} will print blank. You can continue if that&apos;s intended.
+      </p>
+    </div>
+  );
+}
+
+/** Amber pre-submit notice for the same photo placed more than once
+ *  (Phase 3 guard). Deliberate qty auto-fill duplicates are excluded. */
+function DuplicateFillWarning({ duplicates }: { duplicates: DuplicateFill[] }) {
+  if (duplicates.length === 0) return null;
+  const shown = duplicates.slice(0, 3);
+  return (
+    <div className="mx-7 mb-5 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        {duplicates.length === 1 ? 'A photo is used more than once' : 'Some photos are used more than once'}
+      </div>
+      <ul className="text-xs mt-1 space-y-0.5 leading-relaxed">
+        {shown.map((d, i) => (
+          <li key={i}>{d.fileName} — {d.placements.join(' and ')}</li>
+        ))}
+        {duplicates.length > 3 && <li>…and {duplicates.length - 3} more</li>}
+      </ul>
+      <p className="text-xs mt-1 leading-relaxed">If that&apos;s what you wanted, continue as normal.</p>
+    </div>
+  );
 }
 
 /** Amber pre-submit notice listing under-DPI photos (Phase 2 item 4).
@@ -248,6 +400,10 @@ export default function LayoutEditorPage() {
   const [canvases, setCanvases] = useState<CanvasItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [globalFitMode, setGlobalFitMode] = useState<FitMode>('contain');
+  // True only when the customer clicked the Fit/Cover toggle — gates the
+  // smartcrop-recompute effect so programmatic fit-mode changes (restore,
+  // surface switch) can't wipe manual pans (Phase 3).
+  const fitModeUserToggledRef = useRef(false);
   const globalFitModeRef = useRef<FitMode>(globalFitMode);
   useEffect(() => {
     globalFitModeRef.current = globalFitMode;
@@ -283,6 +439,25 @@ export default function LayoutEditorPage() {
   // Qty enforcement state
   const [qtyUnder, setQtyUnder] = useState<{ uploaded: number; needed: number } | null>(null);
   const [pendingOverFiles, setPendingOverFiles] = useState<File[] | null>(null);
+  // Re-pick confirm (Phase 3): held selection + how many edited pages would
+  // lose their work if it replaced the current photos.
+  const [pendingRepick, setPendingRepick] = useState<{ files: File[]; losingCount: number } | null>(null);
+  const repickConfirmedRef = useRef(false);
+  // Tap-to-swap (Phase 3): the card picked as swap source; the next card
+  // tap swaps instead of opening the editor. Touch has no HTML5 drag.
+  const [swapSource, setSwapSource] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
+  // Per-frame photo replace (Phase 3): which slot the hidden input feeds.
+  const [pendingReplace, setPendingReplace] = useState<{ canvasIdx: number; frameIdx: number; surfaceKey: string | null } | null>(null);
+  const replacePhotoInputRef = useRef<HTMLInputElement | null>(null);
+  // The client-generated id in play before the embed session id was adopted —
+  // lets the restore effect fall back to a pre-adoption autosave once.
+  const legacyOrderIdRef = useRef<string | null>(null);
+  // Device storage full — photos can't be persisted for refresh recovery
+  // (Phase 3 quota surfacing). Drives a persistent amber notice.
+  const [persistDegraded, setPersistDegraded] = useState(false);
+  // Browser blocked IndexedDB entirely (Safari ITP in a cross-site iframe /
+  // private mode) — photos live in memory only for this tab (Phase 3).
+  const [storageBlocked, setStorageBlocked] = useState(false);
   // Files flagged as truncated/incomplete by the client-side completeness check,
   // held pending the customer's Keep-anyway / Remove decision (see handleFileChange).
   const [pendingTruncated, setPendingTruncated] = useState<{ all: File[]; bad: File[] } | null>(null);
@@ -294,6 +469,8 @@ export default function LayoutEditorPage() {
   const [showImpositionModal, setShowImpositionModal] = useState(false);
   const [isImposing, setIsImposing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Job id behind the embed post-submit status panel (Phase 3).
+  const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
   const [impositionSettings, setImpositionSettings] = useState<ImpositionSettings>({
     preset: 'a4', widthIn: 8.27, heightIn: 11.69, marginMm: 7, gutterMm: 5, orientation: 'portrait',
   });
@@ -432,6 +609,16 @@ export default function LayoutEditorPage() {
         }
         const payload = await res.json();
         const item = payload.layout;
+        // Embed mode adopts the SESSION order id (Phase 3): the proxy injects
+        // it upstream and editor/init echoes it, so autosave/restore and the
+        // eventual submit all key the same server row — an iframe reload
+        // without ?order_id= no longer orphans the design. Set BEFORE
+        // setLayout so React batches them and the run-once restore effect
+        // fires with the adopted id. Dashboard: payload.order_id is null.
+        if (embedToken && typeof payload.order_id === 'string' && payload.order_id && payload.order_id !== orderId) {
+          legacyOrderIdRef.current = orderId;
+          setOrderId(payload.order_id);
+        }
         if (Array.isArray(payload.fonts) && payload.fonts.length) {
           setSelectedFonts(payload.fonts);
         }
@@ -479,6 +666,9 @@ export default function LayoutEditorPage() {
       }
     };
     fetchLayout();
+    // orderId is read only for the embed adoption comparison — including it
+    // would re-fetch the layout every time the id is adopted (loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutName, embedToken, status, apiBase, getAuthHeaders]);
 
   const getFileUrl = useCallback((file: File): string => {
@@ -652,9 +842,20 @@ export default function LayoutEditorPage() {
 
     (async () => {
       try {
-        const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
+        let restoreId = orderId;
+        let res = await fetch(`${apiBase}/canvas-state/${restoreId}/`, {
           headers: { ...getAuthHeaders(), Accept: 'application/json' },
         });
+        // Pre-adoption fallback (Phase 3): an autosave made before this
+        // deploy may live under the old client-generated PE- id. One guarded
+        // extra GET recovers it; the next autosave re-keys it to the session
+        // id, so this self-migrates.
+        if (!res.ok && legacyOrderIdRef.current && legacyOrderIdRef.current !== restoreId) {
+          restoreId = legacyOrderIdRef.current;
+          res = await fetch(`${apiBase}/canvas-state/${restoreId}/`, {
+            headers: { ...getAuthHeaders(), Accept: 'application/json' },
+          });
+        }
         if (!res.ok) return; // 404 = first visit, no state to restore
 
         const data = await res.json();
@@ -682,10 +883,15 @@ export default function LayoutEditorPage() {
           window.history.replaceState(null, '', sp.toString() ? `?${sp.toString()}` : window.location.pathname);
         }
 
+        // Bound the store before hydrating (Phase 3): age out other orders'
+        // blobs and evict oldest-first under pressure. Never touches the
+        // current order.
+        void pruneStaleOrders(restoreId);
+
         // Hydrate Files from IndexedDB (B1 fix). We strip `originalFile` on
         // serialise but persist the raw blob client-side keyed by `fileId`,
         // so refreshing the page recovers everything needed to re-render.
-        const fileMap = await getFilesForOrder(orderId).catch(() => new Map<string, File>());
+        const fileMap = await getFilesForOrder(restoreId).catch(() => new Map<string, File>());
         const hydrate = (canvases: CanvasItem[]): CanvasItem[] =>
           canvases.map(c => ({
             ...c,
@@ -745,8 +951,21 @@ export default function LayoutEditorPage() {
           ss => ss.key === (savedActiveKey ?? activeSurfaceKey)
         );
         if (activeSaved?.canvases?.length) {
+          const hydrated = hydrate(activeSaved.canvases);
           skipNextGenerateRef.current = true; // suppress generateCanvases trigger
-          setCanvases(hydrate(activeSaved.canvases));
+          setCanvases(hydrated);
+          // Repopulate `files` from the hydrated frames in the SAME commit
+          // (Phase 3): with files left empty the skip flag went stale and
+          // swallowed the user's NEXT real upload (blank grid), and any
+          // post-restore re-pick lost the identity merge. The flag suppresses
+          // exactly this one legitimate generate fire.
+          const restoredFiles = hydrated
+            .flatMap(c => c.frames.map(f => f.originalFile))
+            .filter((f): f is File => !!f);
+          if (restoredFiles.length) setFiles(restoredFiles);
+          // Restoring the saved fit mode must NOT re-run smartcrop over the
+          // customer's manual pans — the fit-mode effect only recomputes
+          // offsets for USER toggles (fitModeUserToggledRef).
           setGlobalFitMode(activeSaved.globalFitMode ?? 'contain');
         }
       } catch {
@@ -794,11 +1013,16 @@ export default function LayoutEditorPage() {
         try {
           const fileId = await saveFile(orderId, p.file);
           return { ...p, fileId };
-        } catch {
+        } catch (e) {
+          // Quota exhaustion must be VISIBLE (Phase 3): the photo still works
+          // this session, but it can't be recovered after a refresh — warn
+          // instead of silently printing blank later.
+          if (e instanceof FileStoreQuotaError) setPersistDegraded(true);
           return null;
         }
       }));
       if (cancelled) return;
+      if (getPersistenceMode() === 'memory') setStorageBlocked(true);
       const ok = results.filter((r): r is Pending & { fileId: string } => r !== null);
       if (!ok.length) return;
 
@@ -881,6 +1105,17 @@ export default function LayoutEditorPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calendarTheme, calendarType, genzPalette, calendarCells]);
 
+  // Pre-submit guards (Phase 3): surfaces that would print blank + photos
+  // placed more than once (excluding deliberate qty auto-fill duplicates).
+  const intentionalDupesRef = useRef(new Set<string>());
+  const emptySurfaces = useMemo(() => collectEmptySurfaces(surfaceStates), [surfaceStates]);
+  const duplicateFills = useMemo(() => {
+    const groups = surfaceStates.length > 1
+      ? surfaceStates.map(s => ({ label: s.label || s.key, canvases: s.canvases }))
+      : [{ label: 'your design', canvases }];
+    return collectDuplicateFills(groups, intentionalDupesRef.current);
+  }, [surfaceStates, canvases]);
+
   // Worst under-DPI frame per card, for the amber corner pill. Keyed by
   // `${surfaceKey ?? ''}:${canvasIdx}` to cover both grid variants.
   const lowDpiByCard = useMemo(() => {
@@ -892,6 +1127,24 @@ export default function LayoutEditorPage() {
     }
     return map;
   }, [lowDpiFrames]);
+
+  // ── Tab-close guard (Phase 3) ─────────────────────────────────────────────
+  // Warn before unloading ONLY while work is genuinely in flight: an active
+  // upload/submit/poll (isDownloading spans the whole window) or an
+  // uncommitted auto-save write. Idle closes stay silent — auto-save + IDB
+  // persistence already make those safe, and a permanent nag is hostile.
+  // (window listener in an effect with cleanup — the sanctioned exception to
+  // the no-direct-DOM rule.)
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDownloading || isSaving === 'saving') {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDownloading, isSaving]);
 
   // ── Low-resolution sweep (Phase 2 item 4) ────────────────────────────────
   // Debounced: reacts to placed photos, saved modal zoom (FrameState.scale),
@@ -964,26 +1217,28 @@ export default function LayoutEditorPage() {
     const canvasCount = layoutDef.productType === 'calendar'
       ? Math.min(Math.ceil(surfaceFiles.length / frameCount), 12)
       : Math.ceil(surfaceFiles.length / frameCount);
+    // Identity-based reuse (Phase 3 — never lose edits); see generateCanvases.
+    const plannedSlots: (File | null)[][] = Array.from({ length: canvasCount }, (_, c) =>
+      Array.from({ length: frameCount }, (_, f) => surfaceFiles[(c * frameCount + f) % surfaceFiles.length] || null)
+    );
+    const reusePlan = planCanvasReuse(existingCanvases, plannedSlots);
+
     const newCanvases: CanvasItem[] = [];
     for (let i = 0; i < canvasCount; i++) {
       const canvasFrames: FrameState[] = [];
-      const existing = existingCanvases[i];
 
       for (let f = 0; f < frameCount; f++) {
-        const file = surfaceFiles[(i * frameCount + f) % surfaceFiles.length];
-        const existingFrame = existing?.frames?.[f];
+        const file = plannedSlots[i][f];
+        const claimedFrame = reusePlan.frames[i][f];
 
         if (file) {
-            // If we have an existing frame with the SAME file name/size, preserve its transforms
-            const isSameFile = existingFrame?.originalFile && 
-                              existingFrame.originalFile.name === file.name && 
-                              existingFrame.originalFile.size === file.size &&
-                              existingFrame.originalFile.lastModified === file.lastModified;
-            
-            if (isSameFile && existingFrame) {
+            if (claimedFrame) {
             canvasFrames.push({
-              ...existingFrame,
-              originalFile: file // Ensure we use the latest file object
+              ...claimedFrame,
+              id: f,
+              originalFile: file, // Ensure we use the latest file object
+              fileName: file.name,
+              fileSize: file.size,
             });
           } else {
             const { width: imgW, height: imgH, element: imgEl } = await getImageMetadata(file);
@@ -1010,34 +1265,23 @@ export default function LayoutEditorPage() {
 
             canvasFrames.push({
               id: f, originalFile: file,
+              fileName: file.name, fileSize: file.size,
               offset, scale: 1, rotation, fitMode,
             });
           }
         }
       }
+      const carry = reusePlan.carry[i];
       const item: CanvasItem = {
         id: i,
         frames: canvasFrames,
-        overlays: existing?.overlays || [],
-        bgColor: existing?.bgColor || '#ffffff',
-        paperColor: existing?.paperColor || '#ffffff',
-        dataUrl: existing?.dataUrl || null
+        overlays: carry?.overlays || [],
+        bgColor: carry?.bgColor || '#ffffff',
+        paperColor: carry?.paperColor || '#ffffff',
+        dataUrl: carry?.dataUrl || null
       };
 
-      const framesChanged = !existing || 
-        canvasFrames.length !== existing.frames.length ||
-        canvasFrames.some((f, idx) => {
-          const ef = existing.frames[idx];
-          return !ef || 
-                 ef.originalFile !== f.originalFile || 
-                 ef.rotation !== f.rotation || 
-                 ef.fitMode !== f.fitMode ||
-                 ef.scale !== f.scale ||
-                 ef.offset.x !== f.offset.x ||
-                 ef.offset.y !== f.offset.y;
-        });
-
-      if (framesChanged || !item.dataUrl) {
+      if (!item.dataUrl) {
           // Use thumbnail for grid previews to save memory and CPU
           item.dataUrl = await renderCanvas({ ...item, dataUrl: null }, { thumbnail: true, layoutOverride: layoutDef });
         }
@@ -1064,6 +1308,16 @@ export default function LayoutEditorPage() {
     // Use current canvases from ref to preserve transforms without creating a dependency loop
     const existingCanvases = [...canvasesRef.current];
 
+    // Identity-based reuse plan (Phase 3 — never lose edits): each slot's
+    // file claims its previous edits by name:size:lastModified, so adding,
+    // removing or reordering photos no longer resets pans/zooms or leaves
+    // overlays glued to the wrong page. Planned synchronously up front so
+    // the parallel batch builders below stay deterministic.
+    const plannedSlots: (File | null)[][] = Array.from({ length: canvasCount }, (_, c) =>
+      Array.from({ length: frameCount }, (_, f) => files[(c * frameCount + f) % files.length] || null)
+    );
+    const reusePlan = planCanvasReuse(existingCanvases, plannedSlots);
+
     try {
       const built: CanvasItem[] = [];
       // 8 simultaneous getImageMetadata + smartcrop calls. Each pins a
@@ -1083,22 +1337,19 @@ export default function LayoutEditorPage() {
         for (let batchIdx = i; batchIdx < end; batchIdx++) {
           const p: Promise<CanvasItem> = (async () => {
             const canvasFrames: FrameState[] = [];
-            const existing = existingCanvases[batchIdx];
 
             for (let f = 0; f < frameCount; f++) {
-              const file = files[(batchIdx * frameCount + f) % files.length];
-              const existingFrame = existing?.frames?.[f];
+              const file = plannedSlots[batchIdx][f];
+              const claimedFrame = reusePlan.frames[batchIdx][f];
 
               if (file) {
-                const isSameFile = existingFrame?.originalFile && 
-                                  existingFrame.originalFile.name === file.name && 
-                                  existingFrame.originalFile.size === file.size &&
-                                  existingFrame.originalFile.lastModified === file.lastModified;
-                
-                if (isSameFile && existingFrame) {
+                if (claimedFrame) {
                   canvasFrames.push({
-                    ...existingFrame,
-                    originalFile: file
+                    ...claimedFrame,
+                    id: f,
+                    originalFile: file,
+                    fileName: file.name,
+                    fileSize: file.size,
                   });
                 } else {
                   const { width: imgW, height: imgH, element: imgEl } = await getImageMetadata(file);
@@ -1119,35 +1370,26 @@ export default function LayoutEditorPage() {
 
                   canvasFrames.push({
                     id: f, originalFile: file,
+                    fileName: file.name, fileSize: file.size,
                     offset, scale: 1, rotation, fitMode: globalFitModeRef.current,
                   });
                 }
               }
             }
             
+            const carry = reusePlan.carry[batchIdx];
             const item: CanvasItem = {
-              id: batchIdx, 
-              frames: canvasFrames, 
-              overlays: existing?.overlays || [],
-              bgColor: existing?.bgColor || '#ffffff', 
-              paperColor: existing?.paperColor || '#ffffff', 
-              dataUrl: existing?.dataUrl || null,
+              id: batchIdx,
+              frames: canvasFrames,
+              overlays: carry?.overlays || [],
+              bgColor: carry?.bgColor || '#ffffff',
+              paperColor: carry?.paperColor || '#ffffff',
+              // The plan only carries a dataUrl when every frame kept its
+              // original slot — anything else needs a fresh thumbnail.
+              dataUrl: carry?.dataUrl || null,
             };
 
-            const framesChanged = !existing || 
-              canvasFrames.length !== existing.frames.length ||
-              canvasFrames.some((f, idx) => {
-                const ef = existing.frames[idx];
-                return !ef || 
-                       ef.originalFile !== f.originalFile || 
-                       ef.rotation !== f.rotation || 
-                       ef.fitMode !== f.fitMode ||
-                       ef.scale !== f.scale ||
-                       ef.offset.x !== f.offset.x ||
-                       ef.offset.y !== f.offset.y;
-              });
-
-            if (framesChanged || !item.dataUrl) {
+            if (!item.dataUrl) {
               item.dataUrl = await renderCanvas({ ...item, dataUrl: null }, { thumbnail: true });
             }
             return item;
@@ -1187,6 +1429,12 @@ export default function LayoutEditorPage() {
 
   useEffect(() => {
     if (surfaceStates.length === 0) return;
+    // Only a USER toggle of Fit/Cover may recompute smartcrop offsets
+    // (Phase 3): restore and surface-switch also set globalFitMode, and
+    // letting them through overwrote every manual pan with smartcrop
+    // defaults on reload of a cover-mode session.
+    if (!fitModeUserToggledRef.current) return;
+    fitModeUserToggledRef.current = false;
     let cancelled = false;
     (async () => {
       setIsProcessing(true);
@@ -1496,6 +1744,14 @@ export default function LayoutEditorPage() {
   /** Card click guard — a completed pan must not open the editor modal. */
   const handleCardClick = (idx: number, surfaceKey: string | null = null) => {
     if (panSuppressClickRef.current) { panSuppressClickRef.current = false; return; }
+    if (swapSource) {
+      const src = swapSource;
+      setSwapSource(null);
+      if (!(src.idx === idx && src.surfaceKey === surfaceKey)) {
+        void swapCards(src, { idx, surfaceKey });
+      }
+      return;
+    }
     openEditor(idx, surfaceKey ?? undefined);
   };
 
@@ -1532,7 +1788,16 @@ export default function LayoutEditorPage() {
         }
       }
     } else {
-      setFiles(prev => prev.filter((_, i) => i !== idx));
+      // Delete removes ONLY this canvas's photo(s) (Phase 3). idx is a
+      // CANVAS index — splice the whole frame-count block of files AND the
+      // canvas itself, so every later canvas stays aligned with its photos
+      // and the identity merge preserves their edits.
+      const frameCount = layout?.frames?.length || 1;
+      setCanvases(prev => prev.filter((_, i) => i !== idx));
+      setFiles(prev => [
+        ...prev.slice(0, idx * frameCount),
+        ...prev.slice((idx + 1) * frameCount),
+      ]);
     }
     setDeleteConfirm(null);
   };
@@ -1635,66 +1900,77 @@ export default function LayoutEditorPage() {
       // ── Handle internal image swap ──────────────────────────────────────────
       const sourceIdx = e.dataTransfer.getData('canvasIdx');
       const sourceSurface = e.dataTransfer.getData('surfaceKey') || null;
-      
+
       if (sourceIdx !== '') {
-        const sIdx = parseInt(sourceIdx);
-        if (sIdx === idx && sourceSurface === surfaceKey) return;
-        
-        if (surfaceKey || sourceSurface) {
-          // Multi-surface swap
-          const targetSurfaceIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
-          const sourceSurfaceIdx = surfaceStates.findIndex(s => s.key === sourceSurface);
-          
-          if (targetSurfaceIdx !== -1 && sourceSurfaceIdx !== -1) {
-            const targetFiles = [...surfaceStates[targetSurfaceIdx].files];
-            const sourceFiles = [...surfaceStates[sourceSurfaceIdx].files];
-            
-            // Swap files
-            const temp = targetFiles[0];
-            targetFiles[0] = sourceFiles[0];
-            sourceFiles[0] = temp;
-            
-            // Regenerate canvases for both surfaces
-            const updatedSurfaces = [...surfaceStates];
-            
-            // Update target
-            const targetS = updatedSurfaces[targetSurfaceIdx];
-            updatedSurfaces[targetSurfaceIdx] = {
-              ...targetS,
-              files: targetFiles,
-              canvases: await generateCanvasesForLayout({ ...normalizedLayoutState?._raw, ...targetS.def }, targetFiles, targetS.globalFitMode)
-            };
-            
-            // Update source
-            const sourceS = updatedSurfaces[sourceSurfaceIdx];
-            updatedSurfaces[sourceSurfaceIdx] = {
-              ...sourceS,
-              files: sourceFiles,
-              canvases: await generateCanvasesForLayout({ ...normalizedLayoutState?._raw, ...sourceS.def }, sourceFiles, sourceS.globalFitMode)
-            };
-            
-            setSurfaceStates(updatedSurfaces);
-            
-            // Sync active states
-            const active = updatedSurfaces.find(s => s.key === activeSurfaceKey);
-            if (active) {
-              setFiles(active.files);
-              setCanvases(active.canvases);
-            }
-          }
-        } else {
-          // Single surface: swap in files array
-          const frameCount = layout?.frames?.length || 1;
-          const targetFileIdx = idx * frameCount;
-          const sourceFileIdx = sIdx * frameCount;
-          
-          const nextFiles = [...files];
-          const temp = nextFiles[targetFileIdx];
-          nextFiles[targetFileIdx] = nextFiles[sourceFileIdx];
-          nextFiles[sourceFileIdx] = temp;
-          setFiles(nextFiles);
+        await swapCards({ idx: parseInt(sourceIdx), surfaceKey: sourceSurface }, { idx, surfaceKey });
+      }
+    }
+  };
+
+  /**
+   * Swap the photos of two cards. Shared by desktop drag-drop and the
+   * touch-friendly tap-to-swap flow (Phase 3 — HTML5 drag events never fire
+   * on touch, so phones had no way to swap at all).
+   */
+  const swapCards = async (
+    source: { idx: number; surfaceKey: string | null },
+    target: { idx: number; surfaceKey: string | null },
+  ) => {
+    if (source.idx === target.idx && source.surfaceKey === target.surfaceKey) return;
+
+    if (target.surfaceKey || source.surfaceKey) {
+      // Multi-surface swap
+      const targetSurfaceIdx = surfaceStates.findIndex(s => s.key === target.surfaceKey);
+      const sourceSurfaceIdx = surfaceStates.findIndex(s => s.key === source.surfaceKey);
+
+      if (targetSurfaceIdx !== -1 && sourceSurfaceIdx !== -1) {
+        const targetFiles = [...surfaceStates[targetSurfaceIdx].files];
+        const sourceFiles = [...surfaceStates[sourceSurfaceIdx].files];
+
+        // Swap files
+        const temp = targetFiles[0];
+        targetFiles[0] = sourceFiles[0];
+        sourceFiles[0] = temp;
+
+        // Regenerate canvases for both surfaces
+        const updatedSurfaces = [...surfaceStates];
+
+        // Update target
+        const targetS = updatedSurfaces[targetSurfaceIdx];
+        updatedSurfaces[targetSurfaceIdx] = {
+          ...targetS,
+          files: targetFiles,
+          canvases: await generateCanvasesForLayout({ ...normalizedLayoutState?._raw, ...targetS.def }, targetFiles, targetS.globalFitMode)
+        };
+
+        // Update source
+        const sourceS = updatedSurfaces[sourceSurfaceIdx];
+        updatedSurfaces[sourceSurfaceIdx] = {
+          ...sourceS,
+          files: sourceFiles,
+          canvases: await generateCanvasesForLayout({ ...normalizedLayoutState?._raw, ...sourceS.def }, sourceFiles, sourceS.globalFitMode)
+        };
+
+        setSurfaceStates(updatedSurfaces);
+
+        // Sync active states
+        const active = updatedSurfaces.find(s => s.key === activeSurfaceKey);
+        if (active) {
+          setFiles(active.files);
+          setCanvases(active.canvases);
         }
       }
+    } else {
+      // Single surface: swap in files array
+      const frameCount = layout?.frames?.length || 1;
+      const targetFileIdx = target.idx * frameCount;
+      const sourceFileIdx = source.idx * frameCount;
+
+      const nextFiles = [...files];
+      const temp = nextFiles[targetFileIdx];
+      nextFiles[targetFileIdx] = nextFiles[sourceFileIdx];
+      nextFiles[sourceFileIdx] = temp;
+      setFiles(nextFiles);
     }
   };
 
@@ -1821,8 +2097,78 @@ export default function LayoutEditorPage() {
       setIsProcessing(false);
       return;
     }
-    setCanvases([]);
+    // NOTE (Phase 3): canvases are deliberately NOT cleared here. The
+    // identity-based reuse plan in generateCanvases reconciles old edits
+    // against the new selection; clearing first is what used to wipe every
+    // pan/zoom/overlay on any re-pick. When the new selection drops edited
+    // photos entirely, ask before discarding that work.
+    const losing = countCanvasesLosingEdits(canvasesRef.current, allFiles);
+    if (losing > 0 && !repickConfirmedRef.current) {
+      setPendingRepick({ files: allFiles, losingCount: losing });
+      return;
+    }
+    repickConfirmedRef.current = false;
     setFiles(allFiles);
+  };
+
+  // ── Per-frame photo replace (Phase 3) ─────────────────────────────────────
+  // Replaces exactly one frame slot's File; the identity merge in the
+  // generators recomputes just that slot (fresh orientation + smartcrop, no
+  // fileId so the B1 effect persists the new blob) and preserves everything
+  // else. Also the recovery path for "photo missing" after a failed restore.
+  const requestReplacePhoto = (canvasIdx: number, frameIdx: number, surfaceKey: string | null = null) => {
+    setPendingReplace({ canvasIdx, frameIdx, surfaceKey });
+    replacePhotoInputRef.current?.click();
+  };
+
+  const handleReplaceFileSelected = async (file: File) => {
+    if (!pendingReplace) return;
+    const { canvasIdx, frameIdx, surfaceKey } = pendingReplace;
+    setPendingReplace(null);
+    if (!isAllowedImageFile(file)) {
+      setUnsupportedWarning(unsupportedFilesMessage([file]));
+      return;
+    }
+    if (!(await isImageComplete(file))) {
+      setError('That image appears incomplete — please re-export it and try again.');
+      return;
+    }
+    if (surfaceKey) {
+      // Surface cards hold one canvas; the slot is the frame index within
+      // the surface's own files array.
+      const s = surfaceStates.find(x => x.key === surfaceKey);
+      if (!s) return;
+      const nextFiles = [...s.files];
+      nextFiles[frameIdx] = file;
+      const canvases = await generateCanvasesForLayout(s.def, nextFiles, s.globalFitMode, s.canvases);
+      setSurfaceStates(prev => prev.map(x => x.key === surfaceKey ? { ...x, files: nextFiles, canvases } : x));
+      if (surfaceKey === activeSurfaceKey) {
+        skipNextGenerateRef.current = true;
+        setFiles(nextFiles);
+        setCanvases(canvases);
+      }
+    } else {
+      const frameCount = layout?.frames?.length || 1;
+      const slot = canvasIdx * frameCount + frameIdx;
+      setFiles(prev => {
+        const next = [...prev];
+        next[slot] = file;
+        return next;
+      });
+    }
+  };
+
+  // Re-pick confirm (Phase 3 — ask before discarding edits). Mirrors the
+  // pendingOverFiles pattern: hold the selection, show a modal, re-enter on
+  // confirm with the guard ref set so we don't re-prompt.
+  const handleRepickConfirm = (proceed: boolean) => {
+    if (!pendingRepick) return;
+    const { files: held } = pendingRepick;
+    setPendingRepick(null);
+    if (proceed) {
+      repickConfirmedRef.current = true;
+      void processSelectedFiles(held);
+    }
   };
 
   // ── Qty: auto-fill (cycle images to fill remaining slots) ─────────────────
@@ -1831,6 +2177,9 @@ export default function LayoutEditorPage() {
     const needed = qtyUnder.needed - files.length;
     const filled = [...files];
     for (let i = 0; i < needed; i++) filled.push(files[i % files.length]);
+    // These duplicates are deliberate — exempt them from the duplicate-fill
+    // pre-submit warning (Phase 3).
+    filled.forEach(f => intentionalDupesRef.current.add(duplicateFingerprint(f)));
     setQtyUnder(null);
     setFiles(filled);
   };
@@ -1845,6 +2194,8 @@ export default function LayoutEditorPage() {
     if (filled.length < qtyUnder.needed) {
       for (let i = 0; filled.length < qtyUnder.needed; i++) filled.push(files[i % files.length]);
     }
+    // Deliberate duplication — exempt from the duplicate-fill warning.
+    filled.forEach(f => intentionalDupesRef.current.add(duplicateFingerprint(f)));
     setQtyUnder(null);
     setShowAutoFillPicker(false);
     setPickerSelected(new Set());
@@ -1988,9 +2339,32 @@ export default function LayoutEditorPage() {
     setServerRenderLabel('Preparing upload…');
     setRenderProgress({ current: 0, total: 100 });
     try {
-      // 1. Collect all canvases in order across all surfaces
+      // 1. Collect all canvases in order across all surfaces. A surface the
+      // customer left EMPTY is included as one blank canvas (null upload_ids)
+      // rather than dropped: dropping it used to make the engine render that
+      // surface with the other surface's photos (Phase 3 wrong-print fix) —
+      // now it prints blank and the pre-submit warning tells the customer so.
       const allCanvases = surfaceStates.length > 1
-        ? surfaceStates.flatMap(s => s.canvases.map(c => ({ ...c, surfaceKey: s.key })))
+        ? surfaceStates.flatMap(s =>
+            s.canvases.length > 0
+              ? s.canvases.map(c => ({ ...c, surfaceKey: s.key }))
+              : [{
+                  id: 0,
+                  frames: (s.def.frames || [{ }]).map((_, fi) => ({
+                    id: fi,
+                    originalFile: null,
+                    offset: { x: 0, y: 0 },
+                    scale: 1,
+                    rotation: 0,
+                    fitMode: s.globalFitMode,
+                  })) as FrameState[],
+                  overlays: [] as Overlay[],
+                  bgColor: '#ffffff',
+                  paperColor: '#ffffff',
+                  dataUrl: null,
+                  surfaceKey: s.key,
+                }]
+          )
         : canvases.map(c => ({ ...c, surfaceKey: 'canvas' }));
 
       // 2. Collect unique File objects in frame order, then any local
@@ -2022,7 +2396,7 @@ export default function LayoutEditorPage() {
       const lostFrames: string[] = [];
       allCanvases.forEach((c, ci) => {
         c.frames.forEach((frame, fi) => {
-          if (frame.fileId && !frame.originalFile) {
+          if ((frame.fileId || frame.fileName) && !frame.originalFile) {
             lostFrames.push(
               allCanvases.length > 1 ? `page ${ci + 1}, photo ${fi + 1}` : `photo ${fi + 1}`,
             );
@@ -2138,13 +2512,17 @@ export default function LayoutEditorPage() {
 
       const { job_id, order_id: serverOrderId } = await renderRes.json();
 
-      // 5. Embed path: fire postMessage and exit — no download UI shown
+      // 5. Embed path: fire postMessage, then show the LIVE status panel
+      // (Phase 3 — no more dead-end): the overlay polls render-status via the
+      // embed proxy, surfaces queued/rendering/done/failed honestly, and
+      // offers a way back into the editor.
       if (embedToken) {
         window.parent.postMessage({
           type: 'pe:render_job',
           jobId: job_id,
           orderID: serverOrderId || orderId,
         }, parentOrigin);
+        setSubmittedJobId(job_id);
         setSubmitted(true);
         return;
       }
@@ -2171,6 +2549,21 @@ export default function LayoutEditorPage() {
         if (!statusRes.ok) continue;
 
         const jobStatus = await statusRes.json();
+
+        // Honest wait status (Phase 3): show the REAL queue position/state
+        // from RenderStatusView instead of a synthetic "rendering" animation.
+        if (jobStatus.status === 'queued') {
+          setServerRenderLabel(
+            jobStatus.estimated_wait_seconds != null
+              ? `Queued — about ${formatWait(jobStatus.estimated_wait_seconds)} wait`
+              : 'Queued…'
+          );
+          setRenderProgress({ current: 70, total: 100 });
+          continue;
+        }
+        if (jobStatus.status === 'processing') {
+          setServerRenderLabel('Rendering your print files…');
+        }
 
         if (jobStatus.status === 'completed') {
           setServerRenderLabel('Downloading…');
@@ -2364,6 +2757,7 @@ export default function LayoutEditorPage() {
       });
       // Replace any existing entries on this cell with the image override.
       updateCellEntries(iso, () => [{ type: 'image', uploadId: result.uploadId }]);
+      if (result.persistDegraded) setPersistDegraded(true);
       // Cache the blob URL for the panel preview (keyed by ISO — dates are
       // globally unique, so the key survives calendar-type flips).
       setCalendarCellImagePreviews(prev => {
@@ -2418,6 +2812,30 @@ export default function LayoutEditorPage() {
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col">
       <GoogleFontLinks fonts={fontsLoaded} />
+      {swapSource && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200000] bg-indigo-600 text-white px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300" role="status">
+          <ArrowLeftRight className="w-4 h-4" />
+          <span className="text-xs font-semibold">Tap another photo to swap</span>
+          <button onClick={() => setSwapSource(null)} className="p-1 hover:bg-white/20 rounded-lg transition-all" aria-label="Cancel swap">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+      {(persistDegraded || storageBlocked) && (
+        <div className="fixed bottom-6 right-8 z-[200000] max-w-sm bg-white/90 backdrop-blur-2xl border border-amber-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-amber-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group" role="status" aria-live="polite">
+          <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0 mt-1">
+            <AlertTriangle className="w-3.5 h-3.5" />
+          </div>
+          <span className="flex-1 text-[10px] font-bold text-amber-900/80 tracking-tight leading-snug py-1.5">
+            {storageBlocked
+              ? "Your browser is blocking local storage — your photos stay safe in this tab, but refreshing will remove them. Finish and submit in one session."
+              : "This device's storage is full, so your photos can't be backed up for recovery. Don't refresh or close this tab before submitting."}
+          </span>
+          <button onClick={() => { setPersistDegraded(false); setStorageBlocked(false); }} className="p-2 hover:bg-amber-50 rounded-xl transition-all" aria-label="Dismiss storage warning">
+            <X className="w-3.5 h-3.5 text-amber-400" />
+          </button>
+        </div>
+      )}
       {uploadWarning && (
         <div className="fixed top-24 right-8 z-[200000] max-w-xs bg-white/80 backdrop-blur-2xl border border-amber-200/50 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-amber-900/5 flex items-center gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
           <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
@@ -2568,6 +2986,48 @@ export default function LayoutEditorPage() {
         </div>
       )}
 
+      {/* ── Re-pick confirm modal (Phase 3 — ask before discarding edits) ──── */}
+      {pendingRepick && (
+        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-label="Replacing photos will discard edits">
+            <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Replace photos?</p>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6">
+              {pendingRepick.losingCount === 1
+                ? 'One page you edited uses photos that are not in the new selection — its adjustments will be discarded.'
+                : `${pendingRepick.losingCount} pages you edited use photos that are not in the new selection — their adjustments will be discarded.`}
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => handleRepickConfirm(true)}
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+              >
+                Replace anyway
+              </button>
+              <button
+                onClick={() => handleRepickConfirm(false)}
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+              >
+                Keep my edits
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden input feeding the per-frame photo replace (Phase 3). */}
+      <input
+        ref={replacePhotoInputRef}
+        type="file"
+        accept={IMAGE_ACCEPT_ATTR}
+        className="hidden"
+        aria-hidden
+        onChange={e => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void handleReplaceFileSelected(file);
+        }}
+      />
+
       {/* ── Over-upload confirm modal ───────────────────────────────────────── */}
       {pendingOverFiles && orderQty && (
         <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -2630,7 +3090,15 @@ export default function LayoutEditorPage() {
           <button onClick={() => setError(null)}><X className="w-4 h-4" /></button>
         </div>
       )}
-      {submitted && (
+      {submitted && submittedJobId && (
+        <EmbedSubmittedOverlay
+          jobId={submittedJobId}
+          apiBase={apiBase}
+          getAuthHeaders={getAuthHeaders}
+          onBackToEditor={() => { setSubmitted(false); setSubmittedJobId(null); }}
+        />
+      )}
+      {submitted && !submittedJobId && (
         <div className="fixed inset-0 z-[300000] flex items-center justify-center bg-white/80 backdrop-blur-sm">
           <div className="text-center p-10">
             <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" />
@@ -2685,9 +3153,9 @@ export default function LayoutEditorPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <div className="hidden md:flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/50">
+              <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/50">
                 {(['contain', 'cover'] as FitMode[]).map(mode => (
-                  <button key={mode} onClick={() => setGlobalFitMode(mode)} className={clsx('px-3 py-1.5 text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
+                  <button key={mode} onClick={() => { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); }} className={clsx('px-3 py-1.5 text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
                 ))}
               </div>
               <button
@@ -2696,7 +3164,7 @@ export default function LayoutEditorPage() {
                   ? 'Reposition on — drag a photo inside its card. Click to lock.'
                   : 'Photos are locked. Click to drag-reposition them.'}
                 className={clsx(
-                  'hidden md:flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
+                  'flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
                   repositionMode
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
@@ -2842,7 +3310,20 @@ export default function LayoutEditorPage() {
                           >
                             {surfaceCanvas?.dataUrl ? <img src={surfaceCanvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={surface.label} /> : <div className="absolute inset-0 flex items-center justify-center text-slate-300"><Layout className="w-10 h-10 opacity-20" /></div>}
 
-                            {lowDpiByCard.has(`${surface.key}:0`) && (
+                            {surfaceCanvas?.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const missingIdx = surfaceCanvas.frames.findIndex(f => (f.fileId || f.fileName) && !f.originalFile);
+                                  requestReplacePhoto(0, Math.max(0, missingIdx), surface.key);
+                                }}
+                                className="absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors"
+                                title="This photo couldn't be recovered on this device — tap to re-upload it."
+                              >
+                                <AlertTriangle className="w-3 h-3" />
+                                Photo missing — tap to re-upload
+                              </button>
+                            ) : lowDpiByCard.has(`${surface.key}:0`) && (
                               <div
                                 className={clsx(
                                   'absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm',
@@ -2876,6 +3357,21 @@ export default function LayoutEditorPage() {
                                   onClick={(e) => e.stopPropagation()}
                                 />
                               </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSwapSource(prev =>
+                                    prev && prev.idx === 0 && prev.surfaceKey === surface.key ? null : { idx: 0, surfaceKey: surface.key }
+                                  );
+                                }}
+                                className={clsx('p-2 rounded-xl hover:scale-105 transition-all',
+                                  swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
+                                title="Swap with another photo (tap this, then tap the other card)"
+                              >
+                                <ArrowLeftRight className="w-3.5 h-3.5" />
+                              </button>
                               <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
                                 <Download className="w-3.5 h-3.5" />
                               </button>
@@ -2923,7 +3419,20 @@ export default function LayoutEditorPage() {
                       >
                         {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
 
-                        {lowDpiByCard.has(`:${idx}`) && (
+                        {canvas.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const missingIdx = canvas.frames.findIndex(f => (f.fileId || f.fileName) && !f.originalFile);
+                              requestReplacePhoto(idx, Math.max(0, missingIdx));
+                            }}
+                            className="absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors"
+                            title="This photo couldn't be recovered on this device — tap to re-upload it."
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            Photo missing — tap to re-upload
+                          </button>
+                        ) : lowDpiByCard.has(`:${idx}`) && (
                           <div
                             className={clsx(
                               'absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm',
@@ -2957,6 +3466,26 @@ export default function LayoutEditorPage() {
                               onClick={(e) => e.stopPropagation()}
                             />
                           </div>
+                          {(layout.frames?.length || 1) === 1 && (
+                            <button onClick={(e) => { e.stopPropagation(); requestReplacePhoto(idx, 0); }} className="p-2 bg-sky-50/80 text-sky-600 rounded-xl hover:bg-sky-100 hover:scale-105 transition-all" title="Replace photo">
+                              <ImagePlus className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSwapSource(prev =>
+                                prev && prev.idx === idx && prev.surfaceKey === null ? null : { idx, surfaceKey: null }
+                              );
+                            }}
+                            className={clsx('p-2 rounded-xl hover:scale-105 transition-all',
+                              swapSource?.idx === idx && swapSource?.surfaceKey === null
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
+                            title="Swap with another photo (tap this, then tap the other card)"
+                          >
+                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                          </button>
                           <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(idx); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
                             <Download className="w-3.5 h-3.5" />
                           </button>
@@ -3007,6 +3536,10 @@ export default function LayoutEditorPage() {
                     cellEntries={calendarCellEntries(selectedCalendarCell.iso)}
                     holidaysForCell={calendarHolidays.filter(h => h.date === selectedCalendarCell.iso)}
                     imagePreviewUrl={calendarCellImagePreviews[selectedCalendarCell.iso]}
+                    imageExpired={
+                      calendarCellEntries(selectedCalendarCell.iso).some(o => o.type === 'image') &&
+                      !calendarCellImagePreviews[selectedCalendarCell.iso]
+                    }
                     isImageUploading={calendarImageUploading}
                     onAddTextEntry={text =>
                       updateCellEntries(selectedCalendarCell.iso, prev => [
@@ -3111,6 +3644,8 @@ export default function LayoutEditorPage() {
                 </div>
 
                 <LowDpiWarning frames={lowDpiFrames} />
+                <EmptySurfaceWarning surfaces={emptySurfaces} />
+                <DuplicateFillWarning duplicates={duplicateFills} />
 
                 {/* Download options */}
                 <div className="px-7 pb-7 flex gap-3">
@@ -3185,6 +3720,8 @@ export default function LayoutEditorPage() {
                   </label>
                 </div>
                 <LowDpiWarning frames={lowDpiFrames} />
+                <EmptySurfaceWarning surfaces={emptySurfaces} />
+                <DuplicateFillWarning duplicates={duplicateFills} />
                 {/* Actions */}
                 <div className="px-7 pb-7 flex gap-3">
                   <button

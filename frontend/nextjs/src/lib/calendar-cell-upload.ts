@@ -55,8 +55,12 @@ export interface UploadCalendarCellImageOptions {
 export interface UploadCalendarCellImageResult {
   /** Server-side upload id — goes onto the CalendarCellOverride. */
   uploadId: string;
-  /** IDB record id — lets the editor restore the preview on refresh. */
-  fileId: string;
+  /** IDB record id — lets the editor restore the preview on refresh.
+   *  null when persistence failed (device storage full) — the upload itself
+   *  still succeeded; `persistDegraded` is set so the UI can warn. */
+  fileId: string | null;
+  /** True when the IDB save failed (quota) — surface a storage notice. */
+  persistDegraded?: boolean;
   /** Object URL for an immediate preview. Caller is responsible for revoking on unmount. */
   blobUrl: string;
   /** Server filename (echoes back from /upload/complete). */
@@ -125,13 +129,17 @@ export async function uploadCalendarCellImage(
   const saveFileFn = opts.saveFileFn ?? defaultSaveFile;
 
   // Run upload + IDB save in parallel — they have no data dependency and
-  // both are I/O-bound. The IDB save races with the network, so on a
-  // typical mobile-Wi-Fi connection (~5 MB image) the IDB write is done
-  // long before /upload/complete returns. We Promise.all them so the
-  // helper resolves only when BOTH succeed.
-  const [uploadResult, fileId]: [UploadResult, string] = await Promise.all([
+  // both are I/O-bound. The IDB save is BEST-EFFORT (Phase 3): a device
+  // with full storage must not fail an upload the server actually
+  // accepted, so a quota error yields fileId:null + persistDegraded and
+  // the cell keeps working for this session.
+  let persistDegraded = false;
+  const [uploadResult, fileId]: [UploadResult, string | null] = await Promise.all([
     uploadFn(file, opts.apiBase, opts.getAuthHeaders, opts.onProgress),
-    saveFileFn(opts.orderId, file),
+    saveFileFn(opts.orderId, file).catch(() => {
+      persistDegraded = true;
+      return null;
+    }),
   ]);
 
   // Auto-orient is a fire-and-await step that gates the result; if the
@@ -163,6 +171,7 @@ export async function uploadCalendarCellImage(
   return {
     uploadId: uploadResult.uploadId,
     fileId,
+    persistDegraded,
     blobUrl,
     filename: uploadResult.filename,
     rotation,

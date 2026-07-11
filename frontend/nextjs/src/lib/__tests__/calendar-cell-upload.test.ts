@@ -155,10 +155,16 @@ describe('uploadCalendarCellImage', () => {
     await expect(uploadCalendarCellImage(makeFile(), opts)).rejects.toThrow(/network down/);
   });
 
-  it('propagates IDB save errors with the original message', async () => {
+  it('IDB save failure is best-effort: upload still succeeds, flagged degraded (Phase 3)', async () => {
+    // A device with full storage must not fail an upload the server already
+    // accepted — the cell keeps working this session, persistence is just
+    // flagged so the UI can warn.
     const { opts, saveFileFn } = setup();
     saveFileFn.mockRejectedValueOnce(new Error('quota exceeded'));
-    await expect(uploadCalendarCellImage(makeFile(), opts)).rejects.toThrow(/quota exceeded/);
+    const result = await uploadCalendarCellImage(makeFile(), opts);
+    expect(result.uploadId).toBe('upload-xyz');
+    expect(result.fileId).toBeNull();
+    expect(result.persistDegraded).toBe(true);
   });
 
   it('falls back gracefully when autoOrient is enabled but orientation throws', async () => {

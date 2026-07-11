@@ -300,7 +300,7 @@ export function CanvasEditorModal({
   const totalCount = isMultiSurface ? surfaceStates.length : canvases.length;
 
   return (
-    <div className="fixed inset-0 z-[100000] bg-white flex overflow-hidden animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[100000] bg-white flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-300">
       {/* Workspace — Fabric.js editor */}
       <div className="flex-1 bg-slate-100 flex flex-col overflow-hidden relative">
 
@@ -311,8 +311,25 @@ export function CanvasEditorModal({
         </button>
 
         {/* Left Surface Rail — Vertical floating list for Multi-surface layouts */}
+        {/* Mobile surface chips — the vertical rail is unreachable on phones */}
         {isMultiSurface && (
-          <div className="absolute left-12 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2 p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-2xl shadow-xl animate-in slide-in-from-left-8 duration-700 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          <div className="flex md:hidden absolute top-3 left-3 right-16 z-20 gap-1.5 overflow-x-auto p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-2xl shadow-lg">
+            {surfaceStates.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => onOpenCanvas(0, s.key)}
+                className={clsx(
+                  "px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
+                  s.key === activeSurfaceKey ? "bg-indigo-600 text-white" : "text-slate-500 bg-slate-50"
+                )}
+              >
+                {s.label || s.key}
+              </button>
+            ))}
+          </div>
+        )}
+        {isMultiSurface && (
+          <div className="hidden md:flex absolute left-12 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-2xl shadow-xl animate-in slide-in-from-left-8 duration-700 max-h-[70vh] overflow-y-auto custom-scrollbar">
             {surfaceStates.map((s, idx) => {
               const isActive = s.key === activeSurfaceKey;
               return (
@@ -403,6 +420,7 @@ export function CanvasEditorModal({
           getFileUrl={getFileUrl}
           canvasWidth={layout?.canvas?.width}
           canvasHeight={layout?.canvas?.height}
+          onPinchTransform={(fIdx, updates) => handleUpdateTransform(fIdx, updates)}
         />
       </div>
 

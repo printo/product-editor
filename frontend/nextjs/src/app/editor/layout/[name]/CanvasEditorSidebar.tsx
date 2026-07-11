@@ -159,7 +159,10 @@ export function CanvasEditorSidebar({
   };
 
   return (
-    <div className="w-[340px] md:w-[380px] max-w-[380px] shrink-0 flex-none border-l border-slate-200/50 bg-white/95 backdrop-blur-3xl flex flex-col overflow-hidden relative shadow-xl z-20">
+    // Mobile (<md): bottom sheet capped at 45vh so the canvas keeps most of
+    // the viewport — the CalendarEditPanel P9.3 recipe. md+: the classic
+    // fixed-width right rail, pixel-identical to before (Phase 3).
+    <div className="w-full max-h-[45vh] border-t rounded-t-2xl shadow-2xl md:w-[380px] md:max-w-[380px] md:max-h-none md:border-t-0 md:rounded-none md:shadow-xl shrink-0 flex-none border-l border-slate-200/50 bg-white/95 backdrop-blur-3xl flex flex-col overflow-hidden relative z-20">
       {/* Subtle Background Blobs for Premium feel */}
       <div className="absolute -top-32 -right-32 w-80 h-80 bg-indigo-50/50 blur-[100px] -z-10 rounded-full" />
       <div className="absolute top-1/2 -left-32 w-64 h-64 bg-fuchsia-50/30 blur-[80px] -z-10 rounded-full" />
@@ -642,7 +645,8 @@ export function CanvasEditorSidebar({
       </div>
 
       {/* ── Save Button ─────────────────────────────────────────────────── */}
-      <div className="px-4 py-3 bg-white border-t border-slate-100">
+      {/* Safe-area padding keeps Save above the iOS home indicator. */}
+      <div className="px-4 py-3 bg-white border-t border-slate-100 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
         <button onClick={handleSaveChanges}
           className="w-full h-12 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-medium uppercase text-[11px] hover:shadow-lg hover:shadow-indigo-100 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
           <CheckCircle2 className="w-4 h-4 transition-transform group-hover:scale-110" />

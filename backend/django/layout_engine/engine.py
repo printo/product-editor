@@ -754,9 +754,17 @@ class LayoutEngine:
         uploaded_files: Optional[dict] = None,
         calendar_state: Optional[dict] = None,
         backgrounds_per_canvas: Optional[List[dict]] = None,
+        canvases_meta: Optional[List[dict]] = None,
     ) -> List[str]:
         """
         Generate layout images. Returns a list of output file paths.
+
+        canvases_meta: optional per-payload-canvas metadata
+          [{'surface_key': str|None, 'frame_count': int}, ...] in canvas order.
+          When present, multi-surface products group photos/transforms/overlays
+          per surface_key instead of rendering every surface against the whole
+          list (Phase 3 — cross-surface wrong-print fix). Absent → legacy
+          behaviour, byte-identical.
 
         export_format: "png" (default) or "pdf".
         frame_transforms: optional per-frame overrides (offset, scale, rotation, fit_mode)
@@ -954,6 +962,21 @@ class LayoutEngine:
 
         if layout.get("type") == "product" and isinstance(layout.get("surfaces"), list):
             all_outputs: List[str] = []
+
+            # Per-surface payload grouping (Phase 3). The editor payload tags
+            # every canvas with its surface_key; without grouping, EVERY
+            # surface rendered against the FULL flattened photo list — a
+            # 2-surface product cross-rendered each photo onto both outputs,
+            # and an omitted/empty surface printed the OTHER surface's photo
+            # (silent wrong print). Gated on canvases_meta so legacy
+            # image_paths-only callers (GenerateLayoutView) stay byte-identical.
+            canvas_starts: List[int] = []
+            if canvases_meta:
+                pos = 0
+                for m in canvases_meta:
+                    canvas_starts.append(pos)
+                    pos += max(0, int(m.get("frame_count") or 0))
+
             for surface in layout["surfaces"]:
                 surface_key = surface.get("key", "unknown")
                 canvas_w = surface["canvas"]["width"]
@@ -967,16 +990,54 @@ class LayoutEngine:
                 # PRD §11.6. Falls back to surface_key when displayLabel is
                 # absent (legacy layouts without the field).
                 display_label = surface.get("displayLabel") or None
-                all_outputs.extend(
-                    self._generate_for_surface(
-                        surface, image_paths, layout_name, surface_key,
-                        fit_mode, export_format, frame_transforms,
-                        overlays_per_canvas=overlays_per_canvas,
-                        uploaded_files=uploaded_files,
-                        display_label=display_label,
-                        backgrounds_per_canvas=backgrounds_per_canvas,
+
+                if canvases_meta:
+                    idxs = [
+                        i for i, m in enumerate(canvases_meta)
+                        if (m.get("surface_key") or "default") == surface_key
+                    ]
+                    surf_images: List[str] = []
+                    surf_transforms: List[dict] = []
+                    for i in idxs:
+                        lo = canvas_starts[i]
+                        hi = lo + max(0, int(canvases_meta[i].get("frame_count") or 0))
+                        surf_images.extend(image_paths[lo:hi])
+                        if frame_transforms:
+                            surf_transforms.extend(frame_transforms[lo:hi])
+                    if not idxs:
+                        # No canvas was submitted for this surface — render it
+                        # BLANK (position-explicit '' slots) rather than letting
+                        # _iter_batches steal another surface's photos.
+                        surf_images = [""] * max(1, len(surface.get("frames") or []))
+                    surf_overlays = (
+                        [overlays_per_canvas[i] if i < len(overlays_per_canvas) else [] for i in idxs]
+                        if overlays_per_canvas and idxs else None
                     )
-                )
+                    surf_bgs = (
+                        [backgrounds_per_canvas[i] if i < len(backgrounds_per_canvas) else {} for i in idxs]
+                        if backgrounds_per_canvas and idxs else None
+                    )
+                    all_outputs.extend(
+                        self._generate_for_surface(
+                            surface, surf_images, layout_name, surface_key,
+                            fit_mode, export_format, surf_transforms or None,
+                            overlays_per_canvas=surf_overlays,
+                            uploaded_files=uploaded_files,
+                            display_label=display_label,
+                            backgrounds_per_canvas=surf_bgs,
+                        )
+                    )
+                else:
+                    all_outputs.extend(
+                        self._generate_for_surface(
+                            surface, image_paths, layout_name, surface_key,
+                            fit_mode, export_format, frame_transforms,
+                            overlays_per_canvas=overlays_per_canvas,
+                            uploaded_files=uploaded_files,
+                            display_label=display_label,
+                            backgrounds_per_canvas=backgrounds_per_canvas,
+                        )
+                    )
             return all_outputs
 
         return self._generate_for_surface(

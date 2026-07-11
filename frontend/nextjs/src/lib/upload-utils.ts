@@ -119,9 +119,29 @@ export interface UploadResult {
   filename: string;
 }
 
+// ─── In-session resume (Phase 3) ─────────────────────────────────────────────
+// The backend persists received chunks per upload session for 24 h and the
+// chunk PUT is idempotent, so a failed submit doesn't need to restart every
+// file from scratch: we remember {uploadId, acked chunks} per File and, on the
+// next attempt, skip init and already-acked chunks. Completed files remember
+// their final UploadResult and are not re-sent at all. WeakMap-keyed by the
+// File object — a page refresh mints fresh Files, which safely restarts.
+interface UploadSession {
+  uploadId: string;
+  acked: Set<number>;
+  totalChunks: number;
+  result?: UploadResult;
+}
+const uploadSessions = new WeakMap<File, UploadSession>();
+
+/** Marker error for a staging session the server no longer knows about
+ *  (GC'd after 24 h, or a restarted backend) — restart the file once. */
+class UploadSessionLostError extends Error {}
+
 /**
  * Upload a single file using the chunked upload API.
  * onProgress fires with a 0–1 fraction as chunks land.
+ * Resumes a previous partially-uploaded session for the same File object.
  */
 export async function uploadFile(
   file: File,
@@ -129,31 +149,66 @@ export async function uploadFile(
   getHeaders: () => Record<string, string>,
   onProgress?: (fraction: number) => void,
 ): Promise<UploadResult> {
+  try {
+    return await uploadFileOnce(file, apiBase, getHeaders, onProgress);
+  } catch (err) {
+    if (err instanceof UploadSessionLostError) {
+      // Stale session (server staging GC'd) — one clean restart from init.
+      uploadSessions.delete(file);
+      return uploadFileOnce(file, apiBase, getHeaders, onProgress);
+    }
+    throw err;
+  }
+}
+
+async function uploadFileOnce(
+  file: File,
+  apiBase: string,
+  getHeaders: () => Record<string, string>,
+  onProgress?: (fraction: number) => void,
+): Promise<UploadResult> {
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-  // ── 1. Init ───────────────────────────────────────────────────────────────
-  const initRes = await fetchWithRetry(`${apiBase}/upload/init`, () => ({
-    method: 'POST',
-    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      filename: file.name,
-      file_size: file.size,
-      total_chunks: totalChunks,
-    }),
-  }));
-  if (!initRes.ok) {
-    const err = await initRes.json().catch(() => ({}));
-    throw new Error(`Upload init failed for "${file.name}": ${err.detail ?? initRes.status}`);
+  const cached = uploadSessions.get(file);
+  if (cached?.result) {
+    onProgress?.(1);
+    return cached.result;
   }
-  const { upload_id } = await initRes.json();
 
-  // ── 2. Upload chunks sequentially ─────────────────────────────────────────
+  let session: UploadSession;
+  if (cached && cached.totalChunks === totalChunks) {
+    session = cached;
+  } else {
+    // ── 1. Init ────────────────────────────────────────────────────────────
+    const initRes = await fetchWithRetry(`${apiBase}/upload/init`, () => ({
+      method: 'POST',
+      headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename: file.name,
+        file_size: file.size,
+        total_chunks: totalChunks,
+      }),
+    }));
+    if (!initRes.ok) {
+      const err = await initRes.json().catch(() => ({}));
+      throw new Error(`Upload init failed for "${file.name}": ${err.detail ?? initRes.status}`);
+    }
+    const { upload_id } = await initRes.json();
+    session = { uploadId: upload_id, acked: new Set<number>(), totalChunks };
+    uploadSessions.set(file, session);
+  }
+
+  // ── 2. Upload chunks sequentially (skipping already-acked ones) ──────────
   for (let i = 0; i < totalChunks; i++) {
+    if (session.acked.has(i)) {
+      onProgress?.((i + 1) / totalChunks * 0.95);
+      continue;
+    }
     const start = i * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, file.size);
 
     // Re-slice inside the factory so every retry sends a fresh, unconsumed Blob.
-    const chunkRes = await fetchWithRetry(`${apiBase}/upload/${upload_id}/chunk?index=${i}`, () => ({
+    const chunkRes = await fetchWithRetry(`${apiBase}/upload/${session.uploadId}/chunk?index=${i}`, () => ({
       method: 'PUT',
       headers: {
         ...getHeaders(),
@@ -161,19 +216,26 @@ export async function uploadFile(
       },
       body: file.slice(start, end),
     }));
+    if (chunkRes.status === 404 && session.acked.size > 0) {
+      throw new UploadSessionLostError();
+    }
     if (!chunkRes.ok) {
       const err = await chunkRes.json().catch(() => ({}));
       throw new Error(`Chunk ${i} upload failed for "${file.name}": ${err.detail ?? chunkRes.status}`);
     }
+    session.acked.add(i);
 
     onProgress?.((i + 1) / totalChunks * 0.95); // 0–95% for chunks
   }
 
   // ── 3. Complete ───────────────────────────────────────────────────────────
-  const completeRes = await fetchWithRetry(`${apiBase}/upload/${upload_id}/complete`, () => ({
+  const completeRes = await fetchWithRetry(`${apiBase}/upload/${session.uploadId}/complete`, () => ({
     method: 'POST',
     headers: { ...getHeaders(), 'Content-Type': 'application/json' },
   }));
+  if (completeRes.status === 404) {
+    throw new UploadSessionLostError();
+  }
   if (!completeRes.ok) {
     const err = await completeRes.json().catch(() => ({}));
     throw new Error(`Upload complete failed for "${file.name}": ${err.detail ?? completeRes.status}`);
@@ -181,31 +243,64 @@ export async function uploadFile(
   const { file_path, filename } = await completeRes.json();
 
   onProgress?.(1);
-  return { uploadId: upload_id, filePath: file_path, filename };
+  const result = { uploadId: session.uploadId, filePath: file_path, filename };
+  session.result = result;
+  return result;
 }
 
 /**
  * Upload multiple files in parallel (up to MAX_PARALLEL_FILES at once).
  * Returns a Map<File, UploadResult> preserving identity for frame mapping.
- * onProgress fires with (completedCount, totalCount) after each file finishes.
+ *
+ * onProgress is BYTE-weighted (Phase 3): fires with (uploadedBytes,
+ * totalBytes) as chunks land, so a 40 MB photo advances the bar smoothly
+ * instead of jumping when the whole file completes.
+ *
+ * Failure semantics: every file is attempted (allSettled); if ANY ultimately
+ * fails, ONE aggregated error naming the failed files is thrown — successful
+ * files keep their in-session upload state, so the next submit only
+ * re-transfers what actually failed.
  */
 export async function uploadFiles(
   files: File[],
   apiBase: string,
   getHeaders: () => Record<string, string>,
-  onProgress?: (completed: number, total: number) => void,
+  onProgress?: (uploadedBytes: number, totalBytes: number) => void,
 ): Promise<Map<File, UploadResult>> {
   const results = new Map<File, UploadResult>();
-  let completed = 0;
+  const totalBytes = files.reduce((s, f) => s + f.size, 0) || 1;
+  const fractions = new Map<File, number>();
 
+  const emit = () => {
+    let done = 0;
+    for (const f of files) done += (fractions.get(f) || 0) * f.size;
+    onProgress?.(Math.min(done, totalBytes), totalBytes);
+  };
+
+  const failures: { file: File; error: unknown }[] = [];
   for (let i = 0; i < files.length; i += MAX_PARALLEL_FILES) {
     const batch = files.slice(i, i + MAX_PARALLEL_FILES);
-    await Promise.all(
+    const settled = await Promise.allSettled(
       batch.map(async (file) => {
-        const result = await uploadFile(file, apiBase, getHeaders);
+        const result = await uploadFile(file, apiBase, getHeaders, (frac) => {
+          fractions.set(file, frac);
+          emit();
+        });
         results.set(file, result);
-        onProgress?.(++completed, files.length);
       }),
+    );
+    settled.forEach((s, idx) => {
+      if (s.status === 'rejected') failures.push({ file: batch[idx], error: s.reason });
+    });
+  }
+
+  if (failures.length > 0) {
+    const names = failures.slice(0, 3).map(f => `"${f.file.name}"`).join(', ');
+    const more = failures.length > 3 ? ` and ${failures.length - 3} more` : '';
+    const first = failures[0].error instanceof Error ? ` (${failures[0].error.message})` : '';
+    throw new Error(
+      `${failures.length} of ${files.length} photos failed to upload: ${names}${more}${first}. ` +
+      `Your other photos are saved — submitting again will only re-send the failed ones.`,
     );
   }
 

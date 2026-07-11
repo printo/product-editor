@@ -1600,9 +1600,15 @@ class EmbedSessionView(APIView):
                     {'detail': 'callback_url exceeds 2000-char limit.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            if not callback_url.lower().startswith('https://'):
+            # SSRF guard (Phase 4): https-only + the host must resolve to a
+            # publicly-routable address (no internal services, cloud metadata,
+            # loopback, RFC1918). Re-checked at webhook send time too.
+            from services.url_safety import validate_public_https_url
+            try:
+                validate_public_https_url(callback_url)
+            except ValidationError as exc:
                 return Response(
-                    {'detail': 'callback_url must use https://.'},
+                    {'detail': exc.messages[0] if exc.messages else 'callback_url is not allowed.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1799,9 +1805,16 @@ class EditorInitView(APIView):
             django_cache.set(cache_key, layout_data, 120)
 
         # _read_fonts has its own Redis-backed 5 min cache (see _FONTS_CACHE_KEY).
+        # order_id echoes the proxy-injected X-Order-ID (EmbedSession.order_id)
+        # so the embed iframe can adopt the SESSION id for autosave/restore
+        # keying instead of a throwaway client-generated one (Phase 3 — an
+        # iframe reload used to orphan the autosave). Only the trusted proxies
+        # can set this header (both build forward headers from scratch);
+        # dashboard requests carry none → null.
         response = Response({
             'layout': layout_data,
             'fonts': _read_fonts(),
+            'order_id': (request.headers.get('X-Order-ID') or '').strip() or None,
         })
         # Cacheable on the proxy edge for short-lived shared cache; private so a
         # tenant's surfaces= filter doesn't bleed across tenants.
@@ -2831,6 +2844,13 @@ class CanvasStateView(APIView):
     def get(self, request, order_id: str):
         from api.models import CanvasData
 
+        # NOTE: GET deliberately respects the PATH param (unlike put(), where
+        # the session header wins). The embed proxy injects X-Order-ID on
+        # every request, so header-precedence here would make pre-adoption
+        # autosaves (keyed by the old client-generated id) unreachable — the
+        # client's legacy-id restore fallback needs the path to be honoured.
+        # Tenant scoping below keeps this safe: a key can only read its own rows.
+
         # Resolve the API key so we can scope the lookup to the requesting
         # tenant.  Two different keys can legitimately share the same order_id
         # (e.g. separate embed customers); scoping prevents cross-tenant reads.
@@ -2867,6 +2887,10 @@ class CanvasStateView(APIView):
     def put(self, request, order_id: str):
         from api.models import CanvasData
         from datetime import timedelta
+
+        # See get(): the embed session's order id wins over the path param so
+        # autosave and submit can never key different rows again.
+        order_id = (request.headers.get('X-Order-ID') or '').strip() or order_id
 
         body = request.data
         editor_state = body.get('editor_state')
