@@ -140,7 +140,7 @@ All exports go through one unified server-side pipeline. The previous client-sid
 - `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. README in the same dir documents the install convention.
 - `product_editor/celery.py` — Queue routing (priority vs. standard), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
 - `product_editor/settings.py` — `csp.middleware.CSPMiddleware` is wired in after `SecurityMiddleware`; CSP starts in report-only mode via `CSP_REPORT_ONLY`
-- **Backend Dockerfile** is multi-stage — builder installs `build-essential` + `libpq-dev` to compile wheels; runner ships only `libpq5` + the venv. Drops ~250 MB from the final image.
+- **Backend Dockerfile** is multi-stage — builder installs `build-essential` + `libpq-dev` to compile wheels; runner ships only `libpq5` + the venv. Drops ~250 MB from the final image. The `collectstatic` `RUN` supplies an **inline build-only `DJANGO_SECRET_KEY`** (build-time only, not baked into the image ENV) so the settings.py fail-fast guard doesn't abort the build — see `## Deployment` for the full rationale.
 
 ### Async Queue
 Two Celery worker services run in parallel with explicit queue routing in `product_editor/celery.py`:
@@ -582,6 +582,19 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 
 **Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.
 
+## Deployment (`deploy.sh`)
+
+`./deploy.sh [frontend|backend|workers|both]` (default `both`) runs **on the prod server** and **git-pulls `main` first** — so **push to `main` before deploying**. It rebuilds images, migrates *before* swapping containers, force-recreates, and health-checks. Prod `.env` lives at `/home/ubuntu/product-editor/.env` and is **not** the same as local `.env` (different host ports, hostnames) — edit it in place (back up as `.env.bak.<ts>` first), **never scp local over it**. A running `deploy.sh` can't reload itself, so a deploy.sh change only takes effect on the deploy *after* the one that pulls it — `git pull` on the server manually if you need it live immediately.
+
+**`entrypoint.sh` (web path) IGNORES its `$@`.** For the backend/web container it *always* runs `migrate` → seeds DIRECT/EXTERNAL/TESTING APIKey rows from env → `exec gunicorn`, regardless of the command passed. Consequences:
+- **Never** `docker-compose run backend <cmd>` expecting `<cmd>` to run alone — it starts a full gunicorn server that never exits and hangs whatever's waiting on it. Use `docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py <cmd>` to bypass. (This was the `deploy.sh` pre-swap-migrate hang, fixed in `0c5a0b5`.)
+- The celery-worker / celery-beat paths *do* honor `$1` (`celery-worker` / `celery-beat`) and skip DB setup.
+- The backend container self-migrates on every boot, so a plain `docker-compose up -d` fully deploys already-built images.
+
+**collectstatic runs at image BUILD time** (Dockerfile `RUN`), before any runtime `.env` exists. Under `DEBUG=0` (the default) the `settings.py` `DJANGO_SECRET_KEY` fail-fast guard fires on the dev-default key and aborts the build. The Dockerfile supplies an **inline build-only** `DJANGO_SECRET_KEY` scoped to that one command (never baked into the image ENV); runtime still requires the real key from `env_file` (fixed in `bc880b4`). **Verify any Dockerfile / settings-import change with a CLEAN build** (`docker compose build <svc>`, confirm the `collectstatic` layer is NOT `CACHED`) — a cached layer or a stale running container hides the failure until `deploy.sh` does its clean build.
+
+**Recovery when a deploy hangs mid-run:** `pkill -f "deploy.sh"`, remove the throwaway `*-backend-run-*` container (`docker rm -f`), then `docker-compose up -d` — images are already built and the entrypoint migrates on boot. Verify: all 9 containers `(healthy)`, and `https://product-editor.printo.in/api/health` → 200.
+
 ## Frontend Proxy Routes
 
 The Next.js frontend never exposes API keys to the browser. All backend calls go through one of two server-side proxy routes:
@@ -603,7 +616,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 |---|---|
 | `PUBLIC_HOST` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
 | `AUTH_SECRET` | NextAuth JWT signing secret (≥ 32 chars) |
-| `INTERNAL_API_KEY` | API key the internal proxy sends to Django |
+| `INTERNAL_API_KEY` | API key the internal proxy sends to Django. **Set it equal to `DIRECT_API_KEY`'s value** — the resolved APIKey must be `is_ops_team=True` ([route.ts:98](frontend/nextjs/src/app/api/internal/proxy/[...path]/route.ts)) or `/ops/*` proxy paths break, and a `create_api_key`-minted key is NOT ops-flagged. `entrypoint.sh` re-seeds the DIRECT row from `DIRECT_API_KEY` on every web boot, so reusing it survives DB restores (a one-off minted key wouldn't). |
 | `PIA_API_BASE_URL` | Upstream auth (default `https://pia.printo.in/api/v1`) |
 | `POSTGRES_*` / `REDIS_URL` | Standard infra |
 
