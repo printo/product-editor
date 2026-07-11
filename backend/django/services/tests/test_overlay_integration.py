@@ -75,28 +75,41 @@ def test_image_overlay_renders_from_uploaded_files():
     assert _near(canvas.getpixel((10, 10)), (255, 255, 255)), "outside the overlay stays white"
 
 
-def test_text_overlay_marks_the_canvas():
-    """Text should leave dark pixels where it's drawn. Tolerant of font
-    fallback — we only assert that *some* non-white pixels appear in the text
-    band, not exact glyphs."""
+def _dark_ys(canvas, y0, y1):
+    """Return the set of y rows in [y0, y1) that contain a dark pixel."""
+    rows = set()
+    for y in range(y0, y1):
+        for x in range(0, canvas.size[0]):
+            r, g, b = canvas.getpixel((x, y))[:3]
+            if r < 128 and g < 128 and b < 128:
+                rows.add(y)
+                break
+    return rows
+
+
+def test_text_overlay_is_vertically_centered_on_its_anchor():
+    """Text is placed with the editor's originY:'center', so it must STRADDLE
+    its y line (dark pixels both above and below), not sit entirely below it.
+    This guards the anchor fix ('m' not 't')."""
     work = tempfile.mkdtemp(prefix="pe-ovl-")
     white = _solid(os.path.join(work, "white.png"), (255, 255, 255))
-    surface = _full_frame_surface()
+    surface = _full_frame_surface()  # 300x300
     overlays = [{
-        "type": "text", "text": "HELLO", "x": 5, "y": 40,
-        "fontSize": 80, "color": "#000000", "textAlign": "left", "rotation": 0,
+        "type": "text", "text": "HELLO", "x": 5, "y": 50,   # y line = 150 px
+        "fontSize": 120, "color": "#000000", "textAlign": "left", "rotation": 0,
     }]
     canvas = LayoutEngine(os.path.join(work, "l"), os.path.join(work, "e"))._composite_canvas(
         surface, [white], "cover", None, frame_transforms=[{}], overlays=overlays,
     )
-    # Scan a horizontal band around y=40% (~px 120) for any dark pixel.
-    dark = 0
-    for y in range(110, 170):
-        for x in range(0, 300):
-            r, g, b = canvas.getpixel((x, y))[:3]
-            if r < 128 and g < 128 and b < 128:
-                dark += 1
-    assert dark > 0, "text overlay left no visible marks on the canvas"
+    rows = _dark_ys(canvas, 100, 200)
+    assert rows, "text overlay left no visible marks on the canvas"
+    above = [y for y in rows if y < 150]
+    below = [y for y in rows if y >= 150]
+    assert above and below, (
+        f"text should straddle its y=150 anchor (vertically centred); "
+        f"dark rows above=150: {bool(above)}, below: {bool(below)} — "
+        f"top-anchored text would have none above"
+    )
 
 
 def test_no_overlays_leaves_canvas_clean():
