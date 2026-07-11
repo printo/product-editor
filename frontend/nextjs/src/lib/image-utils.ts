@@ -19,6 +19,19 @@ function loadImageElement(file: File): Promise<HTMLImageElement> {
 }
 
 /**
+ * Dimensions-only accessor: returns the WeakMap hit WITHOUT decoding the
+ * image; on a miss delegates to getImageMetadata once (which populates the
+ * cache) and discards the element. Used by the low-res DPI sweep, which may
+ * run over hundreds of files and must not re-decode them.
+ */
+export async function getImageSize(file: File): Promise<{ width: number; height: number }> {
+  const cached = metadataCache.get(file);
+  if (cached) return { width: cached.width, height: cached.height };
+  const { width, height } = await getImageMetadata(file);
+  return { width, height };
+}
+
+/**
  * Gets image metadata including dimensions, orientation (EXIF), and a freshly
  * loaded HTMLImageElement. The element is NOT cached — callers should use it
  * immediately (e.g. for smart crop) and let it go so the browser can GC it.

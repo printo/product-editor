@@ -5,6 +5,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret-key")
 DEBUG = os.getenv("DEBUG", "0") == "1"  # default off so production-safe by absence
+
+# Fail-fast (Phase 4): a predictable signing key in production silently
+# forges sessions/CSRF/tokens. Under DEBUG=0 the key MUST be set to a real
+# value — mirrors the EMBED_INTERNAL_SECRET fail-closed pattern.
+if not DEBUG and (not SECRET_KEY or SECRET_KEY == "dev-secret-key"):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set to a strong unique value in production "
+        "(DEBUG=0). Refusing to boot with the development default."
+    )
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 if "backend" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("backend")

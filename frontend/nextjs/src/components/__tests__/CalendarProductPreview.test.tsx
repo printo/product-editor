@@ -197,22 +197,17 @@ describe('yearBadgeText (pure helper)', () => {
 // ─── countOrphanedEntries (PRD §11.4 helper) ────────────────────────────────
 
 describe('countOrphanedEntries', () => {
-  // Helper: build a cellsPerCanvas array with one entry on each named date.
-  function withEntries(dates: string[]): Record<string, CalendarCellOverride[]>[] {
-    const arr: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 },
-      () => ({})
-    );
-    // Stuff every entry into surface 0 — the function counts by ISO date,
-    // not by which surface stores them. Simpler test data.
+  // Helper: build a flat cells map with one entry on each named date.
+  function withEntries(dates: string[]): Record<string, CalendarCellOverride[]> {
+    const map: Record<string, CalendarCellOverride[]> = {};
     for (const iso of dates) {
-      arr[0][iso] = [{ type: 'text', text: 'x' }];
+      map[iso] = [{ type: 'text', text: 'x' }];
     }
-    return arr;
+    return map;
   }
 
-  it('returns 0 when no cellsPerCanvas entries exist', () => {
-    expect(countOrphanedEntries([], 'financial', FIXED_NOW)).toBe(0);
+  it('returns 0 when no cell entries exist', () => {
+    expect(countOrphanedEntries({}, 'financial', FIXED_NOW)).toBe(0);
   });
 
   it('returns 0 when every entry stays within the new range', () => {
@@ -235,15 +230,13 @@ describe('countOrphanedEntries', () => {
   });
 
   it('counts each override in a cell separately (3 entries on one day = 3)', () => {
-    const cells: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 },
-      () => ({})
-    );
-    cells[0]['2026-01-07'] = [
-      { type: 'text', text: 'A' },
-      { type: 'text', text: 'B' },
-      { type: 'text', text: 'C' },
-    ];
+    const cells: Record<string, CalendarCellOverride[]> = {
+      '2026-01-07': [
+        { type: 'text', text: 'A' },
+        { type: 'text', text: 'B' },
+        { type: 'text', text: 'C' },
+      ],
+    };
     // 2026-01-07 is in English 2026 but NOT Financial 2026-27 → 3 orphans.
     expect(countOrphanedEntries(cells, 'financial', FIXED_NOW)).toBe(3);
   });
@@ -255,12 +248,8 @@ describe('countLeapDayOrphans', () => {
   const LEAP_NOW = new Date(2024, 4, 21, 12, 0, 0);      // 2024 is leap
   const NONLEAP_NOW = new Date(2025, 4, 21, 12, 0, 0);   // 2025 is non-leap
 
-  function cellsWithFeb29(): Record<string, CalendarCellOverride[]>[] {
-    const arr: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 }, () => ({}),
-    );
-    arr[1]['2024-02-29'] = [{ type: 'text', text: 'Bday' }];
-    return arr;
+  function cellsWithFeb29(): Record<string, CalendarCellOverride[]> {
+    return { '2024-02-29': [{ type: 'text', text: 'Bday' }] };
   }
 
   it('returns 0 when the render year IS a leap year', () => {
@@ -276,38 +265,35 @@ describe('countLeapDayOrphans', () => {
   });
 
   it('counts entries, not cells (each cell can have up to 3)', () => {
-    const arr: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 }, () => ({}),
-    );
-    arr[1]['2024-02-29'] = [
-      { type: 'text', text: 'A' },
-      { type: 'text', text: 'B' },
-      { type: 'text', text: 'C' },
-    ];
-    expect(countLeapDayOrphans(arr, 'english', NONLEAP_NOW).count).toBe(3);
+    const cells: Record<string, CalendarCellOverride[]> = {
+      '2024-02-29': [
+        { type: 'text', text: 'A' },
+        { type: 'text', text: 'B' },
+        { type: 'text', text: 'C' },
+      ],
+    };
+    expect(countLeapDayOrphans(cells, 'english', NONLEAP_NOW).count).toBe(3);
   });
 
   it('matches only "YYYY-02-29" exactly — not "02-29" inside other dates', () => {
-    const arr: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 }, () => ({}),
-    );
-    // Should NOT match (length != 10, no -02-29 at the end).
-    arr[1]['not-an-iso-02-29'] = [{ type: 'text', text: 'X' }];
-    arr[1]['2025-02-29-extra'] = [{ type: 'text', text: 'Y' }];
-    expect(countLeapDayOrphans(arr, 'english', NONLEAP_NOW).count).toBe(0);
+    const cells: Record<string, CalendarCellOverride[]> = {
+      // Should NOT match (length != 10, no -02-29 at the end).
+      'not-an-iso-02-29': [{ type: 'text', text: 'X' }],
+      '2025-02-29-extra': [{ type: 'text', text: 'Y' }],
+    };
+    expect(countLeapDayOrphans(cells, 'english', NONLEAP_NOW).count).toBe(0);
   });
 
-  it('counts across multiple surface cells', () => {
-    const arr: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 }, () => ({}),
-    );
-    arr[0]['2020-02-29'] = [{ type: 'text', text: 'A' }];
-    arr[1]['2024-02-29'] = [{ type: 'text', text: 'B' }];
-    expect(countLeapDayOrphans(arr, 'english', NONLEAP_NOW).count).toBe(2);
+  it('counts Feb 29 entries across multiple years', () => {
+    const cells: Record<string, CalendarCellOverride[]> = {
+      '2020-02-29': [{ type: 'text', text: 'A' }],
+      '2024-02-29': [{ type: 'text', text: 'B' }],
+    };
+    expect(countLeapDayOrphans(cells, 'english', NONLEAP_NOW).count).toBe(2);
   });
 
-  it('returns 0 for empty cellsPerCanvas', () => {
-    expect(countLeapDayOrphans([], 'english', NONLEAP_NOW).count).toBe(0);
+  it('returns 0 for an empty cells map', () => {
+    expect(countLeapDayOrphans({}, 'english', NONLEAP_NOW).count).toBe(0);
   });
 
   it('treats financial year (Apr→Mar spans 2 years) using the resolved baseYear', () => {
@@ -330,7 +316,7 @@ describe('CalendarProductPreview — flip warning modal', () => {
   it('does NOT show modal when there are no entries to orphan', async () => {
     const { onCalendarTypeChange } = setup({
       calendarType: 'english',
-      cellsPerCanvas: undefined,
+      cells: undefined,
     });
     await userEvent.click(screen.getByRole('button', { name: /financial/i }));
     expect(screen.queryByTestId('flip-warning-modal')).not.toBeInTheDocument();
@@ -338,15 +324,12 @@ describe('CalendarProductPreview — flip warning modal', () => {
   });
 
   it('does NOT show modal when every entry survives the flip', async () => {
-    const cells: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 },
-      () => ({})
-    );
+    const cells: Record<string, CalendarCellOverride[]> = {};
     // April 15 lives in both English 2026 and Financial 2026-27.
-    cells[3]['2026-04-15'] = [{ type: 'text', text: 'survives' }];
+    cells['2026-04-15'] = [{ type: 'text', text: 'survives' }];
     const { onCalendarTypeChange } = setup({
       calendarType: 'english',
-      cellsPerCanvas: cells,
+      cells: cells,
     });
     await userEvent.click(screen.getByRole('button', { name: /financial/i }));
     expect(screen.queryByTestId('flip-warning-modal')).not.toBeInTheDocument();
@@ -354,14 +337,11 @@ describe('CalendarProductPreview — flip warning modal', () => {
   });
 
   it('SHOWS modal and holds the flip when orphans exist', async () => {
-    const cells: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 },
-      () => ({})
-    );
-    cells[0]['2026-01-07'] = [{ type: 'text', text: "Mom's birthday" }];
+    const cells: Record<string, CalendarCellOverride[]> = {};
+    cells['2026-01-07'] = [{ type: 'text', text: "Mom's birthday" }];
     const { onCalendarTypeChange } = setup({
       calendarType: 'english',
-      cellsPerCanvas: cells,
+      cells: cells,
     });
     await userEvent.click(screen.getByRole('button', { name: /financial/i }));
     expect(screen.getByTestId('flip-warning-modal')).toBeInTheDocument();
@@ -370,14 +350,11 @@ describe('CalendarProductPreview — flip warning modal', () => {
   });
 
   it('cancel closes the modal without firing onCalendarTypeChange', async () => {
-    const cells: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 },
-      () => ({})
-    );
-    cells[0]['2026-01-07'] = [{ type: 'text', text: "Mom's birthday" }];
+    const cells: Record<string, CalendarCellOverride[]> = {};
+    cells['2026-01-07'] = [{ type: 'text', text: "Mom's birthday" }];
     const { onCalendarTypeChange } = setup({
       calendarType: 'english',
-      cellsPerCanvas: cells,
+      cells: cells,
     });
     await userEvent.click(screen.getByRole('button', { name: /financial/i }));
     await userEvent.click(screen.getByTestId('flip-warning-cancel'));
@@ -386,14 +363,11 @@ describe('CalendarProductPreview — flip warning modal', () => {
   });
 
   it('confirm fires onCalendarTypeChange with the new type and closes the modal', async () => {
-    const cells: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 },
-      () => ({})
-    );
-    cells[0]['2026-01-07'] = [{ type: 'text', text: "Mom's birthday" }];
+    const cells: Record<string, CalendarCellOverride[]> = {};
+    cells['2026-01-07'] = [{ type: 'text', text: "Mom's birthday" }];
     const { onCalendarTypeChange } = setup({
       calendarType: 'english',
-      cellsPerCanvas: cells,
+      cells: cells,
     });
     await userEvent.click(screen.getByRole('button', { name: /financial/i }));
     await userEvent.click(screen.getByTestId('flip-warning-confirm'));
@@ -402,31 +376,53 @@ describe('CalendarProductPreview — flip warning modal', () => {
   });
 
   it('modal text uses singular "entry" when only one entry would orphan', async () => {
-    const cells: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 },
-      () => ({})
-    );
-    cells[0]['2026-01-07'] = [{ type: 'text', text: 'one' }];
-    setup({ calendarType: 'english', cellsPerCanvas: cells });
+    const cells: Record<string, CalendarCellOverride[]> = {};
+    cells['2026-01-07'] = [{ type: 'text', text: 'one' }];
+    setup({ calendarType: 'english', cells: cells });
     await userEvent.click(screen.getByRole('button', { name: /financial/i }));
     const modal = screen.getByTestId('flip-warning-modal');
     expect(within(modal).getByText(/1 entry/)).toBeInTheDocument();
   });
 
   it('modal text uses plural "entries" when multiple would orphan', async () => {
-    const cells: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 },
-      () => ({})
-    );
-    cells[0]['2026-01-07'] = [
+    const cells: Record<string, CalendarCellOverride[]> = {};
+    cells['2026-01-07'] = [
       { type: 'text', text: 'A' },
       { type: 'text', text: 'B' },
     ];
-    cells[1]['2026-02-14'] = [{ type: 'text', text: 'C' }];
-    setup({ calendarType: 'english', cellsPerCanvas: cells });
+    cells['2026-02-14'] = [{ type: 'text', text: 'C' }];
+    setup({ calendarType: 'english', cells: cells });
     await userEvent.click(screen.getByRole('button', { name: /financial/i }));
     const modal = screen.getByTestId('flip-warning-modal');
     expect(within(modal).getByText(/3 entries/)).toBeInTheDocument();
+  });
+});
+
+// ─── Flip preserves in-range entries (Phase 2 item 6e regression) ───────────
+
+describe('CalendarProductPreview — in-range entries survive a type flip', () => {
+  it('a May entry keeps its tile dot after English→Financial (dates, not slots)', () => {
+    // 2026-05-10 is inside BOTH English 2026 and FY Apr 2026–Mar 2027. Under
+    // the old positional cellsPerCanvas model, flipping remapped slot→month
+    // and the entry silently vanished from the preview.
+    const cells: Record<string, CalendarCellOverride[]> = {
+      '2026-05-10': [{ type: 'text', text: 'Anniversary' }],
+    };
+
+    const mayTile = () => {
+      const grid = screen.getByTestId('month-tiles-grid');
+      const tile = within(grid).getAllByRole('button')
+        .find(b => b.getAttribute('data-month-label') === 'May 2026');
+      expect(tile).toBeDefined();
+      return tile!;
+    };
+
+    const english = setup({ calendarType: 'english', cells });
+    expect(within(mayTile()).queryAllByTestId('cell-dot').length).toBeGreaterThan(0);
+    english.unmount();
+
+    setup({ calendarType: 'financial', cells });
+    expect(within(mayTile()).queryAllByTestId('cell-dot').length).toBeGreaterThan(0);
   });
 });
 
@@ -434,49 +430,47 @@ describe('CalendarProductPreview — flip warning modal', () => {
 
 describe('CalendarProductPreview — leap-day toast', () => {
   // Build cells with the requested number of Feb 29 entries.
-  function leapCells(count: number): Record<string, CalendarCellOverride[]>[] {
-    const arr: Record<string, CalendarCellOverride[]>[] = Array.from(
-      { length: 12 }, () => ({}),
-    );
-    arr[1]['2024-02-29'] = Array.from(
-      { length: count },
-      (_, i) => ({ type: 'text' as const, text: `E${i}` }),
-    );
-    return arr;
+  function leapCells(count: number): Record<string, CalendarCellOverride[]> {
+    return {
+      '2024-02-29': Array.from(
+        { length: count },
+        (_, i) => ({ type: 'text' as const, text: `E${i}` }),
+      ),
+    };
   }
 
   const NONLEAP_NOW = new Date(2025, 4, 21, 12, 0, 0); // 2025 non-leap
   const LEAP_NOW = new Date(2024, 4, 21, 12, 0, 0);    // 2024 leap
 
   it('does NOT render the toast when render year is leap (2024)', () => {
-    setup({ calendarType: 'english', cellsPerCanvas: leapCells(1), now: LEAP_NOW });
+    setup({ calendarType: 'english', cells: leapCells(1), now: LEAP_NOW });
     expect(screen.queryByTestId('leap-day-toast')).not.toBeInTheDocument();
   });
 
   it('does NOT render the toast when there are 0 Feb 29 entries', () => {
-    setup({ calendarType: 'english', cellsPerCanvas: leapCells(0), now: NONLEAP_NOW });
+    setup({ calendarType: 'english', cells: leapCells(0), now: NONLEAP_NOW });
     expect(screen.queryByTestId('leap-day-toast')).not.toBeInTheDocument();
   });
 
   it('renders the toast when render year is non-leap AND there is ≥1 Feb 29 entry', () => {
-    setup({ calendarType: 'english', cellsPerCanvas: leapCells(1), now: NONLEAP_NOW });
+    setup({ calendarType: 'english', cells: leapCells(1), now: NONLEAP_NOW });
     expect(screen.getByTestId('leap-day-toast')).toBeInTheDocument();
     expect(screen.getByText(/1 entry on Feb 29 won't appear in 2025/)).toBeInTheDocument();
   });
 
   it('uses plural copy when count > 1', () => {
-    setup({ calendarType: 'english', cellsPerCanvas: leapCells(3), now: NONLEAP_NOW });
+    setup({ calendarType: 'english', cells: leapCells(3), now: NONLEAP_NOW });
     expect(screen.getByText(/3 entries on Feb 29 won't appear in 2025/)).toBeInTheDocument();
   });
 
   it('hides the toast after clicking the dismiss button', async () => {
-    setup({ calendarType: 'english', cellsPerCanvas: leapCells(1), now: NONLEAP_NOW });
+    setup({ calendarType: 'english', cells: leapCells(1), now: NONLEAP_NOW });
     await userEvent.click(screen.getByTestId('leap-day-toast-dismiss'));
     expect(screen.queryByTestId('leap-day-toast')).not.toBeInTheDocument();
   });
 
   it('does NOT render the toast when cellsPerCanvas is undefined (initial load)', () => {
-    setup({ calendarType: 'english', cellsPerCanvas: undefined, now: NONLEAP_NOW });
+    setup({ calendarType: 'english', cells: undefined, now: NONLEAP_NOW });
     expect(screen.queryByTestId('leap-day-toast')).not.toBeInTheDocument();
   });
 });

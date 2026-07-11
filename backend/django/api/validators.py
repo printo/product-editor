@@ -242,6 +242,29 @@ def validate_calendar_layout(layout_data: dict) -> None:
         if max_entries is not None and (not isinstance(max_entries, int) or not (1 <= max_entries <= 10)):
             raise ValidationError("calendar.maxEntriesPerCell must be an integer 1..10")
 
+        # Optional month-title block (Phase 2) — validate at save time so a
+        # bad value fails the ops PUT with a message instead of crashing
+        # every render of the layout.
+        month_title = style.get('monthTitle')
+        if month_title is not None:
+            if not isinstance(month_title, dict):
+                raise ValidationError("calendar.monthTitle must be an object")
+            for k, lo, hi in (('x', 0, 100), ('y', 0, 100), ('fontSize', 1, 500)):
+                v = month_title.get(k)
+                if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not (lo <= v <= hi)):
+                    raise ValidationError(
+                        f"calendar.monthTitle.{k} must be a number in [{lo}, {hi}]"
+                    )
+            fw = month_title.get('fontWeight')
+            if fw is not None and (isinstance(fw, bool) or not isinstance(fw, int) or not (100 <= fw <= 900)):
+                raise ValidationError("calendar.monthTitle.fontWeight must be an integer 100..900")
+            ta = month_title.get('textAlign')
+            if ta is not None and ta not in {'left', 'center', 'right'}:
+                raise ValidationError("calendar.monthTitle.textAlign must be 'left' / 'center' / 'right'")
+            col = month_title.get('color')
+            if col is not None and not isinstance(col, str):
+                raise ValidationError("calendar.monthTitle.color must be a string")
+
     # ── surfaceOverrides (sparse, per-month) ─────────────────────────────
     overrides = layout_data.get('surfaceOverrides')
     if overrides is not None:
@@ -268,6 +291,17 @@ def validate_calendar_layout(layout_data: dict) -> None:
             # at save time rather than at render time.
             ovr_frames = ovr.get('frames')
             if isinstance(ovr_frames, list):
+                # Frame COUNT is pinned to the template: the render payload
+                # is sliced per month with a uniform template stride, so an
+                # override that adds/removes frames would desync photo
+                # slicing and emit spurious extra pages into the ZIP.
+                template_frame_count = len(layout_data.get('frames') or [])
+                if len(ovr_frames) != template_frame_count:
+                    raise ValidationError(
+                        f"surfaceOverrides['{surface_key}'].frames must contain exactly "
+                        f"{template_frame_count} frame(s) to match the template — per-month "
+                        f"overrides may reposition frames but not change their count."
+                    )
                 for i, f in enumerate(ovr_frames):
                     if not isinstance(f, dict):
                         continue
@@ -318,3 +352,48 @@ def validate_calendar_layout(layout_data: dict) -> None:
                             f"extends past the bottom canvas edge: "
                             f"y ({cy}) + height ({ch}) = {cy + ch:.4f}, must be ≤ 1.0"
                         )
+
+    # ── Overlays (template + per-month) use PERCENT coords, not fractions ──
+    # Unlike frames/calendars (0..1 fractions), overlays follow the editor's
+    # Overlay contract: x/y/width/height are percentages of the canvas
+    # (0-100). An ops-authored overlay written in fractions would silently
+    # render collapsed into the top-left corner of every print — the exact
+    # silent-wrong-print class this codebase guards against.
+    def _check_overlays(overlay_list, where: str) -> None:
+        if not isinstance(overlay_list, list):
+            return
+        for i, o in enumerate(overlay_list):
+            if not isinstance(o, dict):
+                continue
+            fields = {}
+            for k in ('x', 'y', 'width', 'height'):
+                if o.get(k) is None:
+                    continue
+                try:
+                    fields[k] = float(o[k])
+                except (ValueError, TypeError):
+                    raise ValidationError(
+                        f"{where}[{i}].{k} = {o[k]!r} is not a number — overlay "
+                        f"coordinates must be numeric PERCENT of the canvas (0-100)."
+                    )
+            for k, v in fields.items():
+                if not (0 <= v <= 100):
+                    raise ValidationError(
+                        f"{where}[{i}].{k} = {v} is out of range — overlay "
+                        f"coordinates are PERCENT of the canvas (0-100)."
+                    )
+            sized = {k: v for k, v in fields.items() if k in ('width', 'height')}
+            if sized and all(0 < v <= 1 for v in fields.values() if v):
+                raise ValidationError(
+                    f"{where}[{i}] looks like it uses 0..1 fractions "
+                    f"({fields}) — overlay coordinates are PERCENT of the "
+                    f"canvas (0-100), unlike frames/calendars."
+                )
+
+    _check_overlays(layout_data.get('overlays'), "overlays")
+    if isinstance(overrides, dict):
+        for surface_key, ovr in overrides.items():
+            if isinstance(ovr, dict):
+                _check_overlays(
+                    ovr.get('overlays'), f"surfaceOverrides['{surface_key}'].overlays"
+                )

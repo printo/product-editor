@@ -68,6 +68,35 @@ def _extract_overlays_per_canvas(editor_state: dict | None) -> list | None:
     return out
 
 
+def _extract_backgrounds_per_canvas(editor_state: dict | None) -> list | None:
+    """
+    Extract per-canvas background + paper colours from CanvasData.editor_state
+    for the server-side renderer (Phase 2 WYSIWYG). Returns a list aligned with
+    the canvas order used by _extract_frame_transforms / _extract_overlays:
+
+        [ {'bg': '#rrggbb'|None, 'paper': '#rrggbb'|None},  # canvas 0
+          ... ]
+
+    Returns None when editor_state is absent or no canvas set a colour — the
+    engine then falls back to a plain white background (byte-identical to the
+    previous behaviour).
+    """
+    if not editor_state:
+        return None
+    canvases = editor_state.get('canvases') or []
+    if not canvases:
+        return None
+    out = []
+    any_set = False
+    for cv in canvases:
+        bg = cv.get('bg_color') if isinstance(cv, dict) else None
+        paper = cv.get('paper_color') if isinstance(cv, dict) else None
+        if bg or paper:
+            any_set = True
+        out.append({'bg': bg, 'paper': paper})
+    return out if any_set else None
+
+
 def _extract_calendar_state(editor_state: dict | None):
     """
     Pull the customer's calendar-product choices out of editor_state for
@@ -82,9 +111,17 @@ def _extract_calendar_state(editor_state: dict | None):
             'theme_preset':     'modern-minimalist' | 'modern-genz' | 'weekday-highlight' | None,
             'calendar_type':    'english' | 'financial' | None,
             'palette':          '<palette name>' | None,   # only relevant for Gen-Z
-            'cells_per_canvas': [{ iso_date: [override, ...] }, ...]
-                                # one entry per editor canvas, in saved order
+            'cells':            { iso_date: [override, ...] }
+                                # ONE flat product-wide map — entries key by
+                                # globally-unique ISO date, so per-canvas
+                                # association was never needed (Phase 2 item 6)
+            'num_canvases':     int  # payload canvas count, for the engine's
+                                     # per-month photo slicing
         }
+
+    Both payload generations merge into the flat map: the current frontend
+    sends the same product-wide cells map on every canvas (idempotent), and
+    legacy per-index payloads union by their unique ISO keys.
 
     Returns None when editor_state is absent or contains no calendar
     blocks — the engine then renders with layout-level defaults only.
@@ -95,15 +132,16 @@ def _extract_calendar_state(editor_state: dict | None):
     if not canvases:
         return None
 
-    cells_per_canvas: list[dict] = []
+    cells: dict = {}
     any_calendar_state = False
     for cv in canvases:
         cal = cv.get('calendar') if isinstance(cv, dict) else None
         if isinstance(cal, dict):
             any_calendar_state = True
-            cells_per_canvas.append(dict(cal.get('cells') or {}))
-        else:
-            cells_per_canvas.append({})
+            for iso, entries in (cal.get('cells') or {}).items():
+                # Defensive: re-enforce the 3-entries-per-cell cap after the
+                # merge (legacy corrupt states could hold dupes across slots).
+                cells[iso] = list(entries or [])[:3]
 
     if not any_calendar_state:
         return None
@@ -128,8 +166,59 @@ def _extract_calendar_state(editor_state: dict | None):
         'theme_preset': theme_preset,
         'calendar_type': calendar_type,
         'palette': palette,
-        'cells_per_canvas': cells_per_canvas,
+        'cells': cells,
+        'num_canvases': len(canvases),
     }
+
+
+def _extract_canvases_meta(editor_state: dict | None) -> list | None:
+    """
+    Per-payload-canvas metadata for the engine's per-surface grouping
+    (Phase 3): [{'surface_key': str|None, 'frame_count': int}, ...] in canvas
+    order. Returns None when the payload carries no canvases — the engine
+    then keeps its legacy whole-list behaviour.
+    """
+    if not editor_state:
+        return None
+    canvases = editor_state.get('canvases') or []
+    if not canvases:
+        return None
+    return [
+        {
+            'surface_key': cv.get('surface_key') if isinstance(cv, dict) else None,
+            'frame_count': len(cv.get('frames') or []) if isinstance(cv, dict) else 0,
+        }
+        for cv in canvases
+    ]
+
+
+def _free_space_mb(path: str) -> float:
+    """Free disk space at `path` in MB (used by the disk-full pre-flight)."""
+    import shutil
+    try:
+        return shutil.disk_usage(path).free / (1024 * 1024)
+    except OSError:
+        return float('inf')  # can't stat — don't block the render on it
+
+
+def _resolve_render_inputs(canvas_data) -> tuple:
+    """
+    Pick the render contract source and image paths for a render job.
+
+    The contract comes from the submit-time snapshot (render_state); falling
+    back to editor_state keeps jobs enqueued before the 0008 deploy (whose
+    payload lived in editor_state in the old shape) rendering correctly,
+    including acks_late redeliveries.
+
+    image_paths come from the snapshot, not the row: a post-submit autosave
+    (CanvasStateView) resets CanvasData.image_paths to [] — the snapshot is
+    immutable for the lifetime of the queued job.
+
+    Returns (render_source, image_paths).
+    """
+    render_source = canvas_data.render_state or canvas_data.editor_state
+    image_paths = (canvas_data.render_state or {}).get('image_paths') or canvas_data.image_paths
+    return render_source, image_paths
 
 
 def _build_uploaded_files_map(canvas_data, overlays_per_canvas) -> dict | None:
@@ -211,6 +300,83 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         pass
 
     job = RenderJob.objects.get(id=job_id)
+
+    # ── Poison-pill guard (Phase 4) ───────────────────────────────────────────
+    # acks_late=True + task_reject_on_worker_lost means a payload that CRASHES
+    # the worker process (C-level Pillow abort, SIGKILL/OOM — past the
+    # Python-level Image.MAX_IMAGE_PIXELS guard) is redelivered forever, killing
+    # workers in a loop. Count deliveries per job; after 3, fail the job and
+    # ACK (return) so the poison pill drains. Rides the fail-open cache — if the
+    # cache is down the guard is skipped and old behaviour returns.
+    # Count ONLY genuine broker redeliveries (crash / worker-lost), NOT the
+    # task's own self.retry() re-executions. A self.retry() publishes a fresh
+    # message (redelivered=False, retries bumped); a worker crash under
+    # acks_late redelivers the SAME message (redelivered=True, retries frozen).
+    # Counting every execution would steal a transiently-failing job's final
+    # legitimate retry and mislabel it as a crash.
+    _MAX_DELIVERIES = 3
+    _redelivered = bool(
+        getattr(self.request, 'delivery_info', None)
+        and self.request.delivery_info.get('redelivered')
+    )
+    if _redelivered:
+        logger.warning("Render job %s was redelivered (possible crash-loop)", job_id)
+    try:
+        if _redelivered:
+            from django.core.cache import cache
+            dkey = f'render_deliveries:{job_id}'
+            cache.add(dkey, 0, 7200)
+            crash_deliveries = cache.incr(dkey)
+        else:
+            crash_deliveries = 0
+        if crash_deliveries > _MAX_DELIVERIES:
+            logger.error(
+                "Render job %s aborted: %d crash-redeliveries — payload keeps crashing the worker",
+                job_id, crash_deliveries,
+            )
+            job.status = 'failed'
+            job.error_message = (
+                'Render aborted: the design repeatedly crashed the renderer '
+                '(possible corrupt or oversized image). Please re-check the photos.'
+            )
+            job.completed_at = timezone.now()
+            job.retry_count = self.max_retries
+            job.save(update_fields=['status', 'error_message', 'completed_at', 'retry_count'])
+            try:
+                canvas_cb = CanvasData.objects.filter(id=canvas_data_id).first()
+                if canvas_cb and canvas_cb.callback_url:
+                    notify_caller_render_failed_task.apply_async(
+                        args=[canvas_data_id, job.error_message],
+                        queue=job.queue_name or 'standard',
+                    )
+            except Exception:
+                pass
+            return  # ACK under acks_late — drains the poison pill
+    except Exception:
+        pass  # cache unavailable — guard disabled, proceed
+
+    # ── Disk-full pre-flight (Phase 4) ────────────────────────────────────────
+    # A render into a full EXPORTS_DIR writes a partial PNG then crashes; with
+    # retries that's a wasted 8 s loop against a disk that won't clear. Fail
+    # fast with a clear message instead.
+    if _free_space_mb(settings.EXPORTS_DIR) < 500:
+        logger.error("Render job %s aborted: EXPORTS_DIR free space < 500 MB", job_id)
+        job.status = 'failed'
+        job.error_message = 'Server storage is full — render aborted before writing any files.'
+        job.completed_at = timezone.now()
+        job.retry_count = self.max_retries
+        job.save(update_fields=['status', 'error_message', 'completed_at', 'retry_count'])
+        try:
+            canvas_cb = CanvasData.objects.filter(id=canvas_data_id).first()
+            if canvas_cb and canvas_cb.callback_url:
+                notify_caller_render_failed_task.apply_async(
+                    args=[canvas_data_id, job.error_message],
+                    queue=job.queue_name or 'standard',
+                )
+        except Exception:
+            pass
+        return
+
     job.status = 'processing'
     job.started_at = timezone.now()
     job.save(update_fields=['status', 'started_at'])
@@ -236,22 +402,33 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
 
         start_time = time.time()
 
+        render_source, image_paths = _resolve_render_inputs(canvas)
+
         # Extract per-frame transforms saved by EditorRenderView so the engine
         # can reproduce the exact pan / zoom / rotation the user set in the editor.
-        frame_transforms = _extract_frame_transforms(canvas.editor_state)
+        frame_transforms = _extract_frame_transforms(render_source)
 
         # Phase 1 (CALENDAR_FEATURE_PRD.md §5) — extract overlays + the upload
         # map so text/shape/image overlays render server-side. Layouts without
         # overlays return None here and the engine fast-paths past the new code.
-        overlays_per_canvas = _extract_overlays_per_canvas(canvas.editor_state)
+        overlays_per_canvas = _extract_overlays_per_canvas(render_source)
         uploaded_files = _build_uploaded_files_map(canvas, overlays_per_canvas)
+
+        # Phase 2 (WYSIWYG) — per-canvas background + paper colours so the print
+        # matches the colours the customer chose (previously hardcoded white).
+        backgrounds_per_canvas = _extract_backgrounds_per_canvas(render_source)
 
         # Phase 4 (Bug B fix) — extract customer-side calendar state. Returns
         # None for non-calendar products; engine then uses the layout's ops
         # defaults. For calendar products the customer's themePreset /
         # calendarType / palette choices override the layout defaults at
         # materialize time; per-canvas cells override at render time.
-        calendar_state = _extract_calendar_state(canvas.editor_state)
+        calendar_state = _extract_calendar_state(render_source)
+
+        # Phase 3 — per-surface grouping metadata so multi-surface products
+        # render each surface with ITS OWN photos (previously every surface
+        # rendered the whole flattened list).
+        canvases_meta = _extract_canvases_meta(render_source)
 
         try:
             logger.info(
@@ -262,13 +439,15 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             )
             outputs = engine.generate(
                 canvas.layout_name,
-                canvas.image_paths,
+                image_paths,
                 fit_mode=canvas.fit_mode,
                 export_format=canvas.export_format,
                 frame_transforms=frame_transforms,
                 overlays_per_canvas=overlays_per_canvas,
                 uploaded_files=uploaded_files,
                 calendar_state=calendar_state,
+                backgrounds_per_canvas=backgrounds_per_canvas,
+                canvases_meta=canvases_meta,
             )
             output_paths = outputs
 
@@ -276,7 +455,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             # MemoryError is unrecoverable — skip retries immediately.
             error_msg = (
                 f"Render exceeded 512 MB memory limit. "
-                f"Layout '{canvas.layout_name}' with {len(canvas.image_paths)} images "
+                f"Layout '{canvas.layout_name}' with {len(image_paths)} images "
                 f"requires more memory than available."
             )
             logger.error("Job %s failed with MemoryError: %s", job_id, error_msg, exc_info=True)
@@ -285,6 +464,12 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             job.error_message = error_msg
             job.retry_count = self.max_retries  # prevent any further retry
             job.save(update_fields=['status', 'completed_at', 'error_message', 'retry_count'])
+            # Tell the embed caller the render failed so their order flow does
+            # not stall forever waiting on a success webhook that never comes.
+            if canvas.callback_url:
+                notify_caller_render_failed_task.apply_async(
+                    args=[str(canvas.id), error_msg], queue='standard', countdown=0,
+                )
             return
 
         except SoftTimeLimitExceeded:
@@ -295,6 +480,10 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             job.error_message = error_msg
             job.retry_count = self.max_retries  # timeouts are not worth retrying
             job.save(update_fields=['status', 'completed_at', 'error_message', 'retry_count'])
+            if canvas.callback_url:
+                notify_caller_render_failed_task.apply_async(
+                    args=[str(canvas.id), error_msg], queue='standard', countdown=0,
+                )
             return
 
         generation_time_ms = int((time.time() - start_time) * 1000)
@@ -311,6 +500,13 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         job.generation_time_ms = generation_time_ms
         job.output_paths = output_paths
         job.save(update_fields=['status', 'completed_at', 'generation_time_ms', 'output_paths'])
+
+        # Success — drop the poison-pill delivery counter (Phase 4).
+        try:
+            from django.core.cache import cache
+            cache.delete(f'render_deliveries:{job_id}')
+        except Exception:
+            pass
 
         # Notify the caller's webhook (embed flow only — direct/dashboard
         # callers poll /api/render-status/<job_id>/ instead). Skipping the
@@ -361,6 +557,14 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                 exc_info=True,
             )
             job.save(update_fields=['status', 'retry_count', 'error_message', 'completed_at'])
+            # Notify the embed caller of the terminal failure (defensive
+            # locals() lookup: canvas may be undefined if the failure happened
+            # before it was fetched).
+            _canvas = locals().get('canvas')
+            if _canvas is not None and getattr(_canvas, 'callback_url', None):
+                notify_caller_render_failed_task.apply_async(
+                    args=[str(_canvas.id), str(exc)], queue='standard', countdown=0,
+                )
         else:
             job.status = 'queued'
             job.save(update_fields=['status', 'retry_count', 'error_message'])
@@ -375,7 +579,8 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
 
 @shared_task(
     bind=True,
-    max_retries=5,
+    max_retries=8,   # ~3 min total window (see capped backoff below) so a brief
+                     # callback outage doesn't permanently lose delivery.
     acks_late=True,
 )
 def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
@@ -486,8 +691,13 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
         hashlib.sha256,
     ).hexdigest()
 
+    from services.url_safety import post_webhook_safely
+    from django.core.exceptions import ValidationError as _URLValidationError
     try:
-        response = requests.post(
+        # SSRF re-validation at SEND time (DNS-rebinding defence) + IP pinning
+        # + no redirect-following. A URL that passed at session-create can
+        # still rebind to an internal target before this POST fires.
+        response = post_webhook_safely(
             canvas.callback_url,
             data=raw_body,
             headers={
@@ -502,6 +712,16 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
             canvas.callback_url, canvas.order_id, job_id,
             self.request.retries + 1,
         )
+    except _URLValidationError as exc:
+        # The target is not publicly routable — do NOT retry (it won't become
+        # valid) and flag for manual review instead of hammering it.
+        logger.error(
+            "Webhook to %s BLOCKED for order %s (SSRF guard): %s",
+            canvas.callback_url, canvas.order_id, exc,
+        )
+        canvas.requires_manual_review = True
+        canvas.save(update_fields=['requires_manual_review'])
+        return
     except Exception as exc:
         retry_number = self.request.retries
         exhausted = retry_number >= self.max_retries
@@ -530,7 +750,7 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
                     canvas.api_key.key.encode('utf-8'),
                     fail_body, hashlib.sha256,
                 ).hexdigest()
-                requests.post(
+                post_webhook_safely(
                     canvas.callback_url,
                     data=fail_body,
                     headers={
@@ -542,12 +762,96 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
             except Exception:
                 pass  # Manual review flag will catch it.
         else:
-            delay = 2 ** retry_number  # 1s, 2s, 4s, 8s, 16s
+            delay = min(2 ** retry_number, 60)  # 1,2,4,8,16,32,60,60 → ~3 min total
             logger.warning(
                 "Webhook attempt %d/%d failed for order %s: %s. Retry in %ds.",
                 retry_number + 1, self.max_retries + 1, canvas.order_id, exc, delay,
             )
             raise self.retry(exc=exc, countdown=delay)
+
+
+@shared_task(
+    bind=True,
+    max_retries=8,   # ~3 min total window (capped backoff below).
+    acks_late=True,
+)
+def notify_caller_render_failed_task(self, canvas_data_id: str, error_message: str = ''):
+    """
+    Notify the embed caller that a RENDER failed, so their order flow does not
+    stall forever waiting on the success webhook (which never fires on a failed
+    render). Mirrors ``notify_caller_webhook_task`` but sends ``status='failed'``
+    with no ``download_url``. Dispatched from ``render_canvas_task``'s terminal
+    failure paths, gated on ``canvas.callback_url``.
+
+    Signed the same way as the success webhook — HMAC-SHA256(api_key, raw_body)
+    in the ``X-Signature`` header — so the caller verifies it identically.
+    """
+    import hmac
+    import hashlib
+    import json as _json
+    import requests
+    from api.models import CanvasData, RenderJob
+
+    canvas = CanvasData.objects.select_related('api_key').get(id=canvas_data_id)
+    if not canvas.callback_url:
+        logger.info("Skipping failure webhook for order %s — callback_url empty", canvas.order_id)
+        return
+
+    rjob = RenderJob.objects.filter(canvas_data=canvas).order_by('-created_at').first()
+    job_id = str(rjob.id) if rjob else None
+
+    fail_payload = {
+        'order_id':      canvas.order_id,
+        'job_id':        job_id,
+        'status':        'failed',
+        'error':         (error_message or 'Render failed')[:500],
+        'layout_name':   canvas.layout_name,
+        'export_format': canvas.export_format,
+    }
+    raw_body = _json.dumps(fail_payload, separators=(',', ':')).encode('utf-8')
+    signature = hmac.new(
+        canvas.api_key.key.encode('utf-8'), raw_body, hashlib.sha256,
+    ).hexdigest()
+
+    from services.url_safety import post_webhook_safely
+    from django.core.exceptions import ValidationError as _URLValidationError
+    try:
+        response = post_webhook_safely(  # SSRF-guarded (see notify_caller_webhook_task)
+            canvas.callback_url,
+            data=raw_body,
+            headers={'Content-Type': 'application/json', 'X-Signature': f'sha256={signature}'},
+            timeout=10,
+        )
+        response.raise_for_status()
+        logger.info(
+            "Failure webhook delivered to %s for order %s (job=%s, attempt %d)",
+            canvas.callback_url, canvas.order_id, job_id, self.request.retries + 1,
+        )
+    except _URLValidationError as exc:
+        logger.error(
+            "Failure webhook to %s BLOCKED for order %s (SSRF guard): %s",
+            canvas.callback_url, canvas.order_id, exc,
+        )
+        canvas.requires_manual_review = True
+        canvas.save(update_fields=['requires_manual_review'])
+        return
+    except Exception as exc:
+        retry_number = self.request.retries
+        if retry_number >= self.max_retries:
+            logger.error(
+                "Failure webhook to %s exhausted for order %s after %d attempts: %s",
+                canvas.callback_url, canvas.order_id, self.max_retries + 1, exc,
+                exc_info=True,
+            )
+            canvas.requires_manual_review = True
+            canvas.save(update_fields=['requires_manual_review'])
+            return
+        delay = min(2 ** retry_number, 60)  # 1,2,4,8,16,32,60,60 → ~3 min total
+        logger.warning(
+            "Failure webhook attempt %d/%d failed for order %s: %s. Retry in %ds.",
+            retry_number + 1, self.max_retries + 1, canvas.order_id, exc, delay,
+        )
+        raise self.retry(exc=exc, countdown=delay)
 
 
 @shared_task(

@@ -115,3 +115,9 @@ frontend/nextjs/next-env.d.ts
 graphify-out/cache/
 graphify-out/.graphify_python
 graphify-out/.graphify_root
+
+# Hardening PRD — living doc kept locally; shared via the Artifact link, not tracked
+product-editor-hardening-prd.html
+
+# Local backup artifacts (Phase 4)
+backups/

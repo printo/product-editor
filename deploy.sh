@@ -307,6 +307,26 @@ else
   fi
 fi
 
+# Run migrations BEFORE recreating app containers. New-code containers
+# started against an unmigrated DB 500 on submits and permanently fail any
+# queued render job (burning its retries in ~14 s, firing a false "failed"
+# webhook at the storefront). Migrations are always backward-compatible
+# (nullable adds / index changes), so old containers keep working while
+# the schema moves first. A migration failure must ABORT the deploy — the
+# old code keeps running untouched.
+if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
+  print_header "Database Migrations (before container swap)"
+  print_action "Ensuring db is up..."
+  docker-compose up -d db redis
+  print_action "Running migrations with the freshly built image..."
+  if docker-compose run --rm backend python manage.py migrate --noinput; then
+    print_status "Migrations applied"
+  else
+    print_error "Migrations FAILED — aborting before swapping containers (old code still running)"
+    exit 1
+  fi
+fi
+
 # Start services
 print_header "Starting Services"
 if [[ "$MODE" == "backend" ]]; then
@@ -350,13 +370,10 @@ else
   fi
 fi
 
-# Run migrations
+# Migrations already ran before the container swap (see above). A no-op
+# safety pass catches anything a hotfix added between build and start.
 if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
-  print_header "Database Migrations"
-  print_action "Waiting for database to be ready..."
-  sleep 5
-  print_status "Database ready"
-  print_action "Running migrations..."
+  print_header "Database Migrations (post-start safety pass)"
   docker-compose exec -T backend python manage.py migrate --noinput 2>&1 | while read line; do
     if [[ "$line" =~ "Applying" ]]; then
       echo -e "${CYAN}→${NC} $line"
@@ -364,7 +381,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
       echo -e "${GREEN}✓${NC} $line"
     fi
   done || {
-    print_warning "Migrations failed or already applied"
+    print_warning "Post-start migrate check failed — investigate before routing traffic"
   }
   print_status "Migrations completed"
 fi

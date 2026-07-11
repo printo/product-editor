@@ -187,6 +187,7 @@ export function MonthTileThumb({
                   {dotInfo.dotColors.map((c, di) => (
                     <span
                       key={di}
+                      data-testid="cell-dot"
                       className="rounded-full"
                       style={{ background: c, width: '2px', height: '2px' }}
                     />

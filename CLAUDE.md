@@ -51,9 +51,9 @@ Open `graphify-out/graph.html` in a browser for the interactive visualisation.
 ### Frontend (Next.js)
 ```bash
 cd frontend/nextjs
-npm run dev       # Development server (http://localhost:3000 direct, or http://localhost:5004 via Docker)
-npm run build     # Production build
-npm run lint      # ESLint
+pnpm dev          # Development server (http://localhost:3000 direct, or http://localhost:5004 via Docker)
+pnpm build        # Production build
+pnpm lint         # ESLint
 ```
 
 ### Backend (Django)
@@ -120,7 +120,8 @@ All exports go through one unified server-side pipeline. The previous client-sid
 - `src/components/ServiceWorkerRegistration.tsx` — registers `/sw.js` in production after `window.load`. No-op in dev so cache doesn't mask code changes. Wired into `app/layout.tsx`.
 - `public/sw.js` — minimal cache-first Service Worker for `/_next/static/*` and `/static/*`. `CACHE_VERSION` constant gates cache buckets; bump to bust everything. See `## Service Worker` section.
 - `src/lib/fabric-renderer.ts` — Off-screen canvas renderer for previews and exports; uses pre-computed `frameRects[]` array to avoid repeated coordinate recalculation. `calculateSmartCropOffsets` clamps the returned offset to the frame's actual per-axis pan room — see v1.10 fix.
-- `src/lib/image-utils.ts` — Image metadata extraction; WeakMap caches only `{width, height, orientation}` (not the HTMLImageElement — would OOM at 200 files)
+- `src/lib/image-utils.ts` — Image metadata extraction; WeakMap caches only `{width, height, orientation}` (not the HTMLImageElement — would OOM at 200 files). `getImageSize()` is the cache-first dims-only accessor for sweeps that must not re-decode.
+- `src/lib/dpi-utils.ts` — Effective print-DPI estimation for the low-res warning (Phase 2). Mirrors the fabric-renderer/engine placement math exactly (rotated bbox → cover/contain baseScale → × zoom); thresholds `DPI_WARN=150` / `DPI_CRITICAL=100`, strict `<` so exactly 150 doesn't warn. Card pills + pre-submit modal notices in `page.tsx` are non-blocking by design. If the placement math changes in either renderer, update this module too.
 - `src/lib/upload-utils.ts` — Chunked upload utility: `uploadFile()` (single, sequential chunks) and `uploadFiles()` (batched, 4 parallel)
 - `src/lib/zip-utils.ts` — Chunked ZIP generation for client-side batch downloads
 - `src/lib/file-store.ts` — IndexedDB-backed File persistence keyed by `(orderId, fileId)`; recovers `originalFile` after page refresh. See "B1 — Canvas state file persistence" below.
@@ -134,6 +135,7 @@ All exports go through one unified server-side pipeline. The previous client-sid
 - `api/validators.py` — `MAX_FILE_SIZE_MB` reads from `settings.MAX_UPLOAD_FILE_SIZE_MB` (single source via env)
 - `layout_engine/engine.py` — Pillow-based high-res PNG/PDF renderer at 300 DPI; `_smart_downscale()` pre-shrinks source images to 2× frame target (BOX resample); 90/180/270° rotation fast-path via `Image.transpose`; per-frame pan/zoom/rotation from `frame_transforms`; explicit `Image.close()` + `gc.collect()` between canvases. CMYK/soft-proof pipeline removed in v1.8. **As of CALENDAR_FEATURE_PRD Phase 1**: `_composite_canvas` now also accepts `overlays` + `uploaded_files` and invokes `services.overlay_renderer.render_overlays` after frame compositing and before the layout mask, so text/shape/image overlays appear in the 300 DPI output (previously preview-only).
 - `services/overlay_renderer.py` — `render_overlays(canvas, overlays, canvas_w_px, canvas_h_px, uploaded_files)` draws text / shape / image overlays via Pillow `ImageDraw`. Single bundled font (Inter Variable) per PRD §11.7 — no font picker. Phase 1 deliverable; foundation for Phase 4 (calendar renderer).
+- `services/image_loader.py` — **the single choke point for opening customer photos server-side** (`open_source_rgba(path)`): EXIF orientation + ICC→sRGB colour management (Display-P3 iPhone photos, AdobeRGB, CMYK-tagged JPEGs) via lcms2, fail-open on malformed profiles. All three render paths (frames in `engine.py`, image overlays, calendar cell images) load through it; output PNGs are tagged with an explicit sRGB profile (`srgb_profile_bytes()`). Never call `Image.open(...).convert("RGBA")` directly on customer photos — it silently discards the embedded profile and shifts colours in print.
 - `services/fonts.py` — `get_font(size_px, weight)` returns a cached `PIL.ImageFont` for the bundled `services/fonts_assets/Inter-Variable.ttf`. Uses the variable axis to serve any weight from a single 859 KB .ttf. Falls back to PIL default on missing-font (logged once). Boot-time `startup_check()` warns if the font is absent.
 - `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. README in the same dir documents the install convention.
 - `product_editor/celery.py` — Queue routing (priority vs. standard), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
@@ -352,7 +354,7 @@ PIA fetches use `AbortSignal.timeout(10_000)` (10 s) on both `/auth/` and `/auth
 A second `Credentials` provider (`id: "google"`) in `pia-auth.ts` handles "Sign in with Google". The login page renders a Google Identity Services (GIS) button — client-id only, **no client secret** — which returns a Google **ID token** to the browser. `googleLoginAction` (`app/actions/auth.ts`, same per-IP rate limit as the password flow) dispatches `signIn("google", { id_token })`; the provider POSTs `{ id_token }` to **`{PIA_API_BASE_URL}/auth/google/login/`**, which returns the *same* `{ access, refresh, employee_id, full_name, is_super_user, is_ops_team }` payload as `/auth/`. So the `jwt`/`session` callbacks, token refresh, and Django Bearer auth are all identical to the password flow — Google is just a different way to obtain PIA tokens.
 
 - **Domain gate (`@printo.in`)**: enforced server-side in `authorize`. After PIA validates the token (proving its claims genuine), the ID token is decoded and rejected unless `hd === 'printo.in'` or the verified email ends in `@printo.in` → throws `GoogleDomainNotAllowedError` (code `GoogleDomainNotAllowed` → "Please sign in with your @printo.in Google account."). The client `hd` hint is advisory only.
-- **Client ID**: public; read from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (inlined at build time, so set it before `npm run build`) with printo.in's ID as a hardcoded fallback in `login/page.tsx`. The endpoint path is the const `PIA_GOOGLE_AUTH_PATH` in `pia-auth.ts`.
+- **Client ID**: public; read from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (inlined at build time, so set it before `pnpm build`) with printo.in's ID as a hardcoded fallback in `login/page.tsx`. The endpoint path is the const `PIA_GOOGLE_AUTH_PATH` in `pia-auth.ts`.
 - **No CSP/COOP changes**: `/login` carries no CSP from `next.config.mjs` (only the embed/layout routes get `frame-ancestors`), and there are no COOP headers, so the GIS script + popup load freely. If CSP is ever enforced on `/login`, the GIS button needs `script-src`/`frame-src`/`connect-src https://accounts.google.com`.
 - GIS types live in `src/types/google-gsi.d.ts` (minimal `window.google.accounts.id` surface — no `as any`).
 
@@ -462,8 +464,11 @@ All under `STORAGE_ROOT` (env-driven). See [`services/CALENDAR_S3_READINESS.md`]
 ### Editor → ZIP delivery (calendar variant)
 
 Identical to the standard editor flow except:
-- `editor_state.cells_per_canvas` is a list of `{ iso_date: [CellOverride] }` maps (one per surface) instead of frame transforms.
-- `tasks.py::_extract_calendar_state()` pulls customer-side calendar choices (themePreset / calendarType / palette) and passes them to engine.generate as `calendar_state`.
+- Per-day entries are ONE flat product-wide `{ iso_date: [CellOverride] }` map (`calendarState.cells` in the autosave, `calendar.cells` on every canvas in the render payload). Entries anchor to globally-unique ISO dates, not tile positions — so photo-canvas count and English↔Financial flips can never lose or misplace them. Legacy 12-slot `cellsPerCanvas` arrays are still read (restore + `_extract_calendar_state` both merge them flat).
+- `tasks.py::_extract_calendar_state()` pulls customer-side calendar choices (themePreset / calendarType / palette), merges cells flat, and passes `num_canvases` so the engine can slice photos per month.
+- **Photo → month mapping (Phase 2):** the frontend caps photo canvases at 12 for calendar products; the engine renders exactly 12 outputs, month *i* compositing photo-canvas *(i mod N)* — 1 uploaded photo cycles to all 12 months, 12 photos map one-per-month. Upload order therefore matters. (Previously N photos produced 12·N files in the ZIP.)
+- Theme colours resolve server-side at materialize time (`_resolve_theme_style` reads `storage/calendar_styles/<preset>.json`, ops layout colours win) so weekday-highlight/Gen-Z prints match the preview. Gen-Z paints the palette background; the palette loader reads under `settings.STORAGE_ROOT` (the old `default_storage` path never resolved at render time).
+- Materialized surface overlays (ops month artwork) now render in the print, under customer overlays. An opt-in `calendar.monthTitle` style block (`{enabled, x, y, fontSize, color, textAlign}`) synthesizes a "January 2026" text overlay per month without any overlay-authoring UI.
 - ZIP filenames embed `displayLabel` (above).
 
 ### Customer-facing fail-safes (PRD §11)
@@ -490,7 +495,7 @@ calendar-styles
 
 ### Performance
 
-12-surface multi-surface calendar render: **~1.8 s** wall time on the dev Docker container (P9.5 baseline, May 24 2026). Target was ≤ 90 s; current margin is 88 s. Per-surface mean ~150 ms; RSS delta < 1 MB. Re-run `/tmp/p9-perf-bench.py` (Phase 9 artifact) to check for regressions when the engine changes.
+12-surface multi-surface calendar render: **~1.8 s** wall time on the dev Docker container (P9.5 baseline, May 24 2026). Target was ≤ 90 s; current margin is 88 s. Per-surface mean ~150 ms; RSS delta < 1 MB. That Phase 9 bench script was a /tmp artifact and is gone; re-benchmark by timing a 12-surface calendar render through the engine on the local stack.
 
 ## Auto-orientation (server-side MediaPipe Pose)
 
@@ -539,9 +544,29 @@ The frontend ships a minimal Service Worker at [`public/sw.js`](frontend/nextjs/
 - Network tab on a warm reload → static chunks show `(ServiceWorker)` in the **Size** column
 - Cache Storage → `pe-static-v1` populating with chunks as you navigate
 
+## Phases 3 & 4 Hardening (2026-07-11)
+
+Key surfaces added in the resilience/compliance pass — grep these before touching related code:
+
+- **Never-lose-edits** — `src/app/editor/layout/[name]/canvas-merge.ts` plans canvas/frame reuse BY FILE IDENTITY (name:size:lastModified), not grid position, so re-pick/add/remove/reorder keeps pans/zooms/overlays on the right page. `page.tsx` drives it; delete splices the whole frame-count block; restore repopulates `files` from hydrated frames and gates the smartcrop-recompute effect behind `fitModeUserToggledRef` (only a real user Fit/Cover toggle recomputes offsets). Per-frame "Replace photo" + a "Photo missing" badge when `(fileId||fileName) && !originalFile`.
+- **Embed order id** — the iframe adopts the EmbedSession order id: `EditorInitView` echoes `X-Order-ID` as `order_id`; `page.tsx` `setOrderId(payload.order_id)` before `setLayout`; `CanvasStateView.put` prefers the `X-Order-ID` header over the path param (get() keeps the path so the pre-adoption legacy-id restore fallback works).
+- **Mobile** — `pinch-utils.ts` + FabricEditor pointer handlers give two-finger pinch→FrameState (Fabric discarded the 2nd touch); `swapCards`/tap-to-swap (touch has no HTML5 drag); CanvasEditorSidebar is a bottom sheet `<md` with safe-area padding; `layout.tsx` exports `viewport.viewportFit:'cover'`.
+- **Storage degrade** — `file-store.ts` falls back to an in-memory map when IndexedDB is blocked (Safari ITP in a cross-site iframe), exposes `getPersistenceMode()`, and `pruneStaleOrders()` age/quota-evicts other orders (never the current one). `FileStoreQuotaError` on genuine exhaustion. `FrameState` now carries `fileName`/`fileSize` so the lost-photo guard fires even when persistence failed.
+- **Upload resume** — `upload-utils.ts` keeps a WeakMap of `{uploadId, acked chunks}` per File; a failed submit re-sends only the failed files (allSettled + aggregated error), skipping already-acked chunks; byte-weighted progress; a GC'd session (404) restarts once.
+- **Per-surface render grouping** — the render payload tags each canvas with `surface_key`; `tasks._extract_canvases_meta` → `engine.generate(canvases_meta=…)` slices photos/transforms/overlays/backgrounds per surface so a multi-surface product renders each side with ITS OWN photos (an omitted side prints blank, not the other side's photo). **The frontend must send the REAL surface key** — `page.tsx` executeServerRender uses `surfaceStates[0]?.key ?? activeSurfaceKey` even for a single surface (a literal `'canvas'` matched no surface and printed blank). Gated on `canvases_meta` so legacy GenerateLayoutView callers are byte-identical.
+- **Submit guards** — `lib/submit-guards.ts`: empty-surface + duplicate-fill warnings (qty auto-fill fingerprints are exempt via `intentionalDupesRef`). Warn-and-proceed, never block.
+- **SSRF** — `services/url_safety.py`: `validate_public_https_url` (https-only, resolves + rejects private/reserved/loopback/link-local/metadata) at session-create AND `post_webhook_safely` at send time, which PINS the socket (scoped `socket.getaddrinfo` override under a lock) to the validated IP so DNS can't rebind, `allow_redirects=False`. Both webhook tasks use it. **Never `requests.post` a customer callback_url directly.**
+- **Rate-limit IP** — `middleware._get_client_ip` and `actions/auth.ts` `clientIp()` trust nginx's `X-Real-IP` (else the RIGHT-most XFF hop), never the spoofable left-most hop.
+- **Queue** — Redis split into a durable broker (`redis`, noeviction + appendonly, keeps `redis_data`) and a disposable cache (`redis-cache`, allkeys-lru); `REDIS_CACHE_URL` points at it. Workers have `celery inspect ping` healthchecks. `render_canvas_task` has a poison-pill guard (counts ONLY genuine broker redeliveries via `delivery_info.redelivered`, aborts after 3 crash-redeliveries — NOT self.retry() re-runs) and a 500 MB disk-full pre-flight. `ChunkedUploadInitView` bounds `total_chunks` and pre-checks disk (507); the chunk endpoint caps each body at 2× CHUNK_SIZE.
+- **DPDP purge** — `api/purge.py` + `OrderDataPurgeView` (`DELETE /api/ops/orders/<order_id>/purge`, ops-only, NOT on the embed-proxy allowlist). Hard-deletes uploads/exports/CanvasData/EmbedSession rows AND files. Scope to one key with `?api_key=<name>`; cross-tenant (all keys) requires explicit `?all_tenants=true`. Keeps upload files shared with a surviving order. See `docs/DATA_LIFECYCLE.md`.
+- **Backups** — `scripts/backup.sh` (pg_dump + ops-config tar + exact-count manifest, 7-daily/4-weekly), `scripts/restore.sh` (gated), `scripts/test-backup-restore.sh` (restores into a throwaway DB + asserts row counts). Not scheduled — add the cron in the script header.
+- **CI** — `.github/workflows/ci.yml`: backend (mediapipe-free install, auto-discovers `services/tests/test_*.py`) + frontend (typecheck/lint/jest) on push/PR to main. **New backend test modules are auto-run** — no workflow edit needed. `scripts/load-baseline.sh` + `docs/LOAD_BASELINE.md`.
+- **Deploy fail-fast** — production now REQUIRES `EMBED_INTERNAL_SECRET`, `AUTH_SECRET`, `DJANGO_SECRET_KEY`, `INTERNAL_API_KEY` in `.env`: compose aborts on missing `AUTH_SECRET` (`:?`), Django won't boot with a default `DJANGO_SECRET_KEY` under `DEBUG=0`, the internal proxy 500s without `INTERNAL_API_KEY` (the `NEXT_PUBLIC_DIRECT_API_KEY` build-arg was removed). Internal ports bind `127.0.0.1` only.
+- **a11y** — `lib/use-modal-a11y.ts` (Escape + focus trap + restore); canvas cards are `role=button` + Enter/Space; editor modal has dialog semantics; a document-level Escape closes the confirm dialogs.
+
 ## Migrations
 
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0007_exportedresult_gc_partial_index`.
+Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0009_renderjob_status_completed_idx`.
 
 | Migration | Change |
 |---|---|
@@ -552,6 +577,10 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 | 0005 | `CanvasData` uniqueness changed to `(order_id, api_key)` — tenant isolation |
 | 0006 | `EmbedSession.order_id` — stores caller's job ID; injected as `X-Order-ID` by embed proxy |
 | 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` (webhook URL, propagated to CanvasData via `X-Callback-URL` header) |
+| 0008 | `CanvasData.render_state` — submit-time render payload snapshot. Separates the two writers that shared `editor_state` (autosave vs submit): submit no longer wipes the customer's auto-saved design, and a post-submit autosave can't strip a queued job's payload. `render_canvas_task` reads `render_state or editor_state` (legacy fallback for jobs enqueued pre-deploy). |
+| 0009 | Consolidates drifted model state: two `RenderJob` indexes (`queue_name/status/created_at`, `status/completed_at`) that existed in the model but never got a migration, drops a duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-name. |
+
+**Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.
 
 ## Frontend Proxy Routes
 
@@ -572,7 +601,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 
 | Var | Purpose |
 |---|---|
-| `PUBLIC_HOST` / `DOMAIN_NAME` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
+| `PUBLIC_HOST` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
 | `AUTH_SECRET` | NextAuth JWT signing secret (≥ 32 chars) |
 | `INTERNAL_API_KEY` | API key the internal proxy sends to Django |
 | `PIA_API_BASE_URL` | Upstream auth (default `https://pia.printo.in/api/v1`) |
@@ -637,7 +666,7 @@ No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped �
 
 ## What to Do Next
 
-The full prioritised list is in [PRD.md](PRD.md) §8 — these are the items that touch this codebase or its deploy.
+The full prioritised list is in [docs/PRD.md](docs/PRD.md) §8 — these are the items that touch this codebase or its deploy.
 
 ### Before / during the next `./deploy.sh`
 

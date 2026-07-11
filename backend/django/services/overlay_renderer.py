@@ -48,6 +48,7 @@ from typing import Optional
 from PIL import Image, ImageDraw, ImageOps
 
 from services.fonts import get_font
+from services.image_loader import open_source_rgba
 
 logger = logging.getLogger(__name__)
 
@@ -143,13 +144,15 @@ def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     x_px = int(x_pct * cw / 100.0)
     y_px = int(y_pct * ch / 100.0)
 
-    # textAlign affects anchor: 'left' = anchor at x, 'center' = x is mid,
-    # 'right' = x is right edge. PIL's anchor takes a 2-char code where
-    # the first char is horizontal (l/m/r) and second is vertical (t/m/b/s).
-    # Editor doesn't expose vertical anchor — default to top.
+    # textAlign affects the horizontal anchor: 'left' = anchor at x, 'center' =
+    # x is mid, 'right' = x is right edge. PIL's anchor is a 2-char code where
+    # the first char is horizontal (l/m/r) and the second is vertical.
+    # The editor anchors text with originY:'center' (FabricEditor.tsx /
+    # fabric-renderer.ts), so we vertically CENTRE with 'm' — using 't' (top)
+    # printed the text half a line lower than the customer placed it.
     align = (o.get("textAlign") or "left").lower()
     anchor_h = {"left": "l", "center": "m", "right": "r"}.get(align, "l")
-    anchor = f"{anchor_h}t"
+    anchor = f"{anchor_h}m"
 
     rotation = float(o.get("rotation") or 0.0)
 
@@ -257,10 +260,8 @@ def _paste_image(
     opacity = max(0.0, min(1.0, opacity))
 
     try:
-        with Image.open(path) as _src:
-            # Match the browser's display orientation (see engine.py).
-            ImageOps.exif_transpose(_src, in_place=True)
-            img = _src.convert("RGBA")
+        # Colour-managed load (EXIF orientation + ICC→sRGB) — see services/image_loader.py.
+        img = open_source_rgba(path)
     except (OSError, ValueError) as exc:
         logger.warning("Failed to open image overlay at %s: %s — skipping", path, exc)
         return

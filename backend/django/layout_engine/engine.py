@@ -7,7 +7,9 @@ import tempfile
 import logging
 from typing import List, Optional
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw, ImageChops
+
+from services.image_loader import open_source_rgba, srgb_profile_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +84,13 @@ class LayoutEngine:
                     # callers should set the canvas size in points to match.
                     image_data.save(tmp_path, "PDF", resolution=300.0)
                 elif ext == '.png':
-                    image_data.save(tmp_path, "PNG", dpi=(300, 300))
+                    # Tag the output as explicitly sRGB so the print RIP never
+                    # has to guess the colour space (sources are converted to
+                    # sRGB at load — see services/image_loader.py).
+                    image_data.save(
+                        tmp_path, "PNG", dpi=(300, 300),
+                        icc_profile=srgb_profile_bytes(),
+                    )
                 else:
                     image_data.save(tmp_path)
             else:
@@ -248,6 +256,100 @@ class LayoutEngine:
             img.thumbnail((max_w, max_h), Image.Resampling.BOX)
         return img
 
+    @staticmethod
+    def _parse_hex_color(value, default=(255, 255, 255)) -> tuple:
+        """
+        Parse '#rrggbb' / '#rgb' / 'rrggbb' into an (r, g, b) tuple. Falls back
+        to `default` (white) on None / blank / malformed input, so a bad colour
+        never crashes a render.
+        """
+        if not value or not isinstance(value, str):
+            return default
+        s = value.strip().lstrip("#")
+        try:
+            if len(s) == 3:
+                s = "".join(c * 2 for c in s)
+            if len(s) != 6:
+                return default
+            return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _frame_corner_radius(frame: dict, surface_def: dict) -> float:
+        """
+        Corner radius in px for a frame, matching the browser preview exactly
+        (fabric-renderer.ts): min(w/2, h/2, borderRadiusMm * pxPerMm), where
+        pxPerMm = canvas_width_px / canvas_width_mm (falls back to dpi / 25.4).
+        Returns 0 for square frames (borderRadiusMm 0/absent). Shared by the
+        frame shape mask and the paper-mat hole punch so the two never diverge.
+        """
+        border_mm = float(frame.get("borderRadiusMm") or 0)
+        if border_mm <= 0:
+            return 0.0
+        w = frame.get("width") or 0
+        h = frame.get("height") or 0
+        if w <= 0 or h <= 0:
+            return 0.0
+        canvas = surface_def.get("canvas", {}) or {}
+        canvas_w_px = canvas.get("width") or w
+        canvas_w_mm = canvas.get("widthMm")
+        if canvas_w_mm:
+            px_per_mm = canvas_w_px / canvas_w_mm
+        else:
+            px_per_mm = (canvas.get("dpi") or 300) / 25.4
+        return max(0.0, min(w / 2.0, h / 2.0, border_mm * px_per_mm))
+
+    @staticmethod
+    def _apply_frame_shape_mask(layer: Image.Image, frame: dict, surface_def: dict) -> None:
+        """
+        Clip a frame-sized RGBA layer in place to the frame's rounded/circular
+        shape, so circle/rounded products print in shape (e.g. circle_48mm
+        magnets) instead of as white-cornered squares. No-op for square frames.
+        The rounded-rect alpha mask is intersected with the layer's existing
+        alpha (multiply), so already-transparent image regions stay transparent.
+        """
+        radius = LayoutEngine._frame_corner_radius(frame, surface_def)
+        if radius <= 0:
+            return
+        w, h = layer.size
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            [0, 0, w - 1, h - 1], radius=radius, fill=255,
+        )
+        alpha = ImageChops.multiply(layer.getchannel("A"), mask)
+        layer.putalpha(alpha)
+        mask.close()
+
+    def _render_paper_mat(self, canvas: Image.Image, frames: list, surface_def: dict, paper_rgb: tuple) -> None:
+        """
+        Paint the customer's paper/mat colour over the whole canvas EXCEPT the
+        frame holes (matching the browser paper overlay, fabric-renderer.ts), so
+        the mat surrounds the frames and the photos show through. Holes honour
+        each frame's rounded/circular shape via the shared radius helper.
+        """
+        w, h = canvas.size
+        holes = Image.new("L", (w, h), 255)  # opaque mat everywhere ...
+        draw = ImageDraw.Draw(holes)
+        for frame in frames:
+            fx = int(frame.get("x") or 0)
+            fy = int(frame.get("y") or 0)
+            fw = int(frame.get("width") or 0)
+            fh = int(frame.get("height") or 0)
+            if fw <= 0 or fh <= 0:
+                continue
+            box = [fx, fy, fx + fw - 1, fy + fh - 1]
+            radius = self._frame_corner_radius(frame, surface_def)
+            if radius > 0:
+                draw.rounded_rectangle(box, radius=radius, fill=0)  # ... punch a hole
+            else:
+                draw.rectangle(box, fill=0)
+        mat = Image.new("RGBA", (w, h), (*paper_rgb, 255))
+        mat.putalpha(holes)  # transparent inside the frame holes
+        canvas.paste(mat, (0, 0), mat)
+        holes.close()
+        mat.close()
+
     def _composite_canvas(
         self,
         surface_def: dict,
@@ -257,10 +359,18 @@ class LayoutEngine:
         frame_transforms: Optional[List[dict]] = None,
         overlays: Optional[List[dict]] = None,
         uploaded_files: Optional[dict] = None,
+        background: Optional[str] = None,
+        paper_color: Optional[str] = None,
     ) -> Image.Image:
         """
         Composite one canvas from a batch of image file paths.
         Returns a flat RGB PIL Image — all transparency resolved, mask applied.
+
+        background (optional): customer's canvas background colour ('#rrggbb'),
+        shown beneath the frames and through any transparent image areas.
+        Defaults to white. paper_color (optional): the mat colour painted around
+        the frames (with frame-shaped holes). Both are omitted for legacy
+        callers, keeping their output byte-identical.
 
         frame_transforms (optional): per-frame overrides from the editor state.
         Each entry matches the frontend FrameState shape:
@@ -278,25 +388,35 @@ class LayoutEngine:
         canvas_h = surface_def["canvas"]["height"]
         frames = surface_def.get("frames", [])
 
-        canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+        # Bottom layer: the customer's background colour (white by default).
+        bg_rgb = self._parse_hex_color(background)
+        canvas = Image.new("RGB", (canvas_w, canvas_h), bg_rgb)
 
         for idx, frame in enumerate(frames):
-            with Image.open(batch[idx]) as _src:
-                # Apply EXIF orientation so the render starts from the same
-                # "display upright" pixels the browser editor and the
-                # orientation detector (services/orientation.py) both see.
-                # Without this, EXIF-tagged camera photos (orientation 6/8)
-                # render sideways even though the editor preview was upright —
-                # the frame.rotation we receive is relative to the display view.
-                ImageOps.exif_transpose(_src, in_place=True)
-                img = _src.convert("RGBA")
+            # Position-explicit contract: batch[idx] pairs with frames[idx] and
+            # frame_transforms[idx] by index. An empty/absent slot means the
+            # customer left this frame without a resolvable photo — render it
+            # blank instead of pulling the next image in and desynchronising
+            # every later frame (the silent wrong-print bug). Guards both the
+            # '' sentinel written by EditorRenderView for missing uploads and a
+            # short batch from the legacy wrap-pad path.
+            src_path = batch[idx] if idx < len(batch) else ""
+            if not src_path:
+                continue
+            # Colour-managed load: EXIF orientation + ICC→sRGB conversion so a
+            # Display-P3/AdobeRGB/CMYK-tagged photo prints the colours the
+            # browser preview showed (services/image_loader.py).
+            img = open_source_rgba(src_path)
             target_w = frame["width"]
             target_h = frame["height"]
 
             # Per-frame overrides from the editor (offset, scale, rotation, fit_mode).
             tx = frame_transforms[idx] if frame_transforms and idx < len(frame_transforms) else {}
             frame_fit = tx.get('fit_mode') or fit_mode
-            extra_scale = float(tx.get('scale') or 1.0)
+            # Clamp zoom to a sane ceiling: the editor slider tops out well
+            # below 10, and an unbounded hostile value would multiply the
+            # downscale target (memory) below.
+            extra_scale = min(float(tx.get('scale') or 1.0), 10.0)
             rotation = float(tx.get('rotation') or 0.0)
             pan_x = float(tx.get('offset_x') or 0.0)
             pan_y = float(tx.get('offset_y') or 0.0)
@@ -318,8 +438,17 @@ class LayoutEngine:
                 else:
                     img = img.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
 
-            # Smart pre-downscale: shrink to 2× frame before the cover/contain resize.
-            img = self._smart_downscale(img, target_w, target_h)
+            # Smart pre-downscale: shrink to 2× the ZOOMED frame target before
+            # the cover/contain resize. A zoom of z crops the visible window to
+            # 1/z of the source, so the pre-shrink must keep z× more pixels or
+            # the 300 DPI print upsamples a pre-destroyed source (soft output
+            # above 2× zoom). Zoom-out (scale < 1) keeps today's target.
+            zoom_mult = max(1.0, extra_scale)
+            img = self._smart_downscale(
+                img,
+                int(math.ceil(target_w * zoom_mult)),
+                int(math.ceil(target_h * zoom_mult)),
+            )
 
             if frame_fit == "contain":
                 base_scale = min(target_w / img.width, target_h / img.height)
@@ -331,10 +460,19 @@ class LayoutEngine:
             new_h = max(1, int(img.height * final_scale))
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
+            # Assemble this frame's pixels into a frame-sized RGBA layer, then
+            # paste the layer onto the canvas. Compositing through a frame-sized
+            # layer (rather than straight onto the canvas) does two things:
+            #   1. Clips contain-mode pan/zoom to the frame box, so a zoomed or
+            #      panned image can no longer bleed into a neighbouring frame.
+            #   2. Lets us apply the frame's rounded/circular shape mask, so
+            #      circle/rounded products (e.g. circle_48mm magnets) print in
+            #      shape instead of as a white-cornered square.
+            layer = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
             if frame_fit == "contain":
-                paste_x = frame["x"] + (target_w - new_w) // 2 + int(pan_x)
-                paste_y = frame["y"] + (target_h - new_h) // 2 + int(pan_y)
-                canvas.paste(img, (paste_x, paste_y), img)
+                rel_x = (target_w - new_w) // 2 + int(pan_x)
+                rel_y = (target_h - new_h) // 2 + int(pan_y)
+                layer.paste(img, (rel_x, rel_y), img)
             else:
                 # Cover: crop to frame, then shift by editor pan offset.
                 offset_x = max(0, (new_w - target_w) // 2 - int(pan_x))
@@ -347,9 +485,26 @@ class LayoutEngine:
                 # every cover-fit frame whose source already aligned.
                 if crop_box != (0, 0, img.width, img.height):
                     img = img.crop(crop_box)
-                canvas.paste(img, (frame["x"], frame["y"]), img)
+                layer.paste(img, (0, 0), img)
+
+            # Clip to the frame's rounded/circular shape (no-op for square frames),
+            # matching the browser preview so print == what the customer saw.
+            self._apply_frame_shape_mask(layer, frame, surface_def)
+            canvas.paste(layer, (frame["x"], frame["y"]), layer)
+            layer.close()
+            del layer
             img.close()
             del img
+
+        # ── Paper mat (customer's paperColor around the frames) ──────────────
+        # A full-canvas layer of the mat colour with frame-shaped holes, painted
+        # above the photos (matching the browser paper overlay). Skipped when the
+        # mat equals the background (invisible) — which keeps the common all-white
+        # case byte-identical to before.
+        if paper_color:
+            paper_rgb = self._parse_hex_color(paper_color)
+            if paper_rgb != bg_rgb:
+                self._render_paper_mat(canvas, frames, surface_def, paper_rgb)
 
         # ── Overlays (Phase 1 — CALENDAR_FEATURE_PRD.md §5) ──────────────────
         # Render text / shape / image overlays after frames but before the
@@ -483,6 +638,7 @@ class LayoutEngine:
         overlays_per_canvas: Optional[List[List[dict]]] = None,
         uploaded_files: Optional[dict] = None,
         display_label: Optional[str] = None,
+        backgrounds_per_canvas: Optional[List[dict]] = None,
     ) -> List[str]:
         """
         Generate export files for a single surface.
@@ -540,9 +696,25 @@ class LayoutEngine:
             if overlays_per_canvas and batch_n < len(overlays_per_canvas):
                 batch_overlays = overlays_per_canvas[batch_n]
 
+            # Layout/materialized surface overlays (ops-authored artwork such
+            # as calendar month titles — calendar_layout.materialize_surfaces
+            # populates surface["overlays"]) render UNDER customer overlays,
+            # matching the editor's z-order. They were previously dropped
+            # entirely: the print carried only editor_state overlays.
+            surface_overlays = surface_def.get("overlays") or []
+            merged_overlays = (list(surface_overlays) + list(batch_overlays or [])) or None
+
+            # Pick this canvas's background / paper colour (Phase 2). Same
+            # per-canvas indexing as overlays above.
+            batch_bg = None
+            if backgrounds_per_canvas and batch_n < len(backgrounds_per_canvas):
+                batch_bg = backgrounds_per_canvas[batch_n] or None
+
             canvas = self._composite_canvas(
                 surface_def, batch, fit_mode, mask_img, batch_transforms,
-                overlays=batch_overlays, uploaded_files=uploaded_files,
+                overlays=merged_overlays, uploaded_files=uploaded_files,
+                background=(batch_bg or {}).get("bg"),
+                paper_color=(batch_bg or {}).get("paper"),
             )
 
             # Stem resolution:
@@ -581,9 +753,18 @@ class LayoutEngine:
         overlays_per_canvas: Optional[List[List[dict]]] = None,
         uploaded_files: Optional[dict] = None,
         calendar_state: Optional[dict] = None,
+        backgrounds_per_canvas: Optional[List[dict]] = None,
+        canvases_meta: Optional[List[dict]] = None,
     ) -> List[str]:
         """
         Generate layout images. Returns a list of output file paths.
+
+        canvases_meta: optional per-payload-canvas metadata
+          [{'surface_key': str|None, 'frame_count': int}, ...] in canvas order.
+          When present, multi-surface products group photos/transforms/overlays
+          per surface_key instead of rendering every surface against the whole
+          list (Phase 3 — cross-surface wrong-print fix). Absent → legacy
+          behaviour, byte-identical.
 
         export_format: "png" (default) or "pdf".
         frame_transforms: optional per-frame overrides (offset, scale, rotation, fit_mode)
@@ -618,7 +799,30 @@ class LayoutEngine:
                 palette_name_override=palette_override,
             )
 
-            cells_per_canvas = cstate.get("cells_per_canvas") or []
+            # Customer per-day entries as ONE flat { iso_date: [override] } map
+            # (Phase 2 item 6 — entries are keyed by globally-unique ISO dates,
+            # so positional per-canvas association was never needed and broke
+            # whenever photo-canvas count ≠ 12 or the calendar type flipped).
+            # render_calendar only draws in-month dates, so stamping the full
+            # map on every surface is safe by construction. Legacy payloads
+            # (cells_per_canvas list) merge losslessly: ISO keys are unique.
+            flat_cells: dict = dict(cstate.get("cells") or {})
+            if not flat_cells:
+                for cell_map in cstate.get("cells_per_canvas") or []:
+                    if isinstance(cell_map, dict):
+                        flat_cells.update(cell_map)
+
+            # Payload geometry for per-surface slicing. The frontend generates
+            # photo canvases from the TEMPLATE frames (calendar overrides never
+            # change the payload's frame count), so image_paths is
+            # [c0f0, c0f1, ..., c1f0, ...] with a uniform stride.
+            frames_per_payload_canvas = max(1, len(layout.get("frames") or []) or 1)
+            num_payload_canvases = int(cstate.get("num_canvases") or 0)
+            if not num_payload_canvases:
+                num_payload_canvases = (
+                    max(1, -(-len(image_paths) // frames_per_payload_canvas))
+                    if image_paths else 0
+                )
 
             # P7.3 — Poster-mode aggregation.
             # When monthRange.count == 1 and there are multiple calendars on
@@ -642,10 +846,9 @@ class LayoutEngine:
                 # date filter sees every holiday it might match.
                 holiday_dedup: dict = {}
                 for i, surf in enumerate(materialized):
-                    cell_state = (
-                        cells_per_canvas[i] if i < len(cells_per_canvas) else {}
-                    )
-                    cells_by_key[surf.get("key")] = cell_state or {}
+                    # Every month-card reads the same flat map — each card's
+                    # renderer only matches its own in-month ISO dates.
+                    cells_by_key[surf.get("key")] = dict(flat_cells)
                     for cal_def in surf.get("calendars") or []:
                         merged = dict(cal_def)
                         merged["year"] = int(surf.get("year") or 0)
@@ -669,7 +872,7 @@ class LayoutEngine:
                     "displayLabel": layout.get("displayLabel") or layout.get("name") or base.get("key"),
                 }
                 materialized = [aggregate]
-                cells_per_canvas = [{}]  # cells handled via cellsByKey above
+                flat_cells = {}  # cells handled via cellsByKey above
 
             # P7.2 (PRD §11.5) — Multi-surface partial-failure handling.
             # If any 1 of N surfaces fails, fail the whole job: clean up
@@ -684,24 +887,57 @@ class LayoutEngine:
                 canvas_h = surface["canvas"]["height"]
                 # Stamp the customer's per-day entries onto this surface so
                 # _composite_canvas → render_calendar can pick them up.
-                cells = cells_per_canvas[surf_idx] if surf_idx < len(cells_per_canvas) else {}
+                # The full flat map goes to every month; render_calendar's
+                # in-month ISO filter draws only this month's entries.
                 surface = {
                     **surface,
-                    "cells": cells or {},
+                    "cells": dict(flat_cells),
                     "frames": self._normalize_frames(surface.get("frames") or [], canvas_w, canvas_h),
                 }
                 # P7.1 — Calendar surface output filenames come from the
                 # human-readable displayLabel ("January 2026.png" etc.) per
                 # PRD §11.6, not the surface_key.
                 display_label = surface.get("displayLabel") or surface_key
+
+                # ── Per-surface payload slicing (Phase 2 item 6c/6d) ────────
+                # Previously the FULL image_paths list went to every one of
+                # the 12 month surfaces; _iter_batches then emitted one output
+                # per photo batch per surface → 12·N files for N photos.
+                # Each month renders exactly one photo-canvas: month i takes
+                # canvas (i mod N), cycling when the customer uploaded fewer
+                # canvases than months (1 photo → same photo on all 12).
+                # Overlays and backgrounds slice with the same index; the old
+                # code passed the whole overlays list, so every month rendered
+                # canvas 0's overlays.
+                if num_payload_canvases:
+                    j = surf_idx % num_payload_canvases
+                    lo = j * frames_per_payload_canvas
+                    hi = lo + frames_per_payload_canvas
+                    surface_images = image_paths[lo:hi]
+                    surface_transforms = frame_transforms[lo:hi] if frame_transforms else None
+                    surface_overlays_pc = (
+                        [overlays_per_canvas[j]]
+                        if overlays_per_canvas and j < len(overlays_per_canvas) else None
+                    )
+                    surface_backgrounds = (
+                        [backgrounds_per_canvas[j]]
+                        if backgrounds_per_canvas and j < len(backgrounds_per_canvas) else None
+                    )
+                else:
+                    surface_images = image_paths
+                    surface_transforms = frame_transforms
+                    surface_overlays_pc = overlays_per_canvas
+                    surface_backgrounds = backgrounds_per_canvas
+
                 try:
                     all_outputs.extend(
                         self._generate_for_surface(
-                            surface, image_paths, layout_name, surface_key,
-                            fit_mode, export_format, frame_transforms,
-                            overlays_per_canvas=overlays_per_canvas,
+                            surface, surface_images, layout_name, surface_key,
+                            fit_mode, export_format, surface_transforms,
+                            overlays_per_canvas=surface_overlays_pc,
                             uploaded_files=uploaded_files,
                             display_label=display_label,
+                            backgrounds_per_canvas=surface_backgrounds,
                         )
                     )
                 except (MemoryError, SystemExit, KeyboardInterrupt):
@@ -726,6 +962,21 @@ class LayoutEngine:
 
         if layout.get("type") == "product" and isinstance(layout.get("surfaces"), list):
             all_outputs: List[str] = []
+
+            # Per-surface payload grouping (Phase 3). The editor payload tags
+            # every canvas with its surface_key; without grouping, EVERY
+            # surface rendered against the FULL flattened photo list — a
+            # 2-surface product cross-rendered each photo onto both outputs,
+            # and an omitted/empty surface printed the OTHER surface's photo
+            # (silent wrong print). Gated on canvases_meta so legacy
+            # image_paths-only callers (GenerateLayoutView) stay byte-identical.
+            canvas_starts: List[int] = []
+            if canvases_meta:
+                pos = 0
+                for m in canvases_meta:
+                    canvas_starts.append(pos)
+                    pos += max(0, int(m.get("frame_count") or 0))
+
             for surface in layout["surfaces"]:
                 surface_key = surface.get("key", "unknown")
                 canvas_w = surface["canvas"]["width"]
@@ -739,15 +990,54 @@ class LayoutEngine:
                 # PRD §11.6. Falls back to surface_key when displayLabel is
                 # absent (legacy layouts without the field).
                 display_label = surface.get("displayLabel") or None
-                all_outputs.extend(
-                    self._generate_for_surface(
-                        surface, image_paths, layout_name, surface_key,
-                        fit_mode, export_format, frame_transforms,
-                        overlays_per_canvas=overlays_per_canvas,
-                        uploaded_files=uploaded_files,
-                        display_label=display_label,
+
+                if canvases_meta:
+                    idxs = [
+                        i for i, m in enumerate(canvases_meta)
+                        if (m.get("surface_key") or "default") == surface_key
+                    ]
+                    surf_images: List[str] = []
+                    surf_transforms: List[dict] = []
+                    for i in idxs:
+                        lo = canvas_starts[i]
+                        hi = lo + max(0, int(canvases_meta[i].get("frame_count") or 0))
+                        surf_images.extend(image_paths[lo:hi])
+                        if frame_transforms:
+                            surf_transforms.extend(frame_transforms[lo:hi])
+                    if not idxs:
+                        # No canvas was submitted for this surface — render it
+                        # BLANK (position-explicit '' slots) rather than letting
+                        # _iter_batches steal another surface's photos.
+                        surf_images = [""] * max(1, len(surface.get("frames") or []))
+                    surf_overlays = (
+                        [overlays_per_canvas[i] if i < len(overlays_per_canvas) else [] for i in idxs]
+                        if overlays_per_canvas and idxs else None
                     )
-                )
+                    surf_bgs = (
+                        [backgrounds_per_canvas[i] if i < len(backgrounds_per_canvas) else {} for i in idxs]
+                        if backgrounds_per_canvas and idxs else None
+                    )
+                    all_outputs.extend(
+                        self._generate_for_surface(
+                            surface, surf_images, layout_name, surface_key,
+                            fit_mode, export_format, surf_transforms or None,
+                            overlays_per_canvas=surf_overlays,
+                            uploaded_files=uploaded_files,
+                            display_label=display_label,
+                            backgrounds_per_canvas=surf_bgs,
+                        )
+                    )
+                else:
+                    all_outputs.extend(
+                        self._generate_for_surface(
+                            surface, image_paths, layout_name, surface_key,
+                            fit_mode, export_format, frame_transforms,
+                            overlays_per_canvas=overlays_per_canvas,
+                            uploaded_files=uploaded_files,
+                            display_label=display_label,
+                            backgrounds_per_canvas=backgrounds_per_canvas,
+                        )
+                    )
             return all_outputs
 
         return self._generate_for_surface(
@@ -760,4 +1050,5 @@ class LayoutEngine:
             frame_transforms,
             overlays_per_canvas=overlays_per_canvas,
             uploaded_files=uploaded_files,
+            backgrounds_per_canvas=backgrounds_per_canvas,
         )

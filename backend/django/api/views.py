@@ -409,6 +409,11 @@ class GenerateLayoutView(APIView):
                         image_paths=upload_paths,
                         fit_mode=fit_mode,
                         export_format=export_format,
+                        # Invalidate any prior editor-submit snapshot: a
+                        # direct-API resubmit must render THESE uploads, not
+                        # a stale render_state (whose embedded image_paths
+                        # would silently hijack the job — wrong-print class).
+                        render_state=None,
                         # callback_url is no longer accepted at this endpoint;
                         # configure it via POST /api/embed/session for the
                         # embed flow. Direct callers should poll render-status.
@@ -1037,6 +1042,58 @@ class SecureExportDownloadView(APIView):
         except:
             return False
 
+class OrderDataPurgeView(APIView):
+    """
+    Ops-only immediate data erasure for one order (Phase 4 — DPDP
+    right-to-erasure). DELETE /api/ops/orders/<order_id>/purge — hard-deletes
+    uploads, exports, CanvasData (cascades RenderJobs) and EmbedSessions,
+    rows AND files. Never added to the embed-proxy allowlist.
+
+    Query params:
+      ?api_key=<name>  narrow to one tenant (default: all keys for the order)
+      ?force=true      purge even while a render is queued/processing
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
+
+    _ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
+
+    def delete(self, request, order_id: str):
+        from api.purge import purge_order_data
+        from api.models import APIKey
+
+        if not self._ORDER_ID_RE.match(order_id or ''):
+            return Response({'detail': 'Invalid order_id.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        api_key = None
+        key_name = request.query_params.get('api_key')
+        if key_name:
+            api_key = APIKey.objects.filter(name=key_name).first()
+            if not api_key:
+                return Response({'detail': f"No API key named '{key_name}'."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Cross-tenant erasure is destructive — the same order_id can exist for
+        # different embed customers (unique_together is (order_id, api_key)).
+        # Purging every tenant sharing an id must be a CONSCIOUS choice, not the
+        # default: require ?all_tenants=true when no api_key is scoped.
+        all_tenants = str(request.query_params.get('all_tenants', '')).lower() in ('1', 'true', 'yes')
+        if api_key is None and not all_tenants:
+            return Response(
+                {'detail': "This order_id may belong to multiple tenants. Pass "
+                           "?api_key=<name> to scope the erasure, or ?all_tenants=true "
+                           "to purge every tenant sharing this order_id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        force = str(request.query_params.get('force', '')).lower() in ('1', 'true', 'yes')
+
+        result = purge_order_data(order_id, api_key=api_key, force=force)
+        if result.get('matched', 0) == 0:
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        if result.get('blocked'):
+            return Response(result, status=status.HTTP_409_CONFLICT)
+        return Response(result, status=status.HTTP_200_OK)
+
+
 class LayoutManagementView(APIView):
     """View to manage layout JSON files - requires Ops Team permissions."""
     permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
@@ -1595,9 +1652,15 @@ class EmbedSessionView(APIView):
                     {'detail': 'callback_url exceeds 2000-char limit.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            if not callback_url.lower().startswith('https://'):
+            # SSRF guard (Phase 4): https-only + the host must resolve to a
+            # publicly-routable address (no internal services, cloud metadata,
+            # loopback, RFC1918). Re-checked at webhook send time too.
+            from services.url_safety import validate_public_https_url
+            try:
+                validate_public_https_url(callback_url)
+            except ValidationError as exc:
                 return Response(
-                    {'detail': 'callback_url must use https://.'},
+                    {'detail': exc.messages[0] if exc.messages else 'callback_url is not allowed.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1610,7 +1673,11 @@ class EmbedSessionView(APIView):
         return Response({
             'token': str(session.token),
             'expires_at': session.expires_at.isoformat(),
-            'embed_url_template': '/embed/editor/{layout_name}?token=' + str(session.token),
+            # The real iframe entry route (next.config.mjs frame-ancestors +
+            # editor/layout/[name]/page.tsx). The old /embed/editor/... path
+            # never existed. Advisory field — the caller substitutes the
+            # layout name.
+            'embed_url_template': '/editor/layout/{layout_name}?token=' + str(session.token),
             'order_id': order_id or None,
             'callback_url': callback_url or None,
         }, status=status.HTTP_201_CREATED)
@@ -1658,11 +1725,32 @@ class EmbedSessionValidateView(APIView):
     )
     def get(self, request):
         import os
+        import hmac as _hmac
+        # This endpoint returns the partner's REAL api_key, so it must only be
+        # reachable by the trusted embed proxy — never by an arbitrary embed
+        # token holder (a token rides in the iframe URL and is not itself a
+        # secret). Access is gated by a shared X-Internal-Secret that only the
+        # proxy knows; frontend + backend both read EMBED_INTERNAL_SECRET from
+        # .env via env_file.
         expected_secret = os.getenv('EMBED_INTERNAL_SECRET', '')
+        provided = request.headers.get('X-Internal-Secret', '')
         if expected_secret:
-            provided = request.headers.get('X-Internal-Secret', '')
-            if provided != expected_secret:
+            # Constant-time compare so a wrong guess can't be timing-probed.
+            if not _hmac.compare_digest(provided, expected_secret):
                 return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        elif not settings.DEBUG:
+            # Fail closed in production: an unset secret would hand the partner
+            # api_key to any token holder. Refuse rather than leak. Dev (DEBUG)
+            # keeps working on localhost without the secret for convenience.
+            logger.error(
+                "EMBED_INTERNAL_SECRET is not set — refusing to serve api_key "
+                "for an embed token in production. Set it in .env (read by both "
+                "the backend and frontend containers via env_file)."
+            )
+            return Response(
+                {'detail': 'Embed validation is not configured.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         token = request.query_params.get('token', '').strip()
         if not token:
@@ -1773,9 +1861,16 @@ class EditorInitView(APIView):
             django_cache.set(cache_key, layout_data, 120)
 
         # _read_fonts has its own Redis-backed 5 min cache (see _FONTS_CACHE_KEY).
+        # order_id echoes the proxy-injected X-Order-ID (EmbedSession.order_id)
+        # so the embed iframe can adopt the SESSION id for autosave/restore
+        # keying instead of a throwaway client-generated one (Phase 3 — an
+        # iframe reload used to orphan the autosave). Only the trusted proxies
+        # can set this header (both build forward headers from scratch);
+        # dashboard requests carry none → null.
         response = Response({
             'layout': layout_data,
             'fonts': _read_fonts(),
+            'order_id': (request.headers.get('X-Order-ID') or '').strip() or None,
         })
         # Cacheable on the proxy edge for short-lived shared cache; private so a
         # tenant's surfaces= filter doesn't bleed across tenants.
@@ -1895,21 +1990,37 @@ class EditorRenderView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Build flat image_paths list (canvas0_frame0, canvas0_frame1, …) ─
+        # ── Build position-explicit image_paths (canvas0_frame0, canvas0_frame1, …) ─
+        # One entry per frame, in canvas/frame order, so this list indexes
+        # IDENTICALLY to the per-frame transforms the engine reads back from
+        # editor_state (_extract_frame_transforms walks the same nested order).
+        # A frame whose photo is missing (null upload_id — the file was lost
+        # client-side) gets an empty-string slot instead of being dropped.
+        # Dropping it collapsed the list and shifted every later photo one
+        # frame to the left, so photos printed in the wrong windows with no
+        # error — the silent wrong-print bug. The engine renders an empty slot
+        # as a blank frame (layout_engine.engine._composite_canvas). Present-
+        # but-unresolved upload_ids were already rejected with 400 above, so
+        # the only '' entries here are genuinely-missing photos.
         image_paths = []
         for canvas in canvases_payload:
             for frame in canvas.get('frames', []):
                 uid = str(frame.get('upload_id', '') or '').strip()
-                if uid in upload_id_to_path:
-                    image_paths.append(upload_id_to_path[uid])
+                image_paths.append(upload_id_to_path.get(uid, ''))
 
         # ── Persist CanvasData + RenderJob atomically ───────────────────────
         # Soft-proof + CMYK pipelines retired; everything routes to 'standard'.
         queue_name = 'standard'
         expires_at = timezone.now() + timedelta(days=30)
 
-        editor_state = {
+        # Snapshot the render contract into its own field. editor_state stays
+        # untouched: it is the frontend's autosaved design, and overwriting it
+        # here is what used to blank the editor after every submit. Embedding
+        # image_paths in the snapshot also means a post-submit autosave (which
+        # resets CanvasData.image_paths to []) cannot starve a queued job.
+        render_state = {
             'canvases': canvases_payload,
+            'image_paths': image_paths,
             'format_version': 1,
         }
 
@@ -1923,7 +2034,7 @@ class EditorRenderView(APIView):
                         'image_paths': image_paths,
                         'fit_mode': 'cover',
                         'export_format': export_format,
-                        'editor_state': editor_state,
+                        'render_state': render_state,
                         'callback_url': callback_url,
                         'expires_at': expires_at,
                     },
@@ -2789,6 +2900,13 @@ class CanvasStateView(APIView):
     def get(self, request, order_id: str):
         from api.models import CanvasData
 
+        # NOTE: GET deliberately respects the PATH param (unlike put(), where
+        # the session header wins). The embed proxy injects X-Order-ID on
+        # every request, so header-precedence here would make pre-adoption
+        # autosaves (keyed by the old client-generated id) unreachable — the
+        # client's legacy-id restore fallback needs the path to be honoured.
+        # Tenant scoping below keeps this safe: a key can only read its own rows.
+
         # Resolve the API key so we can scope the lookup to the requesting
         # tenant.  Two different keys can legitimately share the same order_id
         # (e.g. separate embed customers); scoping prevents cross-tenant reads.
@@ -2825,6 +2943,10 @@ class CanvasStateView(APIView):
     def put(self, request, order_id: str):
         from api.models import CanvasData
         from datetime import timedelta
+
+        # See get(): the embed session's order id wins over the path param so
+        # autosave and submit can never key different rows again.
+        order_id = (request.headers.get('X-Order-ID') or '').strip() or order_id
 
         body = request.data
         editor_state = body.get('editor_state')
@@ -2923,11 +3045,39 @@ class ChunkedUploadInitView(APIView):
         except (TypeError, ValueError):
             return Response({'detail': 'file_size and total_chunks must be integers'}, status=status.HTTP_400_BAD_REQUEST)
 
+        if file_size <= 0:
+            return Response({'detail': 'file_size must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+
         if file_size > settings.MAX_UPLOAD_FILE_SIZE:
             return Response(
                 {'detail': f'File exceeds {settings.MAX_UPLOAD_FILE_SIZE_MB} MB limit'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Bound total_chunks (Phase 4): an unbounded/huge value made the
+        # complete step materialise set(range(total_chunks)) and OOM the
+        # worker in one request. Cap to what the file size allows (+1 slack)
+        # and cross-check it against ceil(file_size / CHUNK_SIZE).
+        expected_chunks = -(-file_size // self.CHUNK_SIZE)  # ceil division
+        max_chunks = expected_chunks + 1
+        if total_chunks < 1 or total_chunks > max_chunks:
+            return Response(
+                {'detail': f'total_chunks must be between 1 and {max_chunks} for this file size'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Disk-full pre-flight: refuse the upload up front rather than staging
+        # chunks into a wall (need room for staged chunks + the assembled file).
+        import shutil
+        try:
+            free = shutil.disk_usage(settings.UPLOADS_DIR).free
+            if free < file_size * 2 + 500 * 1024 * 1024:
+                return Response(
+                    {'detail': 'Server storage is full — please try again later.'},
+                    status=507,
+                )
+        except OSError:
+            pass  # can't stat — don't block on it
 
         upload_id = str(_uuid.uuid4())
 
@@ -3033,6 +3183,12 @@ class ChunkedUploadChunkView(APIView):
 
         if not chunk_bytes:
             return Response({'detail': 'No chunk data received'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Per-chunk size cap (Phase 4): closes the multipart hole regardless of
+        # nginx's client_max_body_size — a chunk is at most one CHUNK_SIZE, so
+        # 2× is generous slack for boundary framing.
+        if len(chunk_bytes) > 2 * ChunkedUploadInitView.CHUNK_SIZE:
+            return Response({'detail': 'Chunk exceeds the maximum size'}, status=413)
 
         chunk_path = os.path.join(staging_dir, f'{chunk_index}.part')
         with open(chunk_path, 'wb') as out:

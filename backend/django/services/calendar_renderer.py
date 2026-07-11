@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageOps
 
 from services.fonts import get_font
+from services.image_loader import open_source_rgba
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,13 @@ def render_calendar(
     # Work on a transparent strip then composite — simplifies alpha blends.
     strip = Image.new("RGBA", (w_px, h_px), (0, 0, 0, 0))
     draw = ImageDraw.Draw(strip)
+
+    # Gen-Z themes paint the whole calendar block with the palette background
+    # (the preview does this via MonthTileThumb's colors.bg) — without it the
+    # palette prints on plain white. Gated on `palette` so minimalist /
+    # weekday-highlight output stays byte-identical (their bg is white).
+    if palette:
+        draw.rectangle([0, 0, w_px, h_px], fill=_hex_to_rgba(colors["background"]))
 
     # ── Layout: header band + grid area ────────────────────────────────
     # Reserve ~10% of the calendar's height for the weekday header band.
@@ -380,11 +388,18 @@ def _resolve_colors(style: dict, palette: Optional[dict]) -> dict:
             out["monthText"] = palette["month"]
         if "weekday" in palette:
             out["weekdayText"] = palette["weekday"]
+            # The preview colours Sunday's header with the same swatch
+            # (calendar.ts resolveThemeColors) — without this the Sunday
+            # column header printed default grey.
+            out["weekdaySunday"] = palette["weekday"]
         if "grid" in palette:
             out["grid"] = palette["grid"]
         if "date" in palette:
             out["dateNumber"] = palette["date"]
             out["dateNumberSunday"] = palette["date"]
+            # Preview fades out-of-month dates to 35% of the date colour
+            # (calendar.ts appends "59" alpha) — mirror it in print.
+            out["outOfMonth"] = palette["date"] + "59"
         if "pill" in palette:
             out["pillBackground"] = palette["pill"]
         # Gen-Z has no per-cell Sunday background fill — clear any theme value.
@@ -467,10 +482,8 @@ def _draw_cell_image(
     paste_y = cy0 + pad
 
     try:
-        with Image.open(src_path) as _src:
-            # Match the browser's display orientation (see engine.py).
-            ImageOps.exif_transpose(_src, in_place=True)
-            img = _src.convert("RGBA")
+        # Colour-managed load (EXIF orientation + ICC→sRGB) — see services/image_loader.py.
+        img = open_source_rgba(src_path)
     except (OSError, ValueError) as exc:
         logger.warning(
             "Failed to open cell image override %s: %s — skipping", src_path, exc,
