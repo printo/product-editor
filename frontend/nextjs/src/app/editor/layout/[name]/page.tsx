@@ -1887,7 +1887,9 @@ export default function LayoutEditorPage() {
         ? surfaceStates.flatMap(s => s.canvases.map(c => ({ ...c, surfaceKey: s.key })))
         : canvases.map(c => ({ ...c, surfaceKey: 'canvas' }));
 
-      // 2. Collect unique File objects in frame order
+      // 2. Collect unique File objects in frame order, then any local
+      //    image-overlay files (stickers the customer uploaded) so they upload
+      //    in the same batch and the server can resolve them for the print.
       const allFiles: File[] = [];
       const seenFiles = new Set<File>();
       for (const c of allCanvases) {
@@ -1895,6 +1897,12 @@ export default function LayoutEditorPage() {
           if (frame.originalFile && !seenFiles.has(frame.originalFile)) {
             seenFiles.add(frame.originalFile);
             allFiles.push(frame.originalFile);
+          }
+        }
+        for (const ov of c.overlays) {
+          if (ov.type === 'image' && ov.originalFile && !seenFiles.has(ov.originalFile)) {
+            seenFiles.add(ov.originalFile);
+            allFiles.push(ov.originalFile);
           }
         }
       }
@@ -1974,6 +1982,21 @@ export default function LayoutEditorPage() {
             rotation: frame.rotation,
             fit_mode: frame.fitMode,
           };
+        }),
+        // Phase 2 (WYSIWYG): carry text / shape / image overlays into the print.
+        // The engine already renders them (services/overlay_renderer.py); they
+        // were just never sent. Shapes already match the backend union. Drop the
+        // non-serialisable File; for a local image overlay set fileId to the
+        // server upload id so the backend can resolve the bytes, and drop the
+        // (revoked) blob src. Clipart/icon overlays keep their src path.
+        overlays: c.overlays.map((ov) => {
+          if (ov.type !== 'image') return ov;
+          const up = ov.originalFile ? uploadResults.get(ov.originalFile) : null;
+          const rest: Record<string, unknown> = { ...ov };
+          delete rest.originalFile;
+          rest.fileId = up?.uploadId ?? ov.fileId ?? null;
+          rest.src = ov.source === 'local' ? null : ov.src;
+          return rest;
         }),
       }));
 
