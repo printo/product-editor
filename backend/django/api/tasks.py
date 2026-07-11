@@ -192,6 +192,15 @@ def _extract_canvases_meta(editor_state: dict | None) -> list | None:
     ]
 
 
+def _free_space_mb(path: str) -> float:
+    """Free disk space at `path` in MB (used by the disk-full pre-flight)."""
+    import shutil
+    try:
+        return shutil.disk_usage(path).free / (1024 * 1024)
+    except OSError:
+        return float('inf')  # can't stat — don't block the render on it
+
+
 def _resolve_render_inputs(canvas_data) -> tuple:
     """
     Pick the render contract source and image paths for a render job.
@@ -291,6 +300,70 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         pass
 
     job = RenderJob.objects.get(id=job_id)
+
+    # ── Poison-pill guard (Phase 4) ───────────────────────────────────────────
+    # acks_late=True + task_reject_on_worker_lost means a payload that CRASHES
+    # the worker process (C-level Pillow abort, SIGKILL/OOM — past the
+    # Python-level Image.MAX_IMAGE_PIXELS guard) is redelivered forever, killing
+    # workers in a loop. Count deliveries per job; after 3, fail the job and
+    # ACK (return) so the poison pill drains. Rides the fail-open cache — if the
+    # cache is down the guard is skipped and old behaviour returns.
+    _MAX_DELIVERIES = 3
+    if getattr(self.request, 'delivery_info', None) and self.request.delivery_info.get('redelivered'):
+        logger.warning("Render job %s was redelivered (possible crash-loop)", job_id)
+    try:
+        from django.core.cache import cache
+        dkey = f'render_deliveries:{job_id}'
+        cache.add(dkey, 0, 7200)
+        deliveries = cache.incr(dkey)
+        if deliveries > _MAX_DELIVERIES:
+            logger.error(
+                "Render job %s aborted: %d deliveries — payload keeps crashing the worker",
+                job_id, deliveries,
+            )
+            job.status = 'failed'
+            job.error_message = (
+                'Render aborted: the design repeatedly crashed the renderer '
+                '(possible corrupt or oversized image). Please re-check the photos.'
+            )
+            job.completed_at = timezone.now()
+            job.retry_count = self.max_retries
+            job.save(update_fields=['status', 'error_message', 'completed_at', 'retry_count'])
+            try:
+                canvas_cb = CanvasData.objects.filter(id=canvas_data_id).first()
+                if canvas_cb and canvas_cb.callback_url:
+                    notify_caller_render_failed_task.apply_async(
+                        args=[canvas_data_id, job.error_message],
+                        queue=job.queue_name or 'standard',
+                    )
+            except Exception:
+                pass
+            return  # ACK under acks_late — drains the poison pill
+    except Exception:
+        pass  # cache unavailable — guard disabled, proceed
+
+    # ── Disk-full pre-flight (Phase 4) ────────────────────────────────────────
+    # A render into a full EXPORTS_DIR writes a partial PNG then crashes; with
+    # retries that's a wasted 8 s loop against a disk that won't clear. Fail
+    # fast with a clear message instead.
+    if _free_space_mb(settings.EXPORTS_DIR) < 500:
+        logger.error("Render job %s aborted: EXPORTS_DIR free space < 500 MB", job_id)
+        job.status = 'failed'
+        job.error_message = 'Server storage is full — render aborted before writing any files.'
+        job.completed_at = timezone.now()
+        job.retry_count = self.max_retries
+        job.save(update_fields=['status', 'error_message', 'completed_at', 'retry_count'])
+        try:
+            canvas_cb = CanvasData.objects.filter(id=canvas_data_id).first()
+            if canvas_cb and canvas_cb.callback_url:
+                notify_caller_render_failed_task.apply_async(
+                    args=[canvas_data_id, job.error_message],
+                    queue=job.queue_name or 'standard',
+                )
+        except Exception:
+            pass
+        return
+
     job.status = 'processing'
     job.started_at = timezone.now()
     job.save(update_fields=['status', 'started_at'])
@@ -414,6 +487,13 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         job.generation_time_ms = generation_time_ms
         job.output_paths = output_paths
         job.save(update_fields=['status', 'completed_at', 'generation_time_ms', 'output_paths'])
+
+        # Success — drop the poison-pill delivery counter (Phase 4).
+        try:
+            from django.core.cache import cache
+            cache.delete(f'render_deliveries:{job_id}')
+        except Exception:
+            pass
 
         # Notify the caller's webhook (embed flow only — direct/dashboard
         # callers poll /api/render-status/<job_id>/ instead). Skipping the

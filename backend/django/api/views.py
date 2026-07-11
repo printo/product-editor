@@ -2989,11 +2989,39 @@ class ChunkedUploadInitView(APIView):
         except (TypeError, ValueError):
             return Response({'detail': 'file_size and total_chunks must be integers'}, status=status.HTTP_400_BAD_REQUEST)
 
+        if file_size <= 0:
+            return Response({'detail': 'file_size must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+
         if file_size > settings.MAX_UPLOAD_FILE_SIZE:
             return Response(
                 {'detail': f'File exceeds {settings.MAX_UPLOAD_FILE_SIZE_MB} MB limit'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Bound total_chunks (Phase 4): an unbounded/huge value made the
+        # complete step materialise set(range(total_chunks)) and OOM the
+        # worker in one request. Cap to what the file size allows (+1 slack)
+        # and cross-check it against ceil(file_size / CHUNK_SIZE).
+        expected_chunks = -(-file_size // self.CHUNK_SIZE)  # ceil division
+        max_chunks = expected_chunks + 1
+        if total_chunks < 1 or total_chunks > max_chunks:
+            return Response(
+                {'detail': f'total_chunks must be between 1 and {max_chunks} for this file size'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Disk-full pre-flight: refuse the upload up front rather than staging
+        # chunks into a wall (need room for staged chunks + the assembled file).
+        import shutil
+        try:
+            free = shutil.disk_usage(settings.UPLOADS_DIR).free
+            if free < file_size * 2 + 500 * 1024 * 1024:
+                return Response(
+                    {'detail': 'Server storage is full — please try again later.'},
+                    status=507,
+                )
+        except OSError:
+            pass  # can't stat — don't block on it
 
         upload_id = str(_uuid.uuid4())
 
@@ -3099,6 +3127,12 @@ class ChunkedUploadChunkView(APIView):
 
         if not chunk_bytes:
             return Response({'detail': 'No chunk data received'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Per-chunk size cap (Phase 4): closes the multipart hole regardless of
+        # nginx's client_max_body_size — a chunk is at most one CHUNK_SIZE, so
+        # 2× is generous slack for boundary framing.
+        if len(chunk_bytes) > 2 * ChunkedUploadInitView.CHUNK_SIZE:
+            return Response({'detail': 'Chunk exceeds the maximum size'}, status=413)
 
         chunk_path = os.path.join(staging_dir, f'{chunk_index}.part')
         with open(chunk_path, 'wb') as out:
