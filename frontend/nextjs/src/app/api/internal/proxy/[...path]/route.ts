@@ -48,8 +48,10 @@ const INTERNAL_API =
 // Falls back to the legacy public var during migration so the proxy keeps
 // working before the env file is updated; remove the fallback once
 // INTERNAL_API_KEY is set in every environment.
-const INTERNAL_API_KEY =
-  process.env.INTERNAL_API_KEY || process.env.NEXT_PUBLIC_DIRECT_API_KEY || '';
+// Server-side only. The build-arg NEXT_PUBLIC_DIRECT_API_KEY fallback was
+// removed in Phase 4 (it baked an ops key into the client image); the guard
+// below 500s loudly when this is unset, which is the runtime fail-fast.
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 async function handler(
   req: NextRequest,

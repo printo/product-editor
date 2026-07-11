@@ -598,8 +598,13 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
         hashlib.sha256,
     ).hexdigest()
 
+    from services.url_safety import post_webhook_safely
+    from django.core.exceptions import ValidationError as _URLValidationError
     try:
-        response = requests.post(
+        # SSRF re-validation at SEND time (DNS-rebinding defence) + IP pinning
+        # + no redirect-following. A URL that passed at session-create can
+        # still rebind to an internal target before this POST fires.
+        response = post_webhook_safely(
             canvas.callback_url,
             data=raw_body,
             headers={
@@ -614,6 +619,16 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
             canvas.callback_url, canvas.order_id, job_id,
             self.request.retries + 1,
         )
+    except _URLValidationError as exc:
+        # The target is not publicly routable — do NOT retry (it won't become
+        # valid) and flag for manual review instead of hammering it.
+        logger.error(
+            "Webhook to %s BLOCKED for order %s (SSRF guard): %s",
+            canvas.callback_url, canvas.order_id, exc,
+        )
+        canvas.requires_manual_review = True
+        canvas.save(update_fields=['requires_manual_review'])
+        return
     except Exception as exc:
         retry_number = self.request.retries
         exhausted = retry_number >= self.max_retries
@@ -642,7 +657,7 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
                     canvas.api_key.key.encode('utf-8'),
                     fail_body, hashlib.sha256,
                 ).hexdigest()
-                requests.post(
+                post_webhook_safely(
                     canvas.callback_url,
                     data=fail_body,
                     headers={
@@ -705,8 +720,10 @@ def notify_caller_render_failed_task(self, canvas_data_id: str, error_message: s
         canvas.api_key.key.encode('utf-8'), raw_body, hashlib.sha256,
     ).hexdigest()
 
+    from services.url_safety import post_webhook_safely
+    from django.core.exceptions import ValidationError as _URLValidationError
     try:
-        response = requests.post(
+        response = post_webhook_safely(  # SSRF-guarded (see notify_caller_webhook_task)
             canvas.callback_url,
             data=raw_body,
             headers={'Content-Type': 'application/json', 'X-Signature': f'sha256={signature}'},
@@ -717,6 +734,14 @@ def notify_caller_render_failed_task(self, canvas_data_id: str, error_message: s
             "Failure webhook delivered to %s for order %s (job=%s, attempt %d)",
             canvas.callback_url, canvas.order_id, job_id, self.request.retries + 1,
         )
+    except _URLValidationError as exc:
+        logger.error(
+            "Failure webhook to %s BLOCKED for order %s (SSRF guard): %s",
+            canvas.callback_url, canvas.order_id, exc,
+        )
+        canvas.requires_manual_review = True
+        canvas.save(update_fields=['requires_manual_review'])
+        return
     except Exception as exc:
         retry_number = self.request.retries
         if retry_number >= self.max_retries:

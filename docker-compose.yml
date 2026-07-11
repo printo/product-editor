@@ -80,7 +80,10 @@ services:
       - -c
       - log_min_duration_statement=1000
     ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
+      # Loopback-only (Phase 4): Docker port publishing bypasses host
+      # firewalls, so 0.0.0.0 would expose Postgres to the internet on prod.
+      # Host tooling (local dev, deploy checks) connects via localhost.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     env_file:
       - .env
     environment:
@@ -106,7 +109,10 @@ services:
       context: .
       dockerfile: backend/django/Dockerfile
     ports:
-      - "8000:8000"
+      # Loopback-only (Phase 4): raw Django must not be internet-reachable —
+      # all traffic goes through nginx (TLS + routing + rate limits). deploy.sh
+      # health checks and benchmark.sh hit localhost from the host.
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
@@ -149,10 +155,10 @@ services:
       dockerfile: frontend/nextjs/Dockerfile
       args:
         - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
-        - NEXT_PUBLIC_DIRECT_API_KEY=${DIRECT_API_KEY:-}
         - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-875434468582-2a7h0gahc6sq6jm3gfmre9cca1lhh0p7.apps.googleusercontent.com}
     ports:
-      - "${FRONTEND_HOST_PORT:-5004}:3000"  # can override with FRONTEND_HOST_PORT in .env if occupied
+      # Loopback-only (Phase 4) — smoke tests + deploy.sh curl localhost:5004.
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-5004}:3000"
     env_file:
       - .env
     environment:
@@ -161,8 +167,10 @@ services:
       - INTERNAL_API_URL=http://backend:8000/api
       - NODE_ENV=${NODE_ENV:-production}
       - AUTH_TRUST_HOST=true
-      - AUTH_SECRET=${AUTH_SECRET:-change-me-at-least-32-chars}
-      - NEXTAUTH_SECRET=${AUTH_SECRET:-change-me-at-least-32-chars}
+      # Fail-fast (Phase 4): no baked default — a missing secret aborts the
+      # deploy loudly instead of shipping a forgeable session-signing key.
+      - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET must be set in .env (>=32 chars)}
+      - NEXTAUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET must be set in .env (>=32 chars)}
     depends_on:
       backend:
         condition: service_healthy

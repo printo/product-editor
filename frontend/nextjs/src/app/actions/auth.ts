@@ -12,11 +12,19 @@ const attempts = new Map<string, { count: number; windowStart: number }>();
 
 async function clientIp(): Promise<string> {
   const h = await headers();
-  // nginx populates X-Forwarded-For from CF-Connecting-IP (see proxy/nginx/nginx.conf);
-  // first hop is the real client.
+  // Trust ONLY nginx-set headers (proxy/nginx/nginx.conf resolves the real
+  // client from CF-Connecting-IP). The LEFT-most X-Forwarded-For hop is
+  // client-controlled — reading it let an attacker rotate a forged IP to
+  // bypass the login brute-force limiter. Prefer X-Real-IP; fall back to the
+  // RIGHT-most XFF hop (the value nginx appends = $remote_addr).
+  const realIp = h.get("x-real-ip");
+  if (realIp) return realIp.trim();
   const fwd = h.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return h.get("x-real-ip") || "unknown";
+  if (fwd) {
+    const hops = fwd.split(",");
+    return hops[hops.length - 1].trim();
+  }
+  return "unknown";
 }
 
 function checkRateLimit(ip: string): boolean {

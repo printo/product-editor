@@ -107,7 +107,17 @@ class RateLimitMiddleware(MiddlewareMixin):
         return self.get_response(request)
 
     def _get_client_ip(self, request):
+        # Trust ONLY headers nginx sets from its real_ip resolution of
+        # CF-Connecting-IP (proxy/nginx/nginx.conf), never the left-most
+        # X-Forwarded-For hop — that token is fully client-controlled, so
+        # reading it let an attacker mint unlimited rate-limit buckets by
+        # rotating a forged IP (and grief a victim by forging theirs).
+        # X-Real-IP is the resolved client IP; the RIGHT-most XFF hop is the
+        # value nginx appends ($remote_addr); REMOTE_ADDR is the last resort.
+        x_real_ip = request.META.get('HTTP_X_REAL_IP')
+        if x_real_ip:
+            return x_real_ip.strip()
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
-            return x_forwarded_for.split(',')[0].strip()
+            return x_forwarded_for.split(',')[-1].strip()
         return request.META.get('REMOTE_ADDR', '0.0.0.0')
