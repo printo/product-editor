@@ -99,20 +99,32 @@ def post_webhook_safely(url: str, *, data: bytes, headers: dict, timeout: float)
     """
     allowed = validate_public_https_url(url)  # ordered list of validated public IPs
     host = (urlparse(url).hostname or "").lower()
-    pinned = allowed[0]
-    pinned_family = socket.AF_INET6 if ":" in pinned else socket.AF_INET
-
-    real_getaddrinfo = socket.getaddrinfo
 
     def _pinned_getaddrinfo(h, port, *args, **kwargs):
-        # Only redirect resolution of OUR target host to the validated IP;
-        # everything else resolves normally.
+        # Only redirect resolution of OUR target host; everything else resolves
+        # normally. Return EVERY validated public IP (each with its own family)
+        # so urllib3 keeps its multi-address fallback — e.g. a Cloudflare-fronted
+        # host that publishes several A/AAAA records stays reachable if the first
+        # is down — while guaranteeing every candidate is a vetted public address.
         if isinstance(h, str) and h.lower() == host:
-            return [(pinned_family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (pinned, port))]
+            return [
+                (
+                    socket.AF_INET6 if ":" in ip else socket.AF_INET,
+                    socket.SOCK_STREAM,
+                    socket.IPPROTO_TCP,
+                    "",
+                    (ip, port),
+                )
+                for ip in allowed
+            ]
         return real_getaddrinfo(h, port, *args, **kwargs)
 
     session = requests.Session()
     with _PIN_LOCK:
+        # Capture the real resolver INSIDE the lock so a concurrent call (once
+        # workers are threaded) can never capture another call's pinned shim as
+        # its "real" and leave a stale host-pin installed process-wide.
+        real_getaddrinfo = socket.getaddrinfo
         socket.getaddrinfo = _pinned_getaddrinfo
         try:
             return session.post(

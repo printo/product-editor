@@ -127,6 +127,46 @@ def test_pin_forces_connection_to_validated_ip():
     assert _socket.getaddrinfo is original
 
 
+def test_pin_preserves_all_validated_ips_for_fallback():
+    """When a host publishes several public records (e.g. Cloudflare-fronted
+    printo.in), the pin must expose ALL of them to urllib3 — each with the
+    correct family — so a dead first address falls back to the rest instead of
+    hard-failing. Every exposed address must still be a validated public IP."""
+    import socket as _socket
+    from services import url_safety
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+    def _fake_post(self, url, **kw):
+        infos = _socket.getaddrinfo('multi.example.com', 443)
+        # (family, ip) pairs, so we can check each address carries its own family.
+        captured['pairs'] = [(info[0], info[4][0]) for info in infos]
+        return _FakeResp()
+
+    # Two public IPv4 + one public IPv6 all resolve for the host.
+    infos = _addrinfo('93.184.216.34') + _addrinfo('104.16.132.229') + _addrinfo('2606:2800:220:1:248:1893:25c8:1946')
+    with mock.patch('services.url_safety.socket.getaddrinfo', return_value=infos):
+        with mock.patch('requests.Session.post', _fake_post):
+            resp = url_safety.post_webhook_safely(
+                'https://multi.example.com/hook', data=b'{}', headers={}, timeout=5,
+            )
+    assert resp.status_code == 200
+    # All three validated IPs are exposed to the connection layer (order-agnostic;
+    # what matters is the fallback set is complete, not the sort order).
+    exposed_ips = {ip for _fam, ip in captured['pairs']}
+    assert exposed_ips == {
+        '93.184.216.34', '104.16.132.229', '2606:2800:220:1:248:1893:25c8:1946',
+    }, captured
+    # Each address carries the correct family (IPv6 → AF_INET6, IPv4 → AF_INET),
+    # so urllib3 can actually connect on the right socket type.
+    for fam, ip in captured['pairs']:
+        expected = _socket.AF_INET6 if ':' in ip else _socket.AF_INET
+        assert fam == expected, (fam, ip)
+
+
 def test_pin_raises_on_unsafe_url_before_sending():
     from services import url_safety
     sent = {'called': False}
