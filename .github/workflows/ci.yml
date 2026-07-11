@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# One run per ref; a newer push cancels the older in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/django
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/django/requirements.txt
+
+      # psutil builds from source where no wheel is published — install the
+      # toolchain so the job is robust across runner arches.
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y gcc python3-dev
+
+      - name: Install deps (mediapipe excluded — lazily imported, ~200 MB)
+        run: |
+          # mediapipe is only imported inside services/orientation.py at call
+          # time; no test or app-boot path touches it, so CI installs a
+          # mediapipe-free subset to keep the job fast.
+          grep -vE '^mediapipe' requirements.txt > /tmp/requirements-ci.txt
+          pip install -r /tmp/requirements-ci.txt
+
+      - name: Run standalone test modules
+        env:
+          DJANGO_SETTINGS_MODULE: product_editor.settings
+          # DEBUG=1 so the production fail-fast on DJANGO_SECRET_KEY doesn't
+          # trip in CI (no real secret is needed to run these unit tests).
+          DEBUG: "1"
+        run: |
+          # Auto-discover every services/tests/test_*.py so new suites are
+          # picked up without editing this workflow. Collect all failures.
+          FAIL=0
+          for f in services/tests/test_*.py; do
+            mod="services.tests.$(basename "$f" .py)"
+            echo "── $mod"
+            python -m "$mod" || FAIL=1
+          done
+          exit $FAIL
+
+  frontend:
+    name: Frontend typecheck / lint / test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/nextjs
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm must be set up BEFORE setup-node so node caching finds it.
+      # Version matches frontend/nextjs/Dockerfile (corepack pnpm@9.15.9).
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/nextjs/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test -- --ci
