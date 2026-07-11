@@ -68,6 +68,35 @@ def _extract_overlays_per_canvas(editor_state: dict | None) -> list | None:
     return out
 
 
+def _extract_backgrounds_per_canvas(editor_state: dict | None) -> list | None:
+    """
+    Extract per-canvas background + paper colours from CanvasData.editor_state
+    for the server-side renderer (Phase 2 WYSIWYG). Returns a list aligned with
+    the canvas order used by _extract_frame_transforms / _extract_overlays:
+
+        [ {'bg': '#rrggbb'|None, 'paper': '#rrggbb'|None},  # canvas 0
+          ... ]
+
+    Returns None when editor_state is absent or no canvas set a colour — the
+    engine then falls back to a plain white background (byte-identical to the
+    previous behaviour).
+    """
+    if not editor_state:
+        return None
+    canvases = editor_state.get('canvases') or []
+    if not canvases:
+        return None
+    out = []
+    any_set = False
+    for cv in canvases:
+        bg = cv.get('bg_color') if isinstance(cv, dict) else None
+        paper = cv.get('paper_color') if isinstance(cv, dict) else None
+        if bg or paper:
+            any_set = True
+        out.append({'bg': bg, 'paper': paper})
+    return out if any_set else None
+
+
 def _extract_calendar_state(editor_state: dict | None):
     """
     Pull the customer's calendar-product choices out of editor_state for
@@ -246,6 +275,10 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         overlays_per_canvas = _extract_overlays_per_canvas(canvas.editor_state)
         uploaded_files = _build_uploaded_files_map(canvas, overlays_per_canvas)
 
+        # Phase 2 (WYSIWYG) — per-canvas background + paper colours so the print
+        # matches the colours the customer chose (previously hardcoded white).
+        backgrounds_per_canvas = _extract_backgrounds_per_canvas(canvas.editor_state)
+
         # Phase 4 (Bug B fix) — extract customer-side calendar state. Returns
         # None for non-calendar products; engine then uses the layout's ops
         # defaults. For calendar products the customer's themePreset /
@@ -269,6 +302,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                 overlays_per_canvas=overlays_per_canvas,
                 uploaded_files=uploaded_files,
                 calendar_state=calendar_state,
+                backgrounds_per_canvas=backgrounds_per_canvas,
             )
             output_paths = outputs
 

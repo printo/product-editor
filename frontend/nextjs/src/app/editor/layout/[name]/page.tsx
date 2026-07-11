@@ -1959,6 +1959,10 @@ export default function LayoutEditorPage() {
       const canvasesPayload = allCanvases.map((c, canvasIdx) => ({
         canvas_index: canvasIdx,
         surface_key: (c as any).surfaceKey,
+        // Phase 2 (WYSIWYG): carry the customer's canvas background + paper mat
+        // colours so the print matches the preview (engine defaulted to white).
+        bg_color: (c as any).bgColor ?? null,
+        paper_color: (c as any).paperColor ?? null,
         frames: c.frames.map((frame, frameIdx) => {
           const up = frame.originalFile ? uploadResults.get(frame.originalFile) : null;
           return {
