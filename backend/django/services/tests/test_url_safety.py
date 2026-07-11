@@ -95,6 +95,55 @@ def test_accepts_public_ipv6():
         assert ips and not ips[0].startswith('fc'), ips
 
 
+def test_pin_forces_connection_to_validated_ip():
+    """The pin must route the target host's resolution to the validated IP
+    (closing DNS-rebinding) and restore socket.getaddrinfo afterwards."""
+    import socket as _socket
+    from services import url_safety
+
+    original = _socket.getaddrinfo
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+    def _fake_post(self, url, **kw):
+        # While the request is 'in flight', the target host must resolve ONLY
+        # to the validated public IP, regardless of what real DNS would say.
+        infos = _socket.getaddrinfo('printo.in', 443)
+        captured['ips'] = {info[4][0] for info in infos}
+        captured['allow_redirects'] = kw.get('allow_redirects')
+        return _FakeResp()
+
+    with mock.patch('services.url_safety.socket.getaddrinfo', return_value=_addrinfo('93.184.216.34')):
+        with mock.patch('requests.Session.post', _fake_post):
+            resp = url_safety.post_webhook_safely(
+                'https://printo.in/hook', data=b'{}', headers={}, timeout=5,
+            )
+    assert resp.status_code == 200
+    assert captured['ips'] == {'93.184.216.34'}, captured
+    assert captured['allow_redirects'] is False
+    # getaddrinfo restored after the call.
+    assert _socket.getaddrinfo is original
+
+
+def test_pin_raises_on_unsafe_url_before_sending():
+    from services import url_safety
+    sent = {'called': False}
+
+    def _fake_post(self, url, **kw):
+        sent['called'] = True
+        return None
+
+    with mock.patch('requests.Session.post', _fake_post):
+        try:
+            url_safety.post_webhook_safely('https://169.254.169.254/x', data=b'{}', headers={}, timeout=5)
+            assert False, "should reject metadata IP before sending"
+        except ValidationError:
+            pass
+    assert sent['called'] is False
+
+
 def test_rejects_empty_and_overlong():
     try:
         validate_public_https_url('')

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import threading
 from urllib.parse import urlparse
 
 import requests
@@ -79,37 +80,43 @@ def validate_public_https_url(url: str) -> list[str]:
     return resolve_public_ips(host)
 
 
-class _PinnedIPAdapter(requests.adapters.HTTPAdapter):
-    """Force every connection to a pre-validated IP while keeping the Host
-    header + TLS SNI/cert verification, closing the DNS-rebinding window."""
-
-    def __init__(self, allowed_ips: set[str], *args, **kwargs):
-        self._allowed_ips = allowed_ips
-        super().__init__(*args, **kwargs)
-
-    def send(self, request, **kwargs):
-        parsed = urlparse(request.url)
-        host = parsed.hostname or ""
-        try:
-            literal = ipaddress.ip_address(host)
-            resolved = {str(literal)}
-        except ValueError:
-            resolved = set(resolve_public_ips(host))
-        if not resolved & self._allowed_ips:
-            raise ValidationError("callback_url resolved to a different address at send time.")
-        return super().send(request, **kwargs)
+# Serialise the getaddrinfo pin (below). Celery prefork workers run one task
+# per process so a collision is already unlikely, but the lock keeps it correct
+# even under a future threaded worker.
+_PIN_LOCK = threading.Lock()
 
 
 def post_webhook_safely(url: str, *, data: bytes, headers: dict, timeout: float) -> requests.Response:
     """
-    POST to a customer webhook with full SSRF protection: re-validate at send
-    time (DNS-rebinding defence), pin the connection to the validated public
-    IP, and never follow redirects (a public host can't 30x into an internal
-    target). Raises ValidationError if the URL is unsafe.
+    POST to a customer webhook with full SSRF protection. Resolve+validate the
+    host to a public IP, then ACTUALLY PIN the connection to that IP for the
+    duration of the request by scoping socket.getaddrinfo — so urllib3's own
+    resolution at connect time cannot rebind to an internal address (the
+    TOCTOU a re-validate-then-delegate approach leaves open). TLS SNI/cert
+    verification still runs against the original hostname (the URL is
+    unchanged), and redirects are disabled so a public host can't 30x into an
+    internal target. Raises ValidationError if the URL is unsafe.
     """
-    allowed = set(validate_public_https_url(url))
+    allowed = validate_public_https_url(url)  # ordered list of validated public IPs
+    host = (urlparse(url).hostname or "").lower()
+    pinned = allowed[0]
+    pinned_family = socket.AF_INET6 if ":" in pinned else socket.AF_INET
+
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _pinned_getaddrinfo(h, port, *args, **kwargs):
+        # Only redirect resolution of OUR target host to the validated IP;
+        # everything else resolves normally.
+        if isinstance(h, str) and h.lower() == host:
+            return [(pinned_family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (pinned, port))]
+        return real_getaddrinfo(h, port, *args, **kwargs)
+
     session = requests.Session()
-    session.mount("https://", _PinnedIPAdapter(allowed))
-    return session.post(
-        url, data=data, headers=headers, timeout=timeout, allow_redirects=False,
-    )
+    with _PIN_LOCK:
+        socket.getaddrinfo = _pinned_getaddrinfo
+        try:
+            return session.post(
+                url, data=data, headers=headers, timeout=timeout, allow_redirects=False,
+            )
+        finally:
+            socket.getaddrinfo = real_getaddrinfo

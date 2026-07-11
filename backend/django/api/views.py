@@ -1071,6 +1071,19 @@ class OrderDataPurgeView(APIView):
             if not api_key:
                 return Response({'detail': f"No API key named '{key_name}'."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Cross-tenant erasure is destructive — the same order_id can exist for
+        # different embed customers (unique_together is (order_id, api_key)).
+        # Purging every tenant sharing an id must be a CONSCIOUS choice, not the
+        # default: require ?all_tenants=true when no api_key is scoped.
+        all_tenants = str(request.query_params.get('all_tenants', '')).lower() in ('1', 'true', 'yes')
+        if api_key is None and not all_tenants:
+            return Response(
+                {'detail': "This order_id may belong to multiple tenants. Pass "
+                           "?api_key=<name> to scope the erasure, or ?all_tenants=true "
+                           "to purge every tenant sharing this order_id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         force = str(request.query_params.get('force', '')).lower() in ('1', 'true', 'yes')
 
         result = purge_order_data(order_id, api_key=api_key, force=force)

@@ -308,18 +308,31 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
     # workers in a loop. Count deliveries per job; after 3, fail the job and
     # ACK (return) so the poison pill drains. Rides the fail-open cache — if the
     # cache is down the guard is skipped and old behaviour returns.
+    # Count ONLY genuine broker redeliveries (crash / worker-lost), NOT the
+    # task's own self.retry() re-executions. A self.retry() publishes a fresh
+    # message (redelivered=False, retries bumped); a worker crash under
+    # acks_late redelivers the SAME message (redelivered=True, retries frozen).
+    # Counting every execution would steal a transiently-failing job's final
+    # legitimate retry and mislabel it as a crash.
     _MAX_DELIVERIES = 3
-    if getattr(self.request, 'delivery_info', None) and self.request.delivery_info.get('redelivered'):
+    _redelivered = bool(
+        getattr(self.request, 'delivery_info', None)
+        and self.request.delivery_info.get('redelivered')
+    )
+    if _redelivered:
         logger.warning("Render job %s was redelivered (possible crash-loop)", job_id)
     try:
-        from django.core.cache import cache
-        dkey = f'render_deliveries:{job_id}'
-        cache.add(dkey, 0, 7200)
-        deliveries = cache.incr(dkey)
-        if deliveries > _MAX_DELIVERIES:
+        if _redelivered:
+            from django.core.cache import cache
+            dkey = f'render_deliveries:{job_id}'
+            cache.add(dkey, 0, 7200)
+            crash_deliveries = cache.incr(dkey)
+        else:
+            crash_deliveries = 0
+        if crash_deliveries > _MAX_DELIVERIES:
             logger.error(
-                "Render job %s aborted: %d deliveries — payload keeps crashing the worker",
-                job_id, deliveries,
+                "Render job %s aborted: %d crash-redeliveries — payload keeps crashing the worker",
+                job_id, crash_deliveries,
             )
             job.status = 'failed'
             job.error_message = (

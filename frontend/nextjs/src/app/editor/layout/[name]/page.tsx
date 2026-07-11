@@ -2383,7 +2383,12 @@ export default function LayoutEditorPage() {
                   surfaceKey: s.key,
                 }]
           )
-        : canvases.map(c => ({ ...c, surfaceKey: 'canvas' }));
+        // Send the REAL surface key, not a literal 'canvas'. For a single
+        // surface of a type:product layout (e.g. a ?surfaces=front view of a
+        // 2-sided product) the engine's per-surface grouping keys off this;
+        // the literal matched no surface and printed every side blank. Legacy
+        // type:single layouts fall back to 'canvas', which the engine ignores.
+        : canvases.map(c => ({ ...c, surfaceKey: surfaceStates[0]?.key ?? activeSurfaceKey ?? 'canvas' }));
 
       // 2. Collect unique File objects in frame order, then any local
       //    image-overlay files (stickers the customer uploaded) so they upload
@@ -3173,7 +3178,7 @@ export default function LayoutEditorPage() {
             <div className="flex items-center gap-3">
               <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/50">
                 {(['contain', 'cover'] as FitMode[]).map(mode => (
-                  <button key={mode} onClick={() => { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); }} className={clsx('px-3 py-1.5 text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
+                  <button key={mode} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('px-3 py-1.5 text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
                 ))}
               </div>
               <button
