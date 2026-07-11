@@ -300,12 +300,17 @@ export function CanvasEditorModal({
   const totalCount = isMultiSurface ? surfaceStates.length : canvases.length;
 
   return (
-    <div className="fixed inset-0 z-[100000] bg-white flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-300">
+    <div
+      className="fixed inset-0 z-[100000] bg-white flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-300"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Canvas editor"
+    >
       {/* Workspace — Fabric.js editor */}
       <div className="flex-1 bg-slate-100 flex flex-col overflow-hidden relative">
 
         {/* Floating close */}
-        <button onClick={onClose}
+        <button onClick={onClose} aria-label="Close editor"
           className="absolute top-4 right-4 z-30 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-white rounded-full shadow-lg transition-all">
           <X className="w-5 h-5" />
         </button>

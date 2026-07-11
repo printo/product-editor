@@ -1128,6 +1128,24 @@ export default function LayoutEditorPage() {
     return map;
   }, [lowDpiFrames]);
 
+  // ── Escape closes confirm dialogs (Phase 4 a11y) ──────────────────────────
+  // One document-level handler (effect + cleanup — the sanctioned no-DOM
+  // exception) closes whichever confirm modal is open, so keyboard users
+  // aren't trapped. The full editor modal manages its own keys (Fabric uses
+  // Escape for text editing) and is not included here.
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (pendingRepick) return setPendingRepick(null);
+      if (deleteConfirm) return setDeleteConfirm(null);
+      if (pendingOverFiles) return setPendingOverFiles(null);
+      if (showDownloadModal) return setShowDownloadModal(false);
+      if (showEmbedDisclaimer) return setShowEmbedDisclaimer(false);
+    };
+    document.addEventListener('keydown', onEsc);
+    return () => document.removeEventListener('keydown', onEsc);
+  }, [pendingRepick, deleteConfirm, pendingOverFiles, showDownloadModal, showEmbedDisclaimer]);
+
   // ── Tab-close guard (Phase 3) ─────────────────────────────────────────────
   // Warn before unloading ONLY while work is genuinely in flight: an active
   // upload/submit/poll (isDownloading spans the whole window) or an
@@ -3296,7 +3314,12 @@ export default function LayoutEditorPage() {
                           dragOverIdx?.idx === 0 && dragOverIdx?.surfaceKey === surface.key 
                             ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100" 
                             : "border-slate-100 hover:border-indigo-400"
-                        )} onClick={() => handleCardClick(0, surface.key)}>
+                        )} onClick={() => handleCardClick(0, surface.key)}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Edit ${surface.label || surface.key}`}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(0, surface.key); } }}
+                        >
                           <div
                             className={clsx(
                               'relative overflow-hidden bg-slate-100',
@@ -3400,6 +3423,10 @@ export default function LayoutEditorPage() {
                           : "border-slate-200 hover:border-indigo-400"
                       )}
                       onClick={() => handleCardClick(idx)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Edit canvas ${idx + 1}`}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(idx); } }}
                       draggable={!repositionMode}
                       onDragStart={(e) => handleDragStart(e, idx)}
                       onDragOver={(e) => handleDragOver(e, idx)}

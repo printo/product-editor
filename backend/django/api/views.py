@@ -1042,6 +1042,45 @@ class SecureExportDownloadView(APIView):
         except:
             return False
 
+class OrderDataPurgeView(APIView):
+    """
+    Ops-only immediate data erasure for one order (Phase 4 — DPDP
+    right-to-erasure). DELETE /api/ops/orders/<order_id>/purge — hard-deletes
+    uploads, exports, CanvasData (cascades RenderJobs) and EmbedSessions,
+    rows AND files. Never added to the embed-proxy allowlist.
+
+    Query params:
+      ?api_key=<name>  narrow to one tenant (default: all keys for the order)
+      ?force=true      purge even while a render is queued/processing
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
+
+    _ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
+
+    def delete(self, request, order_id: str):
+        from api.purge import purge_order_data
+        from api.models import APIKey
+
+        if not self._ORDER_ID_RE.match(order_id or ''):
+            return Response({'detail': 'Invalid order_id.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        api_key = None
+        key_name = request.query_params.get('api_key')
+        if key_name:
+            api_key = APIKey.objects.filter(name=key_name).first()
+            if not api_key:
+                return Response({'detail': f"No API key named '{key_name}'."}, status=status.HTTP_404_NOT_FOUND)
+
+        force = str(request.query_params.get('force', '')).lower() in ('1', 'true', 'yes')
+
+        result = purge_order_data(order_id, api_key=api_key, force=force)
+        if result.get('matched', 0) == 0:
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        if result.get('blocked'):
+            return Response(result, status=status.HTTP_409_CONFLICT)
+        return Response(result, status=status.HTTP_200_OK)
+
+
 class LayoutManagementView(APIView):
     """View to manage layout JSON files - requires Ops Team permissions."""
     permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]

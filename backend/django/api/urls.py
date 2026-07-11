@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     GenerateLayoutView, ListLayoutsView, HealthView, ConfigView, GetLayoutView, SecureExportDownloadView,
-    LayoutManagementView, ExternalLayoutDetailView, MaskDownloadView,
+    LayoutManagementView, OrderDataPurgeView, ExternalLayoutDetailView, MaskDownloadView,
     EmbedSessionView, EmbedSessionValidateView, FontsView,
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
     CanvasStateView, SKULayoutView, CalendarStylesView, HolidaysView,
@@ -37,6 +37,9 @@ urlpatterns = [
     # Layout management (Ops Team only)
     path("ops/layouts", LayoutManagementView.as_view(), name="ops-layouts-list"),
     path("ops/layouts/<str:name>", LayoutManagementView.as_view(), name="ops-layouts-detail"),
+
+    # DPDP right-to-erasure — immediate purge of one order (Ops Team only)
+    path("ops/orders/<str:order_id>/purge", OrderDataPurgeView.as_view(), name="ops-order-purge"),
 
     # External access (Secured)
     path("external/layouts/<str:name>", ExternalLayoutDetailView.as_view(), name="external-layout-detail"),
