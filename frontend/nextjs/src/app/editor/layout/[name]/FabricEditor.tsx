@@ -631,13 +631,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       // ✅ Safe Zone Guide
       const sr = (fr > fw / 2 - 1 && fr > fh / 2 - 1)
         ? new Ellipse({
-            left: fx, top: fy, rx: fw / 2, ry: fh / 2,
+            left: fx, top: fy, originX: 'left', originY: 'top', rx: fw / 2, ry: fh / 2,
             fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [4, 3],
             selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7,
             strokeUniform: true,
           })
         : new Rect({
-            left: fx, top: fy, width: fw, height: fh,
+            left: fx, top: fy, originX: 'left', originY: 'top', width: fw, height: fh,
             fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [4, 3],
             selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7, rx: fr, ry: fr,
             strokeUniform: true,
@@ -671,13 +671,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       // ✅ Bleed Zone Guide
       const br = (fr > fw / 2 - 1 && fr > fh / 2 - 1)
         ? new Ellipse({
-            left: fx - bleedPx, top: fy - bleedPx, rx: fw / 2 + bleedPx, ry: fh / 2 + bleedPx,
+            left: fx - bleedPx, top: fy - bleedPx, originX: 'left', originY: 'top', rx: fw / 2 + bleedPx, ry: fh / 2 + bleedPx,
             fill: 'transparent', stroke: '#450a0a', strokeWidth: 2, strokeDashArray: [6, 4],
             selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
             strokeUniform: true,
           })
         : new Rect({
-            left: fx - bleedPx, top: fy - bleedPx, width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
+            left: fx - bleedPx, top: fy - bleedPx, originX: 'left', originY: 'top', width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
             fill: 'transparent', stroke: '#450a0a', strokeWidth: 2, strokeDashArray: [6, 4],
             selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
             rx: fr > 0 ? fr + bleedPx : 0, ry: fr > 0 ? fr + bleedPx : 0,
