@@ -1660,7 +1660,11 @@ class EmbedSessionView(APIView):
         return Response({
             'token': str(session.token),
             'expires_at': session.expires_at.isoformat(),
-            'embed_url_template': '/embed/editor/{layout_name}?token=' + str(session.token),
+            # The real iframe entry route (next.config.mjs frame-ancestors +
+            # editor/layout/[name]/page.tsx). The old /embed/editor/... path
+            # never existed. Advisory field — the caller substitutes the
+            # layout name.
+            'embed_url_template': '/editor/layout/{layout_name}?token=' + str(session.token),
             'order_id': order_id or None,
             'callback_url': callback_url or None,
         }, status=status.HTTP_201_CREATED)

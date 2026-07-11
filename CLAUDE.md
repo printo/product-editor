@@ -51,9 +51,9 @@ Open `graphify-out/graph.html` in a browser for the interactive visualisation.
 ### Frontend (Next.js)
 ```bash
 cd frontend/nextjs
-npm run dev       # Development server (http://localhost:3000 direct, or http://localhost:5004 via Docker)
-npm run build     # Production build
-npm run lint      # ESLint
+pnpm dev          # Development server (http://localhost:3000 direct, or http://localhost:5004 via Docker)
+pnpm build        # Production build
+pnpm lint         # ESLint
 ```
 
 ### Backend (Django)
@@ -354,7 +354,7 @@ PIA fetches use `AbortSignal.timeout(10_000)` (10 s) on both `/auth/` and `/auth
 A second `Credentials` provider (`id: "google"`) in `pia-auth.ts` handles "Sign in with Google". The login page renders a Google Identity Services (GIS) button — client-id only, **no client secret** — which returns a Google **ID token** to the browser. `googleLoginAction` (`app/actions/auth.ts`, same per-IP rate limit as the password flow) dispatches `signIn("google", { id_token })`; the provider POSTs `{ id_token }` to **`{PIA_API_BASE_URL}/auth/google/login/`**, which returns the *same* `{ access, refresh, employee_id, full_name, is_super_user, is_ops_team }` payload as `/auth/`. So the `jwt`/`session` callbacks, token refresh, and Django Bearer auth are all identical to the password flow — Google is just a different way to obtain PIA tokens.
 
 - **Domain gate (`@printo.in`)**: enforced server-side in `authorize`. After PIA validates the token (proving its claims genuine), the ID token is decoded and rejected unless `hd === 'printo.in'` or the verified email ends in `@printo.in` → throws `GoogleDomainNotAllowedError` (code `GoogleDomainNotAllowed` → "Please sign in with your @printo.in Google account."). The client `hd` hint is advisory only.
-- **Client ID**: public; read from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (inlined at build time, so set it before `npm run build`) with printo.in's ID as a hardcoded fallback in `login/page.tsx`. The endpoint path is the const `PIA_GOOGLE_AUTH_PATH` in `pia-auth.ts`.
+- **Client ID**: public; read from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (inlined at build time, so set it before `pnpm build`) with printo.in's ID as a hardcoded fallback in `login/page.tsx`. The endpoint path is the const `PIA_GOOGLE_AUTH_PATH` in `pia-auth.ts`.
 - **No CSP/COOP changes**: `/login` carries no CSP from `next.config.mjs` (only the embed/layout routes get `frame-ancestors`), and there are no COOP headers, so the GIS script + popup load freely. If CSP is ever enforced on `/login`, the GIS button needs `script-src`/`frame-src`/`connect-src https://accounts.google.com`.
 - GIS types live in `src/types/google-gsi.d.ts` (minimal `window.google.accounts.id` surface — no `as any`).
 
@@ -495,7 +495,7 @@ calendar-styles
 
 ### Performance
 
-12-surface multi-surface calendar render: **~1.8 s** wall time on the dev Docker container (P9.5 baseline, May 24 2026). Target was ≤ 90 s; current margin is 88 s. Per-surface mean ~150 ms; RSS delta < 1 MB. Re-run `/tmp/p9-perf-bench.py` (Phase 9 artifact) to check for regressions when the engine changes.
+12-surface multi-surface calendar render: **~1.8 s** wall time on the dev Docker container (P9.5 baseline, May 24 2026). Target was ≤ 90 s; current margin is 88 s. Per-surface mean ~150 ms; RSS delta < 1 MB. That Phase 9 bench script was a /tmp artifact and is gone; re-benchmark by timing a 12-surface calendar render through the engine on the local stack.
 
 ## Auto-orientation (server-side MediaPipe Pose)
 
@@ -581,7 +581,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 
 | Var | Purpose |
 |---|---|
-| `PUBLIC_HOST` / `DOMAIN_NAME` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
+| `PUBLIC_HOST` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
 | `AUTH_SECRET` | NextAuth JWT signing secret (≥ 32 chars) |
 | `INTERNAL_API_KEY` | API key the internal proxy sends to Django |
 | `PIA_API_BASE_URL` | Upstream auth (default `https://pia.printo.in/api/v1`) |
@@ -646,7 +646,7 @@ No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped �
 
 ## What to Do Next
 
-The full prioritised list is in [PRD.md](PRD.md) §8 — these are the items that touch this codebase or its deploy.
+The full prioritised list is in [docs/PRD.md](docs/PRD.md) §8 — these are the items that touch this codebase or its deploy.
 
 ### Before / during the next `./deploy.sh`
 
