@@ -173,6 +173,8 @@ export function buildCalendarFabricGroup(opts: BuildCalendarGroupOptions): Group
   children.push(new Rect({
     left: 0,
     top: gridTop - 1,
+    originX: 'left',
+    originY: 'top',
     width: w,
     height: 1,
     fill: colors.grid,
@@ -199,13 +201,13 @@ export function buildCalendarFabricGroup(opts: BuildCalendarGroupOptions): Group
     // Grid lines (right + bottom of each cell)
     if (col < 6) {
       children.push(new Rect({
-        left: cx1, top: cy0, width: 1, height: cellH,
+        left: cx1, top: cy0, originX: 'left', originY: 'top', width: 1, height: cellH,
         fill: colors.grid, selectable: false, evented: false,
       }));
     }
     if (row < rows - 1) {
       children.push(new Rect({
-        left: cx0, top: cy1, width: cellW, height: 1,
+        left: cx0, top: cy1, originX: 'left', originY: 'top', width: cellW, height: 1,
         fill: colors.grid, selectable: false, evented: false,
       }));
     }
@@ -234,6 +236,8 @@ export function buildCalendarFabricGroup(opts: BuildCalendarGroupOptions): Group
       children.push(new Rect({
         left: cx0 + datePad,
         top: cy0 + datePad,
+        originX: 'left',
+        originY: 'top',
         width: cellW - 2 * datePad,
         height: cellH - 2 * datePad,
         fill: '#E5E7EB',
@@ -293,6 +297,8 @@ export function buildCalendarFabricGroup(opts: BuildCalendarGroupOptions): Group
   return new Group(children, {
     left: x,
     top: y,
+    originX: 'left',
+    originY: 'top',
     width: w,
     height: h,
     selectable,
@@ -355,7 +361,7 @@ function appendPill(
 
   // Pill background — rounded rect. Fabric Rect supports `rx`, `ry`.
   children.push(new Rect({
-    left: x, top: y, width: w, height: h,
+    left: x, top: y, originX: 'left', originY: 'top', width: w, height: h,
     fill: bg, rx: radius, ry: radius,
     selectable: false, evented: false,
   }));
@@ -365,7 +371,7 @@ function appendPill(
   const dotX = x + 4;
   const dotY = y + (h - dotD) / 2;
   children.push(new Rect({
-    left: dotX, top: dotY, width: dotD, height: dotD,
+    left: dotX, top: dotY, originX: 'left', originY: 'top', width: dotD, height: dotD,
     fill: dotColor, rx: dotD / 2, ry: dotD / 2,
     selectable: false, evented: false,
   }));
@@ -376,6 +382,7 @@ function appendPill(
   children.push(new Textbox(text, {
     left: textX,
     top: y + h / 2,
+    originX: 'left',
     originY: 'center',
     width: Math.max(1, x + w - textX - 4),
     fontFamily: 'Inter, system-ui, sans-serif',

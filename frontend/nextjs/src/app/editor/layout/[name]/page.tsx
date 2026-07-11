@@ -1812,12 +1812,12 @@ export default function LayoutEditorPage() {
       });
       impositionFabricRef.current = fc;
       fc.add(new FabricRect({
-        left: mPx, top: mPx, width: pw - 2 * mPx, height: ph - 2 * mPx,
+        left: mPx, top: mPx, originX: 'left', originY: 'top', width: pw - 2 * mPx, height: ph - 2 * mPx,
         fill: '#ffffff', stroke: '#e2e8f0', strokeWidth: 1,
         strokeDashArray: [4, 3], selectable: false, evented: false,
       }));
       fc.add(new FabricRect({
-        left: 0, top: 0, width: pw, height: ph,
+        left: 0, top: 0, originX: 'left', originY: 'top', width: pw, height: ph,
         fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1.5,
         selectable: false, evented: false,
       }));
