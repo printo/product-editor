@@ -48,6 +48,7 @@ from typing import Optional
 from PIL import Image, ImageDraw, ImageOps
 
 from services.fonts import get_font
+from services.image_loader import open_source_rgba
 
 logger = logging.getLogger(__name__)
 
@@ -259,10 +260,8 @@ def _paste_image(
     opacity = max(0.0, min(1.0, opacity))
 
     try:
-        with Image.open(path) as _src:
-            # Match the browser's display orientation (see engine.py).
-            ImageOps.exif_transpose(_src, in_place=True)
-            img = _src.convert("RGBA")
+        # Colour-managed load (EXIF orientation + ICC→sRGB) — see services/image_loader.py.
+        img = open_source_rgba(path)
     except (OSError, ValueError) as exc:
         logger.warning("Failed to open image overlay at %s: %s — skipping", path, exc)
         return

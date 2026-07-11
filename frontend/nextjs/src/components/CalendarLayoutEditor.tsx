@@ -273,6 +273,13 @@ export function validateDraft(draft: CalendarLayoutDraft): string | null {
   if (draft.surfaceOverrides) {
     for (const [key, ovr] of Object.entries(draft.surfaceOverrides)) {
       if (ovr.frames) {
+        // Frame COUNT is pinned to the template (mirrors the server rule):
+        // the render payload slices photos per month with a uniform template
+        // stride, so an override that adds/removes frames would desync photo
+        // slicing and emit spurious extra pages into the customer's ZIP.
+        if (ovr.frames.length !== draft.frames.length) {
+          return `surfaceOverrides['${key}'] has ${ovr.frames.length} frame(s) but the template has ${draft.frames.length} — per-month overrides may reposition frames but not change their count.`;
+        }
         for (let i = 0; i < ovr.frames.length; i++) {
           const f = ovr.frames[i];
           if (f.x < 0 || f.y < 0 || f.width <= 0 || f.height <= 0) {

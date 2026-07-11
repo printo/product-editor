@@ -409,6 +409,11 @@ class GenerateLayoutView(APIView):
                         image_paths=upload_paths,
                         fit_mode=fit_mode,
                         export_format=export_format,
+                        # Invalidate any prior editor-submit snapshot: a
+                        # direct-API resubmit must render THESE uploads, not
+                        # a stale render_state (whose embedded image_paths
+                        # would silently hijack the job — wrong-print class).
+                        render_state=None,
                         # callback_url is no longer accepted at this endpoint;
                         # configure it via POST /api/embed/session for the
                         # embed flow. Direct callers should poll render-status.
@@ -1939,8 +1944,14 @@ class EditorRenderView(APIView):
         queue_name = 'standard'
         expires_at = timezone.now() + timedelta(days=30)
 
-        editor_state = {
+        # Snapshot the render contract into its own field. editor_state stays
+        # untouched: it is the frontend's autosaved design, and overwriting it
+        # here is what used to blank the editor after every submit. Embedding
+        # image_paths in the snapshot also means a post-submit autosave (which
+        # resets CanvasData.image_paths to []) cannot starve a queued job.
+        render_state = {
             'canvases': canvases_payload,
+            'image_paths': image_paths,
             'format_version': 1,
         }
 
@@ -1954,7 +1965,7 @@ class EditorRenderView(APIView):
                         'image_paths': image_paths,
                         'fit_mode': 'cover',
                         'export_format': export_format,
-                        'editor_state': editor_state,
+                        'render_state': render_state,
                         'callback_url': callback_url,
                         'expires_at': expires_at,
                     },

@@ -56,17 +56,12 @@ const STUB_PALETTES: GenzPalette[] = [
 
 // Pre-seeded customer state for clicking around with — Jan/Feb/Mar entries
 // to demonstrate the calendar-type flip warning modal.
-const SEED_CELLS: Record<string, CalendarCellOverride[]>[] = (() => {
-  const arr: Record<string, CalendarCellOverride[]>[] = Array.from(
-    { length: 12 },
-    () => ({})
-  );
-  arr[0]['2026-01-07'] = [{ type: 'text', text: "Mom's birthday" }];
-  arr[0]['2026-01-22'] = [{ type: 'text', text: 'Dentist' }];
-  arr[0]['2026-01-12'] = [{ type: 'hide' }];
-  arr[1]['2026-02-14'] = [{ type: 'text', text: 'Valentine plans' }];
-  return arr;
-})();
+const SEED_CELLS: Record<string, CalendarCellOverride[]> = {
+  '2026-01-07': [{ type: 'text', text: "Mom's birthday" }],
+  '2026-01-22': [{ type: 'text', text: 'Dentist' }],
+  '2026-01-12': [{ type: 'hide' }],
+  '2026-02-14': [{ type: 'text', text: 'Valentine plans' }],
+};
 
 // Stub holidays for the demo — production fetches /api/holidays/en-IN/<year>.
 const HOLIDAYS_2026: HolidayEntry[] = [
@@ -83,7 +78,7 @@ export default function DevCalendarPreviewPage() {
   const [themePreset, setThemePreset] = useState<CalendarTheme>('modern-minimalist');
   const [calendarType, setCalendarType] = useState<CalendarType>('english');
   const [genzPalette, setGenzPalette] = useState<string>('butter');
-  const [cellsPerCanvas, setCellsPerCanvas] = useState(SEED_CELLS);
+  const [calendarCells, setCalendarCells] = useState(SEED_CELLS);
   const [activeCell, setActiveCell] = useState<{
     surfaceIndex: number;
     iso: string;
@@ -138,7 +133,7 @@ export default function DevCalendarPreviewPage() {
   );
 
   // The active cell's entries + holidays for the side panel.
-  const activeEntries = activeCell ? cellsPerCanvas[activeCell.surfaceIndex]?.[activeCell.iso] ?? [] : [];
+  const activeEntries = activeCell ? calendarCells[activeCell.iso] ?? [] : [];
   const activeHolidays = activeCell
     ? HOLIDAYS_2026.filter(h => h.date === activeCell.iso)
     : [];
@@ -147,14 +142,13 @@ export default function DevCalendarPreviewPage() {
     transform: (current: CalendarCellOverride[]) => CalendarCellOverride[]
   ) {
     if (!activeCell) return;
-    setCellsPerCanvas(prev => {
-      const next = prev.map((c, i) => (i === activeCell.surfaceIndex ? { ...c } : c));
-      const current = next[activeCell.surfaceIndex][activeCell.iso] ?? [];
-      const updated = transform(current);
+    setCalendarCells(prev => {
+      const next = { ...prev };
+      const updated = transform(next[activeCell.iso] ?? []);
       if (updated.length === 0) {
-        delete next[activeCell.surfaceIndex][activeCell.iso];
+        delete next[activeCell.iso];
       } else {
-        next[activeCell.surfaceIndex][activeCell.iso] = updated;
+        next[activeCell.iso] = updated;
       }
       return next;
     });
@@ -188,7 +182,7 @@ export default function DevCalendarPreviewPage() {
           onGenzPaletteChange={setGenzPalette}
           calendarType={calendarType}
           onCalendarTypeChange={setCalendarType}
-          cellsPerCanvas={cellsPerCanvas}
+          cells={calendarCells}
           holidays={HOLIDAYS_2026}
           weekStart="sunday"
           onMonthTileClick={(surfaceIndex, year, month) => {

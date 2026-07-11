@@ -230,10 +230,21 @@ class CanvasData(models.Model):
 
     # Full editor state — persisted on every meaningful change so the design
     # survives page refresh / navigation away before checkout.
-    # Structure: { canvases: [...], surfaceStates: [...], globalFitMode: str }
+    # Frontend-owned autosave blob: { surfaces: [...], activeSurfaceKey, layoutName, calendarState? }
+    # Written ONLY by CanvasStateView; submit must never touch it (see render_state).
     editor_state = models.JSONField(
         null=True, blank=True,
         help_text="Full editor state JSON (frames, overlays, colours, surfaces).",
+    )
+
+    # Render payload snapshot written by EditorRenderView at submit and consumed
+    # by render_canvas_task. Kept separate from editor_state so submit never
+    # clobbers the auto-saved design, and so a post-submit autosave can never
+    # strip the payload out from under a queued render job.
+    # Structure: { canvases: [...], image_paths: [...], format_version: 1 }
+    render_state = models.JSONField(
+        null=True, blank=True,
+        help_text="Render payload snapshot (transforms, overlays, colours, calendar) frozen at submit.",
     )
 
     # Callback URL to notify when rendering completes (optional, per-request)

@@ -120,7 +120,8 @@ All exports go through one unified server-side pipeline. The previous client-sid
 - `src/components/ServiceWorkerRegistration.tsx` — registers `/sw.js` in production after `window.load`. No-op in dev so cache doesn't mask code changes. Wired into `app/layout.tsx`.
 - `public/sw.js` — minimal cache-first Service Worker for `/_next/static/*` and `/static/*`. `CACHE_VERSION` constant gates cache buckets; bump to bust everything. See `## Service Worker` section.
 - `src/lib/fabric-renderer.ts` — Off-screen canvas renderer for previews and exports; uses pre-computed `frameRects[]` array to avoid repeated coordinate recalculation. `calculateSmartCropOffsets` clamps the returned offset to the frame's actual per-axis pan room — see v1.10 fix.
-- `src/lib/image-utils.ts` — Image metadata extraction; WeakMap caches only `{width, height, orientation}` (not the HTMLImageElement — would OOM at 200 files)
+- `src/lib/image-utils.ts` — Image metadata extraction; WeakMap caches only `{width, height, orientation}` (not the HTMLImageElement — would OOM at 200 files). `getImageSize()` is the cache-first dims-only accessor for sweeps that must not re-decode.
+- `src/lib/dpi-utils.ts` — Effective print-DPI estimation for the low-res warning (Phase 2). Mirrors the fabric-renderer/engine placement math exactly (rotated bbox → cover/contain baseScale → × zoom); thresholds `DPI_WARN=150` / `DPI_CRITICAL=100`, strict `<` so exactly 150 doesn't warn. Card pills + pre-submit modal notices in `page.tsx` are non-blocking by design. If the placement math changes in either renderer, update this module too.
 - `src/lib/upload-utils.ts` — Chunked upload utility: `uploadFile()` (single, sequential chunks) and `uploadFiles()` (batched, 4 parallel)
 - `src/lib/zip-utils.ts` — Chunked ZIP generation for client-side batch downloads
 - `src/lib/file-store.ts` — IndexedDB-backed File persistence keyed by `(orderId, fileId)`; recovers `originalFile` after page refresh. See "B1 — Canvas state file persistence" below.
@@ -134,6 +135,7 @@ All exports go through one unified server-side pipeline. The previous client-sid
 - `api/validators.py` — `MAX_FILE_SIZE_MB` reads from `settings.MAX_UPLOAD_FILE_SIZE_MB` (single source via env)
 - `layout_engine/engine.py` — Pillow-based high-res PNG/PDF renderer at 300 DPI; `_smart_downscale()` pre-shrinks source images to 2× frame target (BOX resample); 90/180/270° rotation fast-path via `Image.transpose`; per-frame pan/zoom/rotation from `frame_transforms`; explicit `Image.close()` + `gc.collect()` between canvases. CMYK/soft-proof pipeline removed in v1.8. **As of CALENDAR_FEATURE_PRD Phase 1**: `_composite_canvas` now also accepts `overlays` + `uploaded_files` and invokes `services.overlay_renderer.render_overlays` after frame compositing and before the layout mask, so text/shape/image overlays appear in the 300 DPI output (previously preview-only).
 - `services/overlay_renderer.py` — `render_overlays(canvas, overlays, canvas_w_px, canvas_h_px, uploaded_files)` draws text / shape / image overlays via Pillow `ImageDraw`. Single bundled font (Inter Variable) per PRD §11.7 — no font picker. Phase 1 deliverable; foundation for Phase 4 (calendar renderer).
+- `services/image_loader.py` — **the single choke point for opening customer photos server-side** (`open_source_rgba(path)`): EXIF orientation + ICC→sRGB colour management (Display-P3 iPhone photos, AdobeRGB, CMYK-tagged JPEGs) via lcms2, fail-open on malformed profiles. All three render paths (frames in `engine.py`, image overlays, calendar cell images) load through it; output PNGs are tagged with an explicit sRGB profile (`srgb_profile_bytes()`). Never call `Image.open(...).convert("RGBA")` directly on customer photos — it silently discards the embedded profile and shifts colours in print.
 - `services/fonts.py` — `get_font(size_px, weight)` returns a cached `PIL.ImageFont` for the bundled `services/fonts_assets/Inter-Variable.ttf`. Uses the variable axis to serve any weight from a single 859 KB .ttf. Falls back to PIL default on missing-font (logged once). Boot-time `startup_check()` warns if the font is absent.
 - `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. README in the same dir documents the install convention.
 - `product_editor/celery.py` — Queue routing (priority vs. standard), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
@@ -462,8 +464,11 @@ All under `STORAGE_ROOT` (env-driven). See [`services/CALENDAR_S3_READINESS.md`]
 ### Editor → ZIP delivery (calendar variant)
 
 Identical to the standard editor flow except:
-- `editor_state.cells_per_canvas` is a list of `{ iso_date: [CellOverride] }` maps (one per surface) instead of frame transforms.
-- `tasks.py::_extract_calendar_state()` pulls customer-side calendar choices (themePreset / calendarType / palette) and passes them to engine.generate as `calendar_state`.
+- Per-day entries are ONE flat product-wide `{ iso_date: [CellOverride] }` map (`calendarState.cells` in the autosave, `calendar.cells` on every canvas in the render payload). Entries anchor to globally-unique ISO dates, not tile positions — so photo-canvas count and English↔Financial flips can never lose or misplace them. Legacy 12-slot `cellsPerCanvas` arrays are still read (restore + `_extract_calendar_state` both merge them flat).
+- `tasks.py::_extract_calendar_state()` pulls customer-side calendar choices (themePreset / calendarType / palette), merges cells flat, and passes `num_canvases` so the engine can slice photos per month.
+- **Photo → month mapping (Phase 2):** the frontend caps photo canvases at 12 for calendar products; the engine renders exactly 12 outputs, month *i* compositing photo-canvas *(i mod N)* — 1 uploaded photo cycles to all 12 months, 12 photos map one-per-month. Upload order therefore matters. (Previously N photos produced 12·N files in the ZIP.)
+- Theme colours resolve server-side at materialize time (`_resolve_theme_style` reads `storage/calendar_styles/<preset>.json`, ops layout colours win) so weekday-highlight/Gen-Z prints match the preview. Gen-Z paints the palette background; the palette loader reads under `settings.STORAGE_ROOT` (the old `default_storage` path never resolved at render time).
+- Materialized surface overlays (ops month artwork) now render in the print, under customer overlays. An opt-in `calendar.monthTitle` style block (`{enabled, x, y, fontSize, color, textAlign}`) synthesizes a "January 2026" text overlay per month without any overlay-authoring UI.
 - ZIP filenames embed `displayLabel` (above).
 
 ### Customer-facing fail-safes (PRD §11)
@@ -541,7 +546,7 @@ The frontend ships a minimal Service Worker at [`public/sw.js`](frontend/nextjs/
 
 ## Migrations
 
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0007_exportedresult_gc_partial_index`.
+Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0009_renderjob_status_completed_idx`.
 
 | Migration | Change |
 |---|---|
@@ -552,6 +557,10 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 | 0005 | `CanvasData` uniqueness changed to `(order_id, api_key)` — tenant isolation |
 | 0006 | `EmbedSession.order_id` — stores caller's job ID; injected as `X-Order-ID` by embed proxy |
 | 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` (webhook URL, propagated to CanvasData via `X-Callback-URL` header) |
+| 0008 | `CanvasData.render_state` — submit-time render payload snapshot. Separates the two writers that shared `editor_state` (autosave vs submit): submit no longer wipes the customer's auto-saved design, and a post-submit autosave can't strip a queued job's payload. `render_canvas_task` reads `render_state or editor_state` (legacy fallback for jobs enqueued pre-deploy). |
+| 0009 | Consolidates drifted model state: two `RenderJob` indexes (`queue_name/status/created_at`, `status/completed_at`) that existed in the model but never got a migration, drops a duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-name. |
+
+**Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.
 
 ## Frontend Proxy Routes
 

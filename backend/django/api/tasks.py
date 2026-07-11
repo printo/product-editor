@@ -111,9 +111,17 @@ def _extract_calendar_state(editor_state: dict | None):
             'theme_preset':     'modern-minimalist' | 'modern-genz' | 'weekday-highlight' | None,
             'calendar_type':    'english' | 'financial' | None,
             'palette':          '<palette name>' | None,   # only relevant for Gen-Z
-            'cells_per_canvas': [{ iso_date: [override, ...] }, ...]
-                                # one entry per editor canvas, in saved order
+            'cells':            { iso_date: [override, ...] }
+                                # ONE flat product-wide map — entries key by
+                                # globally-unique ISO date, so per-canvas
+                                # association was never needed (Phase 2 item 6)
+            'num_canvases':     int  # payload canvas count, for the engine's
+                                     # per-month photo slicing
         }
+
+    Both payload generations merge into the flat map: the current frontend
+    sends the same product-wide cells map on every canvas (idempotent), and
+    legacy per-index payloads union by their unique ISO keys.
 
     Returns None when editor_state is absent or contains no calendar
     blocks — the engine then renders with layout-level defaults only.
@@ -124,15 +132,16 @@ def _extract_calendar_state(editor_state: dict | None):
     if not canvases:
         return None
 
-    cells_per_canvas: list[dict] = []
+    cells: dict = {}
     any_calendar_state = False
     for cv in canvases:
         cal = cv.get('calendar') if isinstance(cv, dict) else None
         if isinstance(cal, dict):
             any_calendar_state = True
-            cells_per_canvas.append(dict(cal.get('cells') or {}))
-        else:
-            cells_per_canvas.append({})
+            for iso, entries in (cal.get('cells') or {}).items():
+                # Defensive: re-enforce the 3-entries-per-cell cap after the
+                # merge (legacy corrupt states could hold dupes across slots).
+                cells[iso] = list(entries or [])[:3]
 
     if not any_calendar_state:
         return None
@@ -157,8 +166,29 @@ def _extract_calendar_state(editor_state: dict | None):
         'theme_preset': theme_preset,
         'calendar_type': calendar_type,
         'palette': palette,
-        'cells_per_canvas': cells_per_canvas,
+        'cells': cells,
+        'num_canvases': len(canvases),
     }
+
+
+def _resolve_render_inputs(canvas_data) -> tuple:
+    """
+    Pick the render contract source and image paths for a render job.
+
+    The contract comes from the submit-time snapshot (render_state); falling
+    back to editor_state keeps jobs enqueued before the 0008 deploy (whose
+    payload lived in editor_state in the old shape) rendering correctly,
+    including acks_late redeliveries.
+
+    image_paths come from the snapshot, not the row: a post-submit autosave
+    (CanvasStateView) resets CanvasData.image_paths to [] — the snapshot is
+    immutable for the lifetime of the queued job.
+
+    Returns (render_source, image_paths).
+    """
+    render_source = canvas_data.render_state or canvas_data.editor_state
+    image_paths = (canvas_data.render_state or {}).get('image_paths') or canvas_data.image_paths
+    return render_source, image_paths
 
 
 def _build_uploaded_files_map(canvas_data, overlays_per_canvas) -> dict | None:
@@ -265,26 +295,28 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
 
         start_time = time.time()
 
+        render_source, image_paths = _resolve_render_inputs(canvas)
+
         # Extract per-frame transforms saved by EditorRenderView so the engine
         # can reproduce the exact pan / zoom / rotation the user set in the editor.
-        frame_transforms = _extract_frame_transforms(canvas.editor_state)
+        frame_transforms = _extract_frame_transforms(render_source)
 
         # Phase 1 (CALENDAR_FEATURE_PRD.md §5) — extract overlays + the upload
         # map so text/shape/image overlays render server-side. Layouts without
         # overlays return None here and the engine fast-paths past the new code.
-        overlays_per_canvas = _extract_overlays_per_canvas(canvas.editor_state)
+        overlays_per_canvas = _extract_overlays_per_canvas(render_source)
         uploaded_files = _build_uploaded_files_map(canvas, overlays_per_canvas)
 
         # Phase 2 (WYSIWYG) — per-canvas background + paper colours so the print
         # matches the colours the customer chose (previously hardcoded white).
-        backgrounds_per_canvas = _extract_backgrounds_per_canvas(canvas.editor_state)
+        backgrounds_per_canvas = _extract_backgrounds_per_canvas(render_source)
 
         # Phase 4 (Bug B fix) — extract customer-side calendar state. Returns
         # None for non-calendar products; engine then uses the layout's ops
         # defaults. For calendar products the customer's themePreset /
         # calendarType / palette choices override the layout defaults at
         # materialize time; per-canvas cells override at render time.
-        calendar_state = _extract_calendar_state(canvas.editor_state)
+        calendar_state = _extract_calendar_state(render_source)
 
         try:
             logger.info(
@@ -295,7 +327,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             )
             outputs = engine.generate(
                 canvas.layout_name,
-                canvas.image_paths,
+                image_paths,
                 fit_mode=canvas.fit_mode,
                 export_format=canvas.export_format,
                 frame_transforms=frame_transforms,
@@ -310,7 +342,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             # MemoryError is unrecoverable — skip retries immediately.
             error_msg = (
                 f"Render exceeded 512 MB memory limit. "
-                f"Layout '{canvas.layout_name}' with {len(canvas.image_paths)} images "
+                f"Layout '{canvas.layout_name}' with {len(image_paths)} images "
                 f"requires more memory than available."
             )
             logger.error("Job %s failed with MemoryError: %s", job_id, error_msg, exc_info=True)

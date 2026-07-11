@@ -14,7 +14,7 @@ import {
   Upload, Loader2, CheckCircle2, X,
   Archive, FileText, Layout,
   SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
-  Move, Lock,
+  Move, Lock, AlertTriangle,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
@@ -28,7 +28,8 @@ import {
 import { saveFile, getFilesForOrder } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
-import { getImageMetadata, detectJpegColorSpace, isImageComplete } from '@/lib/image-utils';
+import { getImageMetadata, getImageSize, detectJpegColorSpace, isImageComplete } from '@/lib/image-utils';
+import { collectLowDpiFrames, type LowDpiFrame } from '@/lib/dpi-utils';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SheetLayout, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { detectFileOrientation, type OrientationOutcome } from '@/lib/ml-orientation';
@@ -130,6 +131,33 @@ function resolveRotation(
   if (typeof outcome === 'object') return outcome.rotation;
   // 3. ML off / declined → as-is.
   return 0;
+}
+
+/** Amber pre-submit notice listing under-DPI photos (Phase 2 item 4).
+ *  Warn-and-proceed per the PRD — buttons and checkbox stay untouched. */
+function LowDpiWarning({ frames }: { frames: LowDpiFrame[] }) {
+  if (frames.length === 0) return null;
+  const shown = frames.slice(0, 3);
+  const rest = frames.length - shown.length;
+  return (
+    <div className="mx-7 mb-5 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        Some photos are below print resolution
+      </div>
+      <p className="text-xs mt-1 leading-relaxed">
+        You can continue, but they may look soft or pixelated in print (300 DPI recommended).
+      </p>
+      <ul className="text-xs mt-1.5 space-y-0.5 font-medium">
+        {shown.map((f, i) => (
+          <li key={i}>
+            {f.surfaceLabel ?? `Canvas ${f.canvasIdx + 1}`}, photo {f.frameIdx + 1} — ~{Math.round(f.dpi)} DPI
+          </li>
+        ))}
+        {rest > 0 && <li>…and {rest} more</li>}
+      </ul>
+    </div>
+  );
 }
 
 export default function LayoutEditorPage() {
@@ -331,10 +359,15 @@ export default function LayoutEditorPage() {
   const [genzPalette, setGenzPalette] = useState<string | undefined>(undefined);
   const [genzPalettes, setGenzPalettes] = useState<GenzPalette[]>([]);
   const [calendarHolidays, setCalendarHolidays] = useState<HolidayEntry[]>([]);
-  // 12 per-surface cell maps, indexed by surface order (0..11).
-  const [cellsPerCanvas, setCellsPerCanvas] = useState<Record<string, any[]>[]>(
-    () => Array.from({ length: 12 }, () => ({}))
-  );
+  // Under-DPI frames for the low-resolution print warning (Phase 2 item 4).
+  // Non-blocking: shows card pills + a pre-submit notice, never stops submit.
+  const [lowDpiFrames, setLowDpiFrames] = useState<LowDpiFrame[]>([]);
+
+  // Product-wide per-day entries, keyed by ISO date (flat map — Phase 2).
+  // Entries belong to dates, not tile positions: the old 12-slot positional
+  // array lost entries whenever photo-canvas count ≠ 12 and hid in-range
+  // entries after an English↔Financial flip remapped slot→month.
+  const [calendarCells, setCalendarCells] = useState<Record<string, any[]>>({});
   const [selectedCalendarCell, setSelectedCalendarCell] = useState<{
     surfaceIndex: number; year: number; month: number; iso: string;
   } | null>(null);
@@ -342,7 +375,7 @@ export default function LayoutEditorPage() {
   // Hidden file input ref; result stored as blobUrl for instant preview.
   const calendarCellFileInputRef = useRef<HTMLInputElement | null>(null);
   const [calendarImageUploading, setCalendarImageUploading] = useState(false);
-  // Key: `${surfaceIndex}-${iso}`, value: blobUrl for preview thumbnail.
+  // Key: iso date, value: blobUrl for preview thumbnail.
   // Blob URLs are revoked when the override is cleared or the page unmounts.
   const [calendarCellImagePreviews, setCalendarCellImagePreviews] = useState<Record<string, string>>({});
 
@@ -578,7 +611,7 @@ export default function LayoutEditorPage() {
             themePreset: calendarTheme,
             calendarType,
             genzPalette,
-            cellsPerCanvas,
+            cells: calendarCells,
           };
         }
 
@@ -690,7 +723,17 @@ export default function LayoutEditorPage() {
           if (savedCalendar.themePreset) setCalendarTheme(savedCalendar.themePreset as CalendarTheme);
           if (savedCalendar.calendarType) setCalendarType(savedCalendar.calendarType as CalendarType);
           if (savedCalendar.genzPalette) setGenzPalette(savedCalendar.genzPalette);
-          if (Array.isArray(savedCalendar.cellsPerCanvas)) setCellsPerCanvas(savedCalendar.cellsPerCanvas);
+          // Current saves hold a flat ISO-keyed `cells` map; legacy saves hold
+          // the 12-slot `cellsPerCanvas` array — merge it flat (ISO dates are
+          // globally unique, so union is lossless).
+          const flat: Record<string, any[]> = {};
+          if (Array.isArray(savedCalendar.cellsPerCanvas)) {
+            for (const m of savedCalendar.cellsPerCanvas) Object.assign(flat, m || {});
+          }
+          if (savedCalendar.cells && typeof savedCalendar.cells === 'object') {
+            Object.assign(flat, savedCalendar.cells);
+          }
+          if (Object.keys(flat).length) setCalendarCells(flat);
         }
 
         // Activate the surface that was open when the user last saved.
@@ -816,7 +859,7 @@ export default function LayoutEditorPage() {
             themePreset: calendarTheme,
             calendarType,
             genzPalette,
-            cellsPerCanvas,
+            cells: calendarCells,
           },
         };
         const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
@@ -836,7 +879,47 @@ export default function LayoutEditorPage() {
   // Calendar state changes trigger this save; layout/orderId guard against
   // firing before the session is ready.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calendarTheme, calendarType, genzPalette, cellsPerCanvas]);
+  }, [calendarTheme, calendarType, genzPalette, calendarCells]);
+
+  // Worst under-DPI frame per card, for the amber corner pill. Keyed by
+  // `${surfaceKey ?? ''}:${canvasIdx}` to cover both grid variants.
+  const lowDpiByCard = useMemo(() => {
+    const map = new Map<string, LowDpiFrame>();
+    for (const f of lowDpiFrames) {
+      const key = `${f.surfaceKey ?? ''}:${f.canvasIdx}`;
+      const cur = map.get(key);
+      if (!cur || f.dpi < cur.dpi) map.set(key, f);
+    }
+    return map;
+  }, [lowDpiFrames]);
+
+  // ── Low-resolution sweep (Phase 2 item 4) ────────────────────────────────
+  // Debounced: reacts to placed photos, saved modal zoom (FrameState.scale),
+  // rotation, and fit-mode flips. Cache-warm getImageSize keeps re-runs
+  // cheap; a first run may decode files not yet in the metadata cache.
+  useEffect(() => {
+    if (!layout) return;
+    // Cancellation flag: an in-flight sweep from a previous state must not
+    // land after a newer one and overwrite fresh results with stale ones.
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const groups = surfaceStates.length > 1
+          ? surfaceStates.map(s => ({
+              canvases: s.canvases,
+              layoutDef: s.def,
+              surfaceKey: s.key,
+              surfaceLabel: s.label || s.key,
+            }))
+          : [{ canvases, layoutDef: layout, surfaceKey: null }];
+        const result = await collectLowDpiFrames(groups as any, getImageSize);
+        if (!cancelled) setLowDpiFrames(result);
+      } catch {
+        // The warning is best-effort — never let it disturb the editor.
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [canvases, surfaceStates, layout]);
 
   // ── Calendar: fetch Gen-Z palettes + holidays on layout mount ────────────
   // Only runs for productType='calendar' layouts. Gen-Z palettes are needed
@@ -877,7 +960,10 @@ export default function LayoutEditorPage() {
   ): Promise<CanvasItem[]> => {
     if (!layoutDef || surfaceFiles.length === 0) return [];
     const frameCount = layoutDef.frames?.length || 1;
-    const canvasCount = Math.ceil(surfaceFiles.length / frameCount);
+    // Same 12-page cap as generateCanvases for calendar products.
+    const canvasCount = layoutDef.productType === 'calendar'
+      ? Math.min(Math.ceil(surfaceFiles.length / frameCount), 12)
+      : Math.ceil(surfaceFiles.length / frameCount);
     const newCanvases: CanvasItem[] = [];
     for (let i = 0; i < canvasCount; i++) {
       const canvasFrames: FrameState[] = [];
@@ -967,7 +1053,12 @@ export default function LayoutEditorPage() {
     setError(null);
 
     const frameCount = layout.frames?.length || 1;
-    const canvasCount = Math.ceil(files.length / frameCount);
+    // Calendar products render exactly 12 month pages — cap the photo
+    // canvases so canvas i previews month i's photo and the ZIP holds 12
+    // files, not 12 per photo (server slices per-surface the same way).
+    const canvasCount = isCalendarProduct
+      ? Math.min(Math.ceil(files.length / frameCount), 12)
+      : Math.ceil(files.length / frameCount);
     setRenderProgress({ current: 0, total: canvasCount });
     
     // Use current canvases from ref to preserve transforms without creating a dependency loop
@@ -1451,18 +1542,19 @@ export default function LayoutEditorPage() {
     const c = targetCanvases?.[idx];
     if (!c) return;
 
-    // Re-render at full resolution if dataUrl is missing or is a thumbnail
-    let dataUrl = c.dataUrl;
-    if (!dataUrl) {
-      try {
-        const layoutDef = surfaceKey
-          ? surfaceStates.find(s => s.key === surfaceKey)?.def
-          : layout;
-        dataUrl = await renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: layoutDef });
-      } catch (err) {
-        console.error('[quick-download] render failed:', err);
-        return;
-      }
+    // Always re-render with isExport — c.dataUrl is a preview artifact
+    // (thumbnail renders carry frame outlines + "Frame N" labels at reduced
+    // resolution; the modal's toFullResDataURL dumps the live editor canvas
+    // with safe-zone dashes). Downloads must be chrome-free full resolution.
+    let dataUrl: string | null = null;
+    try {
+      const layoutDef = surfaceKey
+        ? surfaceStates.find(s => s.key === surfaceKey)?.def
+        : layout;
+      dataUrl = await renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: layoutDef });
+    } catch (err) {
+      console.error('[quick-download] render failed:', err);
+      return;
     }
     if (!dataUrl) return;
 
@@ -1666,6 +1758,20 @@ export default function LayoutEditorPage() {
         `${cmykFiles.length === 1 ? `"${cmykFiles[0].name}"` : `${cmykFiles.length} files`} use CMYK colour (ISOCoated). Colours may shift — convert to sRGB for accurate on-screen preview.`
       );
     }
+    // ── Calendar capacity (12 month pages) ──────────────────────────────────
+    // The product renders exactly 12 pages; photos beyond 12×frames can never
+    // print. Truncate up front and say so, instead of silently ignoring them.
+    if (isCalendarProduct) {
+      const maxFiles = (layout?.frames?.length || 1) * 12;
+      if (allFiles.length > maxFiles) {
+        setUploadWarning(
+          `Calendars hold ${maxFiles} photo${maxFiles !== 1 ? 's' : ''} — only the first ${maxFiles} were kept.`
+        );
+        setTimeout(() => setUploadWarning(null), 5000);
+        allFiles = allFiles.slice(0, maxFiles);
+      }
+    }
+
     // ── Qty enforcement (single-surface only) ──────────────────────────────
     if (orderQty !== null && surfaceStates.length <= 1) {
       setQtyUnder(null);
@@ -2000,17 +2106,17 @@ export default function LayoutEditorPage() {
         }),
       }));
 
-      // For calendar products, attach per-surface cell data to each canvas
-      // entry so _extract_calendar_state in tasks.py can read it. Product-wide
-      // fields (themePreset, calendarType, genzPalette) are written into every
-      // canvas entry; per-canvas cells are indexed by surfaceIndex.
+      // For calendar products, attach the product-wide calendar block to every
+      // canvas entry. Cells are ONE flat ISO-keyed map (entries belong to
+      // dates, not photo canvases) — the server merges duplicates
+      // idempotently and each month's renderer draws only its own dates.
       if (isCalendarProduct) {
-        canvasesPayload.forEach((c, idx) => {
+        canvasesPayload.forEach((c) => {
           (c as any).calendar = {
             themePreset: calendarTheme,
             calendarType,
             genzPalette,
-            cells: cellsPerCanvas[idx] || {},
+            cells: calendarCells,
           };
         });
       }
@@ -2222,20 +2328,17 @@ export default function LayoutEditorPage() {
 
   // ── Calendar cell editing helpers (PRD §10.3 / audit fix #1) ─────────────
 
-  const calendarCellEntries = (surfaceIdx: number, iso: string): any[] =>
-    (cellsPerCanvas[surfaceIdx] || {})[iso] || [];
+  const calendarCellEntries = (iso: string): any[] => calendarCells[iso] || [];
 
-  const updateCellEntries = useCallback((surfaceIdx: number, iso: string, updater: (prev: any[]) => any[]) => {
-    setCellsPerCanvas(prev => {
-      const next = [...prev];
-      const surfaceCells = { ...(next[surfaceIdx] || {}) };
-      const updated = updater(surfaceCells[iso] || []);
+  const updateCellEntries = useCallback((iso: string, updater: (prev: any[]) => any[]) => {
+    setCalendarCells(prev => {
+      const next = { ...prev };
+      const updated = updater(next[iso] || []);
       if (updated.length === 0) {
-        delete surfaceCells[iso];
+        delete next[iso];
       } else {
-        surfaceCells[iso] = updated;
+        next[iso] = updated;
       }
-      next[surfaceIdx] = surfaceCells;
       return next;
     });
   }, []);
@@ -2251,7 +2354,7 @@ export default function LayoutEditorPage() {
       setUnsupportedWarning(unsupportedFilesMessage([file]));
       return;
     }
-    const { surfaceIndex, iso } = selectedCalendarCell;
+    const { iso } = selectedCalendarCell;
     setCalendarImageUploading(true);
     try {
       const result = await uploadCalendarCellImage(file, {
@@ -2260,12 +2363,12 @@ export default function LayoutEditorPage() {
         getAuthHeaders,
       });
       // Replace any existing entries on this cell with the image override.
-      updateCellEntries(surfaceIndex, iso, () => [{ type: 'image', uploadId: result.uploadId }]);
-      // Cache the blob URL for the panel preview.
-      const key = `${surfaceIndex}-${iso}`;
+      updateCellEntries(iso, () => [{ type: 'image', uploadId: result.uploadId }]);
+      // Cache the blob URL for the panel preview (keyed by ISO — dates are
+      // globally unique, so the key survives calendar-type flips).
       setCalendarCellImagePreviews(prev => {
-        if (prev[key]) URL.revokeObjectURL(prev[key]);
-        return { ...prev, [key]: result.blobUrl };
+        if (prev[iso]) URL.revokeObjectURL(prev[iso]);
+        return { ...prev, [iso]: result.blobUrl };
       });
     } catch (err) {
       if (err instanceof CalendarCellUploadError) {
@@ -2739,6 +2842,21 @@ export default function LayoutEditorPage() {
                           >
                             {surfaceCanvas?.dataUrl ? <img src={surfaceCanvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={surface.label} /> : <div className="absolute inset-0 flex items-center justify-center text-slate-300"><Layout className="w-10 h-10 opacity-20" /></div>}
 
+                            {lowDpiByCard.has(`${surface.key}:0`) && (
+                              <div
+                                className={clsx(
+                                  'absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm',
+                                  lowDpiByCard.get(`${surface.key}:0`)!.severity === 'critical'
+                                    ? 'bg-rose-50/90 border-rose-200 text-rose-700'
+                                    : 'bg-amber-50/90 border-amber-200 text-amber-700'
+                                )}
+                                title="This photo is below print resolution — it may look soft or pixelated when printed. Use a larger photo or zoom out."
+                              >
+                                <AlertTriangle className="w-3 h-3" />
+                                Low res ~{Math.round(lowDpiByCard.get(`${surface.key}:0`)!.dpi)} DPI
+                              </div>
+                            )}
+
                             <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
                               <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-xl hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
                                 <RotateCw className="w-3.5 h-3.5" />
@@ -2805,6 +2923,21 @@ export default function LayoutEditorPage() {
                       >
                         {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
 
+                        {lowDpiByCard.has(`:${idx}`) && (
+                          <div
+                            className={clsx(
+                              'absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm',
+                              lowDpiByCard.get(`:${idx}`)!.severity === 'critical'
+                                ? 'bg-rose-50/90 border-rose-200 text-rose-700'
+                                : 'bg-amber-50/90 border-amber-200 text-amber-700'
+                            )}
+                            title="This photo is below print resolution — it may look soft or pixelated when printed. Use a larger photo or zoom out."
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            Low res ~{Math.round(lowDpiByCard.get(`:${idx}`)!.dpi)} DPI
+                          </div>
+                        )}
+
                         <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 shadow-sm">
                           <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-xl hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
                             <RotateCw className="w-3.5 h-3.5" />
@@ -2863,7 +2996,7 @@ export default function LayoutEditorPage() {
                 calendarType={calendarType}
                 onCalendarTypeChange={setCalendarType}
                 onMonthTileClick={handleCalendarMonthTileClick}
-                cellsPerCanvas={cellsPerCanvas}
+                cells={calendarCells}
                 holidays={calendarHolidays}
                 weekStart={layout?.weekStart as any || 'sunday'}
               />
@@ -2871,48 +3004,48 @@ export default function LayoutEditorPage() {
                 <div className="fixed inset-y-0 right-0 z-[50000] flex">
                   <CalendarEditPanel
                     iso={selectedCalendarCell.iso}
-                    cellEntries={calendarCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso)}
+                    cellEntries={calendarCellEntries(selectedCalendarCell.iso)}
                     holidaysForCell={calendarHolidays.filter(h => h.date === selectedCalendarCell.iso)}
-                    imagePreviewUrl={calendarCellImagePreviews[`${selectedCalendarCell.surfaceIndex}-${selectedCalendarCell.iso}`]}
+                    imagePreviewUrl={calendarCellImagePreviews[selectedCalendarCell.iso]}
                     isImageUploading={calendarImageUploading}
                     onAddTextEntry={text =>
-                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, prev => [
+                      updateCellEntries(selectedCalendarCell.iso, prev => [
                         ...prev, { type: 'text', text },
                       ])
                     }
                     onRemoveTextEntryByIndex={idx =>
-                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, prev =>
+                      updateCellEntries(selectedCalendarCell.iso, prev =>
                         prev.filter((_, i) => i !== idx)
                       )
                     }
                     onRequestImageOverride={() => calendarCellFileInputRef.current?.click()}
                     onRemoveImageOverride={() => {
-                      const key = `${selectedCalendarCell.surfaceIndex}-${selectedCalendarCell.iso}`;
+                      const key = selectedCalendarCell.iso;
                       setCalendarCellImagePreviews(prev => {
                         if (prev[key]) URL.revokeObjectURL(prev[key]);
                         const next = { ...prev };
                         delete next[key];
                         return next;
                       });
-                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, prev =>
+                      updateCellEntries(selectedCalendarCell.iso, prev =>
                         prev.filter(o => o.type !== 'image')
                       );
                     }}
                     onToggleHide={() =>
-                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, prev => {
+                      updateCellEntries(selectedCalendarCell.iso, prev => {
                         const hasHide = prev.some(o => o.type === 'hide');
                         return hasHide ? prev.filter(o => o.type !== 'hide') : [{ type: 'hide' }];
                       })
                     }
                     onReset={() => {
-                      const key = `${selectedCalendarCell.surfaceIndex}-${selectedCalendarCell.iso}`;
+                      const key = selectedCalendarCell.iso;
                       setCalendarCellImagePreviews(prev => {
                         if (prev[key]) URL.revokeObjectURL(prev[key]);
                         const next = { ...prev };
                         delete next[key];
                         return next;
                       });
-                      updateCellEntries(selectedCalendarCell.surfaceIndex, selectedCalendarCell.iso, () => []);
+                      updateCellEntries(selectedCalendarCell.iso, () => []);
                     }}
                     onClose={() => setSelectedCalendarCell(null)}
                   />
@@ -2976,6 +3109,8 @@ export default function LayoutEditorPage() {
                     </span>
                   </label>
                 </div>
+
+                <LowDpiWarning frames={lowDpiFrames} />
 
                 {/* Download options */}
                 <div className="px-7 pb-7 flex gap-3">
@@ -3049,6 +3184,7 @@ export default function LayoutEditorPage() {
                     </span>
                   </label>
                 </div>
+                <LowDpiWarning frames={lowDpiFrames} />
                 {/* Actions */}
                 <div className="px-7 pb-7 flex gap-3">
                   <button

@@ -198,6 +198,18 @@ def materialize_surfaces(
     if palette_name_override:
         style["defaultGenzPalette"] = palette_name_override
 
+    # Resolve the theme preset's colour set server-side (Phase 2 item 6a).
+    # The browser preview resolves themePreset → concrete colours from
+    # storage/calendar_styles/<name>.json; without this merge the print fell
+    # back to hardcoded minimalist colours for every non-Gen-Z theme.
+    # Precedence: ops-set layout colours win over the preset (matches
+    # _resolve_colors' style-over-defaults ordering).
+    theme_json = _resolve_theme_style(style.get("themePreset") or "modern-minimalist")
+    if theme_json:
+        style["colors"] = {**(theme_json.get("colors") or {}), **(style.get("colors") or {})}
+        if not style.get("dotCycle") and isinstance(theme_json.get("dotCycle"), list):
+            style["dotCycle"] = list(theme_json["dotCycle"])
+
     calendar_type = calendar_type_override or style.get("calendarType") or "english"
     base_year = base_year_override if base_year_override is not None else (
         resolve_default_year(month_range.get("defaultYear"), calendar_type)
@@ -295,12 +307,75 @@ def materialize_surfaces(
                 # to the parent layout.
                 "calendar": copy.deepcopy(style),
             }
+
+            # Opt-in month/year heading (Phase 2 item 6b). Ops enable it via
+            # the layout's calendar.monthTitle style block — no overlay
+            # authoring UI needed. Synthesized as a plain text overlay so it
+            # rides the same render path as ops-authored artwork. Opt-in so
+            # existing layouts print byte-identical. Skipped in poster mode
+            # (count==1, many calendars on one page): the engine aggregates
+            # to ONE physical output, and a page-level heading naming a
+            # single month would mislabel the whole-year poster.
+            poster_mode = count == 1 and len(calendars_template) > 1
+            title_cfg = style.get("monthTitle") if isinstance(style, dict) else None
+            if isinstance(title_cfg, dict) and title_cfg.get("enabled") and not poster_mode:
+                title_overlay = {
+                    "type": "text",
+                    "text": surface["displayLabel"],
+                    # Percent coords (0-100) per the overlay contract —
+                    # NOT the 0..1 fractions frames/calendars use.
+                    "x": float(title_cfg.get("x", 6.0)),
+                    "y": float(title_cfg.get("y", 3.0)),
+                    "fontSize": float(title_cfg.get("fontSize", 34.0)),
+                    "fontWeight": int(title_cfg.get("fontWeight", 600)),
+                    "color": title_cfg.get("color")
+                             or (style.get("colors") or {}).get("monthText")
+                             or "#18181B",
+                    "textAlign": title_cfg.get("textAlign", "left"),
+                }
+                surface["overlays"] = [title_overlay] + list(surface["overlays"])
+
             surfaces.append(surface)
 
     return surfaces
 
 
 # ── Gen-Z palette resolution (PRD §10.3) ────────────────────────────────────
+
+def _resolve_theme_style(name: str) -> Optional[dict]:
+    """
+    Load a theme preset's JSON from `storage/calendar_styles/<name>.json`.
+
+    Same conventions as _resolve_genz_palette below: path-traversal guard,
+    default_storage for S3-readiness, warn-and-return-None on any failure so
+    a missing/corrupt style file degrades to renderer defaults instead of
+    failing the render.
+    """
+    import json
+    import os
+    import re
+
+    if not name or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        logger.warning("Bogus theme preset name %r — falling back to defaults", name)
+        return None
+
+    # Resolved under settings.STORAGE_ROOT like every other storage reader
+    # (api/views.py CALENDAR_STYLES_DIR). default_storage is NOT rooted at
+    # STORAGE_ROOT in this project — see _resolve_genz_palette's fix below.
+    from django.conf import settings
+    path = os.path.join(settings.STORAGE_ROOT, "calendar_styles", f"{name}.json")
+    if not os.path.isfile(path):
+        logger.warning(
+            "Theme style file missing: %s — renderer will use built-in defaults", path,
+        )
+        return None
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to load theme style %s: %s", path, exc)
+        return None
+
 
 def _resolve_genz_palette(style: dict) -> Optional[dict]:
     """
@@ -327,19 +402,23 @@ def _resolve_genz_palette(style: dict) -> Optional[dict]:
         logger.warning("Bogus genz palette name %r — falling back to defaults", name)
         return None
 
-    # S3-readiness (PRD §11.17 / audit fix #10): use Django's default_storage
-    # instead of raw open() so the v2 swap to S3 is a contained config change
-    # rather than a code change. The storage path is relative to STORAGE_ROOT.
-    storage_path = os.path.join("calendar_palettes", "genz", f"{name}.json")
-    from django.core.files.storage import default_storage
-    if not default_storage.exists(storage_path):
+    # Phase 2 fix: this previously read via django default_storage with a
+    # STORAGE_ROOT-relative path, but default_storage is rooted at MEDIA_ROOT
+    # (unset → /app), so the palette file was NEVER found at render time and
+    # Gen-Z prints silently fell back to default colours. Resolve under
+    # settings.STORAGE_ROOT like api/views.py GENZ_PALETTES_DIR does. The S3
+    # migration (CALENDAR_S3_READINESS.md) should swap this to a storage
+    # instance explicitly rooted at STORAGE_ROOT.
+    from django.conf import settings
+    path = os.path.join(settings.STORAGE_ROOT, "calendar_palettes", "genz", f"{name}.json")
+    if not os.path.isfile(path):
         logger.warning(
-            "Gen-Z palette file missing: %s — renderer will use theme defaults", storage_path,
+            "Gen-Z palette file missing: %s — renderer will use theme defaults", path,
         )
         return None
     try:
-        with default_storage.open(storage_path, "r") as f:
+        with open(path, "r") as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to load palette %s: %s", storage_path, exc)
+        logger.warning("Failed to load palette %s: %s", path, exc)
         return None

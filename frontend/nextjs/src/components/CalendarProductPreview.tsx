@@ -198,7 +198,7 @@ export function CalendarTypeToggle({ value, onChange }: CalendarTypeToggleProps)
  * Counts entries (each cell can have up to 3), not cells.
  */
 export function countLeapDayOrphans(
-  cellsPerCanvas: ReadonlyArray<Record<string, CalendarCellOverride[]>>,
+  cells: Readonly<Record<string, CalendarCellOverride[]>>,
   calendarType: CalendarType,
   now?: Date,
 ): { count: number; renderYear: number } {
@@ -207,13 +207,11 @@ export function countLeapDayOrphans(
   const isLeap = (renderYear % 4 === 0 && renderYear % 100 !== 0) || renderYear % 400 === 0;
   if (isLeap) return { count: 0, renderYear };
   let count = 0;
-  for (const surfaceCells of cellsPerCanvas) {
-    for (const iso of Object.keys(surfaceCells)) {
-      // ISO ends with "-02-29" (10 chars). Avoid date parsing entirely so
-      // a stray "02-29" inside a custom format isn't matched.
-      if (iso.endsWith('-02-29') && iso.length === 10) {
-        count += surfaceCells[iso]?.length ?? 0;
-      }
+  for (const iso of Object.keys(cells)) {
+    // ISO ends with "-02-29" (10 chars). Avoid date parsing entirely so
+    // a stray "02-29" inside a custom format isn't matched.
+    if (iso.endsWith('-02-29') && iso.length === 10) {
+      count += cells[iso]?.length ?? 0;
     }
   }
   return { count, renderYear };
@@ -232,7 +230,7 @@ export function countLeapDayOrphans(
  * either render or don't, depending on which months are visible.
  */
 export function countOrphanedEntries(
-  cellsPerCanvas: ReadonlyArray<Record<string, CalendarCellOverride[]>>,
+  cells: Readonly<Record<string, CalendarCellOverride[]>>,
   nextCalendarType: CalendarType,
   now?: Date,
 ): number {
@@ -243,12 +241,10 @@ export function countOrphanedEntries(
     visibleMonths.add(`${year}-${String(month).padStart(2, '0')}`);
   }
   let orphaned = 0;
-  for (const surfaceCells of cellsPerCanvas) {
-    for (const iso of Object.keys(surfaceCells)) {
-      const yearMonth = iso.slice(0, 7);  // "YYYY-MM"
-      if (!visibleMonths.has(yearMonth)) {
-        orphaned += surfaceCells[iso]?.length ?? 0;
-      }
+  for (const iso of Object.keys(cells)) {
+    const yearMonth = iso.slice(0, 7);  // "YYYY-MM"
+    if (!visibleMonths.has(yearMonth)) {
+      orphaned += cells[iso]?.length ?? 0;
     }
   }
   return orphaned;
@@ -352,12 +348,13 @@ export interface CalendarProductPreviewProps {
   onMonthTileClick?: (surfaceIndex: number, year: number, month: number) => void;
 
   /**
-   * Per-canvas customer cell entries, indexed by surface (0..11). Used to
-   * compute the orphan count for the calendar-type flip warning modal
-   * (§11.4). Optional — if absent, no warning is shown (no entries to
-   * orphan).
+   * Product-wide customer cell entries, keyed by ISO date (flat map).
+   * Entries anchor to dates, not tile positions, so a calendar-type flip
+   * can never hide an in-range entry. Used for the tile dots and the flip
+   * warning's orphan count (§11.4). Optional — if absent, no warning is
+   * shown (no entries to orphan).
    */
-  cellsPerCanvas?: ReadonlyArray<Record<string, CalendarCellOverride[]>>;
+  cells?: Readonly<Record<string, CalendarCellOverride[]>>;
 
   /**
    * Holidays to draw as dots inside the month tile thumbs. Flat list;
@@ -389,7 +386,7 @@ export function CalendarProductPreview({
   calendarType,
   onCalendarTypeChange,
   onMonthTileClick,
-  cellsPerCanvas,
+  cells,
   holidays,
   weekStart = 'sunday',
   now,
@@ -420,9 +417,7 @@ export function CalendarProductPreview({
 
   const handleCalendarTypeClick = (next: CalendarType) => {
     if (next === calendarType) return;
-    const orphans = cellsPerCanvas
-      ? countOrphanedEntries(cellsPerCanvas, next, now)
-      : 0;
+    const orphans = cells ? countOrphanedEntries(cells, next, now) : 0;
     if (orphans > 0) {
       setPendingFlip(next);
       return;
@@ -431,8 +426,8 @@ export function CalendarProductPreview({
   };
 
   const pendingOrphanCount =
-    pendingFlip && cellsPerCanvas
-      ? countOrphanedEntries(cellsPerCanvas, pendingFlip, now)
+    pendingFlip && cells
+      ? countOrphanedEntries(cells, pendingFlip, now)
       : 0;
 
   // 12-month tile metadata. Each tile resolves to its real (year, month)
@@ -459,10 +454,10 @@ export function CalendarProductPreview({
   // Feb 29 entries on a non-leap year reminds them again, which matches
   // the PRD intent ("Customer can roll back to a leap year to see them").
   const leapDayOrphans = useMemo(
-    () => cellsPerCanvas
-      ? countLeapDayOrphans(cellsPerCanvas, calendarType, now)
+    () => cells
+      ? countLeapDayOrphans(cells, calendarType, now)
       : { count: 0, renderYear: 0 },
-    [cellsPerCanvas, calendarType, now],
+    [cells, calendarType, now],
   );
   const [leapDayToastDismissed, setLeapDayToastDismissed] = useState(false);
   // Re-arm the toast when the orphan count changes to >0 (e.g. customer adds an
@@ -562,7 +557,7 @@ export function CalendarProductPreview({
                 year={t.year}
                 month={t.month}
                 weekStart={weekStart}
-                cells={cellsPerCanvas?.[t.surfaceIndex]}
+                cells={cells}
                 holidays={holidays}
                 colors={thumbColors}
                 dotCycle={dotCycle}
