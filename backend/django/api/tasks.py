@@ -38,6 +38,11 @@ def _extract_frame_transforms(editor_state: dict | None) -> list | None:
                 'scale':    float(frame.get('scale') or 1),
                 'rotation': float(frame.get('rotation') or 0),
                 'fit_mode': frame.get('fit_mode') or None,
+                # WYSIWYG extras — fill sides + caption (engine renders them into
+                # the 300 DPI output). Absent on legacy payloads → None/False.
+                'fill_style':      frame.get('fill_style') or None,
+                'caption':         frame.get('caption') or None,
+                'caption_enabled': bool(frame.get('caption_enabled')),
             })
     return transforms or None
 

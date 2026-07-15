@@ -2484,6 +2484,11 @@ export default function LayoutEditorPage() {
             scale: frame.scale,
             rotation: frame.rotation,
             fit_mode: frame.fitMode,
+            // WYSIWYG extras: fill sides (contain-only) + caption. The engine
+            // renders these into the 300 DPI output (layout_engine/engine.py).
+            fill_style: frame.fillStyle ?? null,
+            caption: frame.caption?.trim() || null,
+            caption_enabled: Boolean(frame.captionEnabled),
           };
         }),
         // Phase 2 (WYSIWYG): carry text / shape / image overlays into the print.

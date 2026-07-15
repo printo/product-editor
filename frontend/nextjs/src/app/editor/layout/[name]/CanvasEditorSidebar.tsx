@@ -236,6 +236,57 @@ export function CanvasEditorSidebar({
                 onChange={v => handleUpdateTransform(fIdx, { rotation: v })}
               />
 
+              {/* Fill sides — only meaningful in contain mode, where a photo
+                  whose aspect ratio differs from the frame leaves whitespace.
+                  In cover mode the photo always fills the frame, so it's hidden. */}
+              {frame.fitMode === 'contain' && (
+                <div className="space-y-2 pt-4 border-t border-slate-50">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-medium text-slate-500 uppercase">Fill sides</label>
+                    <select
+                      value={frame.fillStyle || 'blur'}
+                      onChange={(e) => {
+                        pushUndo(editingCanvas, true);
+                        const updatedFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, fillStyle: e.target.value as 'blur' | 'border' } : f);
+                        debouncedRender({ ...editingCanvas, frames: updatedFrames });
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600"
+                    >
+                      <option value="blur">Blurred photo</option>
+                      <option value="border">Border color</option>
+                    </select>
+                  </div>
+                  <p className="text-[11px] leading-5 text-slate-400">Only affects photos that don&apos;t fully fill the frame.</p>
+                </div>
+              )}
+
+              {/* Caption — available in any fit mode. */}
+              <div className="space-y-2 pt-4 border-t border-slate-50">
+                <label className="text-[11px] font-medium text-slate-500 uppercase">Caption</label>
+                <textarea
+                  value={frame.caption || ''}
+                  onChange={(e) => {
+                    pushUndo(editingCanvas, true);
+                    const updatedFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, caption: e.target.value } : f);
+                    debouncedRender({ ...editingCanvas, frames: updatedFrames });
+                  }}
+                  placeholder="Optional caption"
+                  className="min-h-[72px] w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                />
+                <label className="flex items-center gap-2 text-[11px] text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(frame.captionEnabled)}
+                    onChange={(e) => {
+                      pushUndo(editingCanvas, true);
+                      const updatedFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, captionEnabled: e.target.checked } : f);
+                      debouncedRender({ ...editingCanvas, frames: updatedFrames });
+                    }}
+                  />
+                  Show caption in output
+                </label>
+              </div>
+
               {/* Position / Alignment */}
               <div className="space-y-3 pt-4 border-t border-slate-50">
                 <label className="text-[11px] font-medium text-slate-500 uppercase">Photo Alignment</label>
