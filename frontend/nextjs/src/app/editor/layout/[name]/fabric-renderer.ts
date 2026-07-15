@@ -287,6 +287,11 @@ export async function renderCanvas(
             blurCtx.filter = 'blur(18px)';
             blurCtx.drawImage(fabricImg.getElement() as CanvasImageSource, 0, 0, blurCanvas.width, blurCanvas.height);
           }
+          // Own clipPath — NOT the shared `clipRect`, which updateRelativeClipPath
+          // has already re-positioned into the photo's local space; reusing it
+          // clipped the blur to the wrong place (i.e. away). This one is in the
+          // blur image's own space (it's centred on the frame and sized to it),
+          // rounded to the frame radius so rounded/circular frames stay in shape.
           const blurImg = new FabricImage(blurCanvas, {
             left: fx + fw / 2,
             top: fy + fh / 2,
@@ -296,7 +301,12 @@ export async function renderCanvas(
             scaleY: fh / Math.max(1, blurCanvas.height),
             selectable: false,
             evented: false,
-            clipPath: clipRect,
+            clipPath: new Rect({
+              left: 0, top: 0,
+              width: blurCanvas.width, height: blurCanvas.height,
+              originX: 'center', originY: 'center',
+              rx: fr, ry: fr,
+            }),
           });
           fabricCanvas.add(blurImg);
         }
