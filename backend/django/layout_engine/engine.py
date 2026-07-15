@@ -7,7 +7,7 @@ import tempfile
 import logging
 from typing import List, Optional
 
-from PIL import Image, ImageOps, ImageDraw, ImageChops
+from PIL import Image, ImageOps, ImageDraw, ImageChops, ImageFilter
 
 from services.image_loader import open_source_rgba, srgb_profile_bytes
 
@@ -350,6 +350,92 @@ class LayoutEngine:
         holes.close()
         mat.close()
 
+    def _paint_frame_fill(
+        self,
+        layer: Image.Image,
+        img: Image.Image,
+        fill_style: str,
+        target_w: int,
+        target_h: int,
+        paper_color: Optional[str],
+    ) -> None:
+        """
+        Paint a contain-mode fill behind the photo, covering the whitespace a
+        contained image leaves inside the frame. Mirrors the two styles in
+        fabric-renderer.ts / frame-display.py getFrameFillBehavior:
+          'border' → solid paper colour (the customer's mat colour, else white)
+          'blur'   → the photo stretched to the frame box then Gaussian-blurred
+
+        `layer` is the frame-sized RGBA buffer; the caller pastes the sharp,
+        correctly-fitted photo on top afterwards.
+        """
+        if fill_style == 'border':
+            fill_rgb = self._parse_hex_color(paper_color) if paper_color else (255, 255, 255)
+            fill_img = Image.new("RGBA", (target_w, target_h), (*fill_rgb, 255))
+            layer.paste(fill_img, (0, 0))
+            fill_img.close()
+            return
+
+        # 'blur' (default): stretch the source to the frame box — matching the
+        # preview's drawImage(el, 0, 0, fw, fh) — then blur. Aspect distortion is
+        # invisible under blur and keeps the fill edge-to-edge like the editor.
+        bg = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        radius = max(8, int(min(target_w, target_h) * 0.03))
+        bg = bg.filter(ImageFilter.GaussianBlur(radius))
+        bg.putalpha(255)
+        layer.paste(bg, (0, 0))
+        bg.close()
+
+    def _draw_frame_caption(
+        self,
+        layer: Image.Image,
+        text: str,
+        target_w: int,
+        target_h: int,
+    ) -> None:
+        """
+        Draw a centred caption near the bottom of the frame, above the photo.
+        Sizing / position mirror the Textbox in fabric-renderer.ts: font ≈ 4% of
+        frame height, vertical centre ≈ 8% up from the bottom, wrapped to 80% of
+        the frame width, colour #2a2a2a. Called inside the frame layer so the
+        caption is clipped to the frame shape, same as the preview's clipPath.
+        """
+        from services.fonts import get_font
+
+        font_px = max(8, int(target_h * 0.04))
+        font = get_font(font_px, weight=400)
+        max_w = max(1, int(target_w * 0.8))
+        lines = self._wrap_caption_lines(text, font, max_w)
+        if not lines:
+            return
+
+        line_h = int(font_px * 1.25)
+        center_y = target_h - int(target_h * 0.08)
+        start_y = center_y - (line_h * len(lines)) // 2 + line_h // 2
+        cx = target_w // 2
+
+        draw = ImageDraw.Draw(layer)
+        for i, line in enumerate(lines):
+            draw.text((cx, start_y + i * line_h), line, font=font, fill=(42, 42, 42, 255), anchor="mm")
+
+    @staticmethod
+    def _wrap_caption_lines(text: str, font, max_w: int) -> List[str]:
+        """Greedy word-wrap so each line's rendered width stays within max_w."""
+        words = text.split()
+        if not words:
+            return []
+        lines: List[str] = []
+        cur = words[0]
+        for word in words[1:]:
+            trial = f"{cur} {word}"
+            if font.getlength(trial) <= max_w:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = word
+        lines.append(cur)
+        return lines
+
     def _composite_canvas(
         self,
         surface_def: dict,
@@ -420,6 +506,11 @@ class LayoutEngine:
             rotation = float(tx.get('rotation') or 0.0)
             pan_x = float(tx.get('offset_x') or 0.0)
             pan_y = float(tx.get('offset_y') or 0.0)
+            # WYSIWYG per-frame extras (fill sides + caption). Absent for legacy
+            # callers, so their output stays byte-identical.
+            fill_style = tx.get('fill_style') or None
+            caption_text = (tx.get('caption') or '').strip()
+            caption_on = bool(tx.get('caption_enabled')) and bool(caption_text)
 
             # Rotate source image if needed (expand=True preserves all pixels).
             # Fast-path 90/180/270° rotations: transpose is an O(1) memory
@@ -472,6 +563,12 @@ class LayoutEngine:
             if frame_fit == "contain":
                 rel_x = (target_w - new_w) // 2 + int(pan_x)
                 rel_y = (target_h - new_h) // 2 + int(pan_y)
+                # Fill sides: a contained photo leaves whitespace whenever its
+                # aspect ratio differs from the frame's. If the customer picked a
+                # fill style, paint it behind the photo (border colour or blurred
+                # photo) so the frame reads edge-to-edge, matching the editor.
+                if fill_style and (new_w < target_w or new_h < target_h):
+                    self._paint_frame_fill(layer, img, fill_style, target_w, target_h, paper_color)
                 layer.paste(img, (rel_x, rel_y), img)
             else:
                 # Cover: crop to frame, then shift by editor pan offset.
@@ -486,6 +583,15 @@ class LayoutEngine:
                 if crop_box != (0, 0, img.width, img.height):
                     img = img.crop(crop_box)
                 layer.paste(img, (0, 0), img)
+
+            # Per-frame caption — drawn above the photo, inside the frame layer so
+            # it's clipped to the frame shape (matches the preview's clipPath).
+            # Wrapped defensively: a caption failure must never abort the frame.
+            if caption_on:
+                try:
+                    self._draw_frame_caption(layer, caption_text, target_w, target_h)
+                except Exception:
+                    logger.exception("Caption render failed for frame %d; skipping caption", idx)
 
             # Clip to the frame's rounded/circular shape (no-op for square frames),
             # matching the browser preview so print == what the customer saw.

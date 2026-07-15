@@ -5,6 +5,9 @@ export type FitMode = 'contain' | 'cover';
 export interface FrameState {
   id: number;
   originalFile: File | null;
+  caption?: string;
+  captionEnabled?: boolean;
+  fillStyle?: 'blur' | 'border';
   /** UUID assigned when the File is first persisted to IndexedDB so the blob
    *  can be recovered after a page refresh. Persists in canvas_state JSON. */
   fileId?: string;
