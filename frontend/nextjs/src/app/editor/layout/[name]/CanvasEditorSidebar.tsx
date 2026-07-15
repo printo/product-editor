@@ -239,26 +239,38 @@ export function CanvasEditorSidebar({
               {/* Fill sides — only meaningful in contain mode, where a photo
                   whose aspect ratio differs from the frame leaves whitespace.
                   In cover mode the photo always fills the frame, so it's hidden. */}
-              {frame.fitMode === 'contain' && (
-                <div className="space-y-2 pt-4 border-t border-slate-50">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-medium text-slate-500 uppercase">Fill sides</label>
-                    <select
-                      value={frame.fillStyle || 'blur'}
-                      onChange={(e) => {
+              {frame.fitMode === 'contain' && (() => {
+                const fillOn = frame.fillStyle === 'blur';
+                return (
+                  <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-50">
+                    <div className="min-w-0">
+                      <label className="text-[11px] font-medium text-slate-500 uppercase">Fill sides</label>
+                      <p className="text-[10px] leading-4 text-slate-400 mt-0.5">Blur the photo behind it to fill empty space</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={fillOn}
+                      aria-label="Fill sides with a blurred copy of the photo"
+                      onClick={() => {
                         pushUndo(editingCanvas, true);
-                        const updatedFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, fillStyle: e.target.value as 'blur' | 'border' } : f);
+                        const fillStyle = fillOn ? undefined : ('blur' as const);
+                        const updatedFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, fillStyle } : f);
                         debouncedRender({ ...editingCanvas, frames: updatedFrames });
                       }}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600"
+                      className={clsx(
+                        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-300',
+                        fillOn ? 'bg-indigo-600' : 'bg-slate-200',
+                      )}
                     >
-                      <option value="blur">Blurred photo</option>
-                      <option value="border">Border color</option>
-                    </select>
+                      <span className={clsx(
+                        'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                        fillOn ? 'translate-x-[18px]' : 'translate-x-0.5',
+                      )} />
+                    </button>
                   </div>
-                  <p className="text-[11px] leading-5 text-slate-400">Only affects photos that don&apos;t fully fill the frame.</p>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Caption — available in any fit mode. */}
               <div className="space-y-2 pt-4 border-t border-slate-50">
