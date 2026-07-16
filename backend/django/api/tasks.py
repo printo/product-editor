@@ -662,8 +662,12 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
         base = f'https://{public_host}'
     else:
         base = public_host or ''
+    # Honour the caller's session-time include_uploads choice (snapshotted in
+    # render_state). Baked into the URL so their fetch gets the intended ZIP —
+    # defaults to include for pre-existing jobs with no flag recorded.
+    include_uploads = bool((canvas.render_state or {}).get('include_uploads', True))
     download_url = (
-        f'{base}/api/jobs/{job_id}/download/'
+        f'{base}/api/jobs/{job_id}/download/?include_uploads={"1" if include_uploads else "0"}'
         if (base and job_id) else None
     )
 
