@@ -2722,27 +2722,37 @@ class RenderJobDownloadView(APIView):
         # submission time (UploadedFile.file_path entries). Restore the
         # human-readable filename from UploadedFile.original_filename when
         # available — file_path uses a sanitised hash-prefixed name on disk.
+        # Included only when the caller opts in (?include_uploads=1). The
+        # dashboard "Ready to download" modal leaves this OFF by default: the
+        # raw originals are the biggest, slowest part of the archive and ops
+        # rarely needs them, so excluding them makes the download much faster.
+        # An ABSENT param defaults to true, so the embed webhook consumer keeps
+        # its existing contract (it fetches download_url with no query string).
         canvas = job.canvas_data
-        uploads_root = os.path.realpath(settings.UPLOADS_DIR)
-        upload_records = {
-            uf.file_path: uf.original_filename
-            for uf in UploadedFile.objects.filter(
-                file_path__in=(canvas.image_paths or []),
-                is_deleted=False,
-            )
-        }
+        include_uploads = str(
+            request.query_params.get('include_uploads', 'true')
+        ).strip().lower() not in ('0', 'false', 'no', 'off')
         safe_upload_entries: list[tuple[str, str]] = []  # (resolved_path, arcname_basename)
-        for raw_path in (canvas.image_paths or []):
-            resolved = os.path.realpath(raw_path)
-            if not resolved.startswith(uploads_root + os.sep):
-                logger.warning("RenderJobDownloadView: blocked upload path %s for job %s", raw_path, job_id)
-                continue
-            if not os.path.isfile(resolved):
-                # File may have been GC'd or deleted; skip gracefully.
-                logger.info("Upload missing on disk for job %s: %s", job_id, raw_path)
-                continue
-            arcname_basename = upload_records.get(raw_path) or os.path.basename(resolved)
-            safe_upload_entries.append((resolved, arcname_basename))
+        if include_uploads:
+            uploads_root = os.path.realpath(settings.UPLOADS_DIR)
+            upload_records = {
+                uf.file_path: uf.original_filename
+                for uf in UploadedFile.objects.filter(
+                    file_path__in=(canvas.image_paths or []),
+                    is_deleted=False,
+                )
+            }
+            for raw_path in (canvas.image_paths or []):
+                resolved = os.path.realpath(raw_path)
+                if not resolved.startswith(uploads_root + os.sep):
+                    logger.warning("RenderJobDownloadView: blocked upload path %s for job %s", raw_path, job_id)
+                    continue
+                if not os.path.isfile(resolved):
+                    # File may have been GC'd or deleted; skip gracefully.
+                    logger.info("Upload missing on disk for job %s: %s", job_id, raw_path)
+                    continue
+                arcname_basename = upload_records.get(raw_path) or os.path.basename(resolved)
+                safe_upload_entries.append((resolved, arcname_basename))
 
         # ── 2_mock/ — downscaled web-friendly previews of the print files ──
         # Mocks are pre-generated at render time as a JPEG sibling next to

@@ -477,6 +477,11 @@ export default function LayoutEditorPage() {
   const [showAutoFillPicker, setShowAutoFillPicker] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  // Include the customer's original uploads in the download ZIP — OFF by default
+  // so the archive is just mock + print (much smaller/faster). The ref mirrors
+  // it for the async download-URL builder below.
+  const [includeUploads, setIncludeUploads] = useState(false);
+  const includeUploadsRef = useRef(false);
   const [disclaimerChecked, setDisclaimerChecked] = useState(false);
   const [showEmbedDisclaimer, setShowEmbedDisclaimer] = useState(false);
   const [showImpositionModal, setShowImpositionModal] = useState(false);
@@ -2664,7 +2669,7 @@ export default function LayoutEditorPage() {
           // forwards Content-Disposition from Django so the saved
           // filename is correct without us having to set the `download`
           // attribute. Cookie auth flows through navigation just like fetch.
-          const downloadUrl = `${apiBase}/jobs/${job_id}/download/`;
+          const downloadUrl = `${apiBase}/jobs/${job_id}/download/?include_uploads=${includeUploadsRef.current ? '1' : '0'}`;
           const a = document.createElement('a');
           a.href = downloadUrl;
           a.rel = 'noopener';
@@ -3746,6 +3751,24 @@ export default function LayoutEditorPage() {
                     </div>
                     <span className="text-sm text-slate-600 leading-relaxed group-hover:text-slate-800 transition-colors">
                       I have previewed my design, all images are correctly placed in their frames, and I&apos;m ready to generate the final print-ready files.
+                    </span>
+                  </label>
+                </div>
+
+                {/* Optional — include the customer's original uploaded photos.
+                    Off by default: keeps the ZIP small and the download fast. */}
+                <div className="px-7 pb-5">
+                  <label className="flex items-start gap-3.5 cursor-pointer group">
+                    <div className="relative mt-0.5 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={includeUploads}
+                        onChange={(e) => { setIncludeUploads(e.target.checked); includeUploadsRef.current = e.target.checked; }}
+                        className="peer w-4.5 h-4.5 rounded-md accent-indigo-600 cursor-pointer"
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed group-hover:text-slate-800 transition-colors">
+                      Also include the customer&apos;s original uploaded photos in the ZIP. Off by default — leaving it off makes the download much smaller and faster; turn it on only when you need the source files.
                     </span>
                   </label>
                 </div>
