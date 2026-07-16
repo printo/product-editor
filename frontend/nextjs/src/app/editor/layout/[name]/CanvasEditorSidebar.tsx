@@ -272,7 +272,9 @@ export function CanvasEditorSidebar({
                 );
               })()}
 
-              {/* Caption — available in any fit mode. */}
+              {/* Caption — per-template opt-in (layout.frameCaptionsEnabled); OFF by
+                  default so it never appears on a product it wasn't designed for. */}
+              {Boolean((layout as any)?.frameCaptionsEnabled) && (
               <div className="space-y-2 pt-4 border-t border-slate-50">
                 <label className="text-[11px] font-medium text-slate-500 uppercase">Caption</label>
                 <textarea
@@ -298,6 +300,7 @@ export function CanvasEditorSidebar({
                   Show caption in output
                 </label>
               </div>
+              )}
 
               {/* Position / Alignment */}
               <div className="space-y-3 pt-4 border-t border-slate-50">

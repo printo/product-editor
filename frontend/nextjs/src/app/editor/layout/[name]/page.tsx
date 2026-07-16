@@ -400,6 +400,8 @@ export default function LayoutEditorPage() {
   const [canvases, setCanvases] = useState<CanvasItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [globalFitMode, setGlobalFitMode] = useState<FitMode>('contain');
+  const [globalBlurFill, setGlobalBlurFill] = useState(false);
+  const blurFillUserToggledRef = useRef(false);
   // True only when the customer clicked the Fit/Cover toggle — gates the
   // smartcrop-recompute effect so programmatic fit-mode changes (restore,
   // surface switch) can't wipe manual pans (Phase 3).
@@ -1521,6 +1523,37 @@ export default function LayoutEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalFitMode, renderCanvas]);
 
+  // Global "Blur sides" toggle — set fillStyle on every frame + re-render the
+  // grid thumbnails. Guarded so it only fires on a real user toggle, never on
+  // mount/restore. Fill shows only on contain frames (the renderer gates it);
+  // setting it on cover frames is harmless.
+  useEffect(() => {
+    if (!blurFillUserToggledRef.current) return;
+    blurFillUserToggledRef.current = false;
+    let cancelled = false;
+    (async () => {
+      const nextStyle: 'blur' | undefined = globalBlurFill ? 'blur' : undefined;
+      const updatedSurfaces: SurfaceState[] = [];
+      for (const s of surfaceStates) {
+        const updatedCanvases: CanvasItem[] = [];
+        for (const c of s.canvases) {
+          if (cancelled) return;
+          const patchedFrames = c.frames.map(f => ({ ...f, fillStyle: nextStyle }));
+          const patchedCanvas = { ...c, frames: patchedFrames };
+          const dataUrl = await renderCanvas(patchedCanvas, { thumbnail: true, layoutOverride: s.def });
+          updatedCanvases.push({ ...patchedCanvas, dataUrl });
+        }
+        updatedSurfaces.push({ ...s, canvases: updatedCanvases });
+      }
+      if (cancelled) return;
+      setSurfaceStates(updatedSurfaces);
+      const active = updatedSurfaces.find(su => su.key === activeSurfaceKey);
+      if (active) setCanvases(active.canvases);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalBlurFill, renderCanvas]);
+
   const openEditor = (idx: number, surfaceKey?: string) => {
     let targetCanvases = canvases;
     if (surfaceKey && surfaceKey !== activeSurfaceKey) {
@@ -2484,11 +2517,13 @@ export default function LayoutEditorPage() {
             scale: frame.scale,
             rotation: frame.rotation,
             fit_mode: frame.fitMode,
-            // WYSIWYG extras: fill sides (contain-only) + caption. The engine
-            // renders these into the 300 DPI output (layout_engine/engine.py).
+            // WYSIWYG extras. Fill sides (contain-only). Captions are a
+            // per-template opt-in (layout.frameCaptionsEnabled), OFF by default,
+            // so we never carry a caption into the print for a product that
+            // wasn't designed for one — even if stale state has one set.
             fill_style: frame.fillStyle ?? null,
-            caption: frame.caption?.trim() || null,
-            caption_enabled: Boolean(frame.captionEnabled),
+            caption: (layout as any)?.frameCaptionsEnabled ? (frame.caption?.trim() || null) : null,
+            caption_enabled: Boolean((layout as any)?.frameCaptionsEnabled && frame.captionEnabled),
           };
         }),
         // Phase 2 (WYSIWYG): carry text / shape / image overlays into the print.
@@ -3186,6 +3221,19 @@ export default function LayoutEditorPage() {
                   <button key={mode} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('px-3 py-1.5 text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
                 ))}
               </div>
+              <button
+                onClick={() => { blurFillUserToggledRef.current = true; setGlobalBlurFill(v => !v); }}
+                title={globalBlurFill
+                  ? 'Blurred fill is ON — empty sides show a blurred copy of the photo. Click to turn off.'
+                  : 'Fill the empty sides (Fit mode) with a blurred copy of the photo.'}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
+                  globalBlurFill
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                    : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
+                )}>
+                Blur
+              </button>
               <button
                 onClick={() => setRepositionMode(v => !v)}
                 title={repositionMode

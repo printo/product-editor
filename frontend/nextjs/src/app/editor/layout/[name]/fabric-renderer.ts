@@ -1,7 +1,7 @@
 import { Canvas, Rect, FabricImage, Textbox, FabricText, Path, Shadow } from 'fabric';
 import type { CanvasItem } from './types';
 import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
-import { getFrameFillBehavior } from './frame-display';
+import { buildFrameFill, buildFrameCaption } from './frame-fill';
 
 let picaInstance: any = null;
 
@@ -237,10 +237,6 @@ export async function renderCanvas(
         const x = fx + (fw - w) / 2 + offsetX;
         const y = fy + (fh - h) / 2 + offsetY;
 
-        const fillBehavior = frameState.fitMode === 'contain' && frameState.fillStyle
-          ? getFrameFillBehavior({ fitMode: frameState.fitMode, fillStyle: frameState.fillStyle }, imgW, imgH, fw, fh)
-          : { enabled: false, style: null };
-
         // Clip to frame region using relative clipPath
         const clipRect = new Rect({
           left: 0, top: 0, width: fw, height: fh,
@@ -262,79 +258,21 @@ export async function renderCanvas(
       });
       updateRelativeClipPath(fabricImg, fx, fy, fw, fh);
 
-      if (fillBehavior?.enabled) {
-        if (fillBehavior.style === 'border') {
-          const fillRect = new Rect({
-            left: fx + fw / 2,
-            top: fy + fh / 2,
-            width: fw,
-            height: fh,
-            originX: 'center',
-            originY: 'center',
-            fill: canvasItem.paperColor || '#ffffff',
-            selectable: false,
-            evented: false,
-            rx: fr,
-            ry: fr,
-          });
-          fabricCanvas.add(fillRect);
-        } else {
-          const blurCanvas = document.createElement('canvas');
-          blurCanvas.width = Math.max(1, Math.round(fw));
-          blurCanvas.height = Math.max(1, Math.round(fh));
-          const blurCtx = blurCanvas.getContext('2d');
-          if (blurCtx) {
-            blurCtx.filter = 'blur(18px)';
-            blurCtx.drawImage(fabricImg.getElement() as CanvasImageSource, 0, 0, blurCanvas.width, blurCanvas.height);
-          }
-          // Own clipPath — NOT the shared `clipRect`, which updateRelativeClipPath
-          // has already re-positioned into the photo's local space; reusing it
-          // clipped the blur to the wrong place (i.e. away). This one is in the
-          // blur image's own space (it's centred on the frame and sized to it),
-          // rounded to the frame radius so rounded/circular frames stay in shape.
-          const blurImg = new FabricImage(blurCanvas, {
-            left: fx + fw / 2,
-            top: fy + fh / 2,
-            originX: 'center',
-            originY: 'center',
-            scaleX: fw / Math.max(1, blurCanvas.width),
-            scaleY: fh / Math.max(1, blurCanvas.height),
-            selectable: false,
-            evented: false,
-            clipPath: new Rect({
-              left: 0, top: 0,
-              width: blurCanvas.width, height: blurCanvas.height,
-              originX: 'center', originY: 'center',
-              rx: fr, ry: fr,
-            }),
-          });
-          fabricCanvas.add(blurImg);
-        }
-      }
+      // Fill sides + caption via the shared helper (frame-fill.ts) so the live
+      // editor and this thumbnail/print renderer can never draw them differently.
+      const _geom = { fx, fy, fw, fh, fr };
+      const fillObj = buildFrameFill(
+        frameState, _geom, imgW, imgH,
+        fabricImg.getElement() as CanvasImageSource, canvasItem.paperColor,
+      );
+      if (fillObj) fabricCanvas.add(fillObj); // behind the photo
 
-      // Photo first, then caption — the caption must sit ON TOP of the photo.
-      // (Fabric renders in insertion order; adding the caption first drew it
-      //  behind the image, so it was invisible except in contain letterboxing.)
       fabricCanvas.add(fabricImg);
 
-      if (frameState.captionEnabled && frameState.caption?.trim()) {
-        const captionBox = new Textbox(frameState.caption.trim(), {
-          left: fx + fw / 2,
-          top: fy + fh - Math.max(24, fh * 0.08),
-          originX: 'center',
-          originY: 'center',
-          fontSize: Math.max(14, fh * 0.04),
-          fontFamily: 'Inter, Arial, sans-serif',
-          fill: '#2a2a2a',
-          textAlign: 'center',
-          width: Math.max(80, fw * 0.8),
-          editable: false,
-          selectable: false,
-          evented: false,
-          backgroundColor: 'transparent',
-        });
-        fabricCanvas.add(captionBox);
-      }
+      const captionObj = buildFrameCaption(
+        frameState, _geom, Boolean((usedLayout as any)?.frameCaptionsEnabled),
+      );
+      if (captionObj) fabricCanvas.add(captionObj); // on top of the photo
     } catch {
       // Skip frames with failed images
     }
