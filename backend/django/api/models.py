@@ -184,6 +184,11 @@ class EmbedSession(models.Model):
     # X-Callback-URL on every forwarded request, EditorRenderView captures it
     # onto CanvasData, and notify_caller_webhook_task POSTs the result.
     callback_url = models.URLField(max_length=2000, blank=True, default='')
+    # Whether the completion webhook's download_url ZIP includes the customer's
+    # original uploads (1_customer_uploads/). Set by the caller at session
+    # creation; flows via X-Include-Uploads → CanvasData.render_state → webhook.
+    # Defaults True so existing integrations are unchanged.
+    include_uploads = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_revoked = models.BooleanField(default=False)

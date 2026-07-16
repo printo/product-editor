@@ -1666,11 +1666,20 @@ class EmbedSessionView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        # Whether the completion webhook's ZIP should include the customer's
+        # original uploads (1_customer_uploads/). Defaults True so existing
+        # integrations are unchanged; pass include_uploads=false for a smaller,
+        # faster download that ships only the mock + print files.
+        include_uploads = str(
+            request.data.get('include_uploads', True)
+        ).strip().lower() not in ('0', 'false', 'no', 'off')
+
         session = EmbedSession.objects.create(
             api_key=api_key,
             expires_at=expires_at,
             order_id=order_id,
             callback_url=callback_url,
+            include_uploads=include_uploads,
         )
         return Response({
             'token': str(session.token),
@@ -1682,6 +1691,7 @@ class EmbedSessionView(APIView):
             'embed_url_template': '/editor/layout/{layout_name}?token=' + str(session.token),
             'order_id': order_id or None,
             'callback_url': callback_url or None,
+            'include_uploads': include_uploads,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -1781,6 +1791,7 @@ class EmbedSessionValidateView(APIView):
             'api_key': session.api_key.key,
             'order_id': session.order_id or None,
             'callback_url': session.callback_url or None,
+            'include_uploads': session.include_uploads,
             'expires_at': session.expires_at.isoformat(),
         })
 
@@ -1965,6 +1976,12 @@ class EditorRenderView(APIView):
         # it originally came from EmbedSession.callback_url at session creation.
         # Body-level callback_url is no longer accepted (single source of truth).
         callback_url = (request.headers.get('X-Callback-URL') or '').strip() or None
+        # Embed proxy injects X-Include-Uploads from EmbedSession.include_uploads.
+        # Absent (direct / dashboard callers) → True; they don't use the webhook
+        # (the dashboard controls its own download via the URL query param).
+        include_uploads = str(
+            request.headers.get('X-Include-Uploads', 'true')
+        ).strip().lower() not in ('0', 'false', 'no', 'off')
         api_key = request.user.api_key
 
         # ── Collect + validate all upload_ids ───────────────────────────────
@@ -2024,6 +2041,7 @@ class EditorRenderView(APIView):
             'canvases': canvases_payload,
             'image_paths': image_paths,
             'format_version': 1,
+            'include_uploads': include_uploads,
         }
 
         try:
@@ -2722,27 +2740,37 @@ class RenderJobDownloadView(APIView):
         # submission time (UploadedFile.file_path entries). Restore the
         # human-readable filename from UploadedFile.original_filename when
         # available — file_path uses a sanitised hash-prefixed name on disk.
+        # Included only when the caller opts in (?include_uploads=1). The
+        # dashboard "Ready to download" modal leaves this OFF by default: the
+        # raw originals are the biggest, slowest part of the archive and ops
+        # rarely needs them, so excluding them makes the download much faster.
+        # An ABSENT param defaults to true, so the embed webhook consumer keeps
+        # its existing contract (it fetches download_url with no query string).
         canvas = job.canvas_data
-        uploads_root = os.path.realpath(settings.UPLOADS_DIR)
-        upload_records = {
-            uf.file_path: uf.original_filename
-            for uf in UploadedFile.objects.filter(
-                file_path__in=(canvas.image_paths or []),
-                is_deleted=False,
-            )
-        }
+        include_uploads = str(
+            request.query_params.get('include_uploads', 'true')
+        ).strip().lower() not in ('0', 'false', 'no', 'off')
         safe_upload_entries: list[tuple[str, str]] = []  # (resolved_path, arcname_basename)
-        for raw_path in (canvas.image_paths or []):
-            resolved = os.path.realpath(raw_path)
-            if not resolved.startswith(uploads_root + os.sep):
-                logger.warning("RenderJobDownloadView: blocked upload path %s for job %s", raw_path, job_id)
-                continue
-            if not os.path.isfile(resolved):
-                # File may have been GC'd or deleted; skip gracefully.
-                logger.info("Upload missing on disk for job %s: %s", job_id, raw_path)
-                continue
-            arcname_basename = upload_records.get(raw_path) or os.path.basename(resolved)
-            safe_upload_entries.append((resolved, arcname_basename))
+        if include_uploads:
+            uploads_root = os.path.realpath(settings.UPLOADS_DIR)
+            upload_records = {
+                uf.file_path: uf.original_filename
+                for uf in UploadedFile.objects.filter(
+                    file_path__in=(canvas.image_paths or []),
+                    is_deleted=False,
+                )
+            }
+            for raw_path in (canvas.image_paths or []):
+                resolved = os.path.realpath(raw_path)
+                if not resolved.startswith(uploads_root + os.sep):
+                    logger.warning("RenderJobDownloadView: blocked upload path %s for job %s", raw_path, job_id)
+                    continue
+                if not os.path.isfile(resolved):
+                    # File may have been GC'd or deleted; skip gracefully.
+                    logger.info("Upload missing on disk for job %s: %s", job_id, raw_path)
+                    continue
+                arcname_basename = upload_records.get(raw_path) or os.path.basename(resolved)
+                safe_upload_entries.append((resolved, arcname_basename))
 
         # ── 2_mock/ — downscaled web-friendly previews of the print files ──
         # Mocks are pre-generated at render time as a JPEG sibling next to

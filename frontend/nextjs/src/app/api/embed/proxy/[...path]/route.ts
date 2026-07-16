@@ -37,7 +37,7 @@ const INTERNAL_SECRET = process.env.EMBED_INTERNAL_SECRET || '';
 // ── In-process token → API key cache ─────────────────────────────────────────
 // Module-level so it persists across requests within the same Next.js worker
 // process (Node.js keeps module scope alive between hot invocations).
-interface CacheEntry { apiKey: string; orderId: string | null; callbackUrl: string | null; exp: number }
+interface CacheEntry { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean; exp: number }
 const tokenCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 110 * 60 * 1000; // 110 minutes (session TTL is 120 min)
 // Hard cap to prevent unbounded growth in pathological scenarios
@@ -63,7 +63,7 @@ function evictExpired(): void {
   }
 }
 
-interface SessionInfo { apiKey: string; orderId: string | null; callbackUrl: string | null }
+interface SessionInfo { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean }
 
 /**
  * Exchange an embed token for the real API key, order_id, and callback_url.
@@ -76,7 +76,7 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
   // Fast path: valid cached entry.
   const cached = tokenCache.get(embedToken);
   if (cached && cached.exp > now) {
-    return { apiKey: cached.apiKey, orderId: cached.orderId, callbackUrl: cached.callbackUrl };
+    return { apiKey: cached.apiKey, orderId: cached.orderId, callbackUrl: cached.callbackUrl, includeUploads: cached.includeUploads };
   }
 
   // Cache miss — purge stale entries then fetch from Django.
@@ -98,8 +98,11 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
     if (apiKey) {
       const orderId: string | null = data.order_id || null;
       const callbackUrl: string | null = data.callback_url || null;
-      tokenCache.set(embedToken, { apiKey, orderId, callbackUrl, exp: now + CACHE_TTL_MS });
-      return { apiKey, orderId, callbackUrl };
+      // Defaults true when absent so older Django builds / existing sessions
+      // keep including uploads (backward-compatible).
+      const includeUploads: boolean = data.include_uploads !== false;
+      tokenCache.set(embedToken, { apiKey, orderId, callbackUrl, includeUploads, exp: now + CACHE_TTL_MS });
+      return { apiKey, orderId, callbackUrl, includeUploads };
     }
     return null;
   } catch {
@@ -173,7 +176,7 @@ async function handler(
   if (!session) {
     return NextResponse.json({ detail: 'Invalid or expired embed token' }, { status: 401 });
   }
-  const { apiKey, orderId, callbackUrl } = session;
+  const { apiKey, orderId, callbackUrl, includeUploads } = session;
 
   const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${req.nextUrl.search}`;
 
@@ -193,6 +196,9 @@ async function handler(
   // it and stamps onto CanvasData.callback_url; the Celery task POSTs the
   // completion payload to it. The customer in the iframe never sees this.
   if (callbackUrl) forwardHeaders['X-Callback-URL'] = callbackUrl;
+  // Caller's session-time choice for whether the download ZIP includes the
+  // customer's original uploads. Always sent so EditorRenderView snapshots it.
+  forwardHeaders['X-Include-Uploads'] = includeUploads ? '1' : '0';
   // Only set Content-Type when we'll actually have a body — for GET/HEAD
   // it's meaningless and some upstreams reject the combination.
   if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {
