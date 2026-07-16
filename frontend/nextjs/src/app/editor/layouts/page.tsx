@@ -56,6 +56,8 @@ interface LayoutFrame {
   heightMm?: number | string; // Print Area Height
   bleedMm?: number | string; // Margin for Bleed
   borderRadiusMm?: number | string; // Corner Radius
+  caption?: string; // Default caption text (customer can override in the editor)
+  captionEnabled?: boolean; // Show this area's caption in the output
 }
 
 interface LayoutConfig {
@@ -96,6 +98,7 @@ interface LayoutConfig {
   }[];
   maskUrl?: string;
   maskOnExport?: boolean;
+  frameCaptionsEnabled?: boolean;
 }
 
 interface SurfaceEditorState {
@@ -187,6 +190,9 @@ export default function LayoutCreatorPage() {
   const [widthMm, setWidthMm] = useState(101.6);
   const [heightMm, setHeightMm] = useState(152.4);
   const [borderRadiusMm, setBorderRadiusMm] = useState(0);
+  // Per-template opt-in for per-frame captions. When on, the customer editor
+  // shows a caption box per print area (gated on layout.frameCaptionsEnabled).
+  const [frameCaptionsEnabled, setFrameCaptionsEnabled] = useState(false);
 
   // Custom frames
   const [frames, setFrames] = useState<LayoutFrame[]>([]);
@@ -216,6 +222,7 @@ export default function LayoutCreatorPage() {
         name: internalId,
         type: layoutType,
         borderRadiusMm,
+        frameCaptionsEnabled,
         canvas: {
           width: canvasW,
           height: canvasH,
@@ -243,7 +250,7 @@ export default function LayoutCreatorPage() {
     return () => clearTimeout(timer);
     // _mapFrames is now module-scope (stable reference) so doesn't need to
     // be listed; mmToPx/round2/pxToMm are module-scope helpers it uses.
-  }, [widthMm, heightMm, dpi, frames, surfaces, layoutType, borderRadiusMm, layoutName]);
+  }, [widthMm, heightMm, dpi, frames, surfaces, layoutType, borderRadiusMm, layoutName, frameCaptionsEnabled]);
 
   const [snapGrid, setSnapGrid] = useState(true);
   const [zoom, setZoom] = useState(1);
@@ -495,6 +502,7 @@ export default function LayoutCreatorPage() {
         name: internalId,
         type: 'product',
         tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+        frameCaptionsEnabled,
         surfaces: surfacesData,
       };
 
@@ -522,6 +530,7 @@ export default function LayoutCreatorPage() {
         frames: _mapFrames(frames, widthMm, heightMm, dpi),
         maskUrl: maskUrl || null,
         maskOnExport: maskOnExport,
+        frameCaptionsEnabled,
       };
 
       if (maskFile) {
@@ -636,6 +645,7 @@ export default function LayoutCreatorPage() {
       setLayoutName(data.name.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()));
       setTags(data.tags?.join(', ') || '');
       setOriginalLayoutName(layoutId);
+      setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
 
       // Multi-surface product layout
       if (data.type === 'product' && Array.isArray(data.surfaces)) {
@@ -736,6 +746,7 @@ export default function LayoutCreatorPage() {
       setMaskUrl(data.maskUrl || null);
       setMaskOnExport(data.maskOnExport || false);
       setMaskFile(null);
+      setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
       setOriginalLayoutName(null); // Not a rename — it's a brand new copy, no old file to delete
       setIsEditMode(false); // Treat as new creation so it won't conflict
       setIsModalOpen(true);
@@ -756,6 +767,7 @@ export default function LayoutCreatorPage() {
     setLayoutType('single');
     setSurfaces([]);
     setActiveSurfaceIdx(0);
+    setFrameCaptionsEnabled(false);
     setOriginalLayoutName(null);
     setIsModalOpen(true);
   };
@@ -886,6 +898,7 @@ export default function LayoutCreatorPage() {
                 setMaskUrl(null);
                 setMaskFile(null);
                 setMaskOnExport(false);
+                setFrameCaptionsEnabled(false);
                 setIsModalOpen(true);
               }}
               className="group flex-1 flex flex-col items-center justify-center gap-3 p-6 hover:bg-indigo-50 transition-all cursor-pointer border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-200 hover:border-indigo-300"
@@ -1394,6 +1407,10 @@ export default function LayoutCreatorPage() {
                     <div className="flex items-center justify-between">
                       <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider focus:outline-none">Print Areas Management (mm)</label>
                       <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 font-semibold cursor-pointer transition-colors" title="Let customers add a caption to each print area in the editor">
+                          <input type="checkbox" checked={frameCaptionsEnabled} onChange={(e) => setFrameCaptionsEnabled(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                          Captions
+                        </label>
                         <button type="button" onClick={() => setShowGridGen(!showGridGen)} className="text-xs text-slate-500 hover:text-indigo-600 font-semibold transition-colors">Grid Gen</button>
                         <button type="button" onClick={() => setActiveFrames(prev => [...prev, { id: Math.random().toString(36).slice(2, 11), xMm: 0, yMm: 0, widthMm: 50, heightMm: 50, bleedMm: 0, x: 0, y: 0, width: 0, height: 0 }])} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Area</button>
                       </div>
@@ -1429,19 +1446,30 @@ export default function LayoutCreatorPage() {
                       {activeFrames.length === 0 ? (
                         <div className="text-center py-6 text-sm text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">No print areas added yet. Use Grid Gen or Add Area.</div>
                       ) : activeFrames.map((f, i) => (
-                        <div key={f.id} className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100 group">
-                          <span className="w-6 shrink-0 text-center text-xs font-bold text-slate-400">#{i + 1}</span>
-                          <input type="number" min="0" step="0.01" value={f.xMm} onChange={e => updateFrame(f.id!, 'xMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="X (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.yMm} onChange={e => updateFrame(f.id!, 'yMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="Y (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.widthMm} onChange={e => updateFrame(f.id!, 'widthMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="W (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.heightMm} onChange={e => updateFrame(f.id!, 'heightMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="H (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.bleedMm ?? 0} onChange={e => updateFrame(f.id!, 'bleedMm', e.target.value)} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title="Bleed (mm)" />
-                          <input type="number" min="0" step="0.01" value={f.borderRadiusMm ?? 0} onChange={e => updateFrame(f.id!, 'borderRadiusMm', e.target.value)} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-teal-100 bg-teal-50 text-teal-600 font-bold" title="Corner Radius (mm)" />
-                          <div className="flex items-center gap-1 shrink-0 md:opacity-0 group-hover:opacity-100 transition-all">
-                            <button type="button" onClick={() => centerFrame(f.id!, 'h')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Horizontally"><AlignCenter className="w-3.5 h-3.5" /></button>
-                            <button type="button" onClick={() => centerFrame(f.id!, 'v')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Vertically"><AlignJustify className="w-3.5 h-3.5" /></button>
-                            <button type="button" onClick={() => setActiveFrames(prev => prev.filter(fr => fr.id !== f.id))} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded" title="Delete Area"><Trash2 className="w-3.5 h-3.5" /></button>
+                        <div key={f.id} className="bg-slate-50 p-2 rounded-lg border border-slate-100 group space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 shrink-0 text-center text-xs font-bold text-slate-400">#{i + 1}</span>
+                            <input type="number" min="0" step="0.01" value={f.xMm} onChange={e => updateFrame(f.id!, 'xMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="X (mm)" />
+                            <input type="number" min="0" step="0.01" value={f.yMm} onChange={e => updateFrame(f.id!, 'yMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="Y (mm)" />
+                            <input type="number" min="0" step="0.01" value={f.widthMm} onChange={e => updateFrame(f.id!, 'widthMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="W (mm)" />
+                            <input type="number" min="0" step="0.01" value={f.heightMm} onChange={e => updateFrame(f.id!, 'heightMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="H (mm)" />
+                            <input type="number" min="0" step="0.01" value={f.bleedMm ?? 0} onChange={e => updateFrame(f.id!, 'bleedMm', e.target.value)} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title="Bleed (mm)" />
+                            <input type="number" min="0" step="0.01" value={f.borderRadiusMm ?? 0} onChange={e => updateFrame(f.id!, 'borderRadiusMm', e.target.value)} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-teal-100 bg-teal-50 text-teal-600 font-bold" title="Corner Radius (mm)" />
+                            <div className="flex items-center gap-1 shrink-0 md:opacity-0 group-hover:opacity-100 transition-all">
+                              <button type="button" onClick={() => centerFrame(f.id!, 'h')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Horizontally"><AlignCenter className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => centerFrame(f.id!, 'v')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Vertically"><AlignJustify className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => setActiveFrames(prev => prev.filter(fr => fr.id !== f.id))} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded" title="Delete Area"><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
                           </div>
+                          {frameCaptionsEnabled && (
+                            <div className="flex items-center gap-2 pl-8 pr-2">
+                              <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase shrink-0 cursor-pointer" title="Show this area's caption in the printed output">
+                                <input type="checkbox" checked={Boolean(f.captionEnabled)} onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, captionEnabled: e.target.checked } : fr))} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                                Caption
+                              </label>
+                              <input type="text" value={f.caption ?? ''} onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, caption: e.target.value } : fr))} placeholder="Default caption text (optional)" className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" />
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

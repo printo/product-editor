@@ -1,7 +1,11 @@
 'use client';
 
-import React, { useRef, useEffect, useCallback } from 'react';
-import { Canvas, Rect, FabricText, FabricImage, type FabricObject } from 'fabric';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
+import { Canvas, Rect, FabricText, FabricImage, ActiveSelection, type FabricObject } from 'fabric';
+import {
+  AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
+} from 'lucide-react';
 import {
   createFrameRect,
   createBleedRect,
@@ -12,6 +16,7 @@ import {
   constrainToCanvas,
   initAligningGuidelines,
 } from '@/lib/fabric-utils';
+import { alignFrames, nudgeFrames, type AlignEdge } from './frame-align';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -48,8 +53,22 @@ interface LayoutFabricPreviewProps {
 const GRID_SNAP_MM = 2; // snap every 2mm when grid enabled
 const SNAP_THRESHOLD_PX = 6;
 
-// Custom data key to identify our objects
-const DATA_KEY = '__layoutPreview';
+// Custom data key to identify our objects. Must match the property we
+// actually stamp on objects below (`obj.__fabricEditor = ...`) — mirrors
+// FabricEditor.tsx. A previous value ('__layoutPreview') matched nothing,
+// so the cleanup filter never removed old objects and every frame edit
+// stacked a fresh set of rects/labels onto the preview.
+const DATA_KEY = '__fabricEditor';
+
+// Align toolbar buttons shown when ≥2 print areas are selected.
+const ALIGN_BUTTONS: { edge: AlignEdge; Icon: React.ComponentType<{ className?: string }>; title: string }[] = [
+  { edge: 'left', Icon: AlignStartVertical, title: 'Align left edges' },
+  { edge: 'centerH', Icon: AlignCenterVertical, title: 'Center horizontally' },
+  { edge: 'right', Icon: AlignEndVertical, title: 'Align right edges' },
+  { edge: 'top', Icon: AlignStartHorizontal, title: 'Align top edges' },
+  { edge: 'middleV', Icon: AlignCenterHorizontal, title: 'Center vertically' },
+  { edge: 'bottom', Icon: AlignEndHorizontal, title: 'Align bottom edges' },
+];
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -74,6 +93,13 @@ export function LayoutFabricPreview({
   // Store the latest frames to avoid stale closure issues
   const framesRef = useRef(frames);
   framesRef.current = frames;
+  // Multi-select support: ids of currently-selected frames + a count that
+  // toggles the align toolbar. suppressSelectionRef silences selection events
+  // while we programmatically move/reselect objects (see applyFrames), so a
+  // rebuild doesn't clobber the selection we're about to restore.
+  const selectedIdsRef = useRef<string[]>([]);
+  const suppressSelectionRef = useRef(false);
+  const [selectedCount, setSelectedCount] = useState(0);
 
   // Scale: how many CSS px per mm on the preview canvas
   const getScale = useCallback(() => {
@@ -99,20 +125,27 @@ export function LayoutFabricPreview({
       width: cw,
       height: ch,
       backgroundColor: '#ffffff',
-      selection: false,
+      selection: true, // allow marquee / shift-click to pick multiple frames
     });
     fabricRef.current = fc;
 
-    // Synchronize selectedFrameId to Fabric's internal state
-    const handleSelection = (e: any) => {
-      const selected = e.selected?.[0];
-      if (selected && selected.__fabricEditor === 'frame') {
-        onFrameSelect(selected.__frameId || null);
-      }
+    // Read the current Fabric selection → report the set of selected frame
+    // ids to ourselves (for the align toolbar) and the primary id to the
+    // parent (for single-frame highlighting). Silenced while we're
+    // programmatically reselecting so it can't fight itself.
+    const readSelection = () => {
+      if (suppressSelectionRef.current) return;
+      const ids = fc
+        .getActiveObjects()
+        .filter((o) => o.__fabricEditor === 'frame' && o.__frameId)
+        .map((o) => o.__frameId as string);
+      selectedIdsRef.current = ids;
+      setSelectedCount(ids.length);
+      onFrameSelect(ids.length === 1 ? ids[0] : null);
     };
-    fc.on('selection:created', handleSelection);
-    fc.on('selection:updated', handleSelection);
-    fc.on('selection:cleared', () => onFrameSelect(null));
+    fc.on('selection:created', readSelection);
+    fc.on('selection:updated', readSelection);
+    fc.on('selection:cleared', readSelection);
 
     initAligningGuidelines(fc, { lineMargin: SNAP_THRESHOLD_PX });
 
@@ -139,9 +172,11 @@ export function LayoutFabricPreview({
       fc.setDimensions({ width: cw, height: ch });
     }
 
-    // Remove all existing managed objects
+    // Remove all existing managed objects EXCEPT the mask, which has its own
+    // lifecycle effect below. Clearing it here would drop an uploaded mask on
+    // every frame edit, because that effect doesn't re-run on frame changes.
     const existing = fc.getObjects().filter(
-      (o: any) => o[DATA_KEY],
+      (o: any) => o[DATA_KEY] && o[DATA_KEY] !== 'mask',
     );
     existing.forEach(o => fc.remove(o));
 
@@ -428,11 +463,110 @@ export function LayoutFabricPreview({
     };
   }, [widthMm, heightMm, snapGrid, onFramesChange, getScale]);
 
+  // Reposition the given frames' Fabric objects from their mm values and sync
+  // back to the parent WITHOUT triggering a rebuild (isSyncingRef guards the
+  // sync effect), so the active selection survives. Drives arrow-key nudging
+  // and the align tools.
+  const applyFrames = useCallback((next: LayoutFrame[], activeIds: string[]) => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    const scale = getScale();
+    const idSet = new Set(activeIds);
+
+    suppressSelectionRef.current = true;
+    isSyncingRef.current = true;
+
+    fc.discardActiveObject();
+
+    next.forEach((frame, idx) => {
+      if (frame.id == null || !idSet.has(frame.id)) return;
+      const xMm = Number(frame.xMm || 0);
+      const yMm = Number(frame.yMm || 0);
+      const wMm = Number(frame.widthMm || 0);
+      const hMm = Number(frame.heightMm || 0);
+      const bleed = Number(frame.bleedMm || 0);
+      const radiusMm = Number(frame.borderRadiusMm || 0);
+      fc.getObjects()
+        .filter((o) => o.__frameIdx === idx)
+        .forEach((o) => {
+          if (o.__fabricEditor === 'frame') {
+            o.set({ left: xMm * scale, top: yMm * scale, width: wMm * scale, height: hMm * scale, scaleX: 1, scaleY: 1 });
+          } else if (o.__fabricEditor === 'bleed') {
+            o.set({
+              left: (xMm - bleed) * scale, top: (yMm - bleed) * scale,
+              width: (wMm + bleed * 2) * scale, height: (hMm + bleed * 2) * scale,
+              rx: radiusMm > 0 ? (radiusMm + bleed) * scale : 0,
+              ry: radiusMm > 0 ? (radiusMm + bleed) * scale : 0,
+            });
+          } else if (o.__fabricEditor === 'label') {
+            o.set({ left: xMm * scale + 3, top: yMm * scale + 2 });
+          }
+          o.setCoords();
+        });
+    });
+
+    // Restore the selection so the user can keep nudging / chain alignments.
+    const rects = fc.getObjects().filter((o) => o.__fabricEditor === 'frame' && o.__frameId && idSet.has(o.__frameId));
+    if (rects.length > 1) {
+      fc.setActiveObject(new ActiveSelection(rects, { canvas: fc }));
+    } else if (rects.length === 1) {
+      fc.setActiveObject(rects[0]);
+    }
+
+    suppressSelectionRef.current = false;
+    fc.requestRenderAll();
+
+    onFramesChange(next);
+    requestAnimationFrame(() => { isSyncingRef.current = false; });
+  }, [getScale, onFramesChange]);
+
+  const handleAlign = useCallback((edge: AlignEdge) => {
+    const ids = selectedIdsRef.current;
+    if (ids.length < 2) return;
+    applyFrames(alignFrames(framesRef.current, ids, edge), ids);
+  }, [applyFrames]);
+
+  // Arrow keys nudge the selected frame(s). Step = grid size when snapping is
+  // on (else 1mm), ×5 with Shift. Ignored while a form field has focus so it
+  // doesn't fight the number inputs.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)) return;
+      const ids = selectedIdsRef.current;
+      if (ids.length === 0) return;
+      e.preventDefault();
+      const step = (snapGrid ? GRID_SNAP_MM : 1) * (e.shiftKey ? 5 : 1);
+      const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+      const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+      applyFrames(nudgeFrames(framesRef.current, ids, dx, dy, widthMm, heightMm), ids);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [applyFrames, snapGrid, widthMm, heightMm]);
+
   return (
     <div
       ref={containerRef}
       className="relative bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden w-full h-full min-h-[400px] p-6"
     >
+      {selectedCount >= 2 && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 rounded-xl border border-slate-200 bg-white/95 px-1.5 py-1 shadow-lg backdrop-blur">
+          <span className="px-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Align {selectedCount}</span>
+          {ALIGN_BUTTONS.map(({ edge, Icon, title }) => (
+            <button
+              key={edge}
+              type="button"
+              title={title}
+              onClick={() => handleAlign(edge)}
+              className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+            >
+              <Icon className="h-4 w-4" />
+            </button>
+          ))}
+        </div>
+      )}
       <div className="shadow-2xl rounded-sm">
         <canvas ref={canvasElRef} />
       </div>
