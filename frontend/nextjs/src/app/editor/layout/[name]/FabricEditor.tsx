@@ -20,6 +20,7 @@ import {
   type FabricObject,
 } from 'fabric';
 import type { CanvasItem } from './types';
+import { buildFrameFill, buildFrameCaption } from './frame-fill';
 import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
 import {
@@ -271,6 +272,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const prevOverlayTypesRef = useRef<string>('');
   const prevLayoutNameRef = useRef<string>('');
   const prevIsTransformingRef = useRef(false);
+  const prevFillSigRef = useRef<string>('');
 
   // ✅ Helper to generate paper overlay path string (punched holes)
   const getPaperPath = useCallback((isTransforming: boolean) => {
@@ -490,12 +492,19 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     const currentFrameCount = editingCanvas.frames.length;
     const currentTypeSig = editingCanvas.overlays.map(o => o.type).join(',');
     const currentLayoutName = layout?.name || '';
+    // Fill/caption changes don't alter frame/overlay counts, so without this
+    // they'd slip through as an in-place update and never add/remove the fill
+    // object. Fold fitMode + fillStyle + caption into the rebuild signature.
+    const currentFillSig = editingCanvas.frames
+      .map(f => `${f.fitMode}:${f.fillStyle || ''}:${f.captionEnabled ? 1 : 0}:${(f.caption || '').trim().length}`)
+      .join('|');
 
     const needsFullRebuild =
       currentOverlayCount !== prevOverlayCountRef.current ||
       currentFrameCount !== prevFrameCountRef.current ||
       currentTypeSig !== prevOverlayTypesRef.current ||
-      currentLayoutName !== prevLayoutNameRef.current;
+      currentLayoutName !== prevLayoutNameRef.current ||
+      currentFillSig !== prevFillSigRef.current;
 
     const transformChanged = isTransforming !== prevIsTransformingRef.current;
 
@@ -504,6 +513,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     prevOverlayTypesRef.current = currentTypeSig;
     prevLayoutNameRef.current = currentLayoutName;
     prevIsTransformingRef.current = isTransforming;
+    prevFillSigRef.current = currentFillSig;
 
     // ── Canvas Build Debug Summary (dev only) ───────────────────────────────
     // Gated explicitly: `log()` is a no-op in prod but JS still evaluates the
@@ -818,6 +828,30 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         img.__frameIdx = frameIdx;
         fc.add(img);
         fc.moveObjectTo(img, frameZStart + frameIdx);
+
+        // Fill sides (blur/border) behind the photo + optional caption above,
+        // built by the SAME shared helper as the thumbnail/print renderer
+        // (frame-fill.ts) so the live editor can't drift from the output.
+        // Added here (float to top); final z-order is set in the Promise.all
+        // below, relative to each photo — see "Fill / caption z-order".
+        const _geom = { fx, fy, fw, fh, fr };
+        const fillObj = buildFrameFill(
+          frameState, _geom, imgW, imgH,
+          img.getElement() as CanvasImageSource, editingCanvas.paperColor,
+        );
+        if (fillObj) {
+          (fillObj as any).__fabricEditor = 'frameFill';
+          (fillObj as any).__frameIdx = frameIdx;
+          fc.add(fillObj);
+        }
+        const captionObj = buildFrameCaption(
+          frameState, _geom, Boolean((layout as any)?.frameCaptionsEnabled),
+        );
+        if (captionObj) {
+          (captionObj as any).__fabricEditor = 'frameCaption';
+          (captionObj as any).__frameIdx = frameIdx;
+          fc.add(captionObj);
+        }
       } catch (err) { console.error(err); }
     });
 
@@ -958,6 +992,27 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     Promise.all([...loadFramePromises, ...loadOverlayPromises, maskPromise]).then(() => {
       if (fc !== fabricRef.current || buildGenRef.current !== gen) return;
+
+      // ── Fill / caption z-order ──────────────────────────────────────────────
+      // Slot each frame's fill directly BELOW its photo and its caption directly
+      // ABOVE, using the photo's LIVE index so we never disturb the carefully
+      // ordered guide / paper / outline / mask layers stacked above the frames.
+      const findFramePhoto = (idx: number) => fc.getObjects().find(
+        (o: any) => o.__fabricEditor === 'frame' && o.__frameIdx === idx,
+      );
+      fc.getObjects()
+        .filter((o: any) => o.__fabricEditor === 'frameFill')
+        .forEach((fill) => {
+          const photo = findFramePhoto((fill as any).__frameIdx);
+          if (photo) fc.moveObjectTo(fill, fc.getObjects().indexOf(photo));
+        });
+      fc.getObjects()
+        .filter((o: any) => o.__fabricEditor === 'frameCaption')
+        .forEach((cap) => {
+          const photo = findFramePhoto((cap as any).__frameIdx);
+          if (photo) fc.moveObjectTo(cap, fc.getObjects().indexOf(photo) + 1);
+        });
+
       logGroupEnd(); // close 🔨 Full Rebuild group
       const { width: cW, height: cH } = containerSize;
       if (cW > 0 && cH > 0) fitZoomRef.current = centerCanvasViewport(fc, cW, cH, canvasW, canvasH, viewZoom);
