@@ -244,14 +244,14 @@ export function CanvasEditorSidebar({
                 return (
                   <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-50">
                     <div className="min-w-0">
-                      <label className="text-[11px] font-medium text-slate-500 uppercase">Fill sides</label>
+                      <label className="text-[11px] font-medium text-slate-500 uppercase">Blur Effect</label>
                       <p className="text-[10px] leading-4 text-slate-400 mt-0.5">Blur the photo behind it to fill empty space</p>
                     </div>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={fillOn}
-                      aria-label="Fill sides with a blurred copy of the photo"
+                      aria-label="Blur Effect — fill empty space with a blurred copy of the photo"
                       onClick={() => {
                         pushUndo(editingCanvas, true);
                         const fillStyle = fillOn ? undefined : ('blur' as const);

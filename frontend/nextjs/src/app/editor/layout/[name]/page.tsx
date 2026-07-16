@@ -92,6 +92,12 @@ function shouldAutoRotate90(
   if (imgW <= 0 || imgH <= 0 || frameW <= 0 || frameH <= 0) return false;
   const imgRatio = imgW / imgH;
   const targetRatio = frameW / frameH;
+  // Near-square frames (e.g. the retro-polaroid window ≈ 1.03): rotating a photo
+  // 90° can't meaningfully improve fill on a square-ish frame — it only lays the
+  // subject on its side. Skip rotate-to-fill here and let the Blur Effect fill
+  // the letterbox instead. Clearly rectangular products (portrait / landscape
+  // frames) fall through below and keep rotate-to-fill.
+  if (targetRatio >= 0.8 && targetRatio <= 1.25) return false;
   const originalGap = Math.abs(imgRatio - targetRatio);
   const rotatedGap = Math.abs((1 / imgRatio) - targetRatio);
   return rotatedGap < originalGap * 0.7;
@@ -400,8 +406,12 @@ export default function LayoutEditorPage() {
   const [canvases, setCanvases] = useState<CanvasItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [globalFitMode, setGlobalFitMode] = useState<FitMode>('contain');
-  const [globalBlurFill, setGlobalBlurFill] = useState(false);
+  // Blur Effect defaults ON — fills the empty space around a photo with a
+  // blurred copy so near-square products (e.g. polaroid) look filled without
+  // laying the photo sideways.
+  const [globalBlurFill, setGlobalBlurFill] = useState(true);
   const blurFillUserToggledRef = useRef(false);
+  const globalBlurFillRef = useRef(true);
   // True only when the customer clicked the Fit/Cover toggle — gates the
   // smartcrop-recompute effect so programmatic fit-mode changes (restore,
   // surface switch) can't wipe manual pans (Phase 3).
@@ -409,7 +419,8 @@ export default function LayoutEditorPage() {
   const globalFitModeRef = useRef<FitMode>(globalFitMode);
   useEffect(() => {
     globalFitModeRef.current = globalFitMode;
-  }, [globalFitMode]);
+    globalBlurFillRef.current = globalBlurFill;
+  }, [globalFitMode, globalBlurFill]);
 
   // ── Reposition mode: drag-to-pan the photo inside a grid card ──────────────
   // Off by default so a stray drag can't shift a photo. Global (all canvases),
@@ -1287,6 +1298,7 @@ export default function LayoutEditorPage() {
               id: f, originalFile: file,
               fileName: file.name, fileSize: file.size,
               offset, scale: 1, rotation, fitMode,
+              fillStyle: globalBlurFillRef.current ? 'blur' : undefined, // Blur Effect on by default
             });
           }
         }
@@ -1392,6 +1404,7 @@ export default function LayoutEditorPage() {
                     id: f, originalFile: file,
                     fileName: file.name, fileSize: file.size,
                     offset, scale: 1, rotation, fitMode: globalFitModeRef.current,
+                    fillStyle: globalBlurFillRef.current ? 'blur' : undefined, // Blur Effect on by default
                   });
                 }
               }
@@ -1532,8 +1545,13 @@ export default function LayoutEditorPage() {
     blurFillUserToggledRef.current = false;
     let cancelled = false;
     (async () => {
+      // Show the same progress UI as the Fit/Cover toggle so the customer sees
+      // the thumbnails re-rendering instead of a frozen screen.
+      setIsProcessing(true);
+      setRenderProgress({ current: 0, total: surfaceStates.reduce((a, s) => a + s.canvases.length, 0) });
       const nextStyle: 'blur' | undefined = globalBlurFill ? 'blur' : undefined;
       const updatedSurfaces: SurfaceState[] = [];
+      let done = 0;
       for (const s of surfaceStates) {
         const updatedCanvases: CanvasItem[] = [];
         for (const c of s.canvases) {
@@ -1542,6 +1560,8 @@ export default function LayoutEditorPage() {
           const patchedCanvas = { ...c, frames: patchedFrames };
           const dataUrl = await renderCanvas(patchedCanvas, { thumbnail: true, layoutOverride: s.def });
           updatedCanvases.push({ ...patchedCanvas, dataUrl });
+          done += 1;
+          setRenderProgress(prev => (prev ? { ...prev, current: done } : null));
         }
         updatedSurfaces.push({ ...s, canvases: updatedCanvases });
       }
@@ -1549,6 +1569,8 @@ export default function LayoutEditorPage() {
       setSurfaceStates(updatedSurfaces);
       const active = updatedSurfaces.find(su => su.key === activeSurfaceKey);
       if (active) setCanvases(active.canvases);
+      setIsProcessing(false);
+      setRenderProgress(null);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3224,15 +3246,15 @@ export default function LayoutEditorPage() {
               <button
                 onClick={() => { blurFillUserToggledRef.current = true; setGlobalBlurFill(v => !v); }}
                 title={globalBlurFill
-                  ? 'Blurred fill is ON — empty sides show a blurred copy of the photo. Click to turn off.'
-                  : 'Fill the empty sides (Fit mode) with a blurred copy of the photo.'}
+                  ? 'Blur Effect is ON — empty space is filled with a blurred copy of the photo. Click to turn off.'
+                  : 'Blur Effect — fill the empty space around a photo with a blurred copy of it.'}
                 className={clsx(
                   'flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
                   globalBlurFill
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
                 )}>
-                Blur
+                Blur Effect
               </button>
               <button
                 onClick={() => setRepositionMode(v => !v)}
