@@ -215,8 +215,15 @@ class ListLayoutsView(APIView):
                         try:
                             with open(path, "r") as f:
                                 data = json.load(f)
-                                if "name" not in data:
-                                    data["name"] = name
+                                # The filename is the identifier every path-based
+                                # endpoint (get/put/delete/render) resolves by, so it
+                                # must win here too. A layout whose stored "name"
+                                # diverges from its filename (e.g. classic_A4.json
+                                # carrying "name":"classic_a4") is otherwise
+                                # unopenable and undeletable on a case-sensitive
+                                # (production Linux) filesystem — the list reports
+                                # "classic_a4" but only "classic_A4.json" exists.
+                                data["name"] = name
                                 # Explicit flag for the ops layout list badge (PRD §6
                                 # Phase 6 / audit fix #4). Frontend can also check
                                 # `productType` directly but hasCalendar is the
@@ -1152,8 +1159,11 @@ class LayoutManagementView(APIView):
                         try:
                             with open(path, "r") as f:
                                 data = json.load(f)
-                                if "name" not in data:
-                                    data["name"] = name
+                                # Filename is the source of truth for the identifier
+                                # (see ListLayoutsView) — always override a divergent
+                                # stored "name" so open/delete resolve on a
+                                # case-sensitive prod filesystem.
+                                data["name"] = name
                                 data["hasCalendar"] = data.get("productType") == "calendar"
                                 layouts_data.append(data)
                         except Exception:
