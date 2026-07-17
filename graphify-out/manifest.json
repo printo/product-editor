@@ -399,11 +399,6 @@
     "ast_hash": "e515d53da3987dc8fb45e0aa12bc71e7",
     "semantic_hash": "e515d53da3987dc8fb45e0aa12bc71e7"
   },
-  "frontend/nextjs/src/app/embed/layout/[name]/page.tsx": {
-    "mtime": 1780143284.621591,
-    "ast_hash": "3ec006587df2c603186a46d7fe78733f",
-    "semantic_hash": "3ec006587df2c603186a46d7fe78733f"
-  },
   "frontend/nextjs/src/app/layout.tsx": {
     "mtime": 1780143284.6217647,
     "ast_hash": "60c2f0c64459ca9da0751f82264c789a",
@@ -874,30 +869,10 @@
     "ast_hash": "866447672694ac912cbb9ce0658b2892",
     "semantic_hash": "866447672694ac912cbb9ce0658b2892"
   },
-  "AI_GUARDRAILS.md": {
-    "mtime": 1780143284.5356574,
-    "ast_hash": "2e84e16f2987379ed670e223fedf3f06",
-    "semantic_hash": "2e84e16f2987379ed670e223fedf3f06"
-  },
-  "CALENDAR_FEATURE_PRD.md": {
-    "mtime": 1780143284.5359302,
-    "ast_hash": "562b63b49b16ae4af41c512c95310f16",
-    "semantic_hash": "562b63b49b16ae4af41c512c95310f16"
-  },
   "CLAUDE.md": {
     "mtime": 1781065105.0114777,
     "ast_hash": "4ee6a3c4fbadbbf3e012cef332a35a2c",
     "semantic_hash": "4ee6a3c4fbadbbf3e012cef332a35a2c"
-  },
-  "INTEGRATION.md": {
-    "mtime": 1780143284.5364852,
-    "ast_hash": "de1274ffe2967f3f5d2eaf5b04dab856",
-    "semantic_hash": "de1274ffe2967f3f5d2eaf5b04dab856"
-  },
-  "PRD.md": {
-    "mtime": 1780143284.5366933,
-    "ast_hash": "4fe1baefb63f8591766d8c9ce8b4e9ef",
-    "semantic_hash": "4fe1baefb63f8591766d8c9ce8b4e9ef"
   },
   "README.md": {
     "mtime": 1780143284.5373158,
@@ -924,75 +899,10 @@
     "ast_hash": "3effbacbeef35ad6862966867b1091a7",
     "semantic_hash": "3effbacbeef35ad6862966867b1091a7"
   },
-  "calendar-feature.html": {
-    "mtime": 1780143284.6136448,
-    "ast_hash": "da2861826c7af66c749791c53bf096f0",
-    "semantic_hash": "da2861826c7af66c749791c53bf096f0"
-  },
   "docker-compose.yml": {
     "mtime": 1781102229.0208323,
     "ast_hash": "511950fe57f0fbaacc85bdf5a10b8a97",
     "semantic_hash": "511950fe57f0fbaacc85bdf5a10b8a97"
-  },
-  "printo-architecture-audit/00-executive-summary.md": {
-    "mtime": 1780143284.6276896,
-    "ast_hash": "fa765a80ec5078c5f11e6aaba60b9c7a",
-    "semantic_hash": "fa765a80ec5078c5f11e6aaba60b9c7a"
-  },
-  "printo-architecture-audit/01-current-state-printo-in.md": {
-    "mtime": 1780143284.6278214,
-    "ast_hash": "e95d38276d1426f0fbe0ca9f5984b333",
-    "semantic_hash": "e95d38276d1426f0fbe0ca9f5984b333"
-  },
-  "printo-architecture-audit/02-current-state-estimator.md": {
-    "mtime": 1780143284.627957,
-    "ast_hash": "7d2f69b19b874b379f96ecb7c1bb6c9f",
-    "semantic_hash": "7d2f69b19b874b379f96ecb7c1bb6c9f"
-  },
-  "printo-architecture-audit/03-cross-system-analysis.md": {
-    "mtime": 1780143284.6280875,
-    "ast_hash": "8dc6edd0e6064a523d75ae3c48205d19",
-    "semantic_hash": "8dc6edd0e6064a523d75ae3c48205d19"
-  },
-  "printo-architecture-audit/04-diagrams-current.md": {
-    "mtime": 1780143284.6282258,
-    "ast_hash": "0b40f95c33166b61a7b1c032a69e1c98",
-    "semantic_hash": "0b40f95c33166b61a7b1c032a69e1c98"
-  },
-  "printo-architecture-audit/05-gaps-and-risks.md": {
-    "mtime": 1780143284.6283612,
-    "ast_hash": "b08ecd5f4ba6d6fcec7ae53d2b9f2487",
-    "semantic_hash": "b08ecd5f4ba6d6fcec7ae53d2b9f2487"
-  },
-  "printo-architecture-audit/06-target-architecture.md": {
-    "mtime": 1780143284.6284943,
-    "ast_hash": "5dfcfc6a3a704f5cebb0946d494e9ce1",
-    "semantic_hash": "5dfcfc6a3a704f5cebb0946d494e9ce1"
-  },
-  "printo-architecture-audit/07-diagrams-target.md": {
-    "mtime": 1780143284.6286252,
-    "ast_hash": "9591ed0130c0bef0ecebdabdd566c2a3",
-    "semantic_hash": "9591ed0130c0bef0ecebdabdd566c2a3"
-  },
-  "printo-architecture-audit/08-migration-roadmap.md": {
-    "mtime": 1780143284.628759,
-    "ast_hash": "af4ddf492dd2b2f56c978975bdac539d",
-    "semantic_hash": "af4ddf492dd2b2f56c978975bdac539d"
-  },
-  "printo-architecture-audit/09-open-questions.md": {
-    "mtime": 1780143284.6288836,
-    "ast_hash": "df911030549de9120db8a31d88786e52",
-    "semantic_hash": "df911030549de9120db8a31d88786e52"
-  },
-  "printo-architecture-audit/10-appendix-api-inventory.md": {
-    "mtime": 1780143284.629014,
-    "ast_hash": "d53fd82629abda10fc3dc9108e6b3279",
-    "semantic_hash": "d53fd82629abda10fc3dc9108e6b3279"
-  },
-  "printo-architecture-audit/11-appendix-data-model.md": {
-    "mtime": 1780143284.6291475,
-    "ast_hash": "1f5fd3c45cfde2ed107d612a9093fa18",
-    "semantic_hash": "1f5fd3c45cfde2ed107d612a9093fa18"
   },
   "frontend/nextjs/public/favicon.png": {
     "mtime": 1780143284.615899,
@@ -1085,9 +995,9 @@
     "semantic_hash": "95e834f367578f20c1e7b9ff0a64d50f"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/api/middleware.py": {
-    "mtime": 1780143284.5383797,
-    "ast_hash": "6d73a0d974bd971245c19c0c556334ef",
-    "semantic_hash": "6d73a0d974bd971245c19c0c556334ef"
+    "mtime": 1784128613.119638,
+    "ast_hash": "d3c396dd6d5180c8aecd688f14e7d507",
+    "semantic_hash": "d3c396dd6d5180c8aecd688f14e7d507"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/api/migrations/0001_initial.py": {
     "mtime": 1780143284.5385547,
@@ -1130,9 +1040,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/api/models.py": {
-    "mtime": 1780143284.5392637,
-    "ast_hash": "5aeceb785b9d3a672d84a7aa7215543d",
-    "semantic_hash": "5aeceb785b9d3a672d84a7aa7215543d"
+    "mtime": 1784176749.0970178,
+    "ast_hash": "a162e124d5a465a3092afb8003e01138",
+    "semantic_hash": "a162e124d5a465a3092afb8003e01138"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/api/permissions.py": {
     "mtime": 1780143284.539341,
@@ -1140,24 +1050,24 @@
     "semantic_hash": "13041d3b698791870a203033459ce1e1"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/api/tasks.py": {
-    "mtime": 1780143284.5394812,
-    "ast_hash": "7429147e3f8e473a60369126362067a1",
-    "semantic_hash": "7429147e3f8e473a60369126362067a1"
+    "mtime": 1784176749.0974302,
+    "ast_hash": "138d776e2e65d89dfa383ef018e8ab32",
+    "semantic_hash": "138d776e2e65d89dfa383ef018e8ab32"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/api/urls.py": {
-    "mtime": 1780143284.5397408,
-    "ast_hash": "e4e0ae8479fdd60a8f34cd9bf0c07a3b",
-    "semantic_hash": "e4e0ae8479fdd60a8f34cd9bf0c07a3b"
+    "mtime": 1784128613.1232336,
+    "ast_hash": "c34afc7eacf2e2396f58c6664b1c3c48",
+    "semantic_hash": "c34afc7eacf2e2396f58c6664b1c3c48"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/api/validators.py": {
-    "mtime": 1783177433.392726,
-    "ast_hash": "bc343a34ed3fa94941d9d50f25edc51f",
-    "semantic_hash": "bc343a34ed3fa94941d9d50f25edc51f"
+    "mtime": 1784128613.123764,
+    "ast_hash": "662555eaa986b8fb691a060f81942f73",
+    "semantic_hash": "662555eaa986b8fb691a060f81942f73"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/api/views.py": {
-    "mtime": 1781607791.4683175,
-    "ast_hash": "ffe06ed348e7d9e8f90f5ff3ed1b668d",
-    "semantic_hash": "ffe06ed348e7d9e8f90f5ff3ed1b668d"
+    "mtime": 1784255198.097054,
+    "ast_hash": "a449daeca66d9cb9260597cfc6273437",
+    "semantic_hash": "a449daeca66d9cb9260597cfc6273437"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/entrypoint.sh": {
     "mtime": 1780143284.5403206,
@@ -1170,9 +1080,9 @@
     "semantic_hash": "68b329da9893e34099c7d8ad5cb9c940"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/layout_engine/engine.py": {
-    "mtime": 1782303564.1598706,
-    "ast_hash": "e81c3ca2b39a60019c9f44439d4b2d17",
-    "semantic_hash": "e81c3ca2b39a60019c9f44439d4b2d17"
+    "mtime": 1784273894.4471953,
+    "ast_hash": "db9469e25e51e70f8ec8c2011ec682a1",
+    "semantic_hash": "db9469e25e51e70f8ec8c2011ec682a1"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/manage.py": {
     "mtime": 1780143284.540735,
@@ -1200,9 +1110,9 @@
     "semantic_hash": "febf55084117b864126c7ad50ff1deb5"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/product_editor/settings.py": {
-    "mtime": 1783177433.3930438,
-    "ast_hash": "a355199419ab3ab9644c82a5f3870a81",
-    "semantic_hash": "a355199419ab3ab9644c82a5f3870a81"
+    "mtime": 1784128613.127657,
+    "ast_hash": "fb7705fb618c69b3adf1678f2423df81",
+    "semantic_hash": "fb7705fb618c69b3adf1678f2423df81"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/product_editor/urls.py": {
     "mtime": 1780143284.5413723,
@@ -1225,14 +1135,14 @@
     "semantic_hash": "4654db3e2351ca196bb8580d11b0ef71"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/services/calendar_layout.py": {
-    "mtime": 1780143284.5419605,
-    "ast_hash": "6ae3cb3cf3527a284f6416ee8ede6a59",
-    "semantic_hash": "6ae3cb3cf3527a284f6416ee8ede6a59"
+    "mtime": 1784128613.1281092,
+    "ast_hash": "72722047c298dd89f1b1e05d77e719e5",
+    "semantic_hash": "72722047c298dd89f1b1e05d77e719e5"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/services/calendar_renderer.py": {
-    "mtime": 1782303586.1451,
-    "ast_hash": "df48878e4ef8ca1486d62b132a7ac950",
-    "semantic_hash": "df48878e4ef8ca1486d62b132a7ac950"
+    "mtime": 1784128613.1285641,
+    "ast_hash": "c63c8b6b256ae32c37005dc722e70aaa",
+    "semantic_hash": "c63c8b6b256ae32c37005dc722e70aaa"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/services/fonts.py": {
     "mtime": 1780143284.542238,
@@ -1245,9 +1155,9 @@
     "semantic_hash": "4d8714fa7fe23ef8f028ac9476b063c6"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/services/overlay_renderer.py": {
-    "mtime": 1782303576.1310766,
-    "ast_hash": "7d6987dec70e2aeb1e342057f6ce5c45",
-    "semantic_hash": "7d6987dec70e2aeb1e342057f6ce5c45"
+    "mtime": 1784128613.1293583,
+    "ast_hash": "9295db2913e87778357e9ffa1ac7da19",
+    "semantic_hash": "9295db2913e87778357e9ffa1ac7da19"
   },
   "/Users/kannan/Downloads/Code/product-editor/backend/django/services/storage.py": {
     "mtime": 1780143284.6124809,
@@ -1295,9 +1205,9 @@
     "semantic_hash": "49f1d0646aceb9cf01512a5c17399882"
   },
   "/Users/kannan/Downloads/Code/product-editor/deploy.sh": {
-    "mtime": 1780143284.613798,
-    "ast_hash": "e662c008910d4780b95c1a9662526dc8",
-    "semantic_hash": "e662c008910d4780b95c1a9662526dc8"
+    "mtime": 1784128613.13692,
+    "ast_hash": "c28db765bf959c7a286306d5e8d85156",
+    "semantic_hash": "c28db765bf959c7a286306d5e8d85156"
   },
   "/Users/kannan/Downloads/Code/product-editor/fresh-install.sh": {
     "mtime": 1780143284.6140594,
@@ -1325,12 +1235,12 @@
     "semantic_hash": "1722e36cce03d802fbf81b52b63b0126"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/next.config.mjs": {
-    "mtime": 1780143284.614795,
-    "ast_hash": "69329b61c22deeed1ecc144136678953",
-    "semantic_hash": "69329b61c22deeed1ecc144136678953"
+    "mtime": 1784128613.1459653,
+    "ast_hash": "a36908ae36f3075a751d481ca5d09d14",
+    "semantic_hash": "a36908ae36f3075a751d481ca5d09d14"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/package.json": {
-    "mtime": 1780143284.6148841,
+    "mtime": 1783749027.1939905,
     "ast_hash": "67900342620382adac998e0af92ec29a",
     "semantic_hash": "67900342620382adac998e0af92ec29a"
   },
@@ -1340,9 +1250,9 @@
     "semantic_hash": "010aed4017216a4fbe201b79e5dbc9c2"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/actions/auth.ts": {
-    "mtime": 1781162273.2757897,
-    "ast_hash": "ed317ff9b6721c4a4b7952ecd584d1b7",
-    "semantic_hash": "ed317ff9b6721c4a4b7952ecd584d1b7"
+    "mtime": 1784128613.1463628,
+    "ast_hash": "70b26698bdf21a5e08a0cefe2ab18cd1",
+    "semantic_hash": "70b26698bdf21a5e08a0cefe2ab18cd1"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/api/auth/[...nextauth]/route.ts": {
     "mtime": 1780143284.6176932,
@@ -1350,14 +1260,14 @@
     "semantic_hash": "193cba7f34e9b35b74b587a718f79782"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts": {
-    "mtime": 1780143284.617974,
-    "ast_hash": "c0c260062be76412a64b27b0f468631d",
-    "semantic_hash": "c0c260062be76412a64b27b0f468631d"
+    "mtime": 1784176749.0990348,
+    "ast_hash": "fa330349d46a43766ff247aba1fcddfa",
+    "semantic_hash": "fa330349d46a43766ff247aba1fcddfa"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/api/internal/proxy/[...path]/route.ts": {
-    "mtime": 1780143284.618245,
-    "ast_hash": "bb6b1d38849f94728fcf6ac313c68393",
-    "semantic_hash": "bb6b1d38849f94728fcf6ac313c68393"
+    "mtime": 1784128613.146877,
+    "ast_hash": "678e735e725877c9fca7f38903a0a6b7",
+    "semantic_hash": "678e735e725877c9fca7f38903a0a6b7"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/api/upload-layout/route.ts": {
     "mtime": 1780143284.6183875,
@@ -1365,14 +1275,14 @@
     "semantic_hash": "b824b432328831cdc6eee0aa39d7ab7e"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/dashboard/page.tsx": {
-    "mtime": 1780143284.6185627,
-    "ast_hash": "cac30acce958b327f6f298a5af8a146c",
-    "semantic_hash": "cac30acce958b327f6f298a5af8a146c"
+    "mtime": 1784128613.1475494,
+    "ast_hash": "ddc61d46488544685ff97cd340a40cd2",
+    "semantic_hash": "ddc61d46488544685ff97cd340a40cd2"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/dev/calendar-preview/page.tsx": {
-    "mtime": 1780143284.6187756,
-    "ast_hash": "b336824f5e589a0c3d4d343fa0b2b5f1",
-    "semantic_hash": "b336824f5e589a0c3d4d343fa0b2b5f1"
+    "mtime": 1784128613.148764,
+    "ast_hash": "23eb8bb5d26649da1b08f31d2e9ffbae",
+    "semantic_hash": "23eb8bb5d26649da1b08f31d2e9ffbae"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/AlignmentToolbar.tsx": {
     "mtime": 1780143284.6190195,
@@ -1380,19 +1290,19 @@
     "semantic_hash": "06efb5a995c7657752f896eaa582e484"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/CanvasEditorModal.tsx": {
-    "mtime": 1780143284.6191483,
-    "ast_hash": "8b1847946949ac13c8f0a7293557161d",
-    "semantic_hash": "8b1847946949ac13c8f0a7293557161d"
+    "mtime": 1784128613.1492143,
+    "ast_hash": "36cb6a29c91aa62a35f9d5f839b39d54",
+    "semantic_hash": "36cb6a29c91aa62a35f9d5f839b39d54"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/CanvasEditorSidebar.tsx": {
-    "mtime": 1781065105.0143242,
-    "ast_hash": "34500c075a2da836f60444f4b9ff1032",
-    "semantic_hash": "34500c075a2da836f60444f4b9ff1032"
+    "mtime": 1784174802.757088,
+    "ast_hash": "c738bd6e158d2ed6e40223523764081b",
+    "semantic_hash": "c738bd6e158d2ed6e40223523764081b"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/FabricEditor.tsx": {
-    "mtime": 1780143284.6195147,
-    "ast_hash": "d04db355e9fa2a2809f874d97001cf62",
-    "semantic_hash": "d04db355e9fa2a2809f874d97001cf62"
+    "mtime": 1784273894.44801,
+    "ast_hash": "9b9319a8cc1c41974d67282b4493aa2b",
+    "semantic_hash": "9b9319a8cc1c41974d67282b4493aa2b"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/IconBrowser.tsx": {
     "mtime": 1780143284.6196496,
@@ -1410,9 +1320,9 @@
     "semantic_hash": "e232d1162b38dc48634412efe0860484"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/fabric-renderer.ts": {
-    "mtime": 1780143284.6200159,
-    "ast_hash": "f83f5f20c2c1a2e9326679ae1c1d3363",
-    "semantic_hash": "f83f5f20c2c1a2e9326679ae1c1d3363"
+    "mtime": 1784273894.448414,
+    "ast_hash": "73c86b9f264a7caa3b7ee75dee10cd48",
+    "semantic_hash": "73c86b9f264a7caa3b7ee75dee10cd48"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/imposition.ts": {
     "mtime": 1780143284.6201336,
@@ -1420,24 +1330,24 @@
     "semantic_hash": "ee0fc35e070b6060ac4f756a53089023"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/page.tsx": {
-    "mtime": 1782985285.5498013,
-    "ast_hash": "1a22b692c6f80ffae2f23843cd1490c8",
-    "semantic_hash": "1a22b692c6f80ffae2f23843cd1490c8"
+    "mtime": 1784176749.0998662,
+    "ast_hash": "682a4ab6dcb6d6108d243ebd464f38d3",
+    "semantic_hash": "682a4ab6dcb6d6108d243ebd464f38d3"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/types.ts": {
-    "mtime": 1780143284.6205792,
-    "ast_hash": "5c584b287905bbd44e19b7a75707c437",
-    "semantic_hash": "5c584b287905bbd44e19b7a75707c437"
+    "mtime": 1784128613.1542006,
+    "ast_hash": "884c8b8c07ca9f10df95eeacd956f5f2",
+    "semantic_hash": "884c8b8c07ca9f10df95eeacd956f5f2"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layouts/LayoutFabricPreview.tsx": {
-    "mtime": 1780143284.620752,
-    "ast_hash": "c6573eb08c32e717b9e143f779393dc7",
-    "semantic_hash": "c6573eb08c32e717b9e143f779393dc7"
+    "mtime": 1784273894.4497552,
+    "ast_hash": "c581abf508181b5e95865dfc4b43f531",
+    "semantic_hash": "c581abf508181b5e95865dfc4b43f531"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layouts/calendar/[name]/__tests__/page.test.tsx": {
-    "mtime": 1780143284.6210203,
-    "ast_hash": "73de7dcaa458617df3fb72c97c471c3a",
-    "semantic_hash": "73de7dcaa458617df3fb72c97c471c3a"
+    "mtime": 1784128613.1549764,
+    "ast_hash": "a84f7449836b7ab5a8799f35758d4d0c",
+    "semantic_hash": "a84f7449836b7ab5a8799f35758d4d0c"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layouts/calendar/[name]/page.tsx": {
     "mtime": 1780308242.2827268,
@@ -1445,19 +1355,14 @@
     "semantic_hash": "84bb8fa7b118c5d57cfce562ac8aacec"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layouts/page.tsx": {
-    "mtime": 1780305585.2920582,
-    "ast_hash": "e515d53da3987dc8fb45e0aa12bc71e7",
-    "semantic_hash": "e515d53da3987dc8fb45e0aa12bc71e7"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/embed/layout/[name]/page.tsx": {
-    "mtime": 1780143284.621591,
-    "ast_hash": "3ec006587df2c603186a46d7fe78733f",
-    "semantic_hash": "3ec006587df2c603186a46d7fe78733f"
+    "mtime": 1784273894.450673,
+    "ast_hash": "f0c42d42404c2fe53afd436470cc1921",
+    "semantic_hash": "f0c42d42404c2fe53afd436470cc1921"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/layout.tsx": {
-    "mtime": 1780143284.6217647,
-    "ast_hash": "60c2f0c64459ca9da0751f82264c789a",
-    "semantic_hash": "60c2f0c64459ca9da0751f82264c789a"
+    "mtime": 1784128613.155394,
+    "ast_hash": "35ecea3b3b2250cb33c0bd4d43c91e2d",
+    "semantic_hash": "35ecea3b3b2250cb33c0bd4d43c91e2d"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/login/page.tsx": {
     "mtime": 1781162297.3107536,
@@ -1495,14 +1400,14 @@
     "semantic_hash": "abc3b4031fa06eeeda4839b091cf29a6"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/CalendarLayoutEditor.tsx": {
-    "mtime": 1780308408.8925285,
-    "ast_hash": "9a39ee383c97a381d4e2712a62c5977d",
-    "semantic_hash": "9a39ee383c97a381d4e2712a62c5977d"
+    "mtime": 1784128613.1561403,
+    "ast_hash": "beb286f3667083e1f993ebcff5609783",
+    "semantic_hash": "beb286f3667083e1f993ebcff5609783"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/CalendarProductPreview.tsx": {
-    "mtime": 1781068308.3027546,
-    "ast_hash": "af7130cddcabf0d45990e6cded794468",
-    "semantic_hash": "af7130cddcabf0d45990e6cded794468"
+    "mtime": 1784128613.1567676,
+    "ast_hash": "9eab81d2c693a4c0e11cf69d5b84b03f",
+    "semantic_hash": "9eab81d2c693a4c0e11cf69d5b84b03f"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/ColorPicker.tsx": {
     "mtime": 1780143284.622842,
@@ -1525,9 +1430,9 @@
     "semantic_hash": "11d3ddb33fdb4d251bb9575e6ce0b341"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/MonthTileThumb.tsx": {
-    "mtime": 1780143284.6232433,
-    "ast_hash": "50261f0e5be87c3e056d188206e6d181",
-    "semantic_hash": "50261f0e5be87c3e056d188206e6d181"
+    "mtime": 1784128613.1573124,
+    "ast_hash": "c9078a204a62b55efda60df13ffddb6d",
+    "semantic_hash": "c9078a204a62b55efda60df13ffddb6d"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/ServiceWorkerRegistration.tsx": {
     "mtime": 1780143284.6233275,
@@ -1545,14 +1450,14 @@
     "semantic_hash": "7d4a4562241047a42d6e5f0bbfedef7d"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/__tests__/CalendarLayoutEditor.test.tsx": {
-    "mtime": 1780143284.6237302,
-    "ast_hash": "9886c708434c4d482ebf9ff14bd918f5",
-    "semantic_hash": "9886c708434c4d482ebf9ff14bd918f5"
+    "mtime": 1784128613.1578069,
+    "ast_hash": "e8fb1fcd614967da417065095d91bb9e",
+    "semantic_hash": "e8fb1fcd614967da417065095d91bb9e"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/__tests__/CalendarProductPreview.test.tsx": {
-    "mtime": 1780143284.6238499,
-    "ast_hash": "3fbb64d800364657aed82a397d9c197c",
-    "semantic_hash": "3fbb64d800364657aed82a397d9c197c"
+    "mtime": 1784128613.1582446,
+    "ast_hash": "9134fb665e44d0f4abb9b341e60918f3",
+    "semantic_hash": "9134fb665e44d0f4abb9b341e60918f3"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/__tests__/MonthTileThumb.test.tsx": {
     "mtime": 1780143284.6239753,
@@ -1595,9 +1500,9 @@
     "semantic_hash": "3f39cb201bbdf85c15303a261d46ab47"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/__tests__/calendar-cell-upload.test.ts": {
-    "mtime": 1780143284.6250618,
-    "ast_hash": "4fe634d9ec88e1c5f1832e563c8f858f",
-    "semantic_hash": "4fe634d9ec88e1c5f1832e563c8f858f"
+    "mtime": 1784128613.1590977,
+    "ast_hash": "23da01589cc4db27fc0382b971eedc70",
+    "semantic_hash": "23da01589cc4db27fc0382b971eedc70"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts": {
     "mtime": 1780143284.6251826,
@@ -1605,9 +1510,9 @@
     "semantic_hash": "1f87dd090c7c46b3beb1e000d5c3a1ef"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/calendar-cell-upload.ts": {
-    "mtime": 1780143284.625321,
-    "ast_hash": "0e3a5baf6657b2f0003198acd26ec600",
-    "semantic_hash": "0e3a5baf6657b2f0003198acd26ec600"
+    "mtime": 1784128613.1621506,
+    "ast_hash": "ef4dadcf407d6fe518ab7ad260b832a6",
+    "semantic_hash": "ef4dadcf407d6fe518ab7ad260b832a6"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/calendar.ts": {
     "mtime": 1780143284.625453,
@@ -1615,9 +1520,9 @@
     "semantic_hash": "af286fa9614cb4c0256f79516619f679"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/fabric-calendar.ts": {
-    "mtime": 1780143284.6255858,
-    "ast_hash": "c9534c30450ac0d41f94e2d8008184a7",
-    "semantic_hash": "c9534c30450ac0d41f94e2d8008184a7"
+    "mtime": 1783748009.935628,
+    "ast_hash": "3d32b54284063e31577fbbd2b2072933",
+    "semantic_hash": "3d32b54284063e31577fbbd2b2072933"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/fabric-utils.ts": {
     "mtime": 1780143284.6257265,
@@ -1625,14 +1530,14 @@
     "semantic_hash": "230b066cced8e084a1f626d48ca80ecd"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/file-store.ts": {
-    "mtime": 1780143284.6258569,
-    "ast_hash": "283101b5f2052d3aab54e8586de41e0e",
-    "semantic_hash": "283101b5f2052d3aab54e8586de41e0e"
+    "mtime": 1784128613.1630526,
+    "ast_hash": "38851912ba612a6291232576bd2b404c",
+    "semantic_hash": "38851912ba612a6291232576bd2b404c"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/image-utils.ts": {
-    "mtime": 1782985224.7925932,
-    "ast_hash": "73caf250ae43048d8958b67f7a512ec3",
-    "semantic_hash": "73caf250ae43048d8958b67f7a512ec3"
+    "mtime": 1784128613.1634574,
+    "ast_hash": "dfafd78de5ffdc76ac90e3f5f6804185",
+    "semantic_hash": "dfafd78de5ffdc76ac90e3f5f6804185"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/layout-utils.ts": {
     "mtime": 1780143284.6260962,
@@ -1640,9 +1545,9 @@
     "semantic_hash": "41c9640f32d98ec9fefab5386a3b870e"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/ml-orientation.ts": {
-    "mtime": 1780143284.6262383,
-    "ast_hash": "e528837bdce41060179a4780f6d433b1",
-    "semantic_hash": "e528837bdce41060179a4780f6d433b1"
+    "mtime": 1783695320.1901379,
+    "ast_hash": "a6c002708130d74ad3af9a3d069c476a",
+    "semantic_hash": "a6c002708130d74ad3af9a3d069c476a"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/shape-catalog.ts": {
     "mtime": 1780143284.6263547,
@@ -1650,9 +1555,9 @@
     "semantic_hash": "69b6478dc2443edbfb64cc1012818f65"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/upload-utils.ts": {
-    "mtime": 1782981028.138398,
-    "ast_hash": "b53488453e514120cdf2742ed4f65679",
-    "semantic_hash": "b53488453e514120cdf2742ed4f65679"
+    "mtime": 1784128613.1643164,
+    "ast_hash": "e7843e222bb7bdcf1c350de531e5f284",
+    "semantic_hash": "e7843e222bb7bdcf1c350de531e5f284"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/zip-utils.ts": {
     "mtime": 1780143284.6265886,
@@ -1675,7 +1580,7 @@
     "semantic_hash": "d59511fd6dc45c935c8167abae7f55b7"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/types/fabric-augmentation.d.ts": {
-    "mtime": 1780292393.2883615,
+    "mtime": 1784273894.451239,
     "ast_hash": "c38b0ae2f78bc5dbbaf7080daef00d84",
     "semantic_hash": "c38b0ae2f78bc5dbbaf7080daef00d84"
   },
@@ -1924,30 +1829,10 @@
     "ast_hash": "866447672694ac912cbb9ce0658b2892",
     "semantic_hash": "866447672694ac912cbb9ce0658b2892"
   },
-  "/Users/kannan/Downloads/Code/product-editor/AI_GUARDRAILS.md": {
-    "mtime": 1780143284.5356574,
-    "ast_hash": "2e84e16f2987379ed670e223fedf3f06",
-    "semantic_hash": "2e84e16f2987379ed670e223fedf3f06"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/CALENDAR_FEATURE_PRD.md": {
-    "mtime": 1780143284.5359302,
-    "ast_hash": "562b63b49b16ae4af41c512c95310f16",
-    "semantic_hash": "562b63b49b16ae4af41c512c95310f16"
-  },
   "/Users/kannan/Downloads/Code/product-editor/CLAUDE.md": {
-    "mtime": 1783177934.1620522,
-    "ast_hash": "d4edc090f41d35d463e1b3bf5b1df28b",
-    "semantic_hash": "d4edc090f41d35d463e1b3bf5b1df28b"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/INTEGRATION.md": {
-    "mtime": 1780143284.5364852,
-    "ast_hash": "de1274ffe2967f3f5d2eaf5b04dab856",
-    "semantic_hash": "de1274ffe2967f3f5d2eaf5b04dab856"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/PRD.md": {
-    "mtime": 1780143284.5366933,
-    "ast_hash": "4fe1baefb63f8591766d8c9ce8b4e9ef",
-    "semantic_hash": "4fe1baefb63f8591766d8c9ce8b4e9ef"
+    "mtime": 1784128613.118566,
+    "ast_hash": "34ec295d73a82f2bd0ede81a23b84256",
+    "semantic_hash": "34ec295d73a82f2bd0ede81a23b84256"
   },
   "/Users/kannan/Downloads/Code/product-editor/README.md": {
     "mtime": 1780143284.5373158,
@@ -1974,75 +1859,10 @@
     "ast_hash": "3effbacbeef35ad6862966867b1091a7",
     "semantic_hash": "3effbacbeef35ad6862966867b1091a7"
   },
-  "/Users/kannan/Downloads/Code/product-editor/calendar-feature.html": {
-    "mtime": 1780143284.6136448,
-    "ast_hash": "da2861826c7af66c749791c53bf096f0",
-    "semantic_hash": "da2861826c7af66c749791c53bf096f0"
-  },
   "/Users/kannan/Downloads/Code/product-editor/docker-compose.yml": {
-    "mtime": 1781102229.0208323,
-    "ast_hash": "511950fe57f0fbaacc85bdf5a10b8a97",
-    "semantic_hash": "511950fe57f0fbaacc85bdf5a10b8a97"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/00-executive-summary.md": {
-    "mtime": 1780143284.6276896,
-    "ast_hash": "fa765a80ec5078c5f11e6aaba60b9c7a",
-    "semantic_hash": "fa765a80ec5078c5f11e6aaba60b9c7a"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/01-current-state-printo-in.md": {
-    "mtime": 1780143284.6278214,
-    "ast_hash": "e95d38276d1426f0fbe0ca9f5984b333",
-    "semantic_hash": "e95d38276d1426f0fbe0ca9f5984b333"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/02-current-state-estimator.md": {
-    "mtime": 1780143284.627957,
-    "ast_hash": "7d2f69b19b874b379f96ecb7c1bb6c9f",
-    "semantic_hash": "7d2f69b19b874b379f96ecb7c1bb6c9f"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/03-cross-system-analysis.md": {
-    "mtime": 1780143284.6280875,
-    "ast_hash": "8dc6edd0e6064a523d75ae3c48205d19",
-    "semantic_hash": "8dc6edd0e6064a523d75ae3c48205d19"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/04-diagrams-current.md": {
-    "mtime": 1780143284.6282258,
-    "ast_hash": "0b40f95c33166b61a7b1c032a69e1c98",
-    "semantic_hash": "0b40f95c33166b61a7b1c032a69e1c98"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/05-gaps-and-risks.md": {
-    "mtime": 1780143284.6283612,
-    "ast_hash": "b08ecd5f4ba6d6fcec7ae53d2b9f2487",
-    "semantic_hash": "b08ecd5f4ba6d6fcec7ae53d2b9f2487"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/06-target-architecture.md": {
-    "mtime": 1780143284.6284943,
-    "ast_hash": "5dfcfc6a3a704f5cebb0946d494e9ce1",
-    "semantic_hash": "5dfcfc6a3a704f5cebb0946d494e9ce1"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/07-diagrams-target.md": {
-    "mtime": 1780143284.6286252,
-    "ast_hash": "9591ed0130c0bef0ecebdabdd566c2a3",
-    "semantic_hash": "9591ed0130c0bef0ecebdabdd566c2a3"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/08-migration-roadmap.md": {
-    "mtime": 1780143284.628759,
-    "ast_hash": "af4ddf492dd2b2f56c978975bdac539d",
-    "semantic_hash": "af4ddf492dd2b2f56c978975bdac539d"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/09-open-questions.md": {
-    "mtime": 1780143284.6288836,
-    "ast_hash": "df911030549de9120db8a31d88786e52",
-    "semantic_hash": "df911030549de9120db8a31d88786e52"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/10-appendix-api-inventory.md": {
-    "mtime": 1780143284.629014,
-    "ast_hash": "d53fd82629abda10fc3dc9108e6b3279",
-    "semantic_hash": "d53fd82629abda10fc3dc9108e6b3279"
-  },
-  "/Users/kannan/Downloads/Code/product-editor/printo-architecture-audit/11-appendix-data-model.md": {
-    "mtime": 1780143284.6291475,
-    "ast_hash": "1f5fd3c45cfde2ed107d612a9093fa18",
-    "semantic_hash": "1f5fd3c45cfde2ed107d612a9093fa18"
+    "mtime": 1784128613.1391304,
+    "ast_hash": "0e8efd238c8dc1d15da46c55448f751c",
+    "semantic_hash": "0e8efd238c8dc1d15da46c55448f751c"
   },
   "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/public/favicon.png": {
     "mtime": 1780143284.615899,
@@ -2098,5 +1918,305 @@
     "mtime": 1780143284.6342773,
     "ast_hash": "08944c95fbfa918fca1e059d1859bf23",
     "semantic_hash": "08944c95fbfa918fca1e059d1859bf23"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/api/migrations/0008_canvasdata_render_state.py": {
+    "mtime": 1784128613.1202042,
+    "ast_hash": "d174fdf2d8e509d218ddc23b78ad3970",
+    "semantic_hash": "d174fdf2d8e509d218ddc23b78ad3970"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/api/migrations/0009_renderjob_status_completed_idx.py": {
+    "mtime": 1784128613.1205451,
+    "ast_hash": "a737968b4ec53a4db5af3857d8aa6dda",
+    "semantic_hash": "a737968b4ec53a4db5af3857d8aa6dda"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/api/migrations/0010_embedsession_include_uploads.py": {
+    "mtime": 1784176749.0965664,
+    "ast_hash": "5b0881f9708527acbbda176c1e18111f",
+    "semantic_hash": "5b0881f9708527acbbda176c1e18111f"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/api/purge.py": {
+    "mtime": 1784128613.1220648,
+    "ast_hash": "26dcfbf74d53f1ac5ebca99b503a6224",
+    "semantic_hash": "26dcfbf74d53f1ac5ebca99b503a6224"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/image_loader.py": {
+    "mtime": 1784128613.1288483,
+    "ast_hash": "ca4116549374b5e7fee18dd1762db3f5",
+    "semantic_hash": "ca4116549374b5e7fee18dd1762db3f5"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_calendar_parity.py": {
+    "mtime": 1784128613.1297827,
+    "ast_hash": "1a2ad204ade783ef9b91498f4e8e72b9",
+    "semantic_hash": "1a2ad204ade783ef9b91498f4e8e72b9"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_canvas_colors.py": {
+    "mtime": 1784128613.1304424,
+    "ast_hash": "8aa4cf73e619272cb9ed9e62fea07002",
+    "semantic_hash": "8aa4cf73e619272cb9ed9e62fea07002"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_frame_alignment.py": {
+    "mtime": 1784128613.1309571,
+    "ast_hash": "8aa3de13644cc3ed243d536327ae9dff",
+    "semantic_hash": "8aa3de13644cc3ed243d536327ae9dff"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_frame_shape.py": {
+    "mtime": 1784128613.1314862,
+    "ast_hash": "e51dec72cee093cf0159eed252a7fcf1",
+    "semantic_hash": "e51dec72cee093cf0159eed252a7fcf1"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_image_loader.py": {
+    "mtime": 1784128613.1318815,
+    "ast_hash": "21c8909102d272aaf5476437d7b501ae",
+    "semantic_hash": "21c8909102d272aaf5476437d7b501ae"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_order_purge.py": {
+    "mtime": 1784128613.1322706,
+    "ast_hash": "0c01e61f0f3710df188d61ae0b68ea33",
+    "semantic_hash": "0c01e61f0f3710df188d61ae0b68ea33"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_overlay_integration.py": {
+    "mtime": 1784128613.133037,
+    "ast_hash": "7b57f19fa47f254f26d2076246480429",
+    "semantic_hash": "7b57f19fa47f254f26d2076246480429"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_queue_guards.py": {
+    "mtime": 1784128613.1335275,
+    "ast_hash": "5b33cff3d62f39f11fb983211dd15c7e",
+    "semantic_hash": "5b33cff3d62f39f11fb983211dd15c7e"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_smart_downscale_zoom.py": {
+    "mtime": 1784128613.1339848,
+    "ast_hash": "162708b9ac533b490583cec7cf4f7c4c",
+    "semantic_hash": "162708b9ac533b490583cec7cf4f7c4c"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_submit_preserves_autosave.py": {
+    "mtime": 1784128613.1343753,
+    "ast_hash": "c2ada160861d9a8392980d65973c2bf8",
+    "semantic_hash": "c2ada160861d9a8392980d65973c2bf8"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_surface_slicing.py": {
+    "mtime": 1784128613.1349854,
+    "ast_hash": "6cb2ce7e8e3d37318717e55efc4c7d14",
+    "semantic_hash": "6cb2ce7e8e3d37318717e55efc4c7d14"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/tests/test_url_safety.py": {
+    "mtime": 1784128613.1358373,
+    "ast_hash": "56ec06e10aecb04128346da2fb8444eb",
+    "semantic_hash": "56ec06e10aecb04128346da2fb8444eb"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/backend/django/services/url_safety.py": {
+    "mtime": 1784128613.136245,
+    "ast_hash": "480e68782b7c7497673a310a475c01f8",
+    "semantic_hash": "480e68782b7c7497673a310a475c01f8"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/dev/calendar-preview/calendar-preview-client.tsx": {
+    "mtime": 1784128613.1482515,
+    "ast_hash": "36c0222ef0cb05dbf717ce70a6eb28a4",
+    "semantic_hash": "36c0222ef0cb05dbf717ce70a6eb28a4"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/__tests__/canvas-merge.test.ts": {
+    "mtime": 1784128613.1506736,
+    "ast_hash": "1a4622f52a59ad1a4996329bd7f58c5b",
+    "semantic_hash": "1a4622f52a59ad1a4996329bd7f58c5b"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/__tests__/frame-display.test.ts": {
+    "mtime": 1784128613.1510186,
+    "ast_hash": "88eed6320535747d8692f58b81dc8f2b",
+    "semantic_hash": "88eed6320535747d8692f58b81dc8f2b"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/__tests__/pinch-utils.test.ts": {
+    "mtime": 1784128613.1512957,
+    "ast_hash": "2370344b7ea47ec584837cae1a459eac",
+    "semantic_hash": "2370344b7ea47ec584837cae1a459eac"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/canvas-merge.ts": {
+    "mtime": 1784128613.1516588,
+    "ast_hash": "f56c225b27a761773fe8af5bba86dacf",
+    "semantic_hash": "f56c225b27a761773fe8af5bba86dacf"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/frame-display.ts": {
+    "mtime": 1784128613.152708,
+    "ast_hash": "c331e105c411a92498dd984fc62a2a2b",
+    "semantic_hash": "c331e105c411a92498dd984fc62a2a2b"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/frame-fill.ts": {
+    "mtime": 1784273894.4491029,
+    "ast_hash": "d28947310e179890cd23889e35e76b43",
+    "semantic_hash": "d28947310e179890cd23889e35e76b43"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layout/[name]/pinch-utils.ts": {
+    "mtime": 1784128613.1538317,
+    "ast_hash": "65aae7ed660b5ef13dfaa5841ba2caa5",
+    "semantic_hash": "65aae7ed660b5ef13dfaa5841ba2caa5"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layouts/__tests__/frame-align.test.ts": {
+    "mtime": 1784221937.1102448,
+    "ast_hash": "1bd68e8e36a49aac6ab556a1eddd1876",
+    "semantic_hash": "1bd68e8e36a49aac6ab556a1eddd1876"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/app/editor/layouts/frame-align.ts": {
+    "mtime": 1784221937.110584,
+    "ast_hash": "2ed33b6ac48032cdb3d7ac05a49d585e",
+    "semantic_hash": "2ed33b6ac48032cdb3d7ac05a49d585e"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/components/GoogleFontLinks.tsx": {
+    "mtime": 1783696264.4779565,
+    "ast_hash": "389f51d9215d7e600d45172ac9e5ebf9",
+    "semantic_hash": "389f51d9215d7e600d45172ac9e5ebf9"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/__tests__/dpi-utils.test.ts": {
+    "mtime": 1784128613.1600146,
+    "ast_hash": "cfc8bdd4bef2a5a39dc5cb980c9c572c",
+    "semantic_hash": "cfc8bdd4bef2a5a39dc5cb980c9c572c"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/__tests__/submit-guards.test.ts": {
+    "mtime": 1784128613.1604571,
+    "ast_hash": "8b12eca0445086151eac350422a40367",
+    "semantic_hash": "8b12eca0445086151eac350422a40367"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/__tests__/upload-utils.test.ts": {
+    "mtime": 1784128613.1610157,
+    "ast_hash": "2547c40480effd3b8c14920119471f70",
+    "semantic_hash": "2547c40480effd3b8c14920119471f70"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/__tests__/use-modal-a11y.test.tsx": {
+    "mtime": 1784128613.1614234,
+    "ast_hash": "169d94ed5cbaecb564c7e7c4bbf57e02",
+    "semantic_hash": "169d94ed5cbaecb564c7e7c4bbf57e02"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/dpi-utils.ts": {
+    "mtime": 1784128613.1624653,
+    "ast_hash": "90a8b254b982043d132a0844e3befc9b",
+    "semantic_hash": "90a8b254b982043d132a0844e3befc9b"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/submit-guards.ts": {
+    "mtime": 1784128613.163775,
+    "ast_hash": "2559bdf5a0eac988f0cc05edb555862c",
+    "semantic_hash": "2559bdf5a0eac988f0cc05edb555862c"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/frontend/nextjs/src/lib/use-modal-a11y.ts": {
+    "mtime": 1784128613.164617,
+    "ast_hash": "5866400d9a53bed5bea5994aa52fcde7",
+    "semantic_hash": "5866400d9a53bed5bea5994aa52fcde7"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/scripts/backup.sh": {
+    "mtime": 1784128613.1651227,
+    "ast_hash": "c362f50b62330e9d253a76398db5a338",
+    "semantic_hash": "c362f50b62330e9d253a76398db5a338"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/scripts/load-baseline.sh": {
+    "mtime": 1784128613.1655622,
+    "ast_hash": "e60f8e203d33bd461f41a4e675a8a87a",
+    "semantic_hash": "e60f8e203d33bd461f41a4e675a8a87a"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/scripts/restore.sh": {
+    "mtime": 1784128613.1658528,
+    "ast_hash": "0c18cde22519004658a573151f7cbb2a",
+    "semantic_hash": "0c18cde22519004658a573151f7cbb2a"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/scripts/test-backup-restore.sh": {
+    "mtime": 1784128613.1661758,
+    "ast_hash": "3b00e0fea9f340850f0f8e0872128dbe",
+    "semantic_hash": "3b00e0fea9f340850f0f8e0872128dbe"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/.github/workflows/ci.yml": {
+    "mtime": 1784128613.1163924,
+    "ast_hash": "d0c1a2538cfa028b246d155424934fdb",
+    "semantic_hash": "d0c1a2538cfa028b246d155424934fdb"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/AI_GUARDRAILS.md": {
+    "mtime": 1784128613.1395915,
+    "ast_hash": "2e84e16f2987379ed670e223fedf3f06",
+    "semantic_hash": "2e84e16f2987379ed670e223fedf3f06"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/CALENDAR_FEATURE_PRD.md": {
+    "mtime": 1784128613.1402338,
+    "ast_hash": "562b63b49b16ae4af41c512c95310f16",
+    "semantic_hash": "562b63b49b16ae4af41c512c95310f16"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/DATA_LIFECYCLE.md": {
+    "mtime": 1784128613.140689,
+    "ast_hash": "5122f81793f490f8c979a3ebac3dd2f3",
+    "semantic_hash": "5122f81793f490f8c979a3ebac3dd2f3"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/INTEGRATION.md": {
+    "mtime": 1784128613.1409104,
+    "ast_hash": "de1274ffe2967f3f5d2eaf5b04dab856",
+    "semantic_hash": "de1274ffe2967f3f5d2eaf5b04dab856"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/LOAD_BASELINE.md": {
+    "mtime": 1784128613.1412096,
+    "ast_hash": "0d7e6a045888e476cb4b590ef16da77c",
+    "semantic_hash": "0d7e6a045888e476cb4b590ef16da77c"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/PRD.md": {
+    "mtime": 1784128613.1414688,
+    "ast_hash": "4fe1baefb63f8591766d8c9ce8b4e9ef",
+    "semantic_hash": "4fe1baefb63f8591766d8c9ce8b4e9ef"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/calendar-feature.html": {
+    "mtime": 1784128613.1424937,
+    "ast_hash": "da2861826c7af66c749791c53bf096f0",
+    "semantic_hash": "da2861826c7af66c749791c53bf096f0"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/00-executive-summary.md": {
+    "mtime": 1784128613.1427565,
+    "ast_hash": "fa765a80ec5078c5f11e6aaba60b9c7a",
+    "semantic_hash": "fa765a80ec5078c5f11e6aaba60b9c7a"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/01-current-state-printo-in.md": {
+    "mtime": 1784128613.1429958,
+    "ast_hash": "e95d38276d1426f0fbe0ca9f5984b333",
+    "semantic_hash": "e95d38276d1426f0fbe0ca9f5984b333"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/02-current-state-estimator.md": {
+    "mtime": 1784128613.143201,
+    "ast_hash": "7d2f69b19b874b379f96ecb7c1bb6c9f",
+    "semantic_hash": "7d2f69b19b874b379f96ecb7c1bb6c9f"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/03-cross-system-analysis.md": {
+    "mtime": 1784128613.1434143,
+    "ast_hash": "8dc6edd0e6064a523d75ae3c48205d19",
+    "semantic_hash": "8dc6edd0e6064a523d75ae3c48205d19"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/04-diagrams-current.md": {
+    "mtime": 1784128613.143727,
+    "ast_hash": "0b40f95c33166b61a7b1c032a69e1c98",
+    "semantic_hash": "0b40f95c33166b61a7b1c032a69e1c98"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/05-gaps-and-risks.md": {
+    "mtime": 1784128613.1439164,
+    "ast_hash": "b08ecd5f4ba6d6fcec7ae53d2b9f2487",
+    "semantic_hash": "b08ecd5f4ba6d6fcec7ae53d2b9f2487"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/06-target-architecture.md": {
+    "mtime": 1784128613.1441076,
+    "ast_hash": "5dfcfc6a3a704f5cebb0946d494e9ce1",
+    "semantic_hash": "5dfcfc6a3a704f5cebb0946d494e9ce1"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/07-diagrams-target.md": {
+    "mtime": 1784128613.1442351,
+    "ast_hash": "9591ed0130c0bef0ecebdabdd566c2a3",
+    "semantic_hash": "9591ed0130c0bef0ecebdabdd566c2a3"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/08-migration-roadmap.md": {
+    "mtime": 1784128613.1444457,
+    "ast_hash": "af4ddf492dd2b2f56c978975bdac539d",
+    "semantic_hash": "af4ddf492dd2b2f56c978975bdac539d"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/09-open-questions.md": {
+    "mtime": 1784128613.1445673,
+    "ast_hash": "df911030549de9120db8a31d88786e52",
+    "semantic_hash": "df911030549de9120db8a31d88786e52"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/10-appendix-api-inventory.md": {
+    "mtime": 1784128613.1447492,
+    "ast_hash": "d53fd82629abda10fc3dc9108e6b3279",
+    "semantic_hash": "d53fd82629abda10fc3dc9108e6b3279"
+  },
+  "/Users/kannan/Downloads/Code/product-editor/docs/printo-architecture-audit/11-appendix-data-model.md": {
+    "mtime": 1784128613.145061,
+    "ast_hash": "1f5fd3c45cfde2ed107d612a9093fa18",
+    "semantic_hash": "1f5fd3c45cfde2ed107d612a9093fa18"
   }
 }
