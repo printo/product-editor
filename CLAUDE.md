@@ -25,17 +25,23 @@ graphify explain "render_canvas_task"
 graphify explain "CalendarState"
 ```
 
-The graph covers all 210 source files (175 code + 24 docs + 11 images). Key communities:
-- **Canvas Data & Render Jobs** — Django models, CanvasData, RenderJob
-- **Pillow Layout Engine** — engine.py, _composite_canvas, smart downscale
-- **Calendar Layout Engine** — materialize_surfaces, calendar_layout.py
-- **Pillow Calendar Cell Renderer** — calendar_renderer.py, draw_cell_image
-- **Auth & API Key Auth** — BearerTokenAuthentication, PIAAuthentication
-- **Canvas Editor UI** — CanvasEditorModal, FabricEditor, ColorPicker
-- **Storage & Chunked Upload** — services/storage.py, chunk assembly
+The graph covers all 252 source files — 1,698 nodes, 3,294 edges, 142 communities (rebuilt 2026-07-17; now includes the calendar product code and the `docs/printo-architecture-audit` set). Full stats and community listing: `graphify-out/GRAPH_REPORT.md`. Key communities:
+- **Calendar Product Materialization** — materialize_surfaces, calendar_layout.py, per-surface overrides
+- **API Key & PIA Auth** — APIKeyUser, PIAAuthentication, RenderJob
+- **Canvas & Embed Models** — CanvasData, EmbedSession, EditorRenderView
+- **Engine Canvas Compositing / Engine Surface Generation** — engine.py, _composite_canvas, smart downscale
+- **Celery Render Task Extractors** — tasks.py, _extract_frame_transforms, _extract_calendar_state
+- **Calendar Cell Renderer / Month Grid & Pills** — calendar_renderer.py, draw_cell_image, pill merge
+- **Colour-Managed Image Loader** — services/image_loader.py, EXIF + ICC→sRGB
+- **Upload & Calendar Validators** — api/validators.py, validate_calendar_layout
+- **Bearer Auth & Ops Views** — BearerTokenAuthentication, fonts/holidays/calendar-styles views
+- **Editor Modal & Toolbars / Fabric Editor & Shapes** — FabricEditor, ColorPicker, shape catalog
+- **Chunked Upload Utils / Storage Backend Abstraction** — upload-utils.ts, services/storage.py
+- **Webhook SSRF Guard** — services/url_safety.py, post_webhook_safely
 - **Login & Rate Limiting** — actions/auth.ts, per-IP rate limit
+- **Printo architecture audit (docs)** — "Printo.in Monolith Audit", "Target Architecture & Saleor", "Estimator POS Audit", "PIA & Printose Audit"
 
-God nodes (highest connectivity): `LayoutEngine` (46 edges), `APIKeyUser` (39), `BearerTokenAuthentication` / `PIAAuthentication` / `UploadedFile` / `ExportedResult` (35 each).
+God nodes (highest connectivity): `LayoutEngine` (73 edges), `APIKey` (45), `APIKeyUser` (40), `UploadedFile` / `ExportedResult` / `EmbedSession` (37 each), `BearerTokenAuthentication` / `PIAAuthentication` (36 each), `CanvasData` (35), `IsAuthenticatedWithAPIKey` (34).
 
 To update the graph after significant code changes:
 ```bash
