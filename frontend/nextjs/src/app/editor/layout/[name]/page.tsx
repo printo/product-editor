@@ -3519,14 +3519,17 @@ export default function LayoutEditorPage() {
                   })}
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 justify-center">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 justify-center justify-items-center">
                   {canvases.map((canvas, idx) => (
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       className={clsx(
-                        "bg-white rounded-2xl border-2 transition-all cursor-pointer group/card relative",
+                        // Mobile: one card per row, capped so ~1.5 cards show per
+                        // viewport (portrait prints) — a full-width 2-col card was
+                        // too short and clipped the quick-action rail.
+                        "bg-white rounded-2xl border-2 transition-all cursor-pointer group/card relative w-[86vw] max-w-sm sm:w-auto sm:max-w-none",
                         dragOverIdx?.idx === idx && dragOverIdx?.surfaceKey === null
-                          ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100" 
+                          ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100"
                           : "border-slate-200 hover:border-indigo-400"
                       )}
                       onClick={() => handleCardClick(idx)}
