@@ -186,6 +186,17 @@ export default function LayoutCreatorPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // The error/success banners render at the top of the page. When the user has
+  // scrolled down to a layout card (e.g. clicking Delete on a lower row) a
+  // failure message would otherwise appear off-screen and look like nothing
+  // happened. Scroll whichever banner is showing into view when it changes.
+  const feedbackBannerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error || success) {
+      feedbackBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [error, success]);
+
   // Form State
   const [isEditMode, setIsEditMode] = useState(false);
   const [layoutName, setLayoutName] = useState('');
@@ -857,14 +868,14 @@ export default function LayoutCreatorPage() {
       <main className="max-w-[1440px] mx-auto px-8 py-8 w-full">
 
         {error && (
-          <div className="mb-6 p-4 bg-rose-50 border border-rose-100 text-rose-800 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+          <div ref={feedbackBannerRef} className="mb-6 p-4 bg-rose-50 border border-rose-100 text-rose-800 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
             <p className="text-sm font-medium">{error}</p>
           </div>
         )}
 
         {success && (
-          <div className="mb-6 p-4 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+          <div ref={feedbackBannerRef} className="mb-6 p-4 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
             <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
             <p className="text-sm font-medium">{success}</p>
           </div>
