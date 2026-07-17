@@ -1,6 +1,7 @@
 import { FabricImage, Rect, Textbox } from 'fabric';
 import type { FabricObject } from 'fabric';
 import { getFrameFillBehavior } from './frame-display';
+import { resolveCaptionBox, hasCaptionPlacement, type CaptionBoxOverrides } from '@/lib/caption-layout';
 
 /**
  * Single source of truth for the "fill sides" background and per-frame caption,
@@ -95,10 +96,24 @@ export function buildFrameCaption(
   fs: FrameFillState,
   geom: FrameGeom,
   captionsAllowed: boolean,
+  overrides?: CaptionBoxOverrides | null,
 ): FabricObject | null {
   const text = fs.caption?.trim();
   if (!captionsAllowed || !fs.captionEnabled || !text) return null;
   const { fx, fy, fw, fh } = geom;
+
+  // Explicit ops-authored placement (free position anywhere on the page).
+  if (hasCaptionPlacement(overrides)) {
+    const c = resolveCaptionBox(fx, fy, fw, fh, overrides);
+    return new Textbox(text, {
+      left: c.x, top: c.y, originX: 'left', originY: 'top',
+      fontSize: c.fontPx, fontFamily: 'Inter, Arial, sans-serif',
+      fill: c.color, textAlign: c.align, width: c.w,
+      editable: false, selectable: false, evented: false, backgroundColor: 'transparent',
+    });
+  }
+
+  // Legacy bottom-centre placement — unchanged so existing templates render identically.
   return new Textbox(text, {
     left: fx + fw / 2, top: fy + fh - Math.max(24, fh * 0.08),
     originX: 'center', originY: 'center',

@@ -21,6 +21,7 @@ import {
 } from 'fabric';
 import type { CanvasItem } from './types';
 import { buildFrameFill, buildFrameCaption } from './frame-fill';
+import { captionOverridesFromMm } from '@/lib/caption-layout';
 import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
 import {
@@ -844,8 +845,10 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           (fillObj as any).__frameIdx = frameIdx;
           fc.add(fillObj);
         }
+        const _capPxPerMm = canvasW / ((layout as any)?.canvas?.widthMm || (layout as any)?.surfaces?.[0]?.canvas?.widthMm || 1);
         const captionObj = buildFrameCaption(
           frameState, _geom, Boolean((layout as any)?.frameCaptionsEnabled),
+          captionOverridesFromMm(frameSpec, _capPxPerMm),
         );
         if (captionObj) {
           (captionObj as any).__fabricEditor = 'frameCaption';

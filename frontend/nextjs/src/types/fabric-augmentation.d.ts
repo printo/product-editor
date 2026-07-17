@@ -30,11 +30,11 @@ declare module 'fabric' {
      * in LayoutFabricPreview.tsx. Lets us identify our objects vs ones
      * added by Fabric/the user.
      *
-     * - FabricEditor sets: 'frame' | 'text' | 'shape' | 'image' | 'mask'
-     * - LayoutFabricPreview sets: 'frame' | 'guide' | 'grid' | 'bleed' | 'label' | 'mask'
+     * - FabricEditor sets: 'frame' | 'text' | 'shape' | 'image' | 'mask' | 'frameFill' | 'frameCaption'
+     * - LayoutFabricPreview sets: 'frame' | 'guide' | 'grid' | 'bleed' | 'label' | 'mask' | 'frameCaption'
      * - CalendarFabricPreview sets: 'frame' | 'calendar' | 'calendarLabel' | 'guide' | 'grid' | 'label'
      */
-    __fabricEditor?: 'frame' | 'text' | 'shape' | 'image' | 'mask' | 'guide' | 'grid' | 'bleed' | 'label' | 'calendar' | 'calendarLabel'
+    __fabricEditor?: 'frame' | 'text' | 'shape' | 'image' | 'mask' | 'guide' | 'grid' | 'bleed' | 'label' | 'calendar' | 'calendarLabel' | 'frameFill' | 'frameCaption'
 
     /** Index into the calendars[] array for CalendarFabricPreview objects. */
     __calendarIdx?: number
