@@ -14,7 +14,7 @@ import {
   Upload, Loader2, CheckCircle2, X,
   Archive, FileText, Layout,
   SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
-  Move, Lock, AlertTriangle, ImagePlus, ArrowLeftRight,
+  Move, Lock, AlertTriangle, ImagePlus, Droplets,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
@@ -456,9 +456,6 @@ export default function LayoutEditorPage() {
   // lose their work if it replaced the current photos.
   const [pendingRepick, setPendingRepick] = useState<{ files: File[]; losingCount: number } | null>(null);
   const repickConfirmedRef = useRef(false);
-  // Tap-to-swap (Phase 3): the card picked as swap source; the next card
-  // tap swaps instead of opening the editor. Touch has no HTML5 drag.
-  const [swapSource, setSwapSource] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
   // Per-frame photo replace (Phase 3): which slot the hidden input feeds.
   const [pendingReplace, setPendingReplace] = useState<{ canvasIdx: number; frameIdx: number; surfaceKey: string | null } | null>(null);
   const replacePhotoInputRef = useRef<HTMLInputElement | null>(null);
@@ -1699,6 +1696,15 @@ export default function LayoutEditorPage() {
     });
   };
 
+  // Per-card Blur Effect toggle — flips fillStyle on this canvas's frames only.
+  // The renderer only shows the fill on contain frames, so it's harmless on cover.
+  const handleQuickToggleBlur = (idx: number, surfaceKey: string | null = null) => {
+    updateCanvasState(idx, surfaceKey, (c) => {
+      const nextStyle: 'blur' | undefined = c.frames.some(f => f.fillStyle === 'blur') ? undefined : 'blur';
+      return { ...c, frames: c.frames.map(f => ({ ...f, fillStyle: nextStyle })) };
+    });
+  };
+
   // ── Drag-to-pan on grid cards (gated by repositionMode) ────────────────────
 
   /** Resolve the layout def + canvas dims + frame specs for a card. */
@@ -1822,14 +1828,6 @@ export default function LayoutEditorPage() {
   /** Card click guard — a completed pan must not open the editor modal. */
   const handleCardClick = (idx: number, surfaceKey: string | null = null) => {
     if (panSuppressClickRef.current) { panSuppressClickRef.current = false; return; }
-    if (swapSource) {
-      const src = swapSource;
-      setSwapSource(null);
-      if (!(src.idx === idx && src.surfaceKey === surfaceKey)) {
-        void swapCards(src, { idx, surfaceKey });
-      }
-      return;
-    }
     openEditor(idx, surfaceKey ?? undefined);
   };
 
@@ -2902,15 +2900,6 @@ export default function LayoutEditorPage() {
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col">
       <GoogleFontLinks fonts={fontsLoaded} />
-      {swapSource && (
-        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200000] bg-indigo-600 text-white px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300" role="status">
-          <ArrowLeftRight className="w-4 h-4" />
-          <span className="text-xs font-semibold">Tap another photo to swap</span>
-          <button onClick={() => setSwapSource(null)} className="p-1 hover:bg-white/20 rounded-lg transition-all" aria-label="Cancel swap">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
       {(persistDegraded || storageBlocked) && (
         <div className="fixed bottom-6 right-8 z-[200000] max-w-sm bg-white/90 backdrop-blur-2xl border border-amber-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-amber-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group" role="status" aria-live="polite">
           <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0 mt-1">
@@ -3259,6 +3248,7 @@ export default function LayoutEditorPage() {
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
                 )}>
+                <Droplets className="w-3.5 h-3.5" />
                 Blur Effect
               </button>
               <button
@@ -3466,19 +3456,16 @@ export default function LayoutEditorPage() {
                                 />
                               </div>
                               <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSwapSource(prev =>
-                                    prev && prev.idx === 0 && prev.surfaceKey === surface.key ? null : { idx: 0, surfaceKey: surface.key }
-                                  );
-                                }}
+                                onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(0, surface.key); }}
                                 className={clsx('p-2 rounded-xl hover:scale-105 transition-all',
-                                  swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key
+                                  surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
                                     ? 'bg-indigo-600 text-white'
                                     : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
-                                title="Swap with another photo (tap this, then tap the other card)"
+                                title={surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
+                                  ? 'Blur Effect is ON — empty space is filled with a blurred copy of the photo. Tap to turn off.'
+                                  : 'Blur Effect — fill the empty space around the photo with a blurred copy of it.'}
                               >
-                                <ArrowLeftRight className="w-3.5 h-3.5" />
+                                <Droplets className="w-3.5 h-3.5" />
                               </button>
                               <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
                                 <Download className="w-3.5 h-3.5" />
@@ -3584,19 +3571,16 @@ export default function LayoutEditorPage() {
                             </button>
                           )}
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSwapSource(prev =>
-                                prev && prev.idx === idx && prev.surfaceKey === null ? null : { idx, surfaceKey: null }
-                              );
-                            }}
+                            onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(idx); }}
                             className={clsx('p-2 rounded-xl hover:scale-105 transition-all',
-                              swapSource?.idx === idx && swapSource?.surfaceKey === null
+                              canvas.frames.some(f => f.fillStyle === 'blur')
                                 ? 'bg-indigo-600 text-white'
                                 : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
-                            title="Swap with another photo (tap this, then tap the other card)"
+                            title={canvas.frames.some(f => f.fillStyle === 'blur')
+                              ? 'Blur Effect is ON — empty space is filled with a blurred copy of the photo. Tap to turn off.'
+                              : 'Blur Effect — fill the empty space around the photo with a blurred copy of it.'}
                           >
-                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                            <Droplets className="w-3.5 h-3.5" />
                           </button>
                           <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(idx); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
                             <Download className="w-3.5 h-3.5" />
