@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { Canvas, Rect, FabricText, FabricImage, ActiveSelection, type FabricObject } from 'fabric';
+import { Canvas, Rect, FabricText, FabricImage, ActiveSelection, Textbox, type FabricObject } from 'fabric';
+import { captionOverridesFromMm, resolveCaptionBox } from '@/lib/caption-layout';
 import {
   AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
@@ -32,6 +33,14 @@ interface LayoutFrame {
   heightMm?: number | string;
   bleedMm?: number | string;
   borderRadiusMm?: number | string;
+  caption?: string;
+  captionEnabled?: boolean;
+  captionXMm?: number | string;
+  captionYMm?: number | string;
+  captionWidthMm?: number | string;
+  captionFontMm?: number | string;
+  captionAlign?: 'left' | 'center' | 'right';
+  captionColor?: string;
 }
 
 interface LayoutFabricPreviewProps {
@@ -46,6 +55,9 @@ interface LayoutFabricPreviewProps {
   onFrameSelect: (frameId: string | null) => void;
   selectedFrameId?: string | null;
   zoom?: number;
+  /** Master caption opt-in (layout.frameCaptionsEnabled). When true, frames
+   *  with captionEnabled show a draggable caption box in the preview. */
+  captionsEnabled?: boolean;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -84,6 +96,7 @@ export function LayoutFabricPreview({
   onFrameSelect,
   selectedFrameId,
   zoom = 1,
+  captionsEnabled = false,
 }: LayoutFabricPreviewProps) {
   const canvasElRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<Canvas | null>(null);
@@ -254,12 +267,39 @@ export function LayoutFabricPreview({
       label.__fabricEditor = 'label';
       label.__frameIdx = idx;
       fc.add(label);
+
+      // Draggable caption box — only when captions are on for this frame.
+      // Position/style come from the frame's caption* mm fields (default:
+      // bottom-centre via resolveCaptionBox). Drag/resize writes them back.
+      if (captionsEnabled && frame.captionEnabled) {
+        const cbox = resolveCaptionBox(
+          fxMm * scale, fyMm * scale, fwMm * scale, fhMm * scale,
+          captionOverridesFromMm(frame, scale),
+        );
+        const capText = (frame.caption && String(frame.caption).trim()) || 'Caption';
+        const cap = new Textbox(capText, {
+          left: cbox.x, top: cbox.y, width: cbox.w,
+          originX: 'left', originY: 'top',
+          fontSize: cbox.fontPx, fontFamily: 'Inter, Arial, sans-serif',
+          fill: cbox.color, textAlign: cbox.align,
+          backgroundColor: 'rgba(99, 102, 241, 0.06)',
+          editable: false, lockRotation: true,
+          cornerColor: '#6366f1', cornerSize: 7, cornerStyle: 'circle',
+          transparentCorners: false, borderColor: '#6366f1',
+        });
+        cap.__fabricEditor = 'frameCaption';
+        cap.__frameIdx = idx;
+        cap.__frameId = frame.id;
+        // Width-only resize (ml/mr); font size is a sidebar control.
+        cap.setControlsVisibility({ mt: false, mb: false, tl: false, tr: false, bl: false, br: false, mtr: false });
+        fc.add(cap);
+      }
     });
 
     fc.renderAll();
     // Re-run structural changes or dimensions change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frames, widthMm, heightMm, snapGrid, getScale]);
+  }, [frames, widthMm, heightMm, snapGrid, getScale, captionsEnabled]);
 
   // ── Sync selection color → Fabric objects ─────────────────────────────────
 
@@ -334,7 +374,31 @@ export function LayoutFabricPreview({
 
     const handleModified = (e: any) => {
       const target = e.target as FabricObject;
-      if (!target || target.__fabricEditor !== 'frame') return;
+      if (!target) return;
+
+      // Caption box moved/resized → write its placement back to the frame in mm.
+      if (target.__fabricEditor === 'frameCaption') {
+        const cIdx = target.__frameIdx as number;
+        const curFrames = framesRef.current;
+        if (cIdx == null || cIdx < 0 || cIdx >= curFrames.length) return;
+        const effW = (target.width ?? 0) * (target.scaleX ?? 1);
+        target.set({ width: effW, scaleX: 1, scaleY: 1 });
+        const capX = round2((target.left ?? 0) / scale);
+        const capY = round2((target.top ?? 0) / scale);
+        const capW = round2(effW / scale);
+        const capFont = round2((((target as any).fontSize as number) ?? 12) / scale);
+        const capAlign = (((target as any).textAlign as 'left' | 'center' | 'right')) ?? 'center';
+        const capColor = (((target as any).fill as string)) ?? '#2a2a2a';
+        isSyncingRef.current = true;
+        onFramesChange(curFrames.map((f, i) => i === cIdx ? {
+          ...f, captionXMm: capX, captionYMm: capY, captionWidthMm: capW,
+          captionFontMm: capFont, captionAlign: capAlign, captionColor: capColor,
+        } : f));
+        requestAnimationFrame(() => { isSyncingRef.current = false; });
+        return;
+      }
+
+      if (target.__fabricEditor !== 'frame') return;
 
       const idx = target.__frameIdx as number;
       const curFrames = framesRef.current;

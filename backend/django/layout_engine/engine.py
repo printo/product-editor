@@ -436,6 +436,67 @@ class LayoutEngine:
         lines.append(cur)
         return lines
 
+    @staticmethod
+    def _resolve_caption_box(fx, fy, fw, fh, frame: dict, px_per_mm: float) -> dict:
+        """
+        Resolve an explicitly-placed caption's box (px, top-left origin) from the
+        layout frame's caption* mm fields, filling any unset field with the same
+        defaults as the browser (see frontend/src/lib/caption-layout.ts →
+        resolveCaptionBox) so print == preview. Kept in lockstep by
+        services/tests/test_caption_layout.py.
+        """
+        def mm(key):
+            v = frame.get(key)
+            if v is None or v == "":
+                return None
+            try:
+                return float(v) * px_per_mm
+            except (TypeError, ValueError):
+                return None
+
+        w = mm("captionWidthMm")
+        if w is None:
+            w = fw * 0.8
+        font_px = mm("captionFontMm")
+        if font_px is None:
+            font_px = fh * 0.04
+        x = mm("captionXMm")
+        if x is None:
+            x = fx + (fw - w) / 2
+        y = mm("captionYMm")
+        if y is None:
+            y = fy + fh - fh * 0.08 - font_px / 2
+        align = frame.get("captionAlign") or "center"
+        color = frame.get("captionColor") or "#2a2a2a"
+        return {"x": x, "y": y, "w": w, "font_px": max(1, int(round(font_px))), "align": align, "color": color}
+
+    def _draw_caption_box(self, canvas: Image.Image, text: str, box: dict) -> None:
+        """Draw an explicitly-placed caption on the full canvas (unclipped), wrapped
+        to the box width and aligned. Mirrors the browser Textbox placement."""
+        from services.fonts import get_font
+
+        font = get_font(box["font_px"], weight=400)
+        max_w = max(1, int(box["w"]))
+        lines = self._wrap_caption_lines(text, font, max_w)
+        if not lines:
+            return
+        try:
+            rgb = self._parse_hex_color(box["color"])
+        except Exception:
+            rgb = (42, 42, 42)
+        draw = ImageDraw.Draw(canvas)
+        line_h = int(box["font_px"] * 1.25)
+        x, y, w = box["x"], box["y"], box["w"]
+        align = box["align"]
+        for i, line in enumerate(lines):
+            ly = y + i * line_h
+            if align == "center":
+                draw.text((x + w / 2, ly), line, font=font, fill=rgb, anchor="ma")
+            elif align == "right":
+                draw.text((x + w, ly), line, font=font, fill=rgb, anchor="ra")
+            else:
+                draw.text((x, ly), line, font=font, fill=rgb, anchor="la")
+
     def _composite_canvas(
         self,
         surface_def: dict,
@@ -477,6 +538,12 @@ class LayoutEngine:
         # Bottom layer: the customer's background colour (white by default).
         bg_rgb = self._parse_hex_color(background)
         canvas = Image.new("RGB", (canvas_w, canvas_h), bg_rgb)
+
+        # Free-placed captions (ops-positioned) are collected during the frame
+        # loop and drawn at canvas level afterwards. px_per_mm == dpi/25.4.
+        _cap_width_mm = surface_def["canvas"].get("widthMm")
+        px_per_mm = (canvas_w / _cap_width_mm) if _cap_width_mm else (surface_def["canvas"].get("dpi", 300) / 25.4)
+        deferred_captions: List[tuple] = []
 
         for idx, frame in enumerate(frames):
             # Position-explicit contract: batch[idx] pairs with frames[idx] and
@@ -584,14 +651,23 @@ class LayoutEngine:
                     img = img.crop(crop_box)
                 layer.paste(img, (0, 0), img)
 
-            # Per-frame caption — drawn above the photo, inside the frame layer so
-            # it's clipped to the frame shape (matches the preview's clipPath).
+            # Per-frame caption. If the ops author positioned it (any caption*
+            # field set on the layout frame), defer to a canvas-level draw below
+            # so it can sit anywhere / unclipped. Otherwise keep the legacy
+            # bottom-centre draw inside the frame layer (byte-identical output).
             # Wrapped defensively: a caption failure must never abort the frame.
             if caption_on:
-                try:
-                    self._draw_frame_caption(layer, caption_text, target_w, target_h)
-                except Exception:
-                    logger.exception("Caption render failed for frame %d; skipping caption", idx)
+                _cap_keys = ("captionXMm", "captionYMm", "captionWidthMm", "captionFontMm", "captionAlign", "captionColor")
+                if any(frame.get(k) not in (None, "") for k in _cap_keys):
+                    deferred_captions.append((
+                        caption_text,
+                        self._resolve_caption_box(frame["x"], frame["y"], frame["width"], frame["height"], frame, px_per_mm),
+                    ))
+                else:
+                    try:
+                        self._draw_frame_caption(layer, caption_text, target_w, target_h)
+                    except Exception:
+                        logger.exception("Caption render failed for frame %d; skipping caption", idx)
 
             # Clip to the frame's rounded/circular shape (no-op for square frames),
             # matching the browser preview so print == what the customer saw.
@@ -611,6 +687,16 @@ class LayoutEngine:
             paper_rgb = self._parse_hex_color(paper_color)
             if paper_rgb != bg_rgb:
                 self._render_paper_mat(canvas, frames, surface_def, paper_rgb)
+
+        # ── Free-placed captions ─────────────────────────────────────────────
+        # Ops-positioned captions draw at canvas level (above photos + mat) so
+        # they can sit anywhere on the page. Un-positioned (legacy) captions
+        # were already drawn inside their frame layer above.
+        for _cap_text, _cap_box in deferred_captions:
+            try:
+                self._draw_caption_box(canvas, _cap_text, _cap_box)
+            except Exception:
+                logger.exception("Free caption render failed; skipping")
 
         # ── Overlays (Phase 1 — CALENDAR_FEATURE_PRD.md §5) ──────────────────
         # Render text / shape / image overlays after frames but before the

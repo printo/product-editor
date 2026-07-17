@@ -2,6 +2,7 @@ import { Canvas, Rect, FabricImage, Textbox, FabricText, Path, Shadow } from 'fa
 import type { CanvasItem } from './types';
 import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
 import { buildFrameFill, buildFrameCaption } from './frame-fill';
+import { captionOverridesFromMm } from '@/lib/caption-layout';
 
 let picaInstance: any = null;
 
@@ -269,8 +270,10 @@ export async function renderCanvas(
 
       fabricCanvas.add(fabricImg);
 
+      const _capPxPerMm = canvasW / (usedLayout.canvas?.widthMm || usedLayout.surfaces?.[0]?.canvas?.widthMm || 1);
       const captionObj = buildFrameCaption(
         frameState, _geom, Boolean((usedLayout as any)?.frameCaptionsEnabled),
+        captionOverridesFromMm(frames[frameIdx] || {}, _capPxPerMm),
       );
       if (captionObj) fabricCanvas.add(captionObj); // on top of the photo
     } catch {

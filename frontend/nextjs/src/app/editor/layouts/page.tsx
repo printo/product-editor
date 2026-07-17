@@ -22,6 +22,8 @@ import {
   Maximize2,
   AlignCenter,
   AlignJustify,
+  AlignLeft,
+  AlignRight,
   CalendarDays,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -58,6 +60,13 @@ interface LayoutFrame {
   borderRadiusMm?: number | string; // Corner Radius
   caption?: string; // Default caption text (customer can override in the editor)
   captionEnabled?: boolean; // Show this area's caption in the output
+  // Free caption placement/style (canvas-absolute mm). Unset → legacy bottom-centre.
+  captionXMm?: number | string;
+  captionYMm?: number | string;
+  captionWidthMm?: number | string;
+  captionFontMm?: number | string;
+  captionAlign?: 'left' | 'center' | 'right';
+  captionColor?: string;
 }
 
 interface LayoutConfig {
@@ -1194,6 +1203,31 @@ export default function LayoutCreatorPage() {
                               >
                                 {s.label || s.key}
                               </button>
+                              <button
+                                type="button"
+                                title="Duplicate this surface (dimensions + print areas)"
+                                onClick={() => {
+                                  setSurfaces(prev => {
+                                    const src = prev[i];
+                                    const existing = new Set(prev.map(s2 => s2.key));
+                                    const base = `${src.key}-copy`;
+                                    let key = base, n = 2;
+                                    while (existing.has(key)) key = `${base}-${n++}`;
+                                    const clone: SurfaceEditorState = {
+                                      ...src,
+                                      key,
+                                      label: `${src.label} copy`,
+                                      // Fresh frame ids so edits/selection don't bleed across surfaces.
+                                      frames: src.frames.map(f => ({ ...f, id: Math.random().toString(36).slice(2, 11) })),
+                                    };
+                                    return [...prev.slice(0, i + 1), clone, ...prev.slice(i + 1)];
+                                  });
+                                  setActiveSurfaceIdx(i + 1);
+                                }}
+                                className="ml-0.5 p-0.5 text-slate-300 hover:text-indigo-500 transition-colors"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
                               {surfaces.length > 1 && (
                                 <button
                                   type="button"
@@ -1462,12 +1496,42 @@ export default function LayoutCreatorPage() {
                             </div>
                           </div>
                           {frameCaptionsEnabled && (
-                            <div className="flex items-center gap-2 pl-8 pr-2">
-                              <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase shrink-0 cursor-pointer" title="Show this area's caption in the printed output">
-                                <input type="checkbox" checked={Boolean(f.captionEnabled)} onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, captionEnabled: e.target.checked } : fr))} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                                Caption
-                              </label>
-                              <input type="text" value={f.caption ?? ''} onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, caption: e.target.value } : fr))} placeholder="Default caption text (optional)" className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" />
+                            <div className="pl-8 pr-2 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase shrink-0 cursor-pointer" title="Show this area's caption in the printed output">
+                                  <input type="checkbox" checked={Boolean(f.captionEnabled)} onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, captionEnabled: e.target.checked } : fr))} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                                  Caption
+                                </label>
+                                <input type="text" value={f.caption ?? ''} onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, caption: e.target.value } : fr))} placeholder="Default caption text (optional)" className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" />
+                              </div>
+                              {f.captionEnabled && (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="flex items-center gap-1" title="Caption font size (mm)">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase">Font</span>
+                                    <input type="number" min="1" step="0.1"
+                                      value={f.captionFontMm ?? round2(Number(f.heightMm || 0) * 0.04)}
+                                      onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, captionFontMm: e.target.value } : fr))}
+                                      className="w-14 px-2 py-1 text-xs rounded border border-slate-200" />
+                                    <span className="text-[9px] text-slate-300">mm</span>
+                                  </div>
+                                  <div className="flex items-center gap-0.5 border border-slate-200 rounded-lg p-0.5">
+                                    {([['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight]] as const).map(([a, Icon]) => {
+                                      const active = (f.captionAlign ?? 'center') === a;
+                                      return (
+                                        <button key={a} type="button" title={`Align ${a}`}
+                                          onClick={() => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, captionAlign: a } : fr))}
+                                          className={`p-1 rounded ${active ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`}>
+                                          <Icon className="w-3.5 h-3.5" />
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  <input type="color" value={typeof f.captionColor === 'string' ? f.captionColor : '#2a2a2a'}
+                                    onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, captionColor: e.target.value } : fr))}
+                                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer bg-white" title="Caption colour" />
+                                  <span className="text-[9px] text-slate-400 italic">drag the box in the preview to place</span>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1503,6 +1567,7 @@ export default function LayoutCreatorPage() {
                           onFrameSelect={setSelectedFrameId}
                           selectedFrameId={selectedFrameId}
                           zoom={zoom}
+                          captionsEnabled={frameCaptionsEnabled}
                         />
                       </div>
                     </div>
