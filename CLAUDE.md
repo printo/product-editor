@@ -98,6 +98,8 @@ API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # 10-step embed-f
 
 All exports go through one unified server-side pipeline. The previous client-side "≤ 20 canvases → render in browser" shortcut was removed in v1.8 — every Submit/Download triggers a Celery render job, regardless of canvas count. Trade-off: small jobs pay an extra ~10–20 s of upload + poll latency; gains a single contract that handles webhooks, large batches, and resumable uploads identically.
 
+**Access-mode invariant:** dashboard login flow and iframe embed/widget flow must produce the same print output for the same layout id/SKU, uploaded assets, transforms, overlays, calendar data, background colours, `export_format`, and `include_uploads` choice. Authentication and delivery differ, but preview/editor state, render behaviour, and download artifact contract must not. The stricter cleanup/target architecture is captured in `docs/API_SURFACE_SEPARATION_PRD.md`.
+
 **Editor → render → delivery:**
 
 1. Customer interacts with Fabric.js canvas editor (`frontend/nextjs/src/app/editor/`).
@@ -105,7 +107,7 @@ All exports go through one unified server-side pipeline. The previous client-sid
    - Uploads every `File` via the chunked upload API (2 MB chunks, 4 parallel) using `src/lib/upload-utils.ts`
    - POSTs to `/api/editor/render` with `{ layout_name, order_id, canvases[] }` (per-frame `upload_id` + transform data)
 3. Backend creates `CanvasData` + `RenderJob`, dispatches `render_canvas_task` to Celery.
-4. Celery worker: `LayoutEngine` consumes per-frame transforms from `CanvasData.editor_state` → Pillow renders at 300 DPI (PNG by default; PDF when `export_format='pdf'`).
+4. Celery worker: `LayoutEngine` consumes the submit-time `CanvasData.render_state` snapshot (falling back to `editor_state` only for pre-migration jobs) → Pillow renders at 300 DPI (PNG by default; PDF when `export_format='pdf'`).
 5. After render, files sit on disk under `EXPORTS_DIR/<job_id>/`, ready to be served by `GET /api/jobs/<job_id>/download/`.
 6. **Delivery — embed flow:** if `EmbedSession.callback_url` was set at session creation, `notify_caller_webhook_task` POSTs `{ order_id, job_id, status, download_url, expires_at, file_count, layout_name, export_format }` to that URL plus an `X-Signature: sha256=<hmac>` header signed with the api_key. The caller fetches the ZIP from `download_url` using their api_key as Bearer auth. *No internal OMS push exists.*
 7. **Delivery — dashboard flow:** no webhook task fires. The browser polls `/api/render-status/{job_id}/` with exponential backoff, then fetches the ZIP from `/api/jobs/{job_id}/download/` directly.
@@ -113,8 +115,34 @@ All exports go through one unified server-side pipeline. The previous client-sid
    - **Embed**: fires `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` so the parent's UI can show "your design is being prepared". The actual file delivery happens via the webhook (above), not via postMessage.
    - **Dashboard**: polls + downloads as in step 7.
 
-**Direct API callers (legacy `GenerateLayoutView`):**
-- `GenerateLayoutView` still exists for partners who hit `/api/layout/generate` with their own api_key (no embed session). Same output contract: `export_format` is `'png'` (default) or `'pdf'`. The legacy `soft_proof` / `tiff_cmyk` / `callback_url` body params were all removed in v1.8 — direct callers must poll `/api/render-status/<job_id>/`. Webhooks are configured exclusively via `EmbedSession.callback_url`.
+**Direct partner API callers (`GenerateLayoutView`):**
+- `GenerateLayoutView` still exists for partners who hit `/api/layout/generate` with their own api_key (no embed session). Same output contract: `export_format` is `'png'` (default) or `'pdf'`. The old `soft_proof` / `tiff_cmyk` / `callback_url` body params were all removed in v1.8 — direct callers must poll `/api/render-status/<job_id>/`. Webhooks are configured exclusively via `EmbedSession.callback_url`.
+- Current cleanup target: keep `/api/layout/generate` as the direct partner API, but remove the unreachable synchronous helper inside `GenerateLayoutView` and route direct partner API + editor/embed render submissions through one shared backend render-submission service. See `docs/API_SURFACE_SEPARATION_PRD.md`.
+
+**Access flows to preserve:**
+- Dashboard: login → dashboard layout selection → `/editor/layout/[name]` preview/editor → shared server render → browser download.
+- Embed/widget: partner backend creates `/api/embed/session` with api_key + layout id/SKU/order_id → iframe opens `/editor/layout/[name]?token=...` → embed proxy calls shared render → signed webhook + partner backend downloads ZIP.
+- Direct partner API: partner backend posts `/api/layout/generate` server-to-server → shared render → poll status → download ZIP.
+
+```mermaid
+flowchart TD
+  DashboardUser["Dashboard User"] -->|PIA / Google login| Dashboard["Dashboard layout selection"]
+  Dashboard --> EditorPageA["Shared preview/editor route"]
+  DirectPartner["Direct Partner Backend"] -->|Bearer API key| GenerateLayout["Direct API Adapter\nPOST /api/layout/generate"]
+  PartnerBackend["Partner Backend"] -->|Bearer API key + layout id/SKU| EmbedSession["POST /api/embed/session"]
+  EmbedSession --> Iframe["Iframe Editor\n/editor/layout/:name?token=..."]
+  Iframe --> EditorPageB["Shared preview/editor route"]
+  EditorPageB -->|X-Embed-Token| EmbedProxy["Next.js Embed Proxy\n/api/embed/proxy/*"]
+  EmbedProxy -->|Bearer real API key + injected headers| EditorRender["Shared Editor Adapter\nPOST /api/editor/render"]
+  EditorPageA -->|NextAuth cookie| InternalProxy["Next.js Internal Proxy\n/api/internal/proxy/*"]
+  InternalProxy -->|Bearer INTERNAL_API_KEY| EditorRender
+  GenerateLayout --> RenderService["Shared Render Submission Service"]
+  EditorRender --> RenderService
+  RenderService --> CanvasData["CanvasData + RenderJob"]
+  RenderService --> Celery["render_canvas_task"]
+  Celery --> Download["/api/jobs/:job_id/download/"]
+  Celery -->|only if callback_url exists| Webhook["Signed Embed Webhook"]
+```
 
 ### Frontend Structure
 - `src/pia-auth.ts` — NextAuth v5 config; Credentials provider hits PIA; `jwt`/`session`/`redirect` callbacks; custom `CredentialsSignin` subclasses for outage vs. timeout; PIA fetches use `AbortSignal.timeout(10_000)`
@@ -129,9 +157,9 @@ All exports go through one unified server-side pipeline. The previous client-sid
 - `src/lib/image-utils.ts` — Image metadata extraction; WeakMap caches only `{width, height, orientation}` (not the HTMLImageElement — would OOM at 200 files). `getImageSize()` is the cache-first dims-only accessor for sweeps that must not re-decode.
 - `src/lib/dpi-utils.ts` — Effective print-DPI estimation for the low-res warning (Phase 2). Mirrors the fabric-renderer/engine placement math exactly (rotated bbox → cover/contain baseScale → × zoom); thresholds `DPI_WARN=150` / `DPI_CRITICAL=100`, strict `<` so exactly 150 doesn't warn. Card pills + pre-submit modal notices in `page.tsx` are non-blocking by design. If the placement math changes in either renderer, update this module too.
 - `src/lib/upload-utils.ts` — Chunked upload utility: `uploadFile()` (single, sequential chunks) and `uploadFiles()` (batched, 4 parallel)
-- `src/lib/zip-utils.ts` — Chunked ZIP generation for client-side batch downloads
+- `src/lib/zip-utils.ts` — Chunked ZIP generation still used for imposition-sheet downloads. Do not delete it as part of the retired client-side render ZIP cleanup; the old browser render/download path is gone, but imposition still imports `createZipFromDataUrls` / `downloadBlob`.
 - `src/lib/file-store.ts` — IndexedDB-backed File persistence keyed by `(orderId, fileId)`; recovers `originalFile` after page refresh. See "B1 — Canvas state file persistence" below.
-- `src/app/api/embed/proxy/[...path]/route.ts` — Embed proxy; resolves embed token → `{ apiKey, orderId }`; injects `X-Order-ID` header; caches in-process (110 min TTL, 10k cap)
+- `src/app/api/embed/proxy/[...path]/route.ts` — Embed proxy; resolves embed token → `{ apiKey, orderId, callbackUrl, includeUploads }`; injects `X-Order-ID`, `X-Callback-URL`, and `X-Include-Uploads`; caches in-process (110 min TTL, 10k cap)
 - `src/types/` — TypeScript interfaces for layouts, surfaces, frames
 
 ### Backend Structure
@@ -181,7 +209,7 @@ Always. The embed "Save & Continue" button (`handleSubmitDesign`) and the dashbo
 | Build payload | Per-frame: `{ upload_id, offset_x, offset_y, scale, rotation, fit_mode }` |
 | Submit | `POST /api/editor/render` (or `/api/embed/proxy/editor/render`); `order_id` in body |
 | Embed branch | `postMessage({ type: 'pe:render_job', jobId, orderID })` → `setSubmitted(true)` |
-| Direct branch | Poll `/api/render-status/{job_id}/` every 4 s; fetch ZIP when `status === 'completed'` |
+| Dashboard/direct branch | Poll `/api/render-status/{job_id}/` every 4 s; fetch ZIP when `status === 'completed'` |
 
 ### Chunked Upload API
 
@@ -246,10 +274,11 @@ iframe loads with  ?token=<uuid>
 
 Every iframe request → embed proxy resolveSession(token)
                     → checks path allowlist (rejects /ops, /admin, etc. with 403)
-                    → caches { apiKey, orderId, callbackUrl, exp } for 110 min
-                    → injects X-Order-ID + X-Callback-URL on every upstream request
+                    → caches { apiKey, orderId, callbackUrl, includeUploads, exp } for 110 min
+                    → injects X-Order-ID + X-Callback-URL + X-Include-Uploads on every upstream request
 
-EditorRenderView reads X-Order-ID + X-Callback-URL headers, persists onto CanvasData
+EditorRenderView reads X-Order-ID + X-Callback-URL + X-Include-Uploads headers,
+persists callback_url onto CanvasData and snapshots include_uploads in render_state
 
 After Celery render completes — only when canvas.callback_url is set:
 notify_caller_webhook_task → POSTs webhook payload to canvas.callback_url
@@ -559,7 +588,7 @@ Key surfaces added in the resilience/compliance pass — grep these before touch
 - **Mobile** — `pinch-utils.ts` + FabricEditor pointer handlers give two-finger pinch→FrameState (Fabric discarded the 2nd touch); `swapCards`/tap-to-swap (touch has no HTML5 drag); CanvasEditorSidebar is a bottom sheet `<md` with safe-area padding; `layout.tsx` exports `viewport.viewportFit:'cover'`.
 - **Storage degrade** — `file-store.ts` falls back to an in-memory map when IndexedDB is blocked (Safari ITP in a cross-site iframe), exposes `getPersistenceMode()`, and `pruneStaleOrders()` age/quota-evicts other orders (never the current one). `FileStoreQuotaError` on genuine exhaustion. `FrameState` now carries `fileName`/`fileSize` so the lost-photo guard fires even when persistence failed.
 - **Upload resume** — `upload-utils.ts` keeps a WeakMap of `{uploadId, acked chunks}` per File; a failed submit re-sends only the failed files (allSettled + aggregated error), skipping already-acked chunks; byte-weighted progress; a GC'd session (404) restarts once.
-- **Per-surface render grouping** — the render payload tags each canvas with `surface_key`; `tasks._extract_canvases_meta` → `engine.generate(canvases_meta=…)` slices photos/transforms/overlays/backgrounds per surface so a multi-surface product renders each side with ITS OWN photos (an omitted side prints blank, not the other side's photo). **The frontend must send the REAL surface key** — `page.tsx` executeServerRender uses `surfaceStates[0]?.key ?? activeSurfaceKey` even for a single surface (a literal `'canvas'` matched no surface and printed blank). Gated on `canvases_meta` so legacy GenerateLayoutView callers are byte-identical.
+- **Per-surface render grouping** — the render payload tags each canvas with `surface_key`; `tasks._extract_canvases_meta` → `engine.generate(canvases_meta=…)` slices photos/transforms/overlays/backgrounds per surface so a multi-surface product renders each side with ITS OWN photos (an omitted side prints blank, not the other side's photo). **The frontend must send the REAL surface key** — `page.tsx` executeServerRender uses `surfaceStates[0]?.key ?? activeSurfaceKey` even for a single surface (a literal `'canvas'` matched no surface and printed blank). Gated on `canvases_meta` so direct partner `GenerateLayoutView` callers are byte-identical.
 - **Submit guards** — `lib/submit-guards.ts`: empty-surface + duplicate-fill warnings (qty auto-fill fingerprints are exempt via `intentionalDupesRef`). Warn-and-proceed, never block.
 - **SSRF** — `services/url_safety.py`: `validate_public_https_url` (https-only, resolves + rejects private/reserved/loopback/link-local/metadata) at session-create AND `post_webhook_safely` at send time, which PINS the socket (scoped `socket.getaddrinfo` override under a lock) to the validated IP so DNS can't rebind, `allow_redirects=False`. Both webhook tasks use it. **Never `requests.post` a customer callback_url directly.**
 - **Rate-limit IP** — `middleware._get_client_ip` and `actions/auth.ts` `clientIp()` trust nginx's `X-Real-IP` (else the RIGHT-most XFF hop), never the spoofable left-most hop.
