@@ -51,18 +51,49 @@ A production-ready full-stack application for generating photo layouts for perso
 git clone <repository-url>
 cd product-editor
 cp .env.example .env
-# Edit .env — set DJANGO_SECRET_KEY, POSTGRES_PASSWORD, API keys
+# Edit .env — set DJANGO_SECRET_KEY, AUTH_SECRET, EMBED_INTERNAL_SECRET,
+# INTERNAL_API_KEY, POSTGRES_PASSWORD, DIRECT_API_KEY (see .env.example for
+# generation commands)
+```
+
+**First-time-only step:** the nginx `proxy` service bind-mounts a TLS cert that's gitignored, so a bare `docker-compose up -d` on a fresh clone will crash-loop `proxy` until one exists. Either let `./deploy.sh` bootstrap a self-signed one, or generate it yourself:
+
+```bash
+mkdir -p proxy/nginx/certs
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+  -keyout proxy/nginx/certs/origin.key -out proxy/nginx/certs/origin.crt \
+  -subj "/CN=localhost/O=product-editor self-signed"
+chmod 600 proxy/nginx/certs/origin.key
+```
+
+Then bring the stack up:
+
+```bash
 docker-compose up -d
+docker-compose exec backend python manage.py migrate
 ```
 
 | Endpoint | URL |
 |---|---|
-| Frontend | http://localhost:5004 |
+| Frontend | https://localhost (via nginx proxy) or http://localhost:5004 (direct) |
 | Backend API | http://localhost:8000/api |
 | Django Admin | http://localhost:8000/admin/django-admin/ |
 | API Docs (Swagger) | http://localhost:8000/api/docs/ |
 
-> **Note:** `.env.local` in `frontend/nextjs/` overrides docker-compose env vars. Always set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) when running inside Docker.
+> **Note:** `.env.local` in `frontend/nextjs/` overrides docker-compose env vars. Always set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) when running inside Docker. If `5004`/`8000`/`5432` conflict with other projects on your machine, override `FRONTEND_HOST_PORT` / `BACKEND_HOST_PORT` / `POSTGRES_HOST_PORT` in `.env`.
+
+### Alternative: frontend outside Docker (faster iteration)
+
+Run the backend + infra in Docker, but the Next.js dev server on the host for hot reload:
+
+```bash
+docker-compose up -d backend db redis redis-cache celery-worker-standard celery-worker-priority
+cd frontend/nextjs
+pnpm install
+pnpm dev   # http://localhost:3000
+```
+
+Set `frontend/nextjs/.env.local` so it talks to the Dockerized backend (`INTERNAL_API_URL=http://localhost:8000/api`, plus the same `INTERNAL_API_KEY` / `AUTH_SECRET` as `.env`).
 
 ---
 
@@ -86,6 +117,8 @@ Required production values:
 
 ```env
 DJANGO_SECRET_KEY=<50-char random string>
+AUTH_SECRET=<50-char random string>          # NextAuth JWT signing secret
+EMBED_INTERNAL_SECRET=<random string>        # gates the embed session-validate endpoint
 DEBUG=0
 PUBLIC_HOST=product-editor.printo.in
 POSTGRES_PASSWORD=<strong password>
@@ -94,6 +127,8 @@ EXTERNAL_API_KEY=<embed partner key>
 INTERNAL_API_KEY=<same value as DIRECT_API_KEY — server-only, never NEXT_PUBLIC_>
 REDIS_URL=redis://redis:6379/0
 ```
+
+Compose aborts on boot if `AUTH_SECRET` is missing, and Django refuses to start under `DEBUG=0` with a default `DJANGO_SECRET_KEY` — both are hard requirements, not just recommended.
 
 Generate secret key:
 ```bash
@@ -149,35 +184,24 @@ The Next.js frontend uses two server-side proxies — neither exposes an API key
 | `GET` | `/api/health` | Health check (public) |
 | `GET` | `/api/layouts` | List available layouts |
 | `GET` | `/api/layouts/{name}` | Layout definition |
-| `POST` | `/api/layout/generate` | Generate layout (sync or async) |
+| `POST` | `/api/layout/generate` | Direct partner API — always async, requires `order_id` |
+| `POST` | `/api/editor/render` | Editor/embed render submission (used by the dashboard + iframe editor, not direct partners) |
 | `GET` | `/api/render-status/{job_id}/` | Async job status |
-| `GET` | `/api/exports/{filename}` | Download export file |
-| `POST` | `/api/embed/session` | Create short-lived embed token |
+| `GET` | `/api/jobs/{job_id}/download/` | Download the rendered ZIP |
+| `POST` | `/api/embed/session` | Create short-lived embed token (accepts `order_id` + optional `callback_url`) |
 | `GET` | `/api/celery/monitor/` | Queue/worker stats (ops team only) |
 
-### Sync generation (backward compatible)
+### Direct partner generation
 
-```bash
-curl -X POST https://product-editor.printo.in/api/layout/generate \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "layout=CIRCLE_48MM" \
-  -F "fit_mode=cover" \
-  -F "images=@photo.jpg"
-```
-
-Response: `{"canvases": ["output_abc123.png"]}`
-
-### Async generation (recommended for production)
-
-Include `order_id` in the request to trigger async mode:
+Every request is async — `order_id` is mandatory (there is no synchronous mode). The old `soft_proof` / `tiff_cmyk` / `callback_url` body params were removed in v1.8; output is PNG (default) or PDF only, and webhooks are configured exclusively at embed-session creation (see below), never per-request.
 
 ```bash
 curl -X POST https://product-editor.printo.in/api/layout/generate \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -F "layout=CIRCLE_48MM" \
   -F "order_id=ORD-20260405-001" \
-  -F "callback_url=https://your-backend.example.com/webhooks/render" \
   -F "fit_mode=cover" \
+  -F "export_format=png" \
   -F "images=@photo.jpg"
 ```
 
@@ -197,7 +221,30 @@ curl https://product-editor.printo.in/api/render-status/cb842c45-.../
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-When complete, the printo.in storefront receives a POST to its registered `EmbedSession.callback_url` with the v1.8+ webhook payload (`order_id`, `job_id`, `status`, `download_url`, `expires_at`, `file_count`, `layout_name`, `export_format`) and an HMAC signature in the `X-Signature` header. Direct API callers without an `EmbedSession` poll `/api/render-status/{job_id}/`.
+Then download:
+```bash
+curl -o output.zip https://product-editor.printo.in/api/jobs/cb842c45-.../download/ \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Webhook delivery (embed flow only)
+
+Webhooks are opt-in, set once at `POST /api/embed/session` via `callback_url` — not per render request. When a job created through an embed session completes, `notify_caller_webhook_task` POSTs the payload below to that URL with an `X-Signature: sha256=<hmac>` header (HMAC-SHA256 of the raw body, keyed by the caller's api_key):
+
+```json
+{
+  "order_id": "EXT-JOB-123",
+  "job_id": "<RenderJob uuid>",
+  "status": "completed",
+  "download_url": "https://product-editor.printo.in/api/jobs/<uuid>/download/",
+  "expires_at": "<ISO 8601>",
+  "file_count": 12,
+  "layout_name": "circle_48mm",
+  "export_format": "png"
+}
+```
+
+Direct API callers without an `EmbedSession` (i.e. the `/api/layout/generate` flow above) always poll `/api/render-status/{job_id}/` — no webhook fires for them.
 
 ### Output formats
 
@@ -255,7 +302,7 @@ cat backup.sql | docker-compose exec -T db psql -U postgres product_editor
 docker-compose exec backend python manage.py migrate
 ```
 
-Current migrations (latest: `0007_exportedresult_gc_partial_index`):
+Current migrations (latest: `0009_renderjob_status_completed_idx`):
 
 | Migration | Change |
 |---|---|
@@ -266,6 +313,8 @@ Current migrations (latest: `0007_exportedresult_gc_partial_index`):
 | 0005 | `CanvasData` uniqueness changed from global `order_id` to composite `(order_id, api_key)` — tenant isolation fix |
 | 0006 | `EmbedSession.order_id` — caller's job ID, injected as `X-Order-ID` by embed proxy |
 | 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` |
+| 0008 | `CanvasData.render_state` — submit-time render payload snapshot, separated from `editor_state` (autosave) so submit no longer clobbers a customer's in-progress design |
+| 0009 | Consolidates drifted model state: two missing `RenderJob` indexes, drops a duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-name |
 
 ---
 
@@ -349,18 +398,23 @@ storage/
 
 | Variable | Required | Description |
 |---|---|---|
-| `DJANGO_SECRET_KEY` | Yes | Django secret key |
-| `DEBUG` | Yes | `0` for production |
+| `DJANGO_SECRET_KEY` | Yes | Django secret key. Boot fails under `DEBUG=0` if left at the dev default |
+| `AUTH_SECRET` | Yes | NextAuth JWT signing secret (≥ 32 chars). Compose aborts on boot if unset |
+| `EMBED_INTERNAL_SECRET` | Yes | Gates the embed session-validate endpoint |
+| `DEBUG` | Yes | `0` for production (defaults to `0` even if unset) |
 | `PUBLIC_HOST` | Yes | Production domain (also baked into the bootstrap self-signed cert's CN) |
 | `POSTGRES_PASSWORD` | Yes | Database password |
-| `REDIS_URL` | Yes | Redis connection string |
+| `REDIS_URL` | Yes | Redis connection string (Celery broker, db `0`) |
 | `DIRECT_API_KEY` | Yes | Internal ops team API key (seeded into Django DB on first run) |
 | `EXTERNAL_API_KEY` | No | External partner key |
 | `TESTING_API_KEY` | No | Testing key |
 | `INTERNAL_API_KEY` | Yes | Server-only key for the Next.js internal proxy — same value as `DIRECT_API_KEY`. **Must NOT be prefixed `NEXT_PUBLIC_`** |
-| `CELERY_CONCURRENCY` | No | Worker slots per container (default: 2) |
+| `PIA_API_BASE_URL` | No | Upstream auth service (default `https://pia.printo.in/api/v1`) |
+| `CELERY_CONCURRENCY` | No | Worker slots per container (default: auto-detected from CPU count) |
 | `CELERY_QUEUE` | No | Queue name(s) for worker (default: `priority,standard`) |
 | `FRONTEND_HOST_PORT` | No | Host port for frontend (default: 5004) |
+| `BACKEND_HOST_PORT` | No | Host port for backend (default: 8000) |
+| `POSTGRES_HOST_PORT` | No | Host port for Postgres (default: 5432) |
 
 ---
 

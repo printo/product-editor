@@ -78,6 +78,16 @@ docker-compose ps celery-worker-priority celery-worker-standard
 docker-compose logs -f <service>
 ```
 
+**First run on a fresh clone:** `docker-compose up -d` alone will crash-loop the `proxy` (nginx) service — it bind-mounts `proxy/nginx/certs/{origin.crt,origin.key}`, which are gitignored and don't exist yet. Either run `./deploy.sh` once (it generates a self-signed bootstrap cert automatically), or generate it yourself before `docker-compose up -d`:
+```bash
+mkdir -p proxy/nginx/certs
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+  -keyout proxy/nginx/certs/origin.key -out proxy/nginx/certs/origin.crt \
+  -subj "/CN=localhost/O=product-editor self-signed"
+chmod 600 proxy/nginx/certs/origin.key
+```
+Also copy `.env.example` → `.env` and fill in the required secrets (`DJANGO_SECRET_KEY`, `AUTH_SECRET`, `EMBED_INTERNAL_SECRET`, `INTERNAL_API_KEY`, `POSTGRES_PASSWORD`, `DIRECT_API_KEY`) before the backend will boot — see `.env.example` for the full list and generation commands.
+
 ### Utilities
 ```bash
 ./deploy.sh                                                    # Production deployment
