@@ -16,6 +16,8 @@ import { useRouter } from 'next/navigation';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { useHeader } from '@/context/HeaderContext';
 import { LayoutSVG } from '@/components/LayoutSVG';
+import { ubuntu } from '@/lib/site-fonts';
+import { TagFilter } from '@/components/ui/TagFilter';
 
 const LayoutPreview = ({ layout }: { layout: any }) => {
   const isMulti = layout.surfaceCount > 1;
@@ -23,7 +25,7 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
 
   if (isMulti && raw?.surfaces) {
     return (
-      <div className="w-full aspect-square relative flex items-center justify-center p-4 bg-slate-100 border-b border-slate-200 group-hover:bg-slate-200/50 transition-colors overflow-hidden">
+      <div className="w-full aspect-square relative flex items-center justify-center p-4 bg-slate-100 border-b border-slate-200 group-hover:bg-slate-200/50 group-active:bg-slate-200/50 transition-colors overflow-hidden">
         {/* Render up to 2 surfaces in a stacked/offset view */}
         <div className="relative w-full h-full flex items-center justify-center">
           {raw.surfaces.slice(0, 2).map((s: any, idx: number) => (
@@ -32,8 +34,8 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
               className={clsx(
                 "absolute transition-all duration-500 shadow-sm border border-slate-200/50 bg-white rounded-sm overflow-hidden",
                 idx === 0
-                  ? "w-[75%] h-[75%] z-10 -translate-x-3 -translate-y-3 group-hover:-translate-x-5 group-hover:-translate-y-5"
-                  : "w-[75%] h-[75%] z-20 translate-x-3 translate-y-3 group-hover:translate-x-5 group-hover:translate-y-5"
+                  ? "w-[75%] h-[75%] z-10 -translate-x-3 -translate-y-3 group-hover:-translate-x-5 group-hover:-translate-y-5 group-active:-translate-x-5 group-active:-translate-y-5"
+                  : "w-[75%] h-[75%] z-20 translate-x-3 translate-y-3 group-hover:translate-x-5 group-hover:translate-y-5 group-active:translate-x-5 group-active:translate-y-5"
               )}
             >
               <LayoutSVG layout={raw} surfaceKey={s.key} className="w-full h-full object-contain" />
@@ -56,7 +58,7 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
   }
 
   return (
-    <div className="w-full aspect-square flex items-center justify-center p-4 bg-slate-100 border-b border-slate-200 group-hover:bg-slate-200/50 transition-colors">
+    <div className="w-full aspect-square flex items-center justify-center p-4 bg-slate-100 border-b border-slate-200 group-hover:bg-slate-200/50 group-active:bg-slate-200/50 transition-colors">
       <LayoutSVG layout={layout} maskUrl={layout.maskUrl} />
     </div>
   );
@@ -66,6 +68,9 @@ export default function Dashboard() {
   const [layouts, setLayouts] = useState<any[]>([]);
   const [isFetchingLayouts, setIsFetchingLayouts] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // Tag filter: clicking a chip sets this; '' means "All". Independent of
+  // the text search, same convention as the ops layout list.
+  const [activeTagFilter, setActiveTagFilter] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
@@ -155,7 +160,7 @@ export default function Dashboard() {
   useEffect(() => {
     setTitle('Select Template');
     setDescription('Choose a design');
-    setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter templates for ${layouts.length} templates...`} />);
+    setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} />);
     setRightActions(null);
   }, [searchQuery, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
 
@@ -165,13 +170,15 @@ export default function Dashboard() {
 
   const filtered = layouts.filter(l => {
     const q = searchQuery.toLowerCase();
-    return l.name.toLowerCase().includes(q) ||
+    const matchesSearch = l.name.toLowerCase().includes(q) ||
       (l.tags && l.tags.some((t: string) => t.toLowerCase().includes(q)));
+    const matchesTag = !activeTagFilter || (l.tags && l.tags.includes(activeTagFilter));
+    return matchesSearch && matchesTag;
   });
 
   return (
     <div className="min-h-screen bg-transparent flex flex-col">
-      <main className="w-full px-8 py-8 flex-1">
+      <main className="w-full px-8 pt-3 pb-8 flex-1">
         <div className="max-w-[1440px] mx-auto">
 
           {error && (
@@ -179,6 +186,8 @@ export default function Dashboard() {
               {error}
             </div>
           )}
+
+          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} />
 
           {isFetchingLayouts ? (
             <div className="flex justify-center py-20">
@@ -191,27 +200,27 @@ export default function Dashboard() {
                 : 'No layouts match your search.'}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-6">
               {filtered.map((layout) => (
                 <Link
                   key={layout.id}
                   href={`/editor/layout/${layout.id}`}
-                  className="group bg-white rounded-2xl border border-slate-100/60 overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 transition-all duration-300 hover:-translate-y-1"
+                  className="group bg-white rounded-2xl border border-slate-100/60 overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 active:shadow-xl active:shadow-indigo-500/10 transition-all duration-300 hover:-translate-y-1 active:-translate-y-1"
                 >
                   <LayoutPreview layout={layout} />
-                  <div className="p-5">
-                    <h3 className="font-black text-slate-900 uppercase tracking-tight truncate group-hover:text-indigo-600 transition-colors">
+                  <div className="p-3 sm:p-5">
+                    <h3 className={`${ubuntu.className} text-base font-bold text-slate-900/90 uppercase tracking-tight truncate group-hover:text-indigo-600 group-active:text-indigo-600 transition-colors`}>
                       {layout.name.replace(/_/g, ' ')}
                     </h3>
                     {layout.dimensions && (
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
+                      <p className={`${ubuntu.className} text-[11px] sm:text-[10px] text-slate-600/80 sm:text-slate-500/90 font-medium uppercase tracking-widest mt-1 flex items-center gap-1.5 sm:gap-2 flex-wrap`}>
                         <span>{layout.dimensions}</span>
                         <span>•</span>
                         <span>{layout.frames?.length || 0} Frames</span>
                         {layout.surfaceCount > 1 && (
                           <>
                             <span>•</span>
-                            <span className="text-indigo-500 font-black">Multi-Surface</span>
+                            <span className="text-indigo-500 font-medium">Multi-Surface</span>
                           </>
                         )}
                       </p>

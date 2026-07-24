@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical } from 'lucide-react';
+import { Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, CheckCircle2, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
+import { Dropdown } from '@/components/ui/Dropdown';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
@@ -387,16 +388,13 @@ export function CanvasEditorSidebar({
                     <div className="space-y-4">
                       <div className="space-y-3">
                         <label className="text-[11px] font-medium text-slate-500 uppercase">Font Family</label>
-                        <div className="relative group">
-                          <select value={overlay.fontFamily}
-                            onChange={e => { loadGoogleFont(e.target.value); updateOverlay({ fontFamily: e.target.value }); }}
-                            className="w-full h-11 bg-white border border-slate-200 rounded-xl text-[11px] font-medium text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none appearance-none cursor-pointer hover:bg-slate-50 transition-all shadow-sm">
-                            {selectedFonts.map(f => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
-                          </select>
-                          <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                            <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-                          </div>
-                        </div>
+                        <Dropdown
+                          value={overlay.fontFamily}
+                          onChange={(f) => { loadGoogleFont(f); updateOverlay({ fontFamily: f }); }}
+                          options={selectedFonts.map(f => ({ value: f, label: f, labelStyle: { fontFamily: f } }))}
+                          triggerClassName="w-full h-11 bg-white border border-slate-200 rounded-xl text-[11px] font-medium text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none hover:bg-slate-50 transition-all shadow-sm"
+                          optionClassName="text-[11px] font-medium"
+                        />
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">

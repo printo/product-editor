@@ -31,7 +31,10 @@ import Link from 'next/link';
 import { LayoutSVG } from '@/components/LayoutSVG';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import { SearchInput } from '@/components/ui/SearchInput';
+import { TagFilter } from '@/components/ui/TagFilter';
+import { Dropdown } from '@/components/ui/Dropdown';
 import { useHeader } from '@/context/HeaderContext';
+import { AVAILABLE_TAGS } from '@/lib/product-tags';
 
 // LayoutFabricPreview pulls in Fabric.js (~400 KB gz). Defer its load until
 // the layouts list itself has rendered so the chooser UI paints fast and
@@ -122,20 +125,8 @@ interface SurfaceEditorState {
   maskOnExport: boolean;
 }
 
-// Product-category tags — one per SKU family (not format/style descriptors).
-// These drive the clickable filter chips in the ops layout list and the
-// "Primary Tag" dropdown on the create-layout form.
-const AVAILABLE_TAGS = [
-  'Photo Prints',   // standard prints: 4×6, 5×7, polaroid, square, instant
-  'Canvas Prints',  // stretched canvas, gallery wraps
-  'Magnets',        // fridge magnets (48 mm circle, rect)
-  'Coasters',       // photo coasters
-  'Mugs',           // photo mugs
-  'Stationery',     // business cards, postcards, passport prints, stamps
-  'Gifts',          // laptop sleeves, custom gifts
-  'Calendar',       // productType=calendar layouts
-  'Photobook',      // productType=photobook (future)
-];
+// Product-category tags — see src/lib/product-tags.ts (shared with the
+// dashboard's filter chips).
 
 // Pure mm/px helpers — hoisted to module scope so they're stable references
 // across renders. Required so `_mapFrames` below can be added to the
@@ -172,13 +163,13 @@ const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dp
 export default function LayoutCreatorPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
+  const { setTitle, setDescription, setCenterActions, setRightActions, headerHeight } = useHeader();
 
   // All API calls go through the server-side internal proxy at
   // /api/internal/proxy/*.  The proxy is gated by the NextAuth session cookie
-  // and injects the server-only INTERNAL_API_KEY.  Ops-only paths are
-  // re-checked there against session.is_ops_team to prevent privilege
-  // escalation through the shared key.
+  // and injects the server-only INTERNAL_API_KEY.  ops/* paths used to be
+  // further gated to session.is_ops_team there; that gate was removed so any
+  // authenticated user can manage templates, same as this page.
 
   const [layouts, setLayouts] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -311,25 +302,31 @@ export default function LayoutCreatorPage() {
       setRightActions(
         <button
           onClick={() => setIsModalOpen(false)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded border border-slate-200 hover:border-slate-300 transition-colors"
+          aria-label="Close Editor"
+          className="flex items-center gap-1.5 p-2.5 md:px-3 md:py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-full md:rounded border border-slate-200 hover:border-slate-300 transition-colors"
         >
           <X className="w-3.5 h-3.5" />
-          Close Editor
+          <span className="hidden md:inline">Close Editor</span>
         </button>
       );
     } else {
       setTitle('Template Library');
       setDescription('Manage reusable designs');
-      setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter templates for ${layouts.length} templates...`} />);
-      setRightActions(
-        <button
-          onClick={() => setShowFontModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded border border-slate-200 hover:border-slate-300 transition-colors"
-        >
-          <Type className="w-3.5 h-3.5" />
-          Fonts ({selectedFonts.length})
-        </button>
+      setCenterActions(
+        <div className="flex items-center gap-2 flex-1 min-w-0 md:flex-none md:w-full md:max-w-[900px]">
+          <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} className="flex-1" />
+          <button
+            onClick={() => setShowFontModal(true)}
+            aria-label="Fonts"
+            title={`Fonts (${selectedFonts.length})`}
+            className="flex items-center gap-1.5 px-2.5 py-2.5 md:px-3 md:py-2 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
+          >
+            <Type className="w-4 h-4 md:w-3.5 md:h-3.5" />
+            <span className="hidden md:inline">Fonts ({selectedFonts.length})</span>
+          </button>
+        </div>
       );
+      setRightActions(null);
     }
   }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, selectedFonts.length, layouts.length]);
 
@@ -405,10 +402,10 @@ export default function LayoutCreatorPage() {
   }, [layoutType, activeSurfaceIdx]);
 
   useEffect(() => {
+    // Template management (including the Fonts list) is open to any
+    // authenticated user — not just is_ops_team — per product decision.
     if (status === 'unauthenticated' || session?.error === 'RefreshAccessTokenError') {
       router.push('/login');
-    } else if (status === 'authenticated' && !session?.is_ops_team) {
-      router.push('/dashboard');
     }
   }, [status, session, router]);
 
@@ -865,7 +862,7 @@ export default function LayoutCreatorPage() {
   return (
     <div className="min-h-screen bg-transparent flex flex-col">
       <GoogleFontLinks fonts={fontsLoaded} />
-      <main className="max-w-[1440px] mx-auto px-8 py-8 w-full">
+      <main className="max-w-[1440px] mx-auto px-8 pt-3 pb-8 w-full">
 
         {error && (
           <div ref={feedbackBannerRef} className="mb-6 p-4 bg-rose-50 border border-rose-100 text-rose-800 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
@@ -881,30 +878,11 @@ export default function LayoutCreatorPage() {
           </div>
         )}
 
-        {/* ── Tag filter chips ────────────────────────────────────────────── */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {['', ...AVAILABLE_TAGS].map(tag => {
-            const isActive = activeTagFilter === tag;
-            return (
-              <button
-                key={tag || '__all__'}
-                onClick={() => setActiveTagFilter(isActive ? '' : tag)}
-                className={[
-                  'px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide border transition-all',
-                  isActive
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400 hover:text-indigo-600',
-                ].join(' ')}
-              >
-                {tag || 'All'}
-              </button>
-            );
-          })}
-        </div>
+        <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Single card split into two creation options */}
-          <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl overflow-hidden min-h-[200px] flex flex-col md:flex-row col-span-1 md:col-span-2 lg:col-span-1">
+          <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl overflow-hidden min-h-[120px] md:min-h-[200px] flex flex-row col-span-1 md:col-span-2 lg:col-span-1">
             {/* Left half — Generic */}
             <button
               data-testid="create-generic-layout-btn"
@@ -921,16 +899,16 @@ export default function LayoutCreatorPage() {
                 setFrameCaptionsEnabled(false);
                 setIsModalOpen(true);
               }}
-              className="group flex-1 flex flex-col items-center justify-center gap-3 p-6 hover:bg-indigo-50 transition-all cursor-pointer border-b-2 md:border-b-0 md:border-r-2 border-dashed border-slate-200 hover:border-indigo-300"
+              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-indigo-50 transition-all cursor-pointer border-r-2 border-dashed border-slate-200 hover:border-indigo-300"
             >
-              <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
-                <Layout className="w-6 h-6 text-indigo-600" />
+              <div className="w-8 h-8 md:w-12 md:h-12 bg-indigo-50 rounded-lg md:rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
+                <Layout className="w-4 h-4 md:w-6 md:h-6 text-indigo-600" />
               </div>
               <div className="text-center">
-                <p className="font-bold text-sm text-slate-800 group-hover:text-indigo-700 transition-colors">Generic Layout</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">Prints, stickers, products</p>
+                <p className="font-bold text-xs md:text-sm text-slate-800 group-hover:text-indigo-700 transition-colors">Generic Layout</p>
+                <p className="hidden md:block text-[10px] text-slate-400 mt-0.5">Prints, stickers, products</p>
               </div>
-              <span className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-bold uppercase rounded-full border border-indigo-200 group-hover:bg-indigo-100 transition-colors">
+              <span className="flex items-center gap-1 px-2 py-0.5 md:px-2.5 md:py-1 bg-indigo-50 text-indigo-700 text-[9px] md:text-[10px] font-bold uppercase rounded-full border border-indigo-200 group-hover:bg-indigo-100 transition-colors">
                 <Plus className="w-3 h-3" /> Create
               </span>
             </button>
@@ -939,16 +917,16 @@ export default function LayoutCreatorPage() {
             <Link
               href="/editor/layouts/calendar/new"
               data-testid="create-calendar-layout-link"
-              className="group flex-1 flex flex-col items-center justify-center gap-3 p-6 hover:bg-emerald-50 transition-all hover:border-emerald-300"
+              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-[#F17A26]/10 transition-all hover:border-[#F17A26]/40"
             >
-              <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
-                <CalendarDays className="w-6 h-6 text-emerald-600" />
+              <div className="w-8 h-8 md:w-12 md:h-12 bg-[#F17A26]/10 rounded-lg md:rounded-xl flex items-center justify-center group-hover:bg-[#F17A26]/20 transition-colors">
+                <CalendarDays className="w-4 h-4 md:w-6 md:h-6 text-[#F17A26]" />
               </div>
               <div className="text-center">
-                <p className="font-bold text-sm text-slate-800 group-hover:text-emerald-700 transition-colors">Calendar Layout</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">Month-grid with holidays</p>
+                <p className="font-bold text-xs md:text-sm text-slate-800 group-hover:text-[#F17A26] transition-colors">Calendar Layout</p>
+                <p className="hidden md:block text-[10px] text-slate-400 mt-0.5">Month-grid with holidays</p>
               </div>
-              <span className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded-full border border-emerald-200 group-hover:bg-emerald-100 transition-colors">
+              <span className="flex items-center gap-1 px-2 py-0.5 md:px-2.5 md:py-1 bg-[#F17A26]/10 text-[#F17A26] text-[9px] md:text-[10px] font-bold uppercase rounded-full border border-[#F17A26]/30 group-hover:bg-[#F17A26]/20 transition-colors">
                 <Plus className="w-3 h-3" /> Create
               </span>
             </Link>
@@ -1014,7 +992,7 @@ export default function LayoutCreatorPage() {
                     <div className="flex items-center">
                       <button
                         onClick={() => openCopyModal(layoutStr)}
-                        className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                        className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all"
                         title="Duplicate Layout"
                       >
                         <Copy className="w-4 h-4" />
@@ -1023,7 +1001,7 @@ export default function LayoutCreatorPage() {
                         <Link
                           href={`/editor/layouts/calendar/${layoutStr}`}
                           data-testid={`edit-calendar-${layoutStr}`}
-                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all inline-flex items-center"
+                          className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
                           title="Edit Calendar Layout"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -1031,7 +1009,7 @@ export default function LayoutCreatorPage() {
                       ) : (
                         <button
                           onClick={() => openEditModal(layoutStr)}
-                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all"
                           title="Edit Layout"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -1039,7 +1017,7 @@ export default function LayoutCreatorPage() {
                       )}
                       <button
                         onClick={() => setDeleteConfirm(layoutStr)}
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
                         title="Delete Layout"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -1088,14 +1066,17 @@ export default function LayoutCreatorPage() {
                   </div>
 
                   <div className="flex items-center justify-between mt-6">
-                    <button
-                      onClick={() => openViewModal(layoutStr)}
-                      className="text-sm font-semibold text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors"
-                    >
+                    <span className="text-sm font-semibold text-slate-500 flex items-center gap-1">
                       <Eye className="w-4 h-4" />
                       View Raw JSON
+                    </span>
+                    <button
+                      onClick={() => openViewModal(layoutStr)}
+                      aria-label="View Raw JSON"
+                      className="text-slate-500 hover:text-indigo-600 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                     </button>
-                    <ChevronRight className="w-4 h-4 text-slate-300 transition-transform group-hover:translate-x-1" />
                   </div>
                 </div>
               );
@@ -1120,7 +1101,7 @@ export default function LayoutCreatorPage() {
 
       {/* Create / Edit Modal (Full Screen mode - sits under the persistent Header) */}
       {isModalOpen && (
-        <div className="fixed top-16 inset-x-0 bottom-0 z-[1000] flex flex-col bg-white overflow-hidden animate-in fade-in duration-200">
+        <div style={{ top: headerHeight }} className="fixed inset-x-0 bottom-0 z-[1000] flex flex-col bg-white overflow-hidden animate-in fade-in duration-200">
           <div className="flex-1 flex flex-col min-h-0">
             {/* Redundant local header removed — Titles now in global header */}
 
@@ -1147,16 +1128,14 @@ export default function LayoutCreatorPage() {
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Primary Tag</label>
-                        <select
+                        <Dropdown
                           value={tags}
-                          onChange={(e) => setTags(e.target.value)}
-                          className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-slate-900 bg-white"
-                        >
-                          <option value="">Select a Tag...</option>
-                          {AVAILABLE_TAGS.map(t => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </select>
+                          onChange={setTags}
+                          options={[{ value: '', label: 'Select a Tag...' }, ...AVAILABLE_TAGS.map(t => ({ value: t, label: t }))]}
+                          triggerClassName="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-slate-900 bg-white"
+                          panelClassName="w-full"
+                          optionClassName="text-sm font-medium"
+                        />
                       </div>
                     </div>
 
@@ -1503,7 +1482,7 @@ export default function LayoutCreatorPage() {
                             <div className="flex items-center gap-1 shrink-0 md:opacity-0 group-hover:opacity-100 transition-all">
                               <button type="button" onClick={() => centerFrame(f.id!, 'h')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Horizontally"><AlignCenter className="w-3.5 h-3.5" /></button>
                               <button type="button" onClick={() => centerFrame(f.id!, 'v')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Vertically"><AlignJustify className="w-3.5 h-3.5" /></button>
-                              <button type="button" onClick={() => setActiveFrames(prev => prev.filter(fr => fr.id !== f.id))} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded" title="Delete Area"><Trash2 className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => setActiveFrames(prev => prev.filter(fr => fr.id !== f.id))} className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded" title="Delete Area"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                           </div>
                           {frameCaptionsEnabled && (
@@ -1656,7 +1635,7 @@ export default function LayoutCreatorPage() {
 
           {/* View Specification Modal */}
           {selectedLayout && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-6">
+            <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6">
               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLayout(null)} />
               <div className="relative bg-slate-900 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col border border-slate-800 animate-in zoom-in-95 duration-200">
                 <div className="flex items-center justify-between p-6 border-b border-slate-800">

@@ -2,8 +2,15 @@
 
 import { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
-import { HeaderProvider } from '@/context/HeaderContext';
+import { HeaderProvider, useHeader } from '@/context/HeaderContext';
 import { Header } from '@/components/Header';
+
+// Must be a child of HeaderProvider (not a sibling) so it can read the
+// ResizeObserver-measured headerHeight and always match the real header.
+const HeaderSpacer = () => {
+  const { headerHeight } = useHeader();
+  return <div style={{ height: headerHeight }} />;
+};
 
 export const AppWrapper = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
@@ -14,7 +21,7 @@ export const AppWrapper = ({ children }: { children: ReactNode }) => {
       {!isLoginPage && (
         <>
           <Header />
-          <div className="h-16" /> {/* Spacer for fixed header */}
+          <HeaderSpacer />
         </>
       )}
       {children}
