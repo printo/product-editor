@@ -10,9 +10,13 @@ RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 COPY frontend/nextjs/package.json frontend/nextjs/pnpm-lock.yaml ./
 # pnpm store cache survives between builds, dropping cold-install time from
-# ~90 s to ~10 s when only package.json is unchanged.
+# ~90 s to ~10 s when only package.json is unchanged. package-import-method=copy
+# is required here: pnpm's default (hardlink from the store) links node_modules
+# files to inodes inside this transient cache mount, which vanish once the
+# RUN step's mount detaches — leaving broken files (e.g. next/dist/bin/next
+# missing) in the persisted layer even though the install reported success.
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --config.package-import-method=copy
 
 # ── Stage 2: Build the Next.js app ───────────────────────────────────────────
 FROM node:20-alpine AS builder

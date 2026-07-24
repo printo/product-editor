@@ -14,7 +14,7 @@ import {
   Upload, Loader2, CheckCircle2, X,
   Archive, FileText, Layout,
   SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
-  Move, Lock, AlertTriangle, ImagePlus, ArrowLeftRight, Droplets,
+  Move, Lock, AlertTriangle, ImagePlus, ArrowLeftRight, Droplets, ArrowLeft, Plus,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
@@ -577,7 +577,30 @@ export default function LayoutEditorPage() {
   const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
-  const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
+  const { setTitle, setDescription, setCenterActions, setRightActions, headerHeight } = useHeader();
+
+  // position:sticky's `top` offsets the element from its static position even
+  // before it needs to stick (same math as position:relative) — with `top`
+  // permanently set to headerHeight, that adds a phantom headerHeight-sized
+  // gap above the toolbar AND an equal overlap into whatever renders below it,
+  // since the reserved flow space is based on the un-shifted static position.
+  // Fix: only apply the header-clearing offset once the toolbar has actually
+  // scrolled to where it would go under the header — before that, `top: 0`
+  // exactly matches its natural position (main has no top padding), so no
+  // offset is needed at all.
+  const toolbarSentinelRef = useRef<HTMLDivElement>(null);
+  const [isToolbarStuck, setIsToolbarStuck] = useState(false);
+
+  useEffect(() => {
+    const sentinel = toolbarSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsToolbarStuck(!entry.isIntersecting),
+      { rootMargin: `-${headerHeight + 1}px 0px 0px 0px`, threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [headerHeight]);
 
   useEffect(() => {
     if (embedToken) return;
@@ -587,9 +610,12 @@ export default function LayoutEditorPage() {
     setRightActions(
       <button
         onClick={() => router.push('/dashboard')}
-        className="text-[11px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 px-4 py-2 rounded-2xl border-2 border-indigo-100/50 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center gap-2 group shadow-sm shadow-indigo-100/50"
+        aria-label="Back to templates"
+        title="Back to Templates"
+        className="text-[11px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 p-2.5 md:px-4 md:py-2 rounded-full md:rounded-2xl border-2 border-indigo-100/50 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center gap-2 group shadow-sm shadow-indigo-100/50"
       >
-        <span className="group-hover:-translate-x-1 transition-transform">←</span> Back to Templates
+        <ArrowLeft className="w-4 h-4 md:w-3.5 md:h-3.5 group-hover:-translate-x-1 transition-transform" />
+        <span className="hidden md:inline">Back to Templates</span>
       </button>
     );
   }, [embedToken, router, setTitle, setDescription, setCenterActions, setRightActions]);
@@ -2083,17 +2109,29 @@ export default function LayoutEditorPage() {
     // below so an only-unsupported selection leaves existing previews intact.
     // Routed through unsupportedWarning (not `error`) so the notice isn't wiped
     // by generateCanvases() when a partial selection still produces canvases.
-    const { accepted: allFiles, rejected } = partitionByAllowedType(Array.from(e.target.files));
+    const { accepted: newlyPicked, rejected } = partitionByAllowedType(Array.from(e.target.files));
     setUnsupportedWarning(rejected.length > 0 ? unsupportedFilesMessage(rejected) : null);
-    if (allFiles.length === 0) return;
+    if (newlyPicked.length === 0) return;
+
+    // "Add Files" — a native <input> selection is never cumulative (picking
+    // again hands back only the new files, not the old ones), but this button
+    // is meant to APPEND onto whatever's already on the canvas, filling the
+    // next empty frame slots and spilling into new canvases once the current
+    // one is full — not replace canvas 1's photo with whatever was just
+    // picked. Multi-surface layouts are excluded: each surface holds exactly
+    // one photo (a distinct physical side), so there's no "next canvas" for
+    // it to append to — picking there still replaces that surface's photo.
+    const allFiles = surfaceStates.length > 1 ? newlyPicked : [...files, ...newlyPicked];
 
     // Catch truncated / incomplete photos up-front. A file cut off during
     // transfer (common with phone & WhatsApp images) still decodes leniently in
     // the browser preview, but would print with a missing/grey edge and fails
     // the strict server decode. Name them and let the customer choose
     // Keep-anyway vs Remove BEFORE we compose anything — not at render time.
-    const completeness = await Promise.all(allFiles.map(f => isImageComplete(f)));
-    const truncated = allFiles.filter((_, i) => !completeness[i]);
+    // Only the newly-picked files need checking; already-added ones were
+    // vetted on a previous pass.
+    const completeness = await Promise.all(newlyPicked.map(f => isImageComplete(f)));
+    const truncated = newlyPicked.filter((_, i) => !completeness[i]);
     if (truncated.length > 0) {
       setPendingTruncated({ all: allFiles, bad: truncated });
       return; // wait for the decision, which re-enters via processSelectedFiles()
@@ -3206,10 +3244,25 @@ export default function LayoutEditorPage() {
         </div>
       )}
 
-      <main className="w-full px-8 py-8 flex-1">
-        <div className="max-w-[1440px] mx-auto space-y-8">
-          <div className="sticky top-[64px] z-40 -mx-8 px-8 py-3 bg-white/60 backdrop-blur-3xl border-b border-slate-200/50 flex items-center justify-between gap-4 shadow-sm">
-            <div className="flex flex-col min-w-0">
+      <main className="w-full px-4 md:px-8 pt-0 pb-6 md:pb-8 flex-1 overflow-x-hidden">
+        <div className="max-w-[1440px] mx-auto space-y-6 md:space-y-8">
+          {/* Wrapper keeps the sentinel from becoming a real space-y sibling of the
+              sticky toolbar below (which would add an unwanted margin-top to it and
+              throw off the very offset this is trying to fix). The sentinel marks the
+              toolbar's natural resting spot — see the IntersectionObserver above for
+              why `top` only activates once this scrolls near the header. */}
+          <div className="relative">
+            <div ref={toolbarSentinelRef} className="absolute top-0 inset-x-0 h-px" aria-hidden />
+            <div
+              style={{ top: isToolbarStuck ? headerHeight : 0 }}
+              className="sticky z-40 -mx-4 md:-mx-8 px-4 md:px-8 py-3 bg-white/60 backdrop-blur-3xl border-b border-slate-200/50 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4 shadow-sm"
+            >
+            {/* Heading + Add Files share one row on mobile so the upload box doesn't
+                push the toolbar down a whole extra row; `md:contents` removes this
+                wrapper from the desktop layout so heading/box/toolbar go back to
+                being three independent flex-row siblings, unchanged from before. */}
+            <div className="flex items-center justify-between gap-3 md:contents">
+            <div className="flex flex-col min-w-0 flex-1 md:flex-none">
               <h1 className="text-base font-black text-slate-900 uppercase tracking-tighter truncate">
                 {layout?.name || layoutName}
               </h1>
@@ -3236,25 +3289,31 @@ export default function LayoutEditorPage() {
                 )}
               </div>
             </div>
-            <div className="flex-1 max-w-md relative group">
-              <div className={clsx("relative flex items-center gap-3 px-4 py-2 rounded-2xl border-2 border-dashed transition-all", (files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'border-emerald-200 bg-emerald-50/30' : 'border-indigo-200 bg-indigo-50/30 hover:border-indigo-400')}>
+            <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink relative group">
+              <div className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all", (files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'border-emerald-200 bg-emerald-50/30' : 'border-indigo-200 bg-indigo-50/30 hover:border-indigo-400')}>
                 <input ref={uploadInputRef} type="file" multiple onChange={handleFileChange} accept={IMAGE_ACCEPT_ATTR} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                <div className={clsx("w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm", totalUploadedCount > 0 ? 'bg-emerald-500 text-white' : 'bg-indigo-600 text-white')}>
-                  <Upload className="w-4 h-4" />
+                <div className={clsx("w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm", totalUploadedCount > 0 ? 'bg-emerald-500 text-white' : 'bg-indigo-600 text-white')}>
+                  <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
                 </div>
-                <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">
-                  {totalUploadedCount > 0
-                    ? `Upload Photos | Currently uploaded (${totalUploadedCount})`
-                    : surfaceStates.length > 1
-                      ? `Select Files | Multi-Surface: Select ${surfaceStates.length} photos`
-                      : 'Select Files'}
+                <p className="flex-1 min-w-0 truncate text-[10px] md:text-[11px] font-black text-slate-800/70 uppercase tracking-tight">
+                  <span className="md:hidden">
+                    {totalUploadedCount > 0 ? `Add Files (${totalUploadedCount})` : 'Add Files'}
+                  </span>
+                  <span className="hidden md:inline">
+                    {totalUploadedCount > 0
+                      ? `Add Photos | Currently uploaded (${totalUploadedCount})`
+                      : surfaceStates.length > 1
+                        ? `Add Files | Multi-Surface: Add ${surfaceStates.length} photos`
+                        : 'Add Files'}
+                  </span>
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/50">
+            </div>
+            <div className="flex items-center justify-center flex-nowrap gap-1 md:gap-3 w-full md:w-auto">
+              <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/50 shrink-0">
                 {(['contain', 'cover'] as FitMode[]).map(mode => (
-                  <button key={mode} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('px-3 py-1.5 text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
+                  <button key={mode} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('px-2 md:px-3 py-1.5 text-[9px] md:text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
                 ))}
               </div>
               <button
@@ -3262,39 +3321,42 @@ export default function LayoutEditorPage() {
                 title={globalBlurFill
                   ? 'Blur Effect is ON — empty space is filled with a blurred copy of the photo. Click to turn off.'
                   : 'Blur Effect — fill the empty space around a photo with a blurred copy of it.'}
+                aria-label="Toggle blur effect"
                 className={clsx(
-                  'flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
+                  'flex items-center justify-center gap-1 md:gap-1.5 px-2 md:px-3 py-2.5 md:py-2 text-[9px] md:text-[10px] font-black rounded-xl border transition-all uppercase tracking-tight md:tracking-wide shrink-0',
                   globalBlurFill
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
                 )}>
-                <Droplets className="w-3.5 h-3.5" />
-                Blur Effect
+                <Droplets className="w-3.5 h-3.5 md:w-3.5 md:h-3.5 shrink-0" />
+                <span className="whitespace-nowrap">Blur Effect</span>
               </button>
               <button
                 onClick={() => setRepositionMode(v => !v)}
                 title={repositionMode
                   ? 'Reposition on — drag a photo inside its card. Click to lock.'
                   : 'Photos are locked. Click to drag-reposition them.'}
+                aria-label={repositionMode ? 'Lock photos' : 'Unlock photos to reposition'}
                 className={clsx(
-                  'flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
+                  'hidden md:flex items-center justify-center gap-1.5 p-2.5 md:px-3 md:py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
                   repositionMode
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
                 )}>
-                {repositionMode ? <Move className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                {repositionMode ? 'Reposition' : 'Locked'}
+                {repositionMode ? <Move className="w-4 h-4 md:w-3.5 md:h-3.5" /> : <Lock className="w-4 h-4 md:w-3.5 md:h-3.5" />}
+                <span className="hidden md:inline">{repositionMode ? 'Reposition' : 'Locked'}</span>
               </button>
               {embedToken ? (
-                <button onClick={() => { setDisclaimerChecked(false); setShowEmbedDisclaimer(true); }} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} className="flex items-center gap-2 text-[11px] font-black text-white bg-indigo-600 px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">
-                  {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SendHorizonal className="w-3.5 h-3.5" />} Save &amp; Continue
+                <button onClick={() => { setDisclaimerChecked(false); setShowEmbedDisclaimer(true); }} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} aria-label="Save and continue" className="flex items-center justify-center gap-2 text-[11px] font-black text-white bg-indigo-600 p-2.5 md:px-5 md:py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">
+                  {isDownloading ? <Loader2 className="w-4 h-4 md:w-3.5 md:h-3.5 animate-spin" /> : <SendHorizonal className="w-4 h-4 md:w-3.5 md:h-3.5" />} <span className="hidden md:inline">Save &amp; Continue</span>
                 </button>
               ) : (
-                <button onClick={() => { setDisclaimerChecked(false); setShowDownloadModal(true); }} disabled={files.length === 0 && !surfaceStates.some(s => s.files.length > 0)} className="flex items-center gap-2 text-[11px] font-black text-white bg-slate-900 px-5 py-2.5 rounded-xl hover:bg-slate-800 transition-all uppercase tracking-widest">
-                  <Archive className="w-3.5 h-3.5" /> Download
+                <button onClick={() => { setDisclaimerChecked(false); setShowDownloadModal(true); }} disabled={files.length === 0 && !surfaceStates.some(s => s.files.length > 0)} aria-label="Download" className="flex items-center justify-center gap-1 md:gap-2 text-[9px] md:text-[11px] font-black text-white bg-slate-900 px-2.5 md:px-5 py-2.5 rounded-xl hover:bg-slate-800 transition-all uppercase tracking-tight md:tracking-widest shrink-0">
+                  <Download className="w-3.5 h-3.5 md:w-3.5 md:h-3.5 shrink-0" /> <span className="whitespace-nowrap">Download</span>
                 </button>
               )}
             </div>
+          </div>
           </div>
 
           {/* ── Fixed Processing Overlay ────────────────────────────────────── */}
@@ -3760,7 +3822,7 @@ export default function LayoutEditorPage() {
                     <div>
                       <div className="flex items-center gap-2.5 mb-1.5">
                         <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
-                          <Archive className="w-4 h-4 text-indigo-600" />
+                          <Download className="w-4 h-4 text-indigo-600" />
                         </div>
                         <h3 className="text-base font-bold text-slate-900 tracking-tight">Ready to Download?</h3>
                       </div>

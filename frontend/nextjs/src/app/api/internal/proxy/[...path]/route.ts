@@ -91,24 +91,12 @@ async function handler(
   const hasTrailingSlash = req.nextUrl.pathname.endsWith('/');
   const fullUpstreamPath = hasTrailingSlash ? `${upstreamPath}/` : upstreamPath;
 
-  // 2a. Privilege guard for ops endpoints.
-  //
-  // Backend ops/* views use IsOpsTeam, which inspects the *authenticated user*.
-  // When the request flows through this proxy, the backend sees the injected
-  // INTERNAL_API_KEY's APIKeyUser — which is ops-flagged on purpose so that
-  // ops actions work at all.  That means without an explicit gate here, ANY
-  // logged-in PIA user could trigger ops mutations (delete layout, etc.).
-  //
-  // We replicate the IsOpsTeam check in the proxy itself: only sessions
-  // flagged is_ops_team may proxy to /ops/* paths.
-  if (upstreamPath.startsWith('ops/') || upstreamPath === 'ops') {
-    if (!session.is_ops_team) {
-      return NextResponse.json(
-        { detail: 'Operations team membership required' },
-        { status: 403 }
-      );
-    }
-  }
+  // 2a. ops/* paths were previously gated to session.is_ops_team here (the
+  // backend's IsOpsTeam check can't tell sessions apart once the shared
+  // INTERNAL_API_KEY service account reaches it). Product decision: template
+  // management (including the Fonts list) is now open to any authenticated
+  // user, so that gate was removed — every logged-in session can proxy to
+  // /ops/* the same way an ops session could.
 
   const upstreamUrl = `${INTERNAL_API}/${fullUpstreamPath}${req.nextUrl.search}`;
 
