@@ -229,13 +229,20 @@ os.makedirs(EXPORTS_DIR, exist_ok=True)
 # the webhook told callers the same, while the GC deleted at 14 days (7 when
 # EXPORTS_DIR is over 80% full). A partner trusting `expires_at` and fetching
 # on day 20 would have hit a 404.
-EXPORT_RETENTION_DAYS = int(os.getenv("EXPORT_RETENTION_DAYS", "14"))
+EXPORT_RETENTION_DAYS = int(os.getenv("EXPORT_RETENTION_DAYS", "7"))
 
-# Retention used instead when EXPORTS_DIR is under disk pressure. The GC drops
-# to this to buy headroom; it is deliberately NOT what we promise callers,
-# since it depends on runtime disk state.
+# Retention used when EXPORTS_DIR is under disk pressure (>80% full).
+#
+# Held EQUAL to the normal window by default. When it was shorter, the GC could
+# delete files before the expires_at we had already sent the caller — so the
+# webhook's promise was only true while the disk happened to be healthy. Equal
+# values mean expires_at is always accurate, which matters more now that the
+# window is a week: there is far less slack for a partner to lose.
+#
+# Set it lower via env if you ever need the disk valve back, accepting that
+# expires_at becomes a best-effort date under pressure.
 EXPORT_RETENTION_DAYS_UNDER_PRESSURE = int(
-    os.getenv("EXPORT_RETENTION_DAYS_UNDER_PRESSURE", "7")
+    os.getenv("EXPORT_RETENTION_DAYS_UNDER_PRESSURE", str(EXPORT_RETENTION_DAYS))
 )
 
 
