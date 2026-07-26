@@ -28,6 +28,21 @@ uploads, exports, `CanvasData` (cascades `RenderJob`), and `EmbedSession` —
 - Returns per-artifact counts, the API keys touched, and any best-effort file
   errors. Never on the embed-proxy allowlist (ops surface only).
 
+> **⚠️ File deletion is currently unreliable — see
+> [`DPDP_ERASURE_GAP_PRD.md`](DPDP_ERASURE_GAP_PRD.md).**
+> The purge finds a customer's uploads only via `CanvasData.image_paths` /
+> `render_state['image_paths']`. Autosave overwrites `image_paths` with `[]`
+> every 2 seconds, and uploads that were never placed in a canvas have no order
+> linkage at all (`UploadedFile` has no `order_id`). When neither field holds a
+> path the purge deletes the rows, reports `files_deleted: 0`, and leaves the
+> photographs on disk. Observed on production: 265 orders purged, `0 files` for
+> order after order, 6.4 GB still present.
+>
+> The nightly GC still removes the files on age, so exposure is bounded by the
+> retention window rather than indefinite — but an erasure *request* is not
+> honoured at the time it is made. Treat the endpoint as "deletes records,
+> best-effort on files" until that PRD is implemented.
+
 ## Known gaps (recommended follow-ups)
 
 - **`EmbedSession` rows** are never swept after their 2 h token expiry — add a
