@@ -931,7 +931,7 @@ def garbage_collector_task():
     """
     import shutil
     from datetime import timedelta
-    from api.models import ExportedResult, CanvasData, RenderJob
+    from api.models import ExportedResult, CanvasData, RenderJob, UploadedFile
 
     now = timezone.now()
     # Same constant that sets CanvasData.expires_at and the expires_at we send
@@ -1125,14 +1125,36 @@ def garbage_collector_task():
     except Exception as exc:
         logger.error("GC: failed to delete expired CanvasData records: %s", exc)
 
+    # ── Tombstone cleanup ─────────────────────────────────────────────────
+    # Deleting a file only flips is_deleted=True on its ExportedResult /
+    # UploadedFile row — and every sweep above filters is_deleted=False, so
+    # nothing ever looked at those rows again. They accumulated one per output
+    # file forever (7,585 in production after a single backlog clear).
+    #
+    # Once the file is gone the row has no operational purpose: the sweeps skip
+    # it and no endpoint reads it. Drop tombstones older than the retention
+    # window, which leaves a full window of recent rows for anyone inspecting
+    # what was collected, then reclaims the space.
+    tombstones_deleted = 0
+    try:
+        for model in (ExportedResult, UploadedFile):
+            n, _ = model.objects.filter(
+                is_deleted=True, created_at__lt=cutoff_date,
+            ).delete()
+            tombstones_deleted += n
+        if tombstones_deleted:
+            logger.info("GC: hard-deleted %d tombstone row(s)", tombstones_deleted)
+    except Exception as exc:
+        logger.error("GC: tombstone cleanup failed: %s", exc)
+
     logger.info(
         "GC complete: exports deleted=%d (%.2f MB), skipped=%d manual-review, "
         "uploads deleted=%d (%.2f MB), async render files deleted=%d (%.2f MB), "
-        "stale chunk sessions=%d, canvas_data deleted=%d, disk=%.1f%%",
+        "stale chunk sessions=%d, canvas_data deleted=%d, tombstones=%d, disk=%.1f%%",
         deleted_count, deleted_bytes / 1024 / 1024, skipped_count,
         upload_deleted, upload_deleted_bytes / 1024 / 1024,
         async_files_deleted, async_bytes_deleted / 1024 / 1024,
-        stale_sessions, canvas_deleted, usage_percent,
+        stale_sessions, canvas_deleted, tombstones_deleted, usage_percent,
     )
 
     return {
@@ -1145,5 +1167,6 @@ def garbage_collector_task():
         'async_render_bytes_deleted': async_bytes_deleted,
         'stale_chunk_sessions_cleaned': stale_sessions,
         'canvas_data_deleted': canvas_deleted,
+        'tombstones_deleted': tombstones_deleted,
         'disk_usage_percent': usage_percent,
     }
