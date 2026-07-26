@@ -696,7 +696,7 @@ Key surfaces added in the resilience/compliance pass — grep these before touch
 
 ## Migrations
 
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0010_embedsession_include_uploads`.
+Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0011_uploadedfile_order_id`.
 
 | Migration | Change |
 |---|---|
@@ -709,6 +709,7 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 | 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` (webhook URL, propagated to CanvasData via `X-Callback-URL` header) |
 | 0008 | `CanvasData.render_state` — submit-time render payload snapshot. Separates the two writers that shared `editor_state` (autosave vs submit): submit no longer wipes the customer's auto-saved design, and a post-submit autosave can't strip a queued job's payload. `render_canvas_task` reads `render_state or editor_state` (legacy fallback for jobs enqueued pre-deploy). |
 | 0009 | Consolidates drifted model state: two `RenderJob` indexes (`queue_name/status/created_at`, `status/completed_at`) that existed in the model but never got a migration, drops a duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-name. |
+| 0011 | `UploadedFile.order_id` — order linkage recorded at upload time (from `X-Order-ID` / request). DPDP erasure previously found a customer's files only via `CanvasData.image_paths`, which autosave blanked every 2 s, so `purge_order_data` deleted the rows, reported `files_deleted: 0` and left the photos on disk. Blank default — direct-API uploads carry no order context. See `docs/DPDP_ERASURE_GAP_PRD.md`. |
 | 0010 | `EmbedSession.include_uploads` (default `True`) — opt out to keep customer originals out of the delivered ZIP for faster downloads. Propagated to the render via the `X-Include-Uploads` header the embed proxy injects, and snapshotted into `CanvasData.render_state`. |
 
 **Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.

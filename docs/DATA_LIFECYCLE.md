@@ -28,20 +28,28 @@ uploads, exports, `CanvasData` (cascades `RenderJob`), and `EmbedSession` —
 - Returns per-artifact counts, the API keys touched, and any best-effort file
   errors. Never on the embed-proxy allowlist (ops surface only).
 
-> **⚠️ File deletion is currently unreliable — see
-> [`DPDP_ERASURE_GAP_PRD.md`](DPDP_ERASURE_GAP_PRD.md).**
-> The purge finds a customer's uploads only via `CanvasData.image_paths` /
-> `render_state['image_paths']`. Autosave overwrites `image_paths` with `[]`
-> every 2 seconds, and uploads that were never placed in a canvas have no order
-> linkage at all (`UploadedFile` has no `order_id`). When neither field holds a
-> path the purge deletes the rows, reports `files_deleted: 0`, and leaves the
-> photographs on disk. Observed on production: 265 orders purged, `0 files` for
-> order after order, 6.4 GB still present.
->
-> The nightly GC still removes the files on age, so exposure is bounded by the
-> retention window rather than indefinite — but an erasure *request* is not
-> honoured at the time it is made. Treat the endpoint as "deletes records,
-> best-effort on files" until that PRD is implemented.
+**How the purge finds a customer's files** (fixed 2026-07-26, migration `0011` —
+history in [`DPDP_ERASURE_GAP_PRD.md`](DPDP_ERASURE_GAP_PRD.md)):
+
+- Primarily via **`UploadedFile.order_id`**, recorded at upload time from the
+  `X-Order-ID` header or the request. This is the linkage that makes erasure
+  provable — it does not depend on canvas state surviving.
+- Plus `CanvasData.image_paths` / `render_state['image_paths']` for export
+  files and older rows.
+
+Previously only the second route existed, and autosave overwrote `image_paths`
+with `[]` every 2 seconds, so the purge deleted the rows, reported
+`files_deleted: 0` and left the photographs on disk. Autosave no longer writes
+that field unless the caller actually supplies paths.
+
+The response now reports **`erasure_complete`** and **`unlocated_upload_rows`**;
+an incomplete erasure also logs a warning. A bare `files_deleted: 0` is no
+longer indistinguishable from success.
+
+> **Still open:** rows created before `0011` have no `order_id` and remain
+> reachable only through canvas state. They are deleted by the nightly GC on
+> age (`EXPORT_RETENTION_DAYS`, currently 7 days). Phases 3–4 of the PRD
+> (backfill + filesystem sweep) close that remainder.
 
 ## Known gaps (recommended follow-ups)
 
