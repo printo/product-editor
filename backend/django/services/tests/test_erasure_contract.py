@@ -110,6 +110,41 @@ def test_purge_warns_when_erasure_is_incomplete():
     )
 
 
+# ── Phase 4: the verification sweep ──────────────────────────────────────────
+
+def test_purge_tracks_every_path_it_attempts_to_delete():
+    src = _purge_source()
+    assert "attempted_paths" in src and "attempted_dirs" in src, (
+        "the sweep needs the set of paths the purge tried to remove, or it has "
+        "nothing to verify against"
+    )
+
+
+def test_purge_verifies_and_reports_survivors():
+    src = _purge_source()
+    for key in ("residual_files", "residual_dirs"):
+        assert f"'{key}'" in src, f"purge_order_data must return {key}"
+    # A path that still exists after the delete pass must be recorded, not
+    # silently ignored — an rmtree can fail on a permission error and previously
+    # that passed as success.
+    assert re.search(r"residual_files\.append", src), (
+        "survivors must be collected, not just counted"
+    )
+
+
+def test_survivors_make_erasure_incomplete():
+    src = _purge_source()
+    # erasure_complete must depend on the sweep, not only on row counts.
+    m = re.search(r"erasure_complete\s*=\s*\(([\s\S]{0,300}?)\)", src)
+    assert m, "expected an erasure_complete expression"
+    expr = m.group(1)
+    for term in ("unlocated_rows", "residual_files", "residual_dirs", "errors"):
+        assert term in expr, (
+            f"erasure_complete must account for {term} — otherwise a file that "
+            "survived the purge still reports as a completed erasure"
+        )
+
+
 if __name__ == "__main__":
     import os
     import django

@@ -1,6 +1,6 @@
 # PRD — DPDP erasure does not reliably delete customer files
 
-**Status:** Phases 1, 2 and 5 SHIPPED 2026-07-26 (migration `0011`). Phases 3–4 open.
+**Status:** CLOSED 2026-07-26. Phases 1, 2, 4 and 5 shipped (migration `0011`); phase 3 waived.
 Found 2026-07-26 while clearing the production backlog.
 **Severity:** High — compliance. The erasure endpoint can report success while the customer's photographs remain on disk.
 **Related:** [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) · `api/purge.py` · `OrderDataPurgeView`
@@ -138,11 +138,11 @@ Existing rows blanked before A ships remain unreachable by order. They are still
 |---|---|---|
 | ~~1~~ | ✅ **Shipped.** Option A — `image_paths` written only when supplied; covered by `services/tests/test_erasure_contract.py` | 0.5 d |
 | ~~2~~ | ✅ **Shipped.** `UploadedFile.order_id` (migration 0011), populated from `X-Order-ID`/request at upload; direct-API uploads record blank | 1.5 d |
-| 3 | **Open.** Backfill `order_id` where inferable (via `CanvasData.render_state.image_paths`); report what cannot | 0.5 d |
-| 4 | **Open.** Option C filesystem sweep, now viable since the linkage exists — belt-and-braces verification | 1 d |
+| ~~3~~ | ⏭️ **Waived.** No backfill — the instance was reset to a fresh start, so every customer table was empty (0 rows) when `0011` landed. There is nothing legacy to infer. See the caveat below before writing any future cleanup. | — |
+| ~~4~~ | ✅ **Shipped.** Post-commit verification sweep: every attempted path/dir is re-checked and retried once, survivors returned as `residual_files` / `residual_dirs` and factored into `erasure_complete` | 1 d |
 | ~~5~~ | ✅ **Shipped.** Returns `unlocated_upload_rows` + `erasure_complete`, and logs a warning when incomplete | 0.5 d |
 
-**~1.5 days remaining** (2.5 of 4 shipped).
+**Complete.**
 
 Phase 5 is worth doing even alone: today a silent incomplete erasure is indistinguishable from a complete one.
 
@@ -157,3 +157,42 @@ A purge is only correct if, for a given `order_id`:
 3. the response reports the counts it actually deleted.
 
 Today only (1) holds. The test should assert all three against a seeded order that has autosaved — because an order that never autosaved passes even with the bug present, which is exactly why this went unnoticed.
+
+
+---
+
+## 7. Post-implementation notes
+
+### Do not write a "delete rows with blank `order_id`" cleanup
+
+`order_id=''` is the **legitimate** value for uploads that genuinely have no
+order context — the direct partner API (`GenerateLayoutView`) uploads before any
+order exists. A cleanup that deletes blank-`order_id` rows would destroy valid,
+current uploads alongside legacy ones. The two are distinguishable only by
+`created_at` relative to when `0011` was deployed, not by the field itself.
+
+Phase 3 was waived rather than implemented precisely because the fresh-start
+reset removed the legacy rows, so no such tool ever needed writing.
+
+### What the sweep does and does not do
+
+It verifies that everything the purge **knew about** is gone, and reports what
+survived. It cannot discover *unknown* upload files for an order: uploads are
+stored flat under `UPLOADS_DIR` with a random filename prefix, so nothing in the
+path identifies the owner. `UploadedFile.order_id` is what makes ownership
+knowable; the sweep is the check that deletion driven by it took effect.
+
+If uploads are ever restructured into per-order directories, the sweep could be
+extended to a true discovery pass. Until then, the row is the source of truth.
+
+### Verified failure mode
+
+Deletion failing silently was the whole problem, so the sweep was tested against
+a simulated `OSError` on unlink:
+
+    file still on disk : True
+    residual_files     : ['stubborn.jpg']
+    erasure_complete   : False
+    errors reported    : 2
+
+Before phase 4 that same failure returned a clean success.
