@@ -25,7 +25,7 @@ graphify explain "render_canvas_task"
 graphify explain "CalendarState"
 ```
 
-The graph covers all 252 source files — 1,698 nodes, 3,294 edges, 142 communities (rebuilt 2026-07-17; now includes the calendar product code and the `docs/printo-architecture-audit` set). Full stats and community listing: `graphify-out/GRAPH_REPORT.md`. Key communities:
+The graph covers 240 code files plus the curated doc nodes — 2,190 nodes, 3,800 edges, 187 communities (rebuilt 2026-07-26 from commit `ac51e7b`; includes the calendar product code, the caption-placement modules, and the `docs/printo-architecture-audit` set). Full stats and community listing: `graphify-out/GRAPH_REPORT.md`, whose "Graph Freshness" block records the commit it was built from — compare against `git rev-parse HEAD` to check staleness. Key communities:
 - **Calendar Product Materialization** — materialize_surfaces, calendar_layout.py, per-surface overrides
 - **API Key & PIA Auth** — APIKeyUser, PIAAuthentication, RenderJob
 - **Canvas & Embed Models** — CanvasData, EmbedSession, EditorRenderView
@@ -41,12 +41,14 @@ The graph covers all 252 source files — 1,698 nodes, 3,294 edges, 142 communit
 - **Login & Rate Limiting** — actions/auth.ts, per-IP rate limit
 - **Printo architecture audit (docs)** — "Printo.in Monolith Audit", "Target Architecture & Saleor", "Estimator POS Audit", "PIA & Printose Audit"
 
-God nodes (highest connectivity): `LayoutEngine` (73 edges), `APIKey` (45), `APIKeyUser` (40), `UploadedFile` / `ExportedResult` / `EmbedSession` (37 each), `BearerTokenAuthentication` / `PIAAuthentication` (36 each), `CanvasData` (35), `IsAuthenticatedWithAPIKey` (34).
+God nodes (highest connectivity): `editor/layout/[name]/page.tsx` (81 edges), `LayoutEngine` (75), `api/views.py` (61), `APIKey` (45), `APIKeyUser` (40), `UploadedFile` / `ExportedResult` / `EmbedSession` (37 each), `BearerTokenAuthentication` / `PIAAuthentication` (36 each). The top two are the files most likely to break something else when edited.
 
 To update the graph after significant code changes:
 ```bash
-graphify . --update
+graphify update .
 ```
+
+**Use `graphify update .`, not `graphify . --update`.** The `update` subcommand is AST-only — no LLM, no API key, no cost, a few seconds. The `--update` flag form attempts semantic re-extraction of changed docs/PRDs and aborts with `error: no LLM API key found` unless `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / etc. is set (none is, on this machine). Code-only updates preserve the existing doc nodes and community names; genuinely new communities show up as unnamed `Community N` placeholders until someone runs `graphify label .` with a key.
 
 Open `graphify-out/graph.html` in a browser for the interactive visualisation.
 
@@ -58,8 +60,11 @@ Open `graphify-out/graph.html` in a browser for the interactive visualisation.
 ```bash
 cd frontend/nextjs
 pnpm dev          # Development server (http://localhost:3000 direct, or http://localhost:5004 via Docker)
+pnpm dev:clean    # rm -rf .next first — use when routes 404 in dev
 pnpm build        # Production build
-pnpm lint         # ESLint
+pnpm typecheck    # tsc --noEmit (full strict mode) — run before pushing
+pnpm lint         # eslint src
+pnpm lint:fix     # auto-fix
 ```
 
 ### Backend (Django)
@@ -69,6 +74,45 @@ python manage.py migrate
 python manage.py showmigrations
 python manage.py shell
 ```
+
+### Tests
+
+The two halves use **different, deliberately lightweight harnesses**. Neither needs a database.
+
+**Frontend — Jest** (`next/jest` + SWC transforms + `@happy-dom/jest-environment`; config in `frontend/nextjs/jest.config.ts`). Only `src/**/__tests__/**` is collected. happy-dom is used instead of jsdom specifically because jsdom auto-requires the native `canvas` module that Fabric.js peer-deps.
+
+```bash
+cd frontend/nextjs
+pnpm test                                        # whole suite
+pnpm test:watch                                  # watch mode
+pnpm test -- src/lib/__tests__/dpi-utils.test.ts # one file
+pnpm test -- -t "clamps the offset"              # one test by name
+pnpm test:parity                                 # calendar TS↔Python parity suites only
+```
+
+**Backend — standalone modules, no pytest, no `manage.py test`.** Every file in `backend/django/services/tests/test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions and prints a pass count. There are 19 modules.
+
+Run one **through the container** — the dev Mac's system Python has no Pillow/Django, so this is the practical local route. Override the entrypoint: it ignores `$@` and would otherwise boot gunicorn and hang forever (see Deployment).
+
+```bash
+docker-compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
+```
+
+All 19, the way CI does it:
+
+```bash
+docker-compose run --rm --entrypoint bash backend -c 'for f in services/tests/test_*.py; do /opt/venv/bin/python -m "services.tests.$(basename "$f" .py)" || echo "FAIL $f"; done'
+```
+
+If you *do* have a local venv with `requirements.txt` installed, the bare form works too — `DEBUG=1` is mandatory, or the production `DJANGO_SECRET_KEY` fail-fast in `settings.py` aborts before any test runs:
+
+```bash
+cd backend/django && DJANGO_SETTINGS_MODULE=product_editor.settings DEBUG=1 python -m services.tests.test_caption_layout
+```
+
+**Writing new backend tests:** copy the `__main__` footer from an existing module. CI auto-discovers `services/tests/test_*.py`, so a new file is picked up with no workflow edit. Keep them DB-free and mediapipe-free — CI installs a mediapipe-stripped requirements subset.
+
+**CI** (`.github/workflows/ci.yml`, push/PR to `main`): backend loop above, then frontend `pnpm typecheck` → `pnpm lint` → `pnpm test -- --ci`. Note the org is on GitHub Free with Actions billing-locked, so the checks may show red for reasons unrelated to the code — verify locally.
 
 ### Docker (primary workflow)
 ```bash
@@ -95,7 +139,11 @@ Also copy `.env.example` → `.env` and fill in the required secrets (`DJANGO_SE
 ./reset-db.sh                                                  # Reset database
 ./benchmark.sh                                                 # Performance benchmarking
 API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # 10-step embed-flow smoke test
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-calendar.sh    # 19-check calendar/ops surface
+./scripts/test-backup-restore.sh                               # restore into a throwaway DB + assert row counts
 ```
+
+Both smoke tests default to `BASE=http://localhost:5004`. If you're exercising the **nginx edge** (the path prod actually uses) point them at `BASE=https://localhost` and wrap `curl` with `-k` — the local origin cert is self-signed. Rebuild the frontend image before testing frontend-side changes; the container serves a build, not your working tree.
 
 ## Architecture
 
@@ -434,6 +482,31 @@ Fabric.js uses pixels; layouts specify mm. Confirm DPI-based conversion is appli
 3. Update `layout_engine/engine.py` for high-res export
 4. Ensure `views.py` persists the new property correctly
 
+## Three Frame Renderers — the drift trap
+
+Anything drawn *inside a frame* exists in **three** independent implementations. Add a feature to one and it silently disagrees with the other two:
+
+| Renderer | File | Surface |
+|---|---|---|
+| Live editor | `editor/layout/[name]/FabricEditor.tsx` | the interactive modal the customer edits in |
+| Thumbnail / preview | `editor/layout/[name]/fabric-renderer.ts` | off-screen canvas → card thumbnails |
+| Print | `backend/django/layout_engine/engine.py` | the 300-DPI file that actually ships |
+
+Two shared modules exist precisely to stop this drift — extend them rather than adding parallel drawing code:
+
+- **`editor/layout/[name]/frame-fill.ts`** — unifies the two *client* renderers for fill-sides background (blur/border) and per-frame captions. This module exists because the blur once appeared in the thumbnail and print but not in the live editor.
+- **`src/lib/caption-layout.ts` ↔ `LayoutEngine._resolve_caption_box`** — caption placement maths, deliberately duplicated across the language boundary and pinned by parity tests on both sides (`src/lib/__tests__/caption-layout.test.ts` and `services/tests/test_caption_layout.py`). Change one formula and both suites must be updated together, or a positioned caption lands somewhere different in the print than in the preview.
+
+The same TS↔Python parity-test pattern guards the calendar grid (`src/lib/calendar.ts` ↔ `services/calendar_renderer.py`, `pnpm test:parity` + `services/tests/test_calendar_parity.py`).
+
+Captions render only when `layout.frameCaptionsEnabled` is set — off by default.
+
+## Layout Identity Is the Filename
+
+A layout's identifier is its **filename stem** (`storage/layouts/classic_A4.json` → `classic_A4`), never the `name` field stored inside the JSON. `ListLayoutsView` and `LayoutManagementView` both overwrite `data["name"]` with the filename for exactly this reason.
+
+Why it matters: every path-based endpoint (get / put / delete / render) resolves `<name>.json` off disk. When the stored field diverged in case (`classic_A4.json` carrying `"name": "classic_a4"`), the layout became unopenable and undeletable **on production Linux only** — the local Mac filesystem is case-insensitive and happily opened either spelling. Case-sensitivity bugs of this shape do not reproduce in dev; assume prod is stricter than your machine.
+
 ## Code Style
 
 Use comments sparingly. Only comment complex or non-obvious logic.
@@ -611,7 +684,7 @@ Key surfaces added in the resilience/compliance pass — grep these before touch
 
 ## Migrations
 
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0009_renderjob_status_completed_idx`.
+Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0010_embedsession_include_uploads`.
 
 | Migration | Change |
 |---|---|
@@ -624,6 +697,7 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 | 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` (webhook URL, propagated to CanvasData via `X-Callback-URL` header) |
 | 0008 | `CanvasData.render_state` — submit-time render payload snapshot. Separates the two writers that shared `editor_state` (autosave vs submit): submit no longer wipes the customer's auto-saved design, and a post-submit autosave can't strip a queued job's payload. `render_canvas_task` reads `render_state or editor_state` (legacy fallback for jobs enqueued pre-deploy). |
 | 0009 | Consolidates drifted model state: two `RenderJob` indexes (`queue_name/status/created_at`, `status/completed_at`) that existed in the model but never got a migration, drops a duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-name. |
+| 0010 | `EmbedSession.include_uploads` (default `True`) — opt out to keep customer originals out of the delivered ZIP for faster downloads. Propagated to the render via the `X-Include-Uploads` header the embed proxy injects, and snapshotted into `CanvasData.render_state`. |
 
 **Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.
 
@@ -732,7 +806,7 @@ The full prioritised list is in [docs/PRD.md](docs/PRD.md) §8 — these are the
 2. **(Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50`** to prod `.env` if you want a non-default ceiling. Default 50 if absent.
 3. **(Optional) Add `CSP_REPORT_ONLY=True`** — already the default; only set explicitly if you want to flip it later.
 4. **Rebuild the backend image.** `requirements.txt` gained `django-csp==3.8` and the Dockerfile is now multi-stage. `deploy.sh` already runs `docker-compose build`, so this happens automatically.
-5. **One new migration: `0007_exportedresult_gc_partial_index`.** Bundles four operations (see Migrations table). Drops `CanvasData.soft_proof`, constrains `export_format` choices, adds GC partial index, adds `EmbedSession.callback_url`. Run `docker-compose exec backend python manage.py migrate` after deploy.
+5. **Check for unapplied migrations.** The backend container self-migrates on boot, so a normal deploy needs nothing here — but confirm with `docker-compose exec backend python manage.py showmigrations api` and compare against the Migrations table (latest is `0010_embedsession_include_uploads`). Only migrate from the `backend` container, never from a worker or beat container.
 6. **Verify healthchecks come up green** — `docker-compose ps` should show `(healthy)` next to `proxy`, `backend`, and `frontend`. The proxy probe hits `/nginx-health` on localhost:80; the backend probe hits `/api/health`; the frontend probe hits `/`. `proxy` `depends_on: backend: { condition: service_healthy }` so a slow backend blocks proxy startup until ready.
 7. **Smoke-test login on prod** — bad password should still say "Invalid credentials"; if PIA is reachable, login should succeed. The new error-code distinction (PiaTimeout / PiaServiceUnavailable) only surfaces during actual outages.
 
