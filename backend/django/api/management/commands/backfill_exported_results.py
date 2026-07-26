@@ -75,6 +75,16 @@ class Command(BaseCommand):
             help="Also delete export directories that have no RenderJob row. Requires --apply.",
         )
         parser.add_argument(
+            "--purge-tombstones", action="store_true",
+            help=(
+                "Hard-delete ExportedResult/UploadedFile rows already marked "
+                "is_deleted=True, regardless of age. The GC now prunes these on its "
+                "own once they pass the retention window; use this to clear rows "
+                "created by a backlog cleanup that would otherwise wait a full "
+                "window. Requires --apply."
+            ),
+        )
+        parser.add_argument(
             "--purge-older-than-days", type=int, default=None, metavar="N",
             help=(
                 "Delete every export directory last modified more than N days ago, "
@@ -236,6 +246,32 @@ class Command(BaseCommand):
                 self.stdout.write(
                     f"  (re-run with --apply --purge-older-than-days {purge_days} to remove them)"
                 )
+
+        # ── 4. Optional: hard-delete tombstone rows ───────────────────────────
+        if opts["purge_tombstones"]:
+            from api.models import UploadedFile
+
+            counts = {
+                "ExportedResult": ExportedResult.objects.filter(is_deleted=True).count(),
+                "UploadedFile": UploadedFile.objects.filter(is_deleted=True).count(),
+            }
+            total = sum(counts.values())
+            self.stdout.write(self.style.MIGRATE_HEADING(
+                f"\n  tombstone rows (is_deleted=True) : {total}"
+            ))
+            for label, n in counts.items():
+                self.stdout.write(f"      {label}: {n}")
+
+            if total and apply_changes:
+                removed = 0
+                for model in (ExportedResult, UploadedFile):
+                    n, _ = model.objects.filter(is_deleted=True).delete()
+                    removed += n
+                self.stdout.write(self.style.SUCCESS(
+                    f"  hard-deleted {removed} tombstone row(s)"
+                ))
+            elif total:
+                self.stdout.write("  (re-run with --apply --purge-tombstones to remove them)")
 
         if not apply_changes:
             self.stdout.write(self.style.WARNING("\nDry run — nothing was written or deleted."))
