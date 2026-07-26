@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -72,6 +73,16 @@ class Command(BaseCommand):
         parser.add_argument(
             "--delete-orphans", action="store_true",
             help="Also delete export directories that have no RenderJob row. Requires --apply.",
+        )
+        parser.add_argument(
+            "--purge-older-than-days", type=int, default=None, metavar="N",
+            help=(
+                "Delete every export directory last modified more than N days ago, "
+                "regardless of DB state, and mark any matching ExportedResult rows "
+                "deleted. Use to clear a backlog that predates GC registration. "
+                "Requires --apply. Directories NEWER than N days are never touched, "
+                "so in-flight downloads survive."
+            ),
         )
 
     def handle(self, *args, **opts):
@@ -170,6 +181,61 @@ class Command(BaseCommand):
             self.stdout.write(
                 "  (re-run with --apply --delete-orphans to remove them)"
             )
+
+        # ── 3. Optional: purge everything older than N days ───────────────────
+        purge_days = opts["purge_older_than_days"]
+        if purge_days is not None:
+            cutoff = time.time() - purge_days * 86400
+            stale = []
+            if os.path.isdir(exports_dir):
+                for entry in os.listdir(exports_dir):
+                    full = os.path.join(exports_dir, entry)
+                    if not os.path.isdir(full):
+                        continue
+                    try:
+                        if os.path.getmtime(full) < cutoff:
+                            stale.append(full)
+                    except OSError:
+                        pass
+
+            stale_bytes = sum(_dir_size(p) for p in stale)
+            self.stdout.write(self.style.MIGRATE_HEADING(
+                f"\n  purge: dirs older than {purge_days}d : {len(stale)}  ({_human(stale_bytes)})"
+            ))
+            self.stdout.write(
+                "  (directories newer than the cutoff are NOT touched, so downloads "
+                "still in flight survive)"
+            )
+
+            if stale and apply_changes:
+                removed = 0
+                for p in stale:
+                    try:
+                        shutil.rmtree(p)
+                        removed += 1
+                    except OSError as exc:
+                        self.stderr.write(f"  failed to remove {p}: {exc}")
+                # Flag rows whose file is now gone so the GC stops chasing them.
+                gone_ids = [
+                    row.id
+                    for row in ExportedResult.objects
+                    .filter(is_deleted=False)
+                    .only("id", "export_file_path")
+                    .iterator()
+                    if not os.path.exists(row.export_file_path)
+                ]
+                marked = (
+                    ExportedResult.objects.filter(id__in=gone_ids).update(is_deleted=True)
+                    if gone_ids else 0
+                )
+                self.stdout.write(self.style.SUCCESS(
+                    f"  removed {removed} dir(s), freeing {_human(stale_bytes)}; "
+                    f"marked {marked} ExportedResult row(s) deleted"
+                ))
+            elif stale:
+                self.stdout.write(
+                    f"  (re-run with --apply --purge-older-than-days {purge_days} to remove them)"
+                )
 
         if not apply_changes:
             self.stdout.write(self.style.WARNING("\nDry run — nothing was written or deleted."))
