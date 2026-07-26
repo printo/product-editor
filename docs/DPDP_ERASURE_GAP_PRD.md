@@ -1,6 +1,7 @@
 # PRD — DPDP erasure does not reliably delete customer files
 
-**Status:** Open. Found 2026-07-26 while clearing the production backlog.
+**Status:** Phases 1, 2 and 5 SHIPPED 2026-07-26 (migration `0011`). Phases 3–4 open.
+Found 2026-07-26 while clearing the production backlog.
 **Severity:** High — compliance. The erasure endpoint can report success while the customer's photographs remain on disk.
 **Related:** [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) · `api/purge.py` · `OrderDataPurgeView`
 
@@ -135,13 +136,13 @@ Existing rows blanked before A ships remain unreachable by order. They are still
 
 | Phase | Scope | Est. |
 |---|---|---|
-| 1 | Option A + a regression test asserting an autosave does not clear a previously recorded `image_paths` | 0.5 d |
-| 2 | Option B: migration, populate at upload, decide the direct-API case | 1.5 d |
-| 3 | Backfill `order_id` where it can be inferred (via `CanvasData.render_state.image_paths`); report what cannot | 0.5 d |
-| 4 | Option C sweep inside `purge_order_data`, plus a test proving a purged order leaves nothing on disk | 1 d |
-| 5 | Make the endpoint's response honest — surface "N files could not be located" rather than a bare `files_deleted: 0` | 0.5 d |
+| ~~1~~ | ✅ **Shipped.** Option A — `image_paths` written only when supplied; covered by `services/tests/test_erasure_contract.py` | 0.5 d |
+| ~~2~~ | ✅ **Shipped.** `UploadedFile.order_id` (migration 0011), populated from `X-Order-ID`/request at upload; direct-API uploads record blank | 1.5 d |
+| 3 | **Open.** Backfill `order_id` where inferable (via `CanvasData.render_state.image_paths`); report what cannot | 0.5 d |
+| 4 | **Open.** Option C filesystem sweep, now viable since the linkage exists — belt-and-braces verification | 1 d |
+| ~~5~~ | ✅ **Shipped.** Returns `unlocated_upload_rows` + `erasure_complete`, and logs a warning when incomplete | 0.5 d |
 
-**~4 days.**
+**~1.5 days remaining** (2.5 of 4 shipped).
 
 Phase 5 is worth doing even alone: today a silent incomplete erasure is indistinguishable from a complete one.
 

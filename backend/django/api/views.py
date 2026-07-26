@@ -437,6 +437,9 @@ class GenerateLayoutView(APIView):
                         original_filename=f.name,
                         file_size_bytes=f.size,
                         file_type='image',
+                        # Record the owning order so DPDP erasure can find this
+                        # file without depending on CanvasData.image_paths.
+                        order_id=order_id or '',
                     )
 
             # Soft-proof + CMYK pipelines retired; everything renders to the
@@ -616,6 +619,9 @@ class GenerateLayoutView(APIView):
                             original_filename=f.name,
                             file_size_bytes=f.size,
                             file_type='image',
+                            # Synchronous direct-API path carries no order id;
+                            # left blank, swept by the GC on age.
+                            order_id='',
                         )
 
                 # Give every render request its own subdirectory so concurrent
@@ -3099,16 +3105,31 @@ class CanvasStateView(APIView):
         # Look up by (order_id, api_key) so each tenant owns its own namespace.
         # api_key is in the lookup key, NOT in defaults, so it's never changed
         # on update and is always set correctly on create.
+        # image_paths is deliberately NOT in the unconditional defaults.
+        #
+        # update_or_create writes every key in `defaults`, and the editor's
+        # autosave payload is {layout_name, editor_state} — it never carries
+        # server-side file paths, because the browser never sees them. So
+        # passing `image_paths or []` here overwrote the recorded paths with an
+        # empty list on every autosave, i.e. every 2 seconds.
+        #
+        # That is what broke DPDP erasure: purge_order_data() finds a customer's
+        # uploads through image_paths, and by the time anyone requested erasure
+        # the field had long been blanked. Only write it when the caller
+        # actually supplied paths. See docs/DPDP_ERASURE_GAP_PRD.md.
+        defaults = dict(
+            layout_name=layout_name,
+            fit_mode=fit_mode,
+            editor_state=editor_state,
+            expires_at=timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS),
+        )
+        if image_paths:
+            defaults['image_paths'] = image_paths
+
         canvas, created = CanvasData.objects.update_or_create(
             order_id=order_id,
             api_key=api_key,
-            defaults=dict(
-                layout_name=layout_name,
-                image_paths=image_paths or [],
-                fit_mode=fit_mode,
-                editor_state=editor_state,
-                expires_at=timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS),
-            ),
+            defaults=defaults,
         )
 
         logger.info(
@@ -3423,6 +3444,18 @@ class ChunkedUploadCompleteView(APIView):
             api_key = request.user.api_key
 
         if api_key:
+            # Order linkage, resolved the same way EditorRenderView does it:
+            # X-Order-ID (injected by the embed proxy from EmbedSession.order_id)
+            # first, then an explicit field from a direct/dashboard caller.
+            #
+            # This is what makes DPDP erasure work. Without it the purge could
+            # only find a customer's files via CanvasData.image_paths, which
+            # autosave blanks every 2 seconds — so an abandoned upload was
+            # unreachable by any order-scoped erasure.
+            order_id = (
+                (request.headers.get('X-Order-ID') or '').strip()
+                or str(request.data.get('order_id') or '').strip()
+            )
             UploadedFile.objects.create(
                 api_key=api_key,
                 file_path=final_path,
@@ -3430,6 +3463,7 @@ class ChunkedUploadCompleteView(APIView):
                 file_size_bytes=assembled_size,
                 file_type='image',
                 upload_session_id=upload_id,
+                order_id=order_id,
             )
 
         logger.info("Chunked upload completed: %s (%d bytes) → %s", meta['filename'], assembled_size, final_path)

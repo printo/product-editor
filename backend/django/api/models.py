@@ -106,6 +106,24 @@ class UploadedFile(models.Model):
     file_size_bytes = models.BigIntegerField()
     file_type = models.CharField(max_length=50, default='image')  # image, layout, export
 
+    # Which order this file was uploaded for. Recorded at upload time from the
+    # X-Order-ID header (embed proxy) or the request, and it is what makes DPDP
+    # erasure provable.
+    #
+    # Before this existed, purge_order_data() could only find a customer's files
+    # through CanvasData.image_paths / render_state['image_paths']. Autosave
+    # blanks image_paths every 2s, and a file uploaded but never placed in a
+    # canvas was referenced by neither — so the purge deleted the rows, reported
+    # files_deleted: 0, and left the photographs on disk. See
+    # docs/DPDP_ERASURE_GAP_PRD.md.
+    #
+    # Blank (not null) when unknown: the direct partner API uploads without any
+    # order context. Those rows are still swept by the GC on age.
+    order_id = models.CharField(
+        max_length=100, blank=True, default='', db_index=True,
+        help_text="Order this upload belongs to; blank when uploaded without order context.",
+    )
+
     # Chunked upload — groups chunks belonging to the same resumable session.
     upload_session_id = models.CharField(
         max_length=64, null=True, blank=True, db_index=True,

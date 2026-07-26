@@ -138,6 +138,28 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
                 files_deleted += d; freed_bytes += f; errors += e
                 stragglers.delete()
 
+        # 2b. Uploads linked directly to the order.
+        #
+        # Everything above reaches files only via CanvasData.image_paths /
+        # render_state['image_paths']. Autosave blanks image_paths every 2s, and
+        # a file uploaded but never placed in a canvas appears in neither — so
+        # this used to delete the rows, report files_deleted: 0, and leave the
+        # photographs on disk. UploadedFile.order_id (migration 0011) closes
+        # that: ask the upload table directly who owns the file.
+        #
+        # Still honours the shared-original rule via keep_paths.
+        order_uploads = UploadedFile.objects.filter(order_id=order_id)
+        if api_key is not None:
+            order_uploads = order_uploads.filter(api_key=api_key)
+        linked_paths = [
+            p for p in order_uploads.values_list('file_path', flat=True)
+            if p and p not in keep_paths
+        ]
+        if linked_paths:
+            d, f, e = _delete_files(linked_paths)
+            files_deleted += d; freed_bytes += f; errors += e
+            UploadedFile.objects.filter(file_path__in=linked_paths).delete()
+
         # 4. CanvasData.delete() cascades RenderJob rows.
         canvas_rows = len(canvases)
         canvas_qs.filter(id__in=purged_ids).delete()
@@ -146,17 +168,40 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
         embed_rows = embed_qs.count()
         embed_qs.delete()
 
+    # Did we actually erase anything? A purge that removes rows but no files is
+    # NOT a completed erasure, and previously reported `files_deleted: 0` with
+    # no other signal — indistinguishable from an order that genuinely had no
+    # files. Callers (and auditors) need to tell those apart.
+    #
+    # unlocated_rows: upload rows we deleted without finding a file to go with
+    # them. Non-zero means bytes may still be on disk somewhere we could not
+    # resolve — worth investigating rather than reporting success.
+    unlocated_rows = UploadedFile.objects.filter(order_id=order_id).count()
+    erasure_complete = (unlocated_rows == 0 and not errors)
+
     logger.info(
-        "Purged order %s: %d canvas rows, %d embed rows, %d files (%.1f MB), keys=%s, errors=%d",
+        "Purged order %s: %d canvas rows, %d embed rows, %d files (%.1f MB), "
+        "keys=%s, errors=%d, unlocated=%d, complete=%s",
         order_id, canvas_rows, embed_rows, files_deleted, freed_bytes / (1024 * 1024),
-        list(keys_touched.keys()), len(errors),
+        list(keys_touched.keys()), len(errors), unlocated_rows, erasure_complete,
     )
+    if not erasure_complete:
+        logger.warning(
+            "Order %s erasure INCOMPLETE: %d upload row(s) unresolved, %d file error(s). "
+            "Files may remain on disk; see docs/DPDP_ERASURE_GAP_PRD.md.",
+            order_id, unlocated_rows, len(errors),
+        )
     return {
         'matched': canvas_rows,
         'canvas_rows_deleted': canvas_rows,
         'embed_rows_deleted': embed_rows,
         'files_deleted': files_deleted,
         'bytes_freed': freed_bytes,
+        # Erasure honesty (see the warning logged above): `files_deleted: 0` on
+        # its own reads as success. These two say whether the erasure can
+        # actually be claimed as complete.
+        'unlocated_upload_rows': unlocated_rows,
+        'erasure_complete': erasure_complete,
         'api_keys_touched': keys_touched,
         'errors': errors,
     }
