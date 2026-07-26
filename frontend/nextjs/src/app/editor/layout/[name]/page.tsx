@@ -3583,10 +3583,18 @@ export default function LayoutEditorPage() {
                   })}
                 </div>
               ) : (
-                // Tighter gutters and an extra column at wide widths: with
-                // portrait layouts the cards are tall, so generous gaps made a
-                // 20-photo order scroll far more than it needed to.
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7 gap-3 sm:gap-3.5 justify-center justify-items-center">
+                // `justify-items-center` + the card's `sm:w-auto` made each card
+                // shrink to its CONTENT width (~187px, set by the meta label and
+                // action rail) and centre inside a much wider grid column. The
+                // surplus showed up as dead space between cards — 63px of visible
+                // gap at 5 columns despite gap-3.5, and worse as columns widen.
+                // Shrinking `gap` never touched it.
+                //
+                // Stretch from sm up so a card fills its column: the gutter is
+                // then exactly the gap, and the thumbnail gets the reclaimed
+                // width instead. Mobile keeps centring, where the card is a fixed
+                // 86vw and is meant to sit centred.
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7 gap-3 sm:gap-3.5 justify-items-center sm:justify-items-stretch">
                   {canvases.map((canvas, idx) => (
                     <div
                       key={idx}
