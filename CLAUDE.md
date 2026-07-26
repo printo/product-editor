@@ -114,6 +114,69 @@ cd backend/django && DJANGO_SETTINGS_MODULE=product_editor.settings DEBUG=1 pyth
 
 **CI** (`.github/workflows/ci.yml`, push/PR to `main`): backend loop above, then frontend `pnpm typecheck` → `pnpm lint` → `pnpm test -- --ci`. Note the org is on GitHub Free with Actions billing-locked, so the checks may show red for reasons unrelated to the code — verify locally.
 
+### Verifying UI changes in a real browser (no PIA login)
+
+The unit suites don't cover the canvas, and PIA credentials can't be typed into
+an automated browser. Two routes in, depending on the page:
+
+**Editor route** (`/editor/layout/[name]`) — not auth-gated, so use an embed token:
+
+```bash
+docker-compose up -d db redis backend        # backend on :8000
+# frontend must run from source (pnpm dev) — the Docker image serves a BUILD,
+# so it will not contain your local edits
+KEY=$(grep -E "^DIRECT_API_KEY=" .env | cut -d= -f2-)
+curl -s -X POST http://localhost:8000/api/embed/session \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"order_id":"TEST-1"}'
+# → open http://localhost:3000/editor/layout/<name>?token=<token>
+```
+
+**Auth-gated pages** (`/dashboard`, `/editor/layouts`) — mint a NextAuth cookie
+rather than logging in. Run this **inside `frontend/nextjs`** so `next-auth`
+resolves, and read `AUTH_SECRET` from `frontend/nextjs/.env.local` — it differs
+from the root `.env`, and using the wrong one silently yields a cookie the
+server rejects:
+
+```js
+import { encode } from 'next-auth/jwt';
+const now = Math.floor(Date.now() / 1000);
+await encode({ salt: 'authjs.session-token', secret: AUTH_SECRET, token: {
+  id: 'LOCAL-DEV', name: 'Local Dev', email: 'local@printo.in',
+  role: 'admin', is_ops_team: true,          // flip to test privilege gates
+  accessToken: 'x', refreshToken: 'x', accessTokenExpires: (now + 3600) * 1000,
+  sub: 'LOCAL-DEV', iat: now, exp: now + 3600 } });
+// then: document.cookie = "authjs.session-token=<jwt>; path=/"
+```
+
+Local dev only — it depends on having the local `AUTH_SECRET`. Delete the
+script afterwards.
+
+**Getting a photo onto the canvas:** draw on an off-screen canvas, wrap in
+`File`/`DataTransfer`, and assign through the **native setter**
+(`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'files').set`) on
+the input with `multiple=true` — the non-multiple one is the replace-photo
+input. Then dispatch a bubbling `change`.
+
+**Known automation limits — don't spend time rediscovering these:**
+
+- **The layout-card action buttons (View Raw JSON / Delete / Edit / Duplicate)
+  do not respond to synthetic clicks** — mouse or keyboard, handler never
+  fires, no console error. Reproduced on unmodified `main`, so it is an
+  automation artifact, not a bug. Header buttons and canvas interactions work
+  fine. Verify those flows via code + `curl` and ask the user for one manual
+  click.
+- To assert Fabric object state (stroke colours, guide visibility), walk the
+  React fiber from `canvas.lower-canvas` (`__reactFiber$…`) up through
+  `memoizedState` for a hook whose `.current` has `_objects` + `renderAll`.
+  `fc.fire('object:moving', {target})` then exercises the real handlers.
+- Pixel-sampling a Fabric canvas must allow for alpha blending — guides draw at
+  0.7–0.8 opacity over white, so test hue dominance (`g - r > 40`), not an exact
+  hex match.
+- `next.config.mjs` is **not** hot-reloaded; restart the dev server after
+  editing it.
+- Routes 404ing in dev → `rm -rf .next` and restart (see B5 in Known Issues).
+
 ### Docker (primary workflow)
 ```bash
 docker-compose up -d
