@@ -36,6 +36,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/pia-auth';
+import { isDestructiveOpsPath } from '@/lib/ops-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,12 +92,33 @@ async function handler(
   const hasTrailingSlash = req.nextUrl.pathname.endsWith('/');
   const fullUpstreamPath = hasTrailingSlash ? `${upstreamPath}/` : upstreamPath;
 
-  // 2a. ops/* paths were previously gated to session.is_ops_team here (the
-  // backend's IsOpsTeam check can't tell sessions apart once the shared
-  // INTERNAL_API_KEY service account reaches it). Product decision: template
-  // management (including the Fonts list) is now open to any authenticated
-  // user, so that gate was removed — every logged-in session can proxy to
-  // /ops/* the same way an ops session could.
+  // 2a. Privilege gate — destructive ops endpoints only.
+  //
+  // The blanket ops/* gate was removed in PR #24 by product decision: template
+  // management (layouts, calendar styles, holidays, the Fonts list) is open to
+  // any authenticated user. That is intentional and stays.
+  //
+  // But the gate was the ONLY thing separating sessions. Django's IsOpsTeam
+  // cannot stand in for it: every request through this proxy arrives as the
+  // shared, ops-flagged INTERNAL_API_KEY service account, so the backend sees
+  // one privileged identity no matter who is logged in. Removing the gate
+  // wholesale therefore also exposed the DPDP purge endpoint — an irreversible
+  // hard delete of an order's uploads, exports, CanvasData and EmbedSession
+  // rows plus the files on disk — to every authenticated PIA session.
+  //
+  // Re-gate exactly that, and nothing else — see lib/ops-guard.ts.
+  if (isDestructiveOpsPath(upstreamPath)) {
+    if (!session.is_ops_team) {
+      console.warn(
+        `[internal-proxy] blocked destructive ops call to "${upstreamPath}" ` +
+        `for non-ops user ${session.user?.email ?? 'unknown'}`
+      );
+      return NextResponse.json(
+        { detail: 'Operations team membership required' },
+        { status: 403 }
+      );
+    }
+  }
 
   const upstreamUrl = `${INTERNAL_API}/${fullUpstreamPath}${req.nextUrl.search}`;
 
