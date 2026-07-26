@@ -589,6 +589,27 @@ if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
   docker images | grep "product-editor-frontend.*backup" | tail -n +4 | awk '{print $3}' | xargs -r docker rmi 2>/dev/null && print_status "Old frontend backups removed" || print_info "No old frontend backups to remove"
 fi
 
+# Reclaim build cache and dangling images.
+#
+# The backup-image cleanup above only ever removed images tagged *backup*, so
+# nothing pruned Docker's build cache or the untagged layers each rebuild
+# leaves behind. On the production host these had grown to ~37 GB of build
+# cache and 118 images (~33 GB) — the disk hit 86% with 9.8 GB free.
+#
+# Deliberately narrow:
+#   * `image prune -f`   — DANGLING (untagged) images only. The *backup* images
+#     kept for rollback are tagged, so they survive. NEVER use -a here: that
+#     removes every image not backing a running container, which is exactly the
+#     rollback set.
+#   * `builder prune`    — cache older than 7 days, so a same-week redeploy
+#     still gets warm layers while old cache cannot accumulate forever.
+print_action "Reclaiming dangling images + build cache older than 7 days..."
+BEFORE_AVAIL=$(df -h / | awk 'NR==2 {print $4}')
+docker image prune -f >/dev/null 2>&1 || true
+docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
+AFTER_AVAIL=$(df -h / | awk 'NR==2 {print $4}')
+print_status "Docker cleanup done — disk available: ${BEFORE_AVAIL} -> ${AFTER_AVAIL}"
+
 # Final summary
 print_header "Deployment Complete"
 print_status "Deployment finished successfully"

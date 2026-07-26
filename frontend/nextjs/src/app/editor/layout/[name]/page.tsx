@@ -604,7 +604,9 @@ export default function LayoutEditorPage() {
 
   useEffect(() => {
     if (embedToken) return;
-    setTitle('');
+    // Dashboard flow only — the embed iframe returns above, so a customer
+    // inside printo.in's page never sees internal page naming.
+    setTitle('Preview Canvas');
     setDescription('');
     setCenterActions(null);
     setRightActions(
@@ -3581,7 +3583,10 @@ export default function LayoutEditorPage() {
                   })}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 justify-center justify-items-center">
+                // Tighter gutters and an extra column at wide widths: with
+                // portrait layouts the cards are tall, so generous gaps made a
+                // 20-photo order scroll far more than it needed to.
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7 gap-3 sm:gap-3.5 justify-center justify-items-center">
                   {canvases.map((canvas, idx) => (
                     <div
                       key={idx}
@@ -3705,12 +3710,12 @@ export default function LayoutEditorPage() {
                           </button>
                         </div>
                       </div>
-                      <div className="p-3">
-                        <h3 className="font-black text-slate-900 uppercase tracking-tight truncate group-hover:text-indigo-600 transition-colors">
+                      <div className="px-3 py-2">
+                        <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate group-hover:text-indigo-600 transition-colors">
                           Canvas {idx + 1}
                         </h3>
                         {layout.dimensions && (
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide mt-0.5 flex items-center gap-1.5 truncate">
                             <span>{layout.dimensions}</span>
                             <span>•</span>
                             <span>{layout.frames?.length || 0} Frames</span>

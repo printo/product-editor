@@ -506,6 +506,50 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         job.output_paths = output_paths
         job.save(update_fields=['status', 'completed_at', 'generation_time_ms', 'output_paths'])
 
+        # ── Register outputs for garbage collection ──────────────────────────
+        # garbage_collector_task's primary sweep iterates ExportedResult rows.
+        # Only GenerateLayoutView's synchronous path ever wrote them, and that
+        # path is unreachable — so the table stayed empty and the sweep deleted
+        # nothing, ever. Render outputs accumulated indefinitely (17 GB / 380
+        # directories in production before this was found).
+        #
+        # Writing a row per output file here is what makes the existing GC work
+        # as designed. expires_at is copied from the CanvasData so the retention
+        # promised to the caller and the retention enforced here are the same
+        # value (settings.EXPORT_RETENTION_DAYS).
+        #
+        # Wrapped in its own try: this is bookkeeping, and a failure to record
+        # must never fail a render whose files are already on disk and whose
+        # RenderJob is already marked completed.
+        try:
+            from api.models import ExportedResult
+
+            rows = []
+            for path in output_paths:
+                try:
+                    size = os.path.getsize(path)
+                except OSError:
+                    size = 0
+                rows.append(ExportedResult(
+                    api_key=canvas.api_key,
+                    layout_name=canvas.layout_name,
+                    export_file_path=path,
+                    input_files=image_paths or [],
+                    generation_time_ms=generation_time_ms,
+                    file_size_bytes=size,
+                    expires_at=canvas.expires_at,
+                ))
+            if rows:
+                ExportedResult.objects.bulk_create(rows, batch_size=200)
+                logger.info(
+                    "Job %s: registered %d ExportedResult row(s) for GC", job_id, len(rows)
+                )
+        except Exception as exc:
+            logger.error(
+                "Job %s: failed to register ExportedResult rows (files will not be "
+                "GC'd by the primary sweep): %s", job_id, exc
+            )
+
         # Success — drop the poison-pill delivery counter (Phase 4).
         try:
             from django.core.cache import cache
