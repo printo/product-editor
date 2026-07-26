@@ -303,21 +303,49 @@ export function createCenterGuides(
 
 // ─── Grid lines ──────────────────────────────────────────────────────────────
 
+/** Smallest on-screen gap (CSS px) two grid lines may have before the grid
+ *  reads as grey mush rather than a grid. */
+const MIN_GRID_GAP_PX = 9;
+
+/** Millimetre steps the grid may snap up to, each a multiple of the 2 mm base
+ *  so a coarser drawn grid still lines up with 2 mm snapping. */
+const GRID_STEP_LADDER_MM = [2, 4, 10, 20, 50, 100, 200];
+
+/**
+ * Pick a grid step that stays legible at the preview's current scale.
+ *
+ * The preview fits the whole layout into a fixed viewport, so `scale`
+ * (px per mm) falls as the layout grows. Drawing a fixed 2 mm grid therefore
+ * packs the lines tighter and tighter on big canvases until they smear into a
+ * grey wash — the bug this ladder fixes. Step up through multiples of the base
+ * until the on-screen gap clears MIN_GRID_GAP_PX.
+ */
+export function resolveGridStepMm(baseMm: number, scale: number): number {
+  const ladder = GRID_STEP_LADDER_MM.filter(mm => mm >= baseMm);
+  return ladder.find(mm => mm * scale >= MIN_GRID_GAP_PX)
+    ?? ladder[ladder.length - 1]
+    ?? baseMm;
+}
+
 export function createGridLines(
   canvasWidth: number,
   canvasHeight: number,
   gridSize: number,
 ): Line[] {
   const lines: Line[] = [];
+  // Deliberately faint and uniform: the grid is a transient drag aid, so it
+  // should read as a soft ruling behind the artwork, never compete with the
+  // frame/safe/bleed outlines. (An earlier major/minor variant with darker
+  // every-5th lines was too loud.)
   const opts = {
-    stroke: '#cbd5e1',
-    strokeWidth: 0.5,
+    stroke: '#e2e8f0',
+    strokeWidth: 0.75,
     strokeUniform: true,
     originX: 'left' as const,
     originY: 'top' as const,
     selectable: false,
     evented: false,
-    opacity: 1.0,
+    opacity: 0.9,
   };
   for (let x = gridSize; x < canvasWidth; x += gridSize) {
     lines.push(new Line([x, 0, x, canvasHeight], opts));

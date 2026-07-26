@@ -1473,9 +1473,13 @@ class LayoutManagementView(APIView):
                 logger.warning(f"Failed to delete mask for layout {name}: {e}")
 
             os.remove(path)
-            # Invalidate the layouts list cache
+            # Invalidate BOTH layouts list caches, exactly as put()/post() do.
+            # Dropping only "layouts_list_all" left "ops_layouts_list_all" — the
+            # cache the ops Templates page actually reads — serving the deleted
+            # layout for the rest of its 2-minute TTL, so the row stayed on
+            # screen after a successful delete.
             from django.core.cache import cache as django_cache
-            django_cache.delete("layouts_list_all")
+            django_cache.delete_many(["layouts_list_all", "ops_layouts_list_all"])
             return Response({"status": "success", "detail": f"Layout {name} deleted"})
         except Exception as e:
             logger.error(f"Error deleting layout {name}: {str(e)}")

@@ -59,18 +59,25 @@ export const Header = () => {
         <div className="flex items-center gap-3 md:gap-6 flex-1 min-w-0 md:flex-none md:w-[480px] md:shrink-0">
           <HeaderBrand />
 
-          <div className="block w-px h-6 md:h-7 bg-slate-300 shrink-0" />
+          {/* Page context — only rendered when a page actually sets a title.
+              Pages that set none (dashboard, template library, the canvas
+              editor) get brand-only, with no divider and no placeholder text. */}
+          {title && (
+            <>
+              <div className="block w-px h-6 md:h-7 bg-slate-300 shrink-0" />
 
-          <div className="flex flex-col flex-1 min-w-0 md:flex-none md:w-[280px] md:shrink-0 overflow-hidden">
-            <span className={`${ubuntu.className} text-xs md:text-[13px] font-medium text-slate-900/90 uppercase tracking-tight leading-none truncate`}>
-              {title || 'Dashboard'}
-            </span>
-            {description && (
-              <p className={`${ubuntu.className} text-[11px] text-slate-600/90 font-light uppercase tracking-wider mt-1 truncate`}>
-                {description}
-              </p>
-            )}
-          </div>
+              <div className="flex flex-col flex-1 min-w-0 md:flex-none md:w-[280px] md:shrink-0 overflow-hidden">
+                <span className={`${ubuntu.className} text-xs md:text-[13px] font-medium text-slate-900/90 uppercase tracking-tight leading-none truncate`}>
+                  {title}
+                </span>
+                {description && (
+                  <p className={`${ubuntu.className} text-[11px] text-slate-600/90 font-light uppercase tracking-wider mt-1 truncate`}>
+                    {description}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Center: Universal Search / Centerpiece — desktop only; mobile gets its own full-width row below */}

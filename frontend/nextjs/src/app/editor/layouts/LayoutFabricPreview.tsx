@@ -13,6 +13,7 @@ import {
   createFrameLabel,
   createCenterGuides,
   createGridLines,
+  resolveGridStepMm,
   snapToGrid,
   constrainToCanvas,
   initAligningGuidelines,
@@ -200,12 +201,15 @@ export function LayoutFabricPreview({
       fc.add(g);
     });
 
-    // Add grid lines when snap enabled
+    // Add grid lines when snap enabled. The drawn step ladders up on large
+    // layouts (where `scale` is small) so the lines stay apart enough to read;
+    // snapping itself stays on the 2 mm base below.
     if (snapGrid) {
-      const gridPx = GRID_SNAP_MM * scale;
+      const gridPx = resolveGridStepMm(GRID_SNAP_MM, scale) * scale;
       const gridLines = createGridLines(cw, ch, gridPx);
       gridLines.forEach(l => {
         l.__fabricEditor = 'grid';
+        l.visible = false; // revealed only during a drag/resize — see below
         fc.add(l);
       });
     }
@@ -515,14 +519,37 @@ export function LayoutFabricPreview({
       });
     };
 
-    fc.on('object:modified', handleModified);
-    fc.on('object:moving', handleMoving);
-    fc.on('object:scaling', handleScaling);
+    // The grid is a drag aid, not chrome — it only earns screen space while a
+    // frame is actually being moved or resized. Showing it permanently put a
+    // ruled overlay behind every preview.
+    const setGridVisible = (visible: boolean) => {
+      let changed = false;
+      fc.getObjects().forEach(o => {
+        if (o[DATA_KEY] === 'grid' && o.visible !== visible) {
+          o.set({ visible });
+          changed = true;
+        }
+      });
+      if (changed) fc.requestRenderAll();
+    };
+    const showGrid = () => setGridVisible(true);
+    const hideGrid = () => setGridVisible(false);
+
+    const handleMovingWithGrid = (e: any) => { showGrid(); handleMoving(e); };
+    const handleScalingWithGrid = (e: any) => { showGrid(); handleScaling(e); };
+    const handleModifiedWithGrid = (e: any) => { handleModified(e); hideGrid(); };
+
+    fc.on('object:modified', handleModifiedWithGrid);
+    fc.on('object:moving', handleMovingWithGrid);
+    fc.on('object:scaling', handleScalingWithGrid);
+    // A drag released outside any object still ends the gesture.
+    fc.on('mouse:up', hideGrid);
 
     return () => {
-      fc.off('object:modified', handleModified);
-      fc.off('object:moving', handleMoving);
-      fc.off('object:scaling', handleScaling);
+      fc.off('object:modified', handleModifiedWithGrid);
+      fc.off('object:moving', handleMovingWithGrid);
+      fc.off('object:scaling', handleScalingWithGrid);
+      fc.off('mouse:up', hideGrid);
       // selection events are handled in initialization effect
     };
   }, [widthMm, heightMm, snapGrid, onFramesChange, getScale]);

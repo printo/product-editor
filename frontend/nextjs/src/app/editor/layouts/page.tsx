@@ -16,6 +16,7 @@ import {
   Eye,
   Edit2,
   Copy,
+  Check,
   Type,
   ZoomIn,
   ZoomOut,
@@ -33,6 +34,7 @@ import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { TagFilter } from '@/components/ui/TagFilter';
 import { Dropdown } from '@/components/ui/Dropdown';
+import { Toast, ToastStack } from '@/components/ui/Toast';
 import { useHeader } from '@/context/HeaderContext';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
 
@@ -177,16 +179,24 @@ export default function LayoutCreatorPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // The error/success banners render at the top of the page. When the user has
-  // scrolled down to a layout card (e.g. clicking Delete on a lower row) a
-  // failure message would otherwise appear off-screen and look like nothing
-  // happened. Scroll whichever banner is showing into view when it changes.
-  const feedbackBannerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (error || success) {
-      feedbackBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Feedback surfaces as a fixed bottom-right toast that auto-dismisses after
+  // 5s (see <ToastStack> below). It replaced a top-of-page inline banner, which
+  // sat off-screen whenever the action was triggered from a scrolled-down row.
+
+  // JSON Specification modal — "Copied" confirmation on the copy button.
+  const [specCopied, setSpecCopied] = useState(false);
+  const handleCopySpec = useCallback(async (json: string) => {
+    try {
+      await navigator.clipboard.writeText(json);
+      setSpecCopied(true);
+      setTimeout(() => setSpecCopied(false), 2000);
+    } catch {
+      // Clipboard API needs a secure context (https or localhost) and can be
+      // blocked by permissions policy inside an iframe — surface it rather
+      // than leaving the button looking inert.
+      setError('Could not copy to clipboard. Select the JSON and copy manually.');
     }
-  }, [error, success]);
+  }, []);
 
   // Form State
   const [isEditMode, setIsEditMode] = useState(false);
@@ -310,11 +320,14 @@ export default function LayoutCreatorPage() {
         </button>
       );
     } else {
-      setTitle('Template Library');
-      setDescription('Manage reusable designs');
+      setTitle('');
+      setDescription('');
       setCenterActions(
         <div className="flex items-center gap-2 flex-1 min-w-0 md:flex-none md:w-full md:max-w-[900px]">
-          <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} className="flex-1" />
+          {/* !w-auto + min-w-0 override SearchInput's mobile w-[175px] shrink-0 so
+              this row (search + filter + Fonts + nav) can fit a 375px viewport. */}
+          <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} className="flex-1 min-w-0 !w-auto" />
+          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden md:flex" />
           <button
             onClick={() => setShowFontModal(true)}
             aria-label="Fonts"
@@ -328,7 +341,9 @@ export default function LayoutCreatorPage() {
       );
       setRightActions(null);
     }
-  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, selectedFonts.length, layouts.length]);
+    // activeTagFilter is a dep because centerActions is a captured JSX snapshot —
+    // without it the dropdown would keep rendering the tag selected at mount.
+  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 
@@ -411,8 +426,12 @@ export default function LayoutCreatorPage() {
 
   const fetchLayouts = useCallback(async () => {
     try {
+      // no-store: the endpoint sends Cache-Control: private, max-age=60, so a
+      // refetch right after a create/delete would otherwise be served from the
+      // browser cache and still show the row that was just removed.
       const res = await fetch('/api/internal/proxy/ops/layouts', {
-        headers: { 'Accept': 'application/json' }
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store',
       });
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
@@ -864,25 +883,19 @@ export default function LayoutCreatorPage() {
       <GoogleFontLinks fonts={fontsLoaded} />
       <main className="max-w-[1440px] mx-auto px-8 pt-3 pb-8 w-full">
 
-        {error && (
-          <div ref={feedbackBannerRef} className="mb-6 p-4 bg-rose-50 border border-rose-100 text-rose-800 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-            <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            <p className="text-sm font-medium">{error}</p>
-          </div>
-        )}
+        <ToastStack>
+          <Toast message={error} tone="error" onDismiss={() => setError(null)} />
+          <Toast message={success} tone="success" onDismiss={() => setSuccess(null)} />
+        </ToastStack>
 
-        {success && (
-          <div ref={feedbackBannerRef} className="mb-6 p-4 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-            <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
-            <p className="text-sm font-medium">{success}</p>
-          </div>
-        )}
-
-        <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} />
+        {/* Mobile slot — the header row has no space for a fourth control. */}
+        <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="flex md:hidden mb-4" />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Single card split into two creation options */}
-          <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl overflow-hidden min-h-[120px] md:min-h-[200px] flex flex-row col-span-1 md:col-span-2 lg:col-span-1">
+          {/* Side-by-side on phones (vertical space is scarce there), stacked
+              from md up so each option gets the full card width. */}
+          <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl overflow-hidden min-h-[120px] md:min-h-[300px] flex flex-row md:flex-col col-span-1 md:col-span-2 lg:col-span-1">
             {/* Left half — Generic */}
             <button
               data-testid="create-generic-layout-btn"
@@ -899,7 +912,7 @@ export default function LayoutCreatorPage() {
                 setFrameCaptionsEnabled(false);
                 setIsModalOpen(true);
               }}
-              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-indigo-50 transition-all cursor-pointer border-r-2 border-dashed border-slate-200 hover:border-indigo-300"
+              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-indigo-50 transition-all cursor-pointer border-r-2 md:border-r-0 md:border-b-2 border-dashed border-slate-200 hover:border-indigo-300"
             >
               <div className="w-8 h-8 md:w-12 md:h-12 bg-indigo-50 rounded-lg md:rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
                 <Layout className="w-4 h-4 md:w-6 md:h-6 text-indigo-600" />
@@ -1106,10 +1119,15 @@ export default function LayoutCreatorPage() {
             {/* Redundant local header removed — Titles now in global header */}
 
             <div className="flex-1 min-h-0 bg-slate-50/50">
-              <form id="layout-form" onSubmit={handleCreateLayout} className="grid grid-cols-1 lg:grid-cols-12 h-full overflow-hidden">
+              {/* Below lg this collapses to one column, i.e. two stacked rows in a
+                  fixed-height grid. Without explicit row sizing the tall form row
+                  eats the height and the preview row shrinks to nothing — its
+                  header/footer are shrink-0 so they stayed visible while the
+                  canvas between them collapsed to 0px. */}
+              <form id="layout-form" onSubmit={handleCreateLayout} className="grid grid-cols-1 grid-rows-[minmax(0,1fr)_auto] lg:grid-rows-1 lg:grid-cols-12 h-full overflow-hidden">
 
                 {/* Left Column: Form Controls (Scrollable) */}
-                <div className="lg:col-span-7 h-full overflow-y-auto px-6 py-6 space-y-6 custom-scrollbar">
+                <div className="lg:col-span-7 min-h-0 lg:h-full overflow-y-auto px-6 py-6 space-y-6 custom-scrollbar">
 
                   {/* Basic Info & Canvas */}
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -1532,7 +1550,7 @@ export default function LayoutCreatorPage() {
                 </div>
 
                 {/* Right Column: Live Preview (Fixed Viewport) */}
-                <div className="lg:col-span-5 h-full bg-slate-50 border-l border-slate-200">
+                <div className="lg:col-span-5 h-[50vh] lg:h-full bg-slate-50 border-t lg:border-t-0 lg:border-l border-slate-200">
                   <div className="h-full flex flex-col overflow-hidden">
                     <div className="p-3 border-b border-slate-100 bg-white shrink-0 flex items-center justify-between">
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Preview (To Scale)</label>
@@ -1640,9 +1658,20 @@ export default function LayoutCreatorPage() {
               <div className="relative bg-slate-900 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col border border-slate-800 animate-in zoom-in-95 duration-200">
                 <div className="flex items-center justify-between p-6 border-b border-slate-800">
                   <h2 className="text-xl font-bold text-white">JSON Specification</h2>
-                  <button onClick={() => setSelectedLayout(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400">
-                    <X className="w-5 h-5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCopySpec(JSON.stringify(selectedLayout, null, 2))}
+                      aria-label="Copy JSON to clipboard"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 hover:bg-slate-800 transition-colors"
+                    >
+                      {specCopied
+                        ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copied</>
+                        : <><Copy className="w-3.5 h-3.5" /> Copy</>}
+                    </button>
+                    <button onClick={() => setSelectedLayout(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
                   <pre className="text-indigo-400 font-mono text-xs leading-relaxed">
