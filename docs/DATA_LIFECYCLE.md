@@ -46,10 +46,20 @@ The response now reports **`erasure_complete`** and **`unlocated_upload_rows`**;
 an incomplete erasure also logs a warning. A bare `files_deleted: 0` is no
 longer indistinguishable from success.
 
-> **Still open:** rows created before `0011` have no `order_id` and remain
-> reachable only through canvas state. They are deleted by the nightly GC on
-> age (`EXPORT_RETENTION_DAYS`, currently 7 days). Phases 3–4 of the PRD
-> (backfill + filesystem sweep) close that remainder.
+**Verification sweep.** After the deletes commit, the purge re-checks every path
+and directory it tried to remove, retries once, and returns anything still there
+as `residual_files` / `residual_dirs`. Those feed `erasure_complete`, so a
+deletion that silently failed (permission error, lock) can no longer report
+success. It verifies what the purge *knew about* — uploads are stored flat with a
+random filename prefix, so ownership comes from `UploadedFile.order_id`, not the
+path.
+
+No legacy rows remain: the instance was reset to a fresh start before `0011`
+landed, so there was nothing to backfill.
+
+> **Careful:** `order_id=''` is the legitimate value for direct partner API
+> uploads, which have no order context. Never write a cleanup that deletes rows
+> by blank `order_id` — it would destroy valid current uploads.
 
 ## Known gaps (recommended follow-ups)
 

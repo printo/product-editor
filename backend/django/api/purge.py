@@ -91,6 +91,13 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
             if p:
                 keep_paths.add(p)
 
+    # Every path we intend to remove, so the sweep after the transaction can
+    # confirm each one actually went. Deleting is not the same as having
+    # deleted: an rmtree can fail on a permission error, a file can be
+    # re-created by an in-flight write, and both previously passed silently.
+    attempted_paths: set[str] = set()
+    attempted_dirs: set[str] = set()
+
     with transaction.atomic():
         for canvas in canvases:
             key_name = getattr(canvas.api_key, 'name', 'unknown')
@@ -99,9 +106,11 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
             # 1. Export files + dirs for each render job.
             jobs = list(RenderJob.objects.filter(canvas_data=canvas))
             for job in jobs:
+                attempted_paths.update(p for p in (job.output_paths or []) if p)
                 d, f, e = _delete_files(job.output_paths or [])
                 files_deleted += d; freed_bytes += f; errors += e
                 job_dir = os.path.join(settings.EXPORTS_DIR, str(job.id))
+                attempted_dirs.add(job_dir)
                 if os.path.isdir(job_dir):
                     try:
                         shutil.rmtree(job_dir)
@@ -113,6 +122,7 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
             rs = canvas.render_state or {}
             upload_paths |= set(rs.get('image_paths') or [])
             deletable = [p for p in upload_paths if p and p not in keep_paths]
+            attempted_paths.update(deletable)
             d, f, e = _delete_files(deletable)
             files_deleted += d; freed_bytes += f; errors += e
 
@@ -156,6 +166,7 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
             if p and p not in keep_paths
         ]
         if linked_paths:
+            attempted_paths.update(linked_paths)
             d, f, e = _delete_files(linked_paths)
             files_deleted += d; freed_bytes += f; errors += e
             UploadedFile.objects.filter(file_path__in=linked_paths).delete()
@@ -168,6 +179,46 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
         embed_rows = embed_qs.count()
         embed_qs.delete()
 
+    # ── Verification sweep (PRD phase 4) ─────────────────────────────────────
+    #
+    # Runs AFTER the transaction commits, so it sees the real post-purge state.
+    # Re-checks every path and directory we tried to remove and retries once,
+    # then reports whatever is still there.
+    #
+    # Scope, stated honestly: this verifies that everything we KNEW about is
+    # gone. It cannot discover unknown upload files for the order, because
+    # uploads are stored flat under UPLOADS_DIR with a random filename prefix —
+    # nothing in the path identifies the owner. UploadedFile.order_id
+    # (migration 0011) is what makes ownership knowable; this sweep is the
+    # check that the deletion driven by it actually took effect.
+    residual_files: list[str] = []
+    for path in sorted(attempted_paths):
+        if not os.path.exists(path):
+            continue
+        try:                       # one retry — transient locks, slow unlinks
+            os.remove(path)
+            files_deleted += 1
+        except OSError as exc:
+            residual_files.append(path)
+            errors.append(f"{path}: still present after purge ({exc})")
+
+    residual_dirs: list[str] = []
+    for d_path in sorted(attempted_dirs):
+        if not os.path.isdir(d_path):
+            continue
+        try:
+            shutil.rmtree(d_path)
+        except OSError as exc:
+            residual_dirs.append(d_path)
+            errors.append(f"{d_path}: still present after purge ({exc})")
+
+    if residual_files or residual_dirs:
+        logger.error(
+            "Order %s: %d file(s) and %d dir(s) survived the purge — %s",
+            order_id, len(residual_files), len(residual_dirs),
+            (residual_files + residual_dirs)[:5],
+        )
+
     # Did we actually erase anything? A purge that removes rows but no files is
     # NOT a completed erasure, and previously reported `files_deleted: 0` with
     # no other signal — indistinguishable from an order that genuinely had no
@@ -177,7 +228,14 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
     # them. Non-zero means bytes may still be on disk somewhere we could not
     # resolve — worth investigating rather than reporting success.
     unlocated_rows = UploadedFile.objects.filter(order_id=order_id).count()
-    erasure_complete = (unlocated_rows == 0 and not errors)
+    # Complete means: no upload row left claiming this order, nothing we tried
+    # to delete survived, and no file error along the way.
+    erasure_complete = (
+        unlocated_rows == 0
+        and not residual_files
+        and not residual_dirs
+        and not errors
+    )
 
     logger.info(
         "Purged order %s: %d canvas rows, %d embed rows, %d files (%.1f MB), "
@@ -201,6 +259,8 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
         # its own reads as success. These two say whether the erasure can
         # actually be claimed as complete.
         'unlocated_upload_rows': unlocated_rows,
+        'residual_files': residual_files,
+        'residual_dirs': residual_dirs,
         'erasure_complete': erasure_complete,
         'api_keys_touched': keys_touched,
         'errors': errors,
