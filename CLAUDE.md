@@ -738,14 +738,18 @@ The internal proxy used to reject `ops/*` paths unless `session.is_ops_team`. PR
 
 **The consequence to hold in your head:** Django's `IsOpsTeam` cannot substitute for the removed check. Everything through this proxy arrives as the shared, ops-flagged `INTERNAL_API_KEY` service account, so the backend sees one privileged identity regardless of which human is logged in. The proxy was the only thing distinguishing sessions. With it gone, **every authenticated PIA session can reach every `ops/*` route**, which today is:
 
-| Route | Effect |
-|---|---|
-| `ops/layouts`, `ops/layouts/<name>` | create / edit / **delete** layouts |
-| `ops/calendar-styles/<name>` | edit theme presets |
-| `ops/holidays/<locale>/<year>` | edit holiday data |
-| `ops/orders/<order_id>/purge` | **DPDP hard delete** — irreversibly destroys an order's uploads, exports, `CanvasData`, and `EmbedSession` rows plus the files on disk |
+| Route | Reachable by | Effect |
+|---|---|---|
+| `ops/layouts`, `ops/layouts/<name>` | any authenticated session | create / edit / **delete** layouts |
+| `ops/calendar-styles/<name>` | any authenticated session | edit theme presets |
+| `ops/holidays/<locale>/<year>` | any authenticated session | edit holiday data |
+| `ops/orders/<order_id>/purge` | **ops team only** (re-gated) | **DPDP hard delete** — irreversibly destroys an order's uploads, exports, `CanvasData`, and `EmbedSession` rows plus the files on disk |
 
-The first three are the intended scope of the product decision. The purge endpoint was almost certainly not — it is unrecoverable and was reachable only by ops before. If you re-gate anything, gate that. Adding a path-specific check back in `route.ts` is the fix; the backend can't do it for you.
+The first three are the intended scope of the product decision and stay open. The purge endpoint was not — it is unrecoverable and had been ops-only — so it was re-gated in `route.ts` via **`src/lib/ops-guard.ts`**.
+
+**`isDestructiveOpsPath()` is the allowlist-in-reverse for this proxy.** It matches on path *shape* (`^ops/orders/[^/]+/purge/?$`), not an `ops/orders/` prefix, so a future read endpoint in that namespace doesn't silently become ops-only. Anything you add there becomes unreachable for ordinary staff; anything you omit is reachable by every logged-in session. Covered by `src/lib/__tests__/ops-guard.test.ts`.
+
+**If you add another destructive ops endpoint, add it to that list** — the Django-side `IsOpsTeam` check will not protect it, for the reason above.
 
 `ops/*` is still absent from the **embed** proxy allowlist, so none of this is reachable from the customer iframe — the exposure is authenticated-staff-only.
 - **`/api/embed/proxy/[...path]`** — Customer-facing iframe embed. Authenticated via short-lived `X-Embed-Token` created at `/api/embed/session`.
