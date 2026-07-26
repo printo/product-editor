@@ -17,17 +17,80 @@ When you're ready to migrate to S3:
 """
 
 import os
+import re
 import shutil
 from typing import BinaryIO, List, Optional
 from django.conf import settings
+
+
+# ── Per-order upload layout ──────────────────────────────────────────────────
+#
+# Uploads live under UPLOADS_DIR/<order_id>/ rather than flat. That single
+# change makes ownership visible in the path, which is what lets DPDP erasure
+# do a true *discovery* pass — "remove this order's directory" — instead of
+# depending on database rows to enumerate which files belonged to whom.
+#
+# Before this, a customer's files were stored as UPLOADS_DIR/<random8>_<name>
+# with nothing in the path identifying the owner. If the rows pointing at them
+# were lost, the bytes were unreachable by any order-scoped erasure. See
+# docs/DPDP_ERASURE_GAP_PRD.md.
+
+# Uploads with no order context (the direct partner API uploads before any
+# order exists). Kept as a real bucket rather than the root so the root only
+# ever contains directories.
+NO_ORDER_BUCKET = "_no_order"
+
+# Same shape the API validates order_id against at session creation.
+_ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
+
+
+def upload_subdir(order_id: Optional[str]) -> str:
+    """
+    Directory name for an order's uploads.
+
+    Traversal-safe: anything that is not a well-formed order id falls back to
+    the no-order bucket rather than being interpolated into a path.
+
+    The regex alone is NOT sufficient. '.' is a legal order-id character, so
+    `..` (and `.`, `...`) match it — and `join(UPLOADS_DIR, '..')` is the parent
+    of the uploads root, which a purge would then try to rmtree. Dot-only names
+    and anything leading with a dot are rejected explicitly. order_upload_dir()
+    re-checks containment as a second line of defence.
+    """
+    oid = (order_id or '').strip()
+    if not _ORDER_ID_RE.match(oid):
+        return NO_ORDER_BUCKET
+    if oid.startswith('.') or set(oid) == {'.'}:
+        return NO_ORDER_BUCKET
+    return oid
+
+
+def order_upload_dir(order_id: Optional[str]) -> str:
+    """
+    Absolute directory holding one order's uploads.
+
+    Asserts the result stays inside UPLOADS_DIR. upload_subdir() should already
+    guarantee that; this catches the case where it is ever loosened, because the
+    caller of this function deletes what it returns.
+    """
+    root = os.path.realpath(settings.UPLOADS_DIR)
+    candidate = os.path.realpath(os.path.join(root, upload_subdir(order_id)))
+    if candidate != root and not candidate.startswith(root + os.sep):
+        # Should be unreachable. Fail closed into the shared bucket rather than
+        # handing a caller a path outside the uploads tree.
+        return os.path.join(root, NO_ORDER_BUCKET)
+    return candidate
 
 
 class StorageBackend:
     """Abstract base — every method must be implemented by concrete backends."""
 
     # ── Upload / download ─────────────────────────────────────────────────────
-    def save_upload(self, filename: str, content: BinaryIO) -> str:
-        """Save an uploaded file and return its storage path / key."""
+    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "") -> str:
+        """Save an uploaded file and return its storage path / key.
+
+        `order_id` selects the per-order directory — see upload_subdir(). Pass
+        it wherever it is known so DPDP erasure can find the file by path."""
         raise NotImplementedError
 
     def read_upload(self, path: str) -> bytes:
@@ -70,8 +133,10 @@ class LocalStorage(StorageBackend):
     """Concrete backend that stores everything on the local filesystem."""
 
     # ── Upload / download ─────────────────────────────────────────────────────
-    def save_upload(self, filename: str, content: BinaryIO) -> str:
-        path = os.path.join(settings.UPLOADS_DIR, filename)
+    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "") -> str:
+        target_dir = order_upload_dir(order_id)
+        os.makedirs(target_dir, exist_ok=True)
+        path = os.path.join(target_dir, filename)
         with open(path, "wb") as out:
             chunk = content.read(8192)
             while chunk:
