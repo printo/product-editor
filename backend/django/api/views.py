@@ -682,25 +682,40 @@ class GenerateLayoutView(APIView):
             )
     
     @staticmethod
-    def _is_valid_layout_name(name: str) -> bool:
+    def _is_safe_layout_name(name: str) -> bool:
         """
-        Validate layout name to prevent path traversal.
-        Layout names should be alphanumeric with hyphens/underscores only.
+        Is this name structurally safe to build a path from?
+
+        Purely a path-traversal guard — it says nothing about whether the
+        layout exists. Callers that need existence must check separately so a
+        missing layout can answer 404 rather than 400.
         """
         if not name:
             return False
-        
-        # Reject if contains path separators or suspicious patterns
-        if '/' in name or '\\' in name or '..' in name or name.startswith('.'):
-            return False
-        
-        # Check if layout actually exists in storage
+        return not (
+            '/' in name or '\\' in name or '..' in name or name.startswith('.')
+        )
+
+    @staticmethod
+    def _layout_exists(name: str) -> bool:
+        """Does a layout with this filename stem exist in storage?"""
         try:
-            storage = get_storage()
-            available_layouts = storage.list_layouts()
-            return name in available_layouts
-        except:
+            return name in get_storage().list_layouts()
+        except Exception:
             return False
+
+    @staticmethod
+    def _is_valid_layout_name(name: str) -> bool:
+        """
+        Safe name AND present in storage.
+
+        Kept for callers (render submission) where a missing layout genuinely
+        is a bad request: they are naming the layout to render, not addressing
+        a resource. Read endpoints should use _is_safe_layout_name +
+        _layout_exists so "not found" reports as 404.
+        """
+        return GenerateLayoutView._is_safe_layout_name(name) and \
+            GenerateLayoutView._layout_exists(name)
 
 
 
@@ -887,11 +902,19 @@ class GetLayoutView(APIView):
     )
     def get(self, request, name: str):
         try:
-            # Validate layout name - prevents path traversal
-            if not self._is_valid_layout_name(name):
+            # Malformed name is a client error; a well-formed name that simply
+            # isn't there is a missing resource. Collapsing both into 400
+            # "Invalid layout name" made a deleted layout look like a caller
+            # bug — misleading for partners whose SKU maps to a removed layout.
+            if not self._is_safe_layout_name(name):
                 return Response(
                     {"detail": "Invalid layout name"},
                     status=status.HTTP_400_BAD_REQUEST
+                )
+            if not self._layout_exists(name):
+                return Response(
+                    {"detail": f"Layout '{name}' not found"},
+                    status=status.HTTP_404_NOT_FOUND
                 )
 
             from django.core.cache import cache as django_cache
@@ -956,17 +979,24 @@ class GetLayoutView(APIView):
             )
 
     @staticmethod
-    def _is_valid_layout_name(name: str) -> bool:
-        """Validate layout name."""
+    def _is_safe_layout_name(name: str) -> bool:
+        """Path-traversal guard only — says nothing about existence."""
         if not name or '/' in name or '\\' in name or '..' in name:
             return False
+        return not name.startswith('.')
+
+    @staticmethod
+    def _layout_exists(name: str) -> bool:
         try:
-            storage = get_storage()
-            available_layouts = storage.list_layouts()
-            return name in available_layouts
-        except:
+            return name in get_storage().list_layouts()
+        except Exception:
             return False
-    
+
+    @staticmethod
+    def _is_valid_layout_name(name: str) -> bool:
+        """Safe AND present. Retained for callers that treat absence as a 400."""
+        return GetLayoutView._is_safe_layout_name(name) and GetLayoutView._layout_exists(name)
+
     @staticmethod
     def _is_path_safe(path: str, allowed_dir: str) -> bool:
         """Ensure path is within allowed directory (prevents path traversal)."""
@@ -1565,9 +1595,12 @@ class ExternalLayoutDetailView(APIView):
         },
     )
     def get(self, request, name):
-        if not self._is_valid_layout_name(name):
+        # 400 for a malformed name, 404 for one that simply isn't there.
+        if not GetLayoutView._is_safe_layout_name(name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
-        
+        if not GetLayoutView._layout_exists(name):
+            return Response({"detail": f"Layout '{name}' not found"}, status=status.HTTP_404_NOT_FOUND)
+
         storage = get_storage()
         path = os.path.join(storage.layouts_dir(), f"{name}.json")
         
@@ -1896,8 +1929,12 @@ class EditorInitView(APIView):
         name = (request.query_params.get('layout') or '').strip()
         if not name:
             return Response({'detail': '`layout` query param required'}, status=status.HTTP_400_BAD_REQUEST)
-        if not GetLayoutView._is_valid_layout_name(name):
+        # 400 for a malformed name, 404 for one that simply isn't there — the
+        # editor needs to tell "bad request" apart from "this layout is gone".
+        if not GetLayoutView._is_safe_layout_name(name):
             return Response({'detail': 'Invalid layout name'}, status=status.HTTP_400_BAD_REQUEST)
+        if not GetLayoutView._layout_exists(name):
+            return Response({'detail': f"Layout '{name}' not found"}, status=status.HTTP_404_NOT_FOUND)
 
         surfaces_param = request.query_params.get('surfaces', '')
         # Reuse the GetLayoutView cache key so a request to either endpoint
