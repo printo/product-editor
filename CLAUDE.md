@@ -25,7 +25,7 @@ graphify explain "render_canvas_task"
 graphify explain "CalendarState"
 ```
 
-The graph covers 240 code files plus the curated doc nodes — 2,190 nodes, 3,800 edges, 187 communities (rebuilt 2026-07-26 from commit `ac51e7b`; includes the calendar product code, the caption-placement modules, and the `docs/printo-architecture-audit` set). Full stats and community listing: `graphify-out/GRAPH_REPORT.md`, whose "Graph Freshness" block records the commit it was built from — compare against `git rev-parse HEAD` to check staleness. Key communities:
+The graph covers 247 code files plus the curated doc nodes — 2,215 nodes, 3,844 edges, 182 communities (rebuilt 2026-07-26 from commit `e584f6d`; includes the calendar product code, the caption-placement modules, the PR #24 header/brand components, and the `docs/printo-architecture-audit` set). Full stats and community listing: `graphify-out/GRAPH_REPORT.md`, whose "Graph Freshness" block records the commit it was built from — compare against `git rev-parse HEAD` to check staleness. Key communities:
 - **Calendar Product Materialization** — materialize_surfaces, calendar_layout.py, per-surface overrides
 - **API Key & PIA Auth** — APIKeyUser, PIAAuthentication, RenderJob
 - **Canvas & Embed Models** — CanvasData, EmbedSession, EditorRenderView
@@ -207,7 +207,7 @@ flowchart TD
 - `src/proxy.ts` — Next.js 16 proxy file (formerly `middleware.ts`). Server-side auth gate for `/dashboard/*` and `/editor/layouts/*`; bounces logged-in users away from `/login`. Excludes `/editor/layout/[name]` because that route serves both dashboard and embed flows.
 - `src/app/login/page.tsx` + `src/app/actions/auth.ts` — login form + server action; per-IP rate limit (5/min, in-memory); maps `PiaTimeout` / `PiaServiceUnavailable` codes to user-facing messages
 - `src/types/next-auth.d.ts` — type augmentation for `Session` (`error`, `is_ops_team`, `accessToken`, `user.role`) and `JWT` — never use `(session as any)`
-- `src/app/editor/layout/[name]/page.tsx` — Main editor page. Single render path via `executeServerRender()` regardless of canvas count. `handleSubmitDesign` (embed "Save & Continue") and `executeBatchDownload` (dashboard "Download") are thin wrappers that both call it. Dual-mode (dashboard session vs. embed token).
+- `src/app/editor/layout/[name]/page.tsx` — Main editor page. Single render path via `executeServerRender()` regardless of canvas count. `handleSubmitDesign` (embed "Save & Continue") and `executeBatchDownload` (dashboard "Download") are thin wrappers that both call it. Dual-mode (dashboard session vs. embed token). **"Add Files" appends, it does not replace** — a native `<input type=file>` selection is never cumulative (each pick contains only that pick's files), so `handleFileChange` must merge onto the existing selection before handoff. Feeding the raw pick into `setFiles()` wipes every earlier canvas; that was a live bug until PR #24. Multi-surface layouts are excluded from the merge — each surface holds exactly one photo, so there's no "next canvas" to append to.
 - `src/components/` — React components (FabricEditor.tsx is the canvas core)
 - `src/components/ServiceWorkerRegistration.tsx` — registers `/sw.js` in production after `window.load`. No-op in dev so cache doesn't mask code changes. Wired into `app/layout.tsx`.
 - `public/sw.js` — minimal cache-first Service Worker for `/_next/static/*` and `/static/*`. `CACHE_VERSION` constant gates cache buckets; bump to bust everything. See `## Service Worker` section.
@@ -465,7 +465,8 @@ session.user.name        // PIA full_name
 session.user.email       // login username
 session.user.role        // "admin" | "user" (admin = is_super_user || is_ops_team)
 session.accessToken      // PIA JWT — forwarded by /api/internal/proxy as Bearer
-session.is_ops_team      // gates /api/internal/proxy/ops/* and /editor/layouts admin actions
+session.is_ops_team      // PIA ops-team flag. NO LONGER gates the internal proxy or
+                         // /editor/layouts — see "Ops privilege model" below
 session.error            // "RefreshAccessTokenError" when refresh has failed → app redirects to /login
 ```
 
@@ -525,6 +526,17 @@ Use comments sparingly. Only comment complex or non-obvious logic.
 - Icons: `lucide-react`
 - Conditional classes: `clsx` or `tailwind-merge`
 - **JSX backtick warning**: A missing closing `` ` `` in a `className={`...`}` template literal triggers ~17 cascade TypeScript errors downstream
+
+### Brand colours — `indigo` is not indigo
+
+`tailwind.config.ts` **overrides Tailwind's built-in `indigo` scale** with a purple ramp anchored at `600 = #64318E` (Printo brand purple). So `bg-indigo-600`, `ring-indigo-500`, `hover:text-indigo-700` etc. all render purple, everywhere, and the class name lies about the colour. This was done deliberately — it re-skinned every existing call site at once instead of touching hundreds of them. Don't "fix" a class back to a literal hex, and don't add a second purple scale alongside it. The accent orange is `#F17A26` and has no scale; it appears as literal hex.
+
+Other conventions from the same rework (PR #24):
+
+- **`components/ui/Dropdown.tsx` over native `<select>`** wherever the selected-option highlight must be on-brand — a native select's open list is drawn by the OS and ignores CSS. `CalendarLayoutEditor`'s selects stay native on purpose: its Jest suite drives them via `userEvent.selectOptions`, which can't operate a custom listbox.
+- **Header height is measured, not hardcoded** — `HeaderContext.headerHeight` is published from a `ResizeObserver` + `useLayoutEffect`. Sticky-offset consumers read it rather than duplicating a height class, so the two-row mobile header and one-row desktop header stay in sync.
+- **z-index ladder**: the fixed header sits at `z-[2000]`; full-screen modals need to clear it (the JSON Specification modal went `z-[60]` → `z-[200000]` after rendering behind it).
+- `TagFilter` + `lib/product-tags.ts` (`AVAILABLE_TAGS`) are shared verbatim by the dashboard and template library — chip row on desktop, `Dropdown` on mobile.
 
 ## Export Flag
 
@@ -718,7 +730,24 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 
 The Next.js frontend never exposes API keys to the browser. All backend calls go through one of two server-side proxy routes:
 
-- **`/api/internal/proxy/[...path]`** — Dashboard + editor. Authenticated via NextAuth session cookie (`pia-auth.ts` validates against `PIA_API_BASE_URL`). Uses `INTERNAL_API_KEY` (server-side only). `ops/*` sub-paths additionally check `session.is_ops_team`. Returns 401 if `session.error === 'RefreshAccessTokenError'`.
+- **`/api/internal/proxy/[...path]`** — Dashboard + editor. Authenticated via NextAuth session cookie (`pia-auth.ts` validates against `PIA_API_BASE_URL`). Uses `INTERNAL_API_KEY` (server-side only). Returns 401 if `session.error === 'RefreshAccessTokenError'`. **No per-path privilege gate** — see "Ops privilege model" immediately below.
+
+### Ops privilege model (changed in PR #24, Jul 2026)
+
+The internal proxy used to reject `ops/*` paths unless `session.is_ops_team`. PR #24 removed that check, opening template management (and the Fonts list) to any authenticated user by product decision. `/editor/layouts` and `/dashboard` lost their page-level ops redirects in the same commit.
+
+**The consequence to hold in your head:** Django's `IsOpsTeam` cannot substitute for the removed check. Everything through this proxy arrives as the shared, ops-flagged `INTERNAL_API_KEY` service account, so the backend sees one privileged identity regardless of which human is logged in. The proxy was the only thing distinguishing sessions. With it gone, **every authenticated PIA session can reach every `ops/*` route**, which today is:
+
+| Route | Effect |
+|---|---|
+| `ops/layouts`, `ops/layouts/<name>` | create / edit / **delete** layouts |
+| `ops/calendar-styles/<name>` | edit theme presets |
+| `ops/holidays/<locale>/<year>` | edit holiday data |
+| `ops/orders/<order_id>/purge` | **DPDP hard delete** — irreversibly destroys an order's uploads, exports, `CanvasData`, and `EmbedSession` rows plus the files on disk |
+
+The first three are the intended scope of the product decision. The purge endpoint was almost certainly not — it is unrecoverable and was reachable only by ops before. If you re-gate anything, gate that. Adding a path-specific check back in `route.ts` is the fix; the backend can't do it for you.
+
+`ops/*` is still absent from the **embed** proxy allowlist, so none of this is reachable from the customer iframe — the exposure is authenticated-staff-only.
 - **`/api/embed/proxy/[...path]`** — Customer-facing iframe embed. Authenticated via short-lived `X-Embed-Token` created at `/api/embed/session`.
 
 Auth env vars required for the internal proxy: `AUTH_SECRET`, `PIA_API_BASE_URL` (default: `https://pia.printo.in/api/v1`).
@@ -735,7 +764,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 |---|---|
 | `PUBLIC_HOST` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
 | `AUTH_SECRET` | NextAuth JWT signing secret (≥ 32 chars) |
-| `INTERNAL_API_KEY` | API key the internal proxy sends to Django. **Set it equal to `DIRECT_API_KEY`'s value** — the resolved APIKey must be `is_ops_team=True` ([route.ts:98](frontend/nextjs/src/app/api/internal/proxy/[...path]/route.ts)) or `/ops/*` proxy paths break, and a `create_api_key`-minted key is NOT ops-flagged. `entrypoint.sh` re-seeds the DIRECT row from `DIRECT_API_KEY` on every web boot, so reusing it survives DB restores (a one-off minted key wouldn't). |
+| `INTERNAL_API_KEY` | API key the internal proxy sends to Django. **Set it equal to `DIRECT_API_KEY`'s value** — the resolved APIKey must be `is_ops_team=True` or `/ops/*` proxy paths break (Django's `IsOpsTeam` inspects this service account, not the human session), and a `create_api_key`-minted key is NOT ops-flagged. `entrypoint.sh` re-seeds the DIRECT row from `DIRECT_API_KEY` on every web boot, so reusing it survives DB restores (a one-off minted key wouldn't). |
 | `PIA_API_BASE_URL` | Upstream auth (default `https://pia.printo.in/api/v1`) |
 | `POSTGRES_*` / `REDIS_URL` | Standard infra |
 
@@ -760,7 +789,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 
 - API keys must never appear in URLs — use the `EmbedSession` token system
 - All file-serving endpoints must validate UUID v4 format on `upload_id` before opening any path derived from request input
-- New API endpoints must use `IsAuthenticatedWithAPIKey` permission; add `is_ops_team` check for internal endpoints
+- New API endpoints must use `IsAuthenticatedWithAPIKey` permission; add `is_ops_team` check for internal endpoints. Note that a Django-side `IsOpsTeam` check does **not** restrict anything reached through the internal proxy — that path always presents the ops-flagged `INTERNAL_API_KEY` service account. Anything that must stay ops-only needs a gate in `route.ts` as well. See "Ops privilege model".
 - The login server action enforces a per-IP rate limit (5 attempts / 60 s, in-memory). If you scale the frontend container horizontally, replace it with a Redis-backed limiter — the in-memory `Map` in `src/app/actions/auth.ts` is per-process.
 - `DEBUG` defaults to off (`os.getenv("DEBUG", "0") == "1"`) — production-safe even if the env var is missing. Don't flip the default back.
 - django-csp ships in **report-only** mode (`CSP_REPORT_ONLY=True`). Watch DevTools and the violation reports; flip to `False` only after the policy has been validated against the editor (Fabric.js needs `'unsafe-eval'`) and the embed iframe (`frame-ancestors` allows `https://printo.in` and `https://*.printo.in`).

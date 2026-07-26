@@ -1,16 +1,16 @@
 # Graph Report - product-editor  (2026-07-26)
 
 ## Corpus Check
-- 240 files · ~276,115 words
+- 247 files · ~279,055 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2190 nodes · 3800 edges · 187 communities (154 shown, 33 thin omitted)
+- 2215 nodes · 3844 edges · 182 communities (148 shown, 34 thin omitted)
 - Extraction: 86% EXTRACTED · 14% INFERRED · 0% AMBIGUOUS · INFERRED: 526 edges (avg confidence: 0.55)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ac51e7b0`
+- Built from commit: `e584f6d6`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -175,13 +175,9 @@
 - [[_COMMUNITY_Community 175|Community 175]]
 - [[_COMMUNITY_Community 176|Community 176]]
 - [[_COMMUNITY_Community 177|Community 177]]
-- [[_COMMUNITY_Community 178|Community 178]]
 - [[_COMMUNITY_Community 180|Community 180]]
 - [[_COMMUNITY_Community 181|Community 181]]
 - [[_COMMUNITY_Community 182|Community 182]]
-- [[_COMMUNITY_Community 183|Community 183]]
-- [[_COMMUNITY_Community 184|Community 184]]
-- [[_COMMUNITY_Community 185|Community 185]]
 - [[_COMMUNITY_Community 186|Community 186]]
 
 ## God Nodes (most connected - your core abstractions)
@@ -199,14 +195,14 @@
 ## Surprising Connections (you probably didn't know these)
 - `HMAC-SHA256 raw-body signature verification` --conceptually_related_to--> `APIKey`  [INFERRED]
   docs/INTEGRATION.md → backend/django/api/models.py
-- `Standalone generator — no internal OMS push (v1.9)` --rationale_for--> `notify_caller_webhook_task()`  [INFERRED]
-  docs/PRD.md → backend/django/api/tasks.py
 - `Gap: APIRequest rows grow unbounded` --references--> `APIRequest`  [INFERRED]
   docs/DATA_LIFECYCLE.md → backend/django/api/models.py
+- `Standalone generator — no internal OMS push (v1.9)` --rationale_for--> `notify_caller_webhook_task()`  [INFERRED]
+  docs/PRD.md → backend/django/api/tasks.py
 - `On-demand order purge (DELETE /api/ops/orders/<id>/purge)` --conceptually_related_to--> `garbage_collector_task()`  [INFERRED]
   docs/DATA_LIFECYCLE.md → backend/django/api/tasks.py
-- `B5 — operations & reliability hardening` --references--> `garbage_collector_task()`  [INFERRED]
-  docs/PRD.md → backend/django/api/tasks.py
+- `ZIP three-subfolder layout (customer_uploads/mock/print)` --cites--> `RenderJobDownloadView`  [INFERRED]
+  README.md → backend/django/api/views.py
 
 ## Import Cycles
 - None detected.
@@ -220,35 +216,35 @@
 - **Cross-system data fragmentation problem** — printo_architecture_audit_00_executive_summary_no_shared_data_plane, printo_architecture_audit_05_gaps_and_risks_no_unified_customer, printo_architecture_audit_05_gaps_and_risks_no_unified_catalog, printo_architecture_audit_05_gaps_and_risks_no_unified_inventory, printo_architecture_audit_11_appendix_data_model_missing_join_keys [EXTRACTED 0.90]
 - **Editor Shape Icon Set** — icons_arrow_right, icons_check, icons_circle, icons_close, icons_heart, icons_square, icons_star, icons_triangle [INFERRED 0.85]
 
-## Communities (187 total, 33 thin omitted)
+## Communities (182 total, 34 thin omitted)
 
 ### Community 0 - "Calendar Product Materialization"
 Cohesion: 0.20
 Nodes (20): materialize_surfaces(), Expand a calendar template into a list of concrete surfaces.      Args:, _desk_calendar(), _poster_calendar(), Unit tests for services.calendar_layout — surface materialization, year resoluti, maskUrl is layout-global (§10.2.1) — every materialized surface inherits., surfaceOverrides cannot change mask config — it stays template-global., 12 surfaces × 1 calendar — standard desk-calendar layout. (+12 more)
 
 ### Community 1 - "API Key & PIA Auth"
-Cohesion: 0.09
-Nodes (48): APIKeyUser, PIAAuthentication, PIAUser, Custom authentication class for PIA token validation.     Verifies tokens agains, APIKey, Model to store and track API keys for external integrations., CanAccessExports, CanGenerateLayouts (+40 more)
+Cohesion: 0.10
+Nodes (40): APIKeyUser, PIAUser, CanAccessExports, CanGenerateLayouts, CanListLayouts, IsAuthenticatedWithAPIKey, IsOpsTeam, Permission class to check if API key belongs to the internal operations team. (+32 more)
 
 ### Community 2 - "App Shell & Providers"
-Cohesion: 0.06
-Nodes (36): viewport, AppWrapper(), AuthProvider(), AuthProviderProps, GENERIC_FAMILIES, GoogleFontLinks(), useGoogleFonts(), Header() (+28 more)
+Cohesion: 0.19
+Nodes (12): GENERIC_FAMILIES, GoogleFontLinks(), useGoogleFonts(), LayoutConfig, LayoutCreatorPage(), LayoutFabricPreview, LayoutFrame, _mapFrames() (+4 more)
 
 ### Community 3 - "Upload & Calendar Validators"
 Cohesion: 0.09
 Nodes (47): File validators for upload validation. Validates file size, type, and content fo, Validate the calendar-specific fields on a layout JSON.      Invoked from Layout, Validate an image file for upload., Validate a list of image files., validate_calendar_layout(), validate_image_file(), validate_image_files(), _assert_raises() (+39 more)
 
 ### Community 4 - "Engine Filenames & Cleanup"
-Cohesion: 0.17
-Nodes (14): Replace filesystem-unsafe characters in a label; trim & collapse spaces., _sanitize_for_filename(), Tests for layout_engine.engine output filename resolution + partial-failure clea, test_blank_returns_empty(), test_cleanup_continues_after_individual_failure(), test_cleanup_handles_empty_list(), test_cleanup_removes_existing_files(), test_cleanup_skips_missing_files_silently() (+6 more)
+Cohesion: 0.07
+Nodes (45): Replace filesystem-unsafe characters in a label; trim & collapse spaces., Resolve an explicitly-placed caption's box (px, top-left origin) from the, _sanitize_for_filename(), Parity tests for LayoutEngine._resolve_caption_box — the Python mirror of the br, test_defaults_match_legacy_bottom_centre(), test_explicit_overrides_used_verbatim(), test_explicit_width_recenters_default_x(), test_explicit_zero_is_kept_not_defaulted() (+37 more)
 
 ### Community 5 - "Django Admin Panels"
-Cohesion: 0.08
-Nodes (22): APIKeyAdmin, APIRequestAdmin, ExportedResultAdmin, Display generation time., Exports are tracked automatically., Show only the trailing 4 characters — avoids leaking significant         key mat, Only superusers can add keys., Only superusers can delete keys. (+14 more)
+Cohesion: 0.07
+Nodes (24): APIKeyAdmin, APIRequestAdmin, ExportedResultAdmin, Display generation time., Exports are tracked automatically., Show only the trailing 4 characters — avoids leaking significant         key mat, Only superusers can add keys., Only superusers can delete keys. (+16 more)
 
 ### Community 6 - "Calendar Preview & Frame Align"
-Cohesion: 0.09
-Nodes (22): CalBlock, CalendarFabricPreviewProps, CalFrame, MONTH_SHORT, ALIGN_BUTTONS, LayoutFabricPreviewProps, LayoutFrame, AligningGuidelinesOptions (+14 more)
+Cohesion: 0.08
+Nodes (26): CalBlock, CalendarFabricPreviewProps, CalFrame, MONTH_SHORT, AlignEdge, AlignFrame, alignFrames(), nudgeFrames() (+18 more)
 
 ### Community 7 - "Month Grid & Pills"
 Cohesion: 0.17
@@ -256,7 +252,7 @@ Nodes (22): build_month_grid(), Build 35- or 42-cell month grid. Each cell: {iso
 
 ### Community 8 - "Bearer Auth & Ops Views"
 Cohesion: 0.08
-Nodes (29): BearerTokenAuthentication, Custom authentication class for bearer token validation.     Validates API keys, CalendarStylesView, _holiday_path(), HolidaysView, _list_calendar_styles(), Write fonts config to disk and invalidate the cache., Persist the SKU → layout mapping atomically and invalidate the cache. (+21 more)
+Nodes (34): BearerTokenAuthentication, PIAAuthentication, Custom authentication class for bearer token validation.     Validates API keys, Custom authentication class for PIA token validation.     Verifies tokens agains, CalendarStylesView, _holiday_path(), HolidaysView, _list_calendar_styles() (+26 more)
 
 ### Community 9 - "Calendar Layout Editor"
 Cohesion: 0.12
@@ -264,19 +260,19 @@ Nodes (15): CalendarFabricPreview, CalendarLayoutDraft, CalendarLayoutEditor(), 
 
 ### Community 10 - "Editor Modal & Toolbars"
 Cohesion: 0.09
-Nodes (29): ColorPicker(), ColorPickerProps, SurfaceDefinition, AlignmentToolbar(), AlignmentToolbarProps, H_ITEMS, HAlign, V_ITEMS (+21 more)
+Nodes (33): ColorPicker(), ColorPickerProps, SurfaceDefinition, AlignmentToolbar(), AlignmentToolbarProps, H_ITEMS, HAlign, V_ITEMS (+25 more)
 
 ### Community 11 - "Colour-Managed Image Loader"
-Cohesion: 0.14
-Nodes (24): open_source_rgba(), Open a customer source image the way every render path must:     EXIF-orientatio, _curv_gamma(), _desc_tag(), make_display_p3_icc(), Tests for services.image_loader — the colour-managed source loader (Phase 2 item, P3(200,100,50) ≈ sRGB(215,92,21) — the same numbers mean a different     colour, P3 and sRGB share the white point — grays must survive nearly unchanged. (+16 more)
+Cohesion: 0.06
+Nodes (37): Load a mask image from its URL path, or return None., Convert normalized (0–1) frame coordinates to pixels.          JSON-defined layo, Extract a single-surface definition from a legacy (non-product) layout JSON., Write image data to disk atomically using .tmp → rename pattern., Yield (batch, n) for each image batch in this surface.         n is 1-indexed an, Delete partial output files left on disk by a multi-surface render         that, Generate export files for a single surface.         Returns a list of output fil, Generate layout images. Returns a list of output file paths.          canvases_m (+29 more)
 
 ### Community 12 - "Canvas & Embed Models"
 Cohesion: 0.13
 Nodes (16): EditorRenderView, POST /api/editor/render      Submit a server-side render job from files already, Stream all output files of a completed render job as a single ZIP archive., RenderJobDownloadView, Key Data Flow, isExport flag gating guardrail, Path traversal safety guardrail, v2 S3 download path readiness (§11.17) (+8 more)
 
 ### Community 13 - "Image Metadata Utils"
-Cohesion: 0.13
-Nodes (16): LazyImg, LazyImgProps, detectJpegColorSpace(), getImageMetadata(), getImageSize(), isImageComplete(), loadImageElement(), metadataCache (+8 more)
+Cohesion: 0.09
+Nodes (24): LazyImg, LazyImgProps, detectJpegColorSpace(), getImageMetadata(), getImageSize(), isImageComplete(), loadImageElement(), metadataCache (+16 more)
 
 ### Community 14 - "Webhook SSRF Guard"
 Cohesion: 0.11
@@ -295,16 +291,16 @@ Cohesion: 0.11
 Nodes (14): attempts, checkRateLimit(), clientIp(), googleLoginAction(), loginAction(), pruneRateLimit(), DecodedToken, GoogleDomainNotAllowedError (+6 more)
 
 ### Community 18 - "Fabric Editor & Shapes"
-Cohesion: 0.15
-Nodes (19): createShapeFromOverlay(), getShapeDef(), getShapePath(), CanvasEditorSidebarProps, applyOverlayToObject(), FabricEditor, FabricEditorProps, INTERACTIVE_SHAPE_OPTS (+11 more)
+Cohesion: 0.12
+Nodes (22): centerCanvasViewport(), createShapeFromOverlay(), getShapeDef(), getShapePath(), SHAPE_CATALOG, ShapeDef, applyOverlayToObject(), FabricEditor (+14 more)
 
 ### Community 19 - "IndexedDB File Store"
-Cohesion: 0.13
-Nodes (24): cropMemo, CropResult, deleteFile(), deleteOrder(), estimateUsage(), FileRecord, FileStoreQuotaError, getCachedCrop() (+16 more)
+Cohesion: 0.14
+Nodes (23): cropMemo, CropResult, deleteFile(), deleteOrder(), estimateUsage(), FileRecord, FileStoreQuotaError, getCachedCrop() (+15 more)
 
 ### Community 20 - "Server Overlay Renderer"
-Cohesion: 0.24
-Nodes (12): Draw text / shape / image overlays onto `canvas` in place.      Args:         ca, render_overlays(), _make_sample_canvas(), _make_sample_image_overlay_file(), Smoke test for services.overlay_renderer (CALENDAR_FEATURE_PRD.md §5, Phase 1)., Regression guard: confirm `_composite_canvas` skips the new overlay path     ent, Synthetic 5×7 @ 300 DPI canvas with a soft gradient background., Drop a tiny RGBA sticker to disk so the image overlay path exercises. (+4 more)
+Cohesion: 0.12
+Nodes (23): _draw_shape(), _draw_text(), _parse_color(), _paste_image(), Server-side overlay renderer (Phase 1 of CALENDAR_FEATURE_PRD.md §5).  Fixes a p, Render a `TextOverlay` onto canvas (assumed RGBA mode)., Render a `ShapeOverlay` onto canvas (assumed RGBA mode)., Render an `ImageOverlay` onto canvas (assumed RGBA mode). (+15 more)
 
 ### Community 21 - "Calendar Product Preview"
 Cohesion: 0.11
@@ -319,8 +315,8 @@ Cohesion: 0.17
 Nodes (15): Phase 1 — server-side overlay rendering (foundation), Pre-existing gap: server renders no overlays, Single bundled default font, no picker (§11.7), Bundled Inter Variable font, Do-not-add-more-fonts rule, ImageFont, _autofit_text(), Binary-search for the largest font size that fits `text` inside `max_w`.     Ret (+7 more)
 
 ### Community 24 - "Celery Render Task Extractors"
-Cohesion: 0.06
-Nodes (45): _build_uploaded_files_map(), _extract_backgrounds_per_canvas(), _extract_calendar_state(), _extract_canvases_meta(), _extract_frame_transforms(), _extract_overlays_per_canvas(), _free_space_mb(), garbage_collector_task() (+37 more)
+Cohesion: 0.15
+Nodes (19): _build_uploaded_files_map(), _extract_backgrounds_per_canvas(), _extract_calendar_state(), _extract_canvases_meta(), _extract_frame_transforms(), _extract_overlays_per_canvas(), Celery tasks for asynchronous image generation., Pull the customer's calendar-product choices out of editor_state for     a produ (+11 more)
 
 ### Community 25 - "Month Tile Thumbnails"
 Cohesion: 0.15
@@ -347,8 +343,8 @@ Cohesion: 0.18
 Nodes (12): surfaceMonthList(), CellEntry, displayLabelFor(), GridCell, MINIMALIST_COLORS, resolveBaseYear(), resolveDefaultYear(), ResolvedThemeColors (+4 more)
 
 ### Community 31 - "Engine Surface Generation"
-Cohesion: 0.22
-Nodes (4): Convert normalized (0–1) frame coordinates to pixels.          JSON-defined layo, Extract a single-surface definition from a legacy (non-product) layout JSON., Delete partial output files left on disk by a multi-surface render         that, Generate layout images. Returns a list of output file paths.          canvases_m
+Cohesion: 0.19
+Nodes (11): Pick the render contract source and image paths for a render job.      The contr, _resolve_render_inputs(), Tests for the editor_state / render_state split (Phase 2 — "submit must not over, Old render_state rows written without image_paths degrade gracefully., GenerateLayoutView rows have neither blob — engine falls back to fit_mode., A queued job renders from the submit snapshot even after autosaves., Jobs enqueued before the 0008 deploy hold the payload in editor_state., test_direct_api_caller_with_neither_field() (+3 more)
 
 ### Community 32 - "Smart Downscale Tests"
 Cohesion: 0.25
@@ -367,20 +363,20 @@ Cohesion: 0.14
 Nodes (8): APIRequestLoggingMiddleware, RateLimitMiddleware, API Middleware Contains logging and rate limiting for API requests., Middleware for logging API requests, Rate limiting using Django cache backend.      Works correctly across multiple G, MiddlewareMixin, ProxyAuthenticationMiddleware, Ensure /admin/* is reached only via the edge proxy (nginx), never via a     dire
 
 ### Community 36 - "Chunked Upload Utils"
-Cohesion: 0.13
-Nodes (17): UploadCalendarCellImageOptions, ALLOWED_IMAGE_EXTENSIONS, backoffDelay(), fetchWithRetry(), fileExtension(), isAllowedImageFile(), partitionByAllowedType(), RETRYABLE_STATUS (+9 more)
+Cohesion: 0.17
+Nodes (15): UploadCalendarCellImageOptions, ALLOWED_IMAGE_EXTENSIONS, backoffDelay(), fetchWithRetry(), fileExtension(), isAllowedImageFile(), partitionByAllowedType(), RETRYABLE_STATUS (+7 more)
 
 ### Community 37 - "Docker Compose Stack"
-Cohesion: 0.32
-Nodes (12): celery[redis]==5.3.4 dependency, Django + Gunicorn backend service, celery-beat scheduler service, celery-worker-priority service, celery-worker-standard service, PostgreSQL 16 db service, Next.js frontend service, nginx edge proxy service (+4 more)
+Cohesion: 0.23
+Nodes (15): Service Worker, celery[redis]==5.3.4 dependency, Django + Gunicorn backend service, celery-beat scheduler service, celery-worker-priority service, celery-worker-standard service, PostgreSQL 16 db service, Next.js frontend service (+7 more)
 
 ### Community 38 - "Holiday File Loader"
 Cohesion: 0.15
 Nodes (14): Global holiday auto-load, invalidate_cache(), load_holidays_for_year(), Disk-backed holiday loader for the server-side calendar renderer (CALENDAR_FEATU, Clear the holiday-file cache. Called after PUT/DELETE in HolidaysView., Return the on-disk path for (locale, year), or None if inputs are unsafe., LRU-cached disk read. Returns a tuple so the value is hashable / immutable., Public API: return the events list for (locale, year), or [] on miss.      Args: (+6 more)
 
 ### Community 39 - "Frontend Dependencies"
-Cohesion: 0.13
-Nodes (15): dependencies, clsx, exifreader, fabric, jose, jszip, lucide-react, next (+7 more)
+Cohesion: 0.12
+Nodes (16): dependencies, clsx, exifreader, fabric, framer-motion, jose, jszip, lucide-react (+8 more)
 
 ### Community 40 - "Storage Backend Abstraction"
 Cohesion: 0.07
@@ -391,12 +387,12 @@ Cohesion: 0.31
 Nodes (12): _engine(), _near(), _one_small_frame_surface(), Tests for canvas background + paper-mat colour rendering in layout_engine.engine, When mat == background there is nothing to paint; frame still renders., The mat hole honours the frame's circular shape: the frame's bounding-box     co, _solid(), test_background_color_fills_canvas() (+4 more)
 
 ### Community 42 - "Frame Alignment Tests"
-Cohesion: 0.29
-Nodes (13): _center(), _near(), Tests for the position-explicit frame/photo alignment contract in layout_engine., [RED, GREEN, ''] → last frame blank, first two unaffected., [RED, '', BLUE] → RED in f0, BLANK in f1, BLUE in f2 (no shift)., The specific misprint symptom: BLUE must NOT appear in the empty frame 1., No gap → straightforward 1:1 placement still works., _solid() (+5 more)
+Cohesion: 0.23
+Nodes (10): _free_space_mb(), Free disk space at `path` in MB (used by the disk-full pre-flight)., _chunk_bounds_ok(), Tests for the queue/worker resilience guards (Phase 4): disk-free helper and the, Mirror of the ChunkedUploadInitView bound check (Phase 4)., test_chunk_bounds_accept_exact_count(), test_chunk_bounds_reject_hostile_and_degenerate(), test_chunk_bounds_small_file_single_chunk() (+2 more)
 
 ### Community 43 - "Layout File Views"
-Cohesion: 0.06
-Nodes (30): ExternalLayoutDetailView, GenerateLayoutView, GetLayoutView, LayoutManagementView, View to manage layout JSON files - requires Ops Team permissions., Validate layout name for security., Ensure path is within the intended directory., List layouts or get a specific layout's JSON. (+22 more)
+Cohesion: 0.07
+Nodes (26): ExternalLayoutDetailView, GenerateLayoutView, LayoutManagementView, View to manage layout JSON files - requires Ops Team permissions., Validate layout name for security., Ensure path is within the intended directory., List layouts or get a specific layout's JSON., Create or update a layout JSON file. (+18 more)
 
 ### Community 44 - "Production Startup Checks"
 Cohesion: 0.21
@@ -415,8 +411,8 @@ Cohesion: 0.21
 Nodes (9): _delete_files(), purge_order_data(), On-demand data erasure for a single order (Phase 4 — DPDP right-to-erasure).  Th, Delete each file path; return (deleted_count, freed_bytes, errors)., Hard-delete all data for `order_id`. When `api_key` is given, scope to that, Tests for the order data-purge helpers (Phase 4 — DPDP right-to-erasure).  The f, test_delete_files_counts_and_frees(), test_delete_files_reports_undeletable() (+1 more)
 
 ### Community 48 - "Webhook & Embed Contract"
-Cohesion: 0.32
-Nodes (8): notify_caller_webhook_task(), Notify the embed caller (e.g. printo.in storefront) that rendering has     compl, Embed session & order-id flow, HMAC-SHA256 raw-body signature verification, pe-callback webhook contract, Embed integration architecture (A2.1 sequence), Problem: manual preflight bottleneck, Solution Track A — automated preview & validation
+Cohesion: 0.18
+Nodes (13): notify_caller_webhook_task(), Notify the embed caller (e.g. printo.in storefront) that rendering has     compl, Embed session & order-id flow, Knowledge Graph, Product Editor — standalone print-file generator, No AI image-processing guardrail, HMAC-SHA256 raw-body signature verification, pe-callback webhook contract (+5 more)
 
 ### Community 49 - "Render State Resolution"
 Cohesion: 0.06
@@ -431,16 +427,16 @@ Cohesion: 0.08
 Nodes (24): 10. Product Editor → Printo.in storefront (webhook), 11. Product Editor → PIA (auth), 12. Product Editor ↔ Estimator, 1. Printo.in → PIA (auth), 2. Printo.in ↔ Estimator (PHP), 3. Printo.in ← Razorpay/PayU/Paytm/Epaylater webhooks, 4. Printo.in ↔ Couriers (11 logistics integrations), 5. Printose → PIA (auth) (+16 more)
 
 ### Community 52 - "Calendar Cell Upload"
-Cohesion: 0.13
-Nodes (13): ALLOWED_MIMES, CalendarCellUploadError, uploadCalendarCellImage(), UploadCalendarCellImageResult, validateCellImageFile(), detectFileOrientation(), fingerprint(), inflight (+5 more)
+Cohesion: 0.24
+Nodes (7): ALLOWED_MIMES, CalendarCellUploadError, uploadCalendarCellImage(), UploadCalendarCellImageResult, validateCellImageFile(), UploadResult, createObjectURLSpy
 
 ### Community 53 - "Imposition & Surface Types"
 Cohesion: 0.08
 Nodes (23): A. Printo.in, Appendix — API Inventory, Auth, B. Printose (`printo_se_api`), C. Product Editor, Cross-references, D. Estimator (`cs.printo.in`) — surface only, Deprecated / dead (+15 more)
 
 ### Community 54 - "Canvas Merge Planning"
-Cohesion: 0.22
-Nodes (8): CanvasCarry, canvasHasRealEdits(), ClaimEntry, countCanvasesLosingEdits(), planCanvasReuse(), ReusePlan, FrameState, Overlay
+Cohesion: 0.26
+Nodes (6): canvasHasRealEdits(), ClaimEntry, countCanvasesLosingEdits(), planCanvasReuse(), ReusePlan, FrameState
 
 ### Community 55 - "Package Scripts"
 Cohesion: 0.17
@@ -475,8 +471,8 @@ Cohesion: 0.22
 Nodes (4): Generate a secure random API key., Create a new API key., BaseCommand, Command
 
 ### Community 63 - "GC & Security Hardening"
-Cohesion: 0.07
-Nodes (27): django-csp==3.8 dependency, B5 — operations & reliability hardening, B6 — login flow hardening, 1. Server prerequisites, 2. Configure environment, 3. TLS preparation (nginx + Cloudflare Origin Certificate), 4. Deploy, 5. Scale workers for peak load (+19 more)
+Cohesion: 0.12
+Nodes (16): Alternative: frontend outside Docker (faster iteration), API Reference, Core endpoints, Database Management, Direct partner generation, Environment Variables, File Storage, License (+8 more)
 
 ### Community 64 - "Embed Proxy Route"
 Cohesion: 0.31
@@ -507,8 +503,8 @@ Cohesion: 0.11
 Nodes (18): 11.10 No overflow indicator — hard cap of 3 total entries per cell, 11.11 `generic` locale — flexible holiday source, 11.12 Out-of-month cells — date number only, no entries, 11.13 Server-side renderer timezone — IST-only for v1, 11.14 MAX_ENTRIES precedence — user-first, 11.15 Validator — reject banned fields in `surfaceOverrides`, 11.16 Layout versioning — fresh load on every embed, 11.17 v2 readiness — S3 download path (+10 more)
 
 ### Community 71 - "Async Generate View"
-Cohesion: 0.12
-Nodes (15): Adding a New Layout Property, Auto-orientation (server-side MediaPipe Pose), Code Style, Coordinate System, Deployment (`deploy.sh`), Environment Variables, Export Flag, Fixed (+7 more)
+Cohesion: 0.11
+Nodes (17): Adding a New Layout Property, Auto-orientation (server-side MediaPipe Pose), Code Style, Coordinate System, Deployment (`deploy.sh`), Environment Variables, Export Flag, Fixed (+9 more)
 
 ### Community 72 - "Calendar Design Primitives"
 Cohesion: 0.25
@@ -555,8 +551,8 @@ Cohesion: 0.40
 Nodes (4): GoogleIdButtonOptions, GoogleIdConfiguration, GoogleIdCredentialResponse, Window
 
 ### Community 83 - "Any-Content-Type Parser"
-Cohesion: 0.10
-Nodes (19): CanvasData, EmbedSession, Short-lived session token for embedding the editor in external sites.      Exter, Persisted canvas design for async rendering and editor state recovery., Async rendering job status and results., RenderJob, _AnyContentTypeParser, CanvasStateView (+11 more)
+Cohesion: 0.09
+Nodes (21): CanvasData, EmbedSession, Short-lived session token for embedding the editor in external sites.      Exter, Persisted canvas design for async rendering and editor state recovery., Async rendering job status and results., RenderJob, _AnyContentTypeParser, CanvasStateView (+13 more)
 
 ### Community 84 - "Secure Export Download"
 Cohesion: 0.29
@@ -599,12 +595,12 @@ Cohesion: 0.24
 Nodes (12): date, Return today's date in IST. v1 customers are India-only (§11.13)., Implement the PRD §10.4 baseYear formula.      Args:         calendar_type: 'eng, Resolve a layout's `monthRange.defaultYear` to a concrete year.      `"current"`, resolve_base_year(), resolve_default_year(), today_ist(), test_resolve_base_year_english_is_today_year() (+4 more)
 
 ### Community 144 - "Community 144"
-Cohesion: 0.21
-Nodes (11): _draw_shape(), _draw_text(), _parse_color(), _paste_image(), Server-side overlay renderer (Phase 1 of CALENDAR_FEATURE_PRD.md §5).  Fixes a p, Render a `TextOverlay` onto canvas (assumed RGBA mode)., Render a `ShapeOverlay` onto canvas (assumed RGBA mode)., Render an `ImageOverlay` onto canvas (assumed RGBA mode). (+3 more)
+Cohesion: 0.23
+Nodes (7): HeaderBrand(), HeaderUserMenu(), HeaderUserMenuProps, ubuntu, SegmentedNav(), SegmentedNavItem, SegmentedNavProps
 
 ### Community 145 - "Community 145"
-Cohesion: 0.39
-Nodes (10): _centre(), _generate(), _near(), Tests for per-surface payload grouping in multi-surface products (Phase 3 — cros, _solid(), test_meta_routes_each_photo_to_its_own_surface(), test_omitted_surface_prints_blank_not_the_other_photo(), test_transforms_follow_their_surface() (+2 more)
+Cohesion: 0.18
+Nodes (7): CalendarLayoutEditorPage(), EXISTING_LAYOUT, HOLIDAYS_RESPONSE, mockParams, mockPush, mockReplace, STYLE_RESPONSE
 
 ### Community 146 - "Community 146"
 Cohesion: 0.18
@@ -619,20 +615,20 @@ Cohesion: 0.18
 Nodes (10): Cost (🟢), Gap & Risk Analysis, Reliability (🟠), Risk by category, Risk register, Security (🔴 dominant), Strategic (🟠), Velocity (🟠) (+2 more)
 
 ### Community 149 - "Community 149"
-Cohesion: 0.20
-Nodes (10): 10. Success Metrics (Post-Automation), 1. Executive Summary, 5. Current vs Automated Flow Comparison, 7. Decision & Alignment Framework, 8.1 v1.7 Deployment Checklist, 8. Next Steps & Action Items, 9. Open Questions, PRD: Product Editor — End-to-End Production Automation (+2 more)
+Cohesion: 0.05
+Nodes (37): 10. Success Metrics (Post-Automation), 1. Executive Summary, 2.1 Current Production Workflow (As-Is), 2.2 Observed Problems, 2.3 Root Cause, 2.4 TAT Breakdown (Current vs Target), 2. Problem Statement, 3.1 Customer Experience (+29 more)
 
 ### Community 150 - "Community 150"
 Cohesion: 0.20
-Nodes (6): Load a mask image from its URL path, or return None., Write image data to disk atomically using .tmp → rename pattern., Yield (batch, n) for each image batch in this surface.         n is 1-indexed an, Generate export files for a single surface.         Returns a list of output fil, ICC bytes for tagging output files as explicitly sRGB (~3 KB, cached)., srgb_profile_bytes()
+Nodes (10): garbage_collector_task(), Periodic task to clean up expired export files.      Runs daily at 02:00 UTC. Re, django-csp==3.8 dependency, Async task rules (self.retry only, on_commit dispatch), GC skips manual-review orders guardrail, On-demand order purge (DELETE /api/ops/orders/<id>/purge), B5 — operations & reliability hardening, B6 — login flow hardening (+2 more)
 
 ### Community 151 - "Community 151"
-Cohesion: 0.31
-Nodes (8): Resolve an explicitly-placed caption's box (px, top-left origin) from the, Parity tests for LayoutEngine._resolve_caption_box — the Python mirror of the br, test_defaults_match_legacy_bottom_centre(), test_explicit_overrides_used_verbatim(), test_explicit_width_recenters_default_x(), test_explicit_zero_is_kept_not_defaulted(), test_none_and_empty_string_fall_back_to_defaults(), test_px_per_mm_scales_mm_values()
+Cohesion: 0.24
+Nodes (7): AVAILABLE_TAGS, Dropdown(), DropdownOption, DropdownProps, OPTIONS, TagFilter(), TagFilterProps
 
 ### Community 152 - "Community 152"
-Cohesion: 0.29
-Nodes (5): AlignEdge, AlignFrame, alignFrames(), nudgeFrames(), RichFrame
+Cohesion: 0.28
+Nodes (5): viewport, AppWrapper(), AuthProvider(), AuthProviderProps, ServiceWorkerRegistration()
 
 ### Community 153 - "Community 153"
 Cohesion: 0.20
@@ -647,12 +643,12 @@ Cohesion: 0.22
 Nodes (9): 10.1 Calendar as a Multi-Surface Product, 10.2.1 Per-surface overrides (sparse, optional), 10.2 Single-template authoring + 12-surface auto-gen, 10.3 Ops vs Customer control split (updated), 10.4 Auto-rolling year (no manual maintenance), 10.5 Photobook and other future product types, 10.6 Resolved open questions (May 21, 2026), 10.7 Revised effort — superseded by the §5 replan (+1 more)
 
 ### Community 156 - "Community 156"
-Cohesion: 0.22
-Nodes (9): 4.2 Solution Track B — Remaining Gaps for Full Automation, B1 — Canvas State Persistence ✅ Implemented, B2 — Async Image Generation Queue ✅ Implemented, B3 — SKU-to-Layout Mapping ✅ Implemented, B4.1 — System component view, B4 — Server-Side Upload + Render for Large Batches ✅ Implemented, B5 — Operations & Reliability Hardening ✅ Complete, B6 — Login Flow Hardening ✅ Complete (+1 more)
+Cohesion: 0.33
+Nodes (7): HeaderSpacer(), Header(), HeaderContext, HeaderContextType, HeaderProvider(), useHeader(), LayoutEditorPage()
 
 ### Community 157 - "Community 157"
-Cohesion: 0.22
-Nodes (5): CanvasSpec, filterSurfaces(), FrameSpec, NormalizedLayout, normalizeLayout()
+Cohesion: 0.28
+Nodes (5): LayoutSVG(), LayoutSVGProps, Dashboard(), SearchInput(), SearchInputProps
 
 ### Community 158 - "Community 158"
 Cohesion: 0.22
@@ -671,15 +667,15 @@ Cohesion: 0.25
 Nodes (7): AI Guardrails — Product Editor, Async Task Rules (Celery), Backend Guardrails (Django), Data Consistency, Data Integrity, Frontend Guardrails (Next.js/Fabric.js), General Rules
 
 ### Community 162 - "Community 162"
-Cohesion: 0.36
-Nodes (6): SHAPE_CATALOG, ShapeDef, CATEGORIES, ShapesPicker(), ShapesPickerProps, ShapeOverlay
+Cohesion: 0.25
+Nodes (6): detectFileOrientation(), fingerprint(), inflight, memo, OrientationOutcome, OrientationResult
 
 ### Community 163 - "Community 163"
 Cohesion: 0.25
 Nodes (7): Executive Summary, How to read this document, The five biggest risks, The five Printo systems, TL;DR, What's working, What we recommend (board-level)
 
 ### Community 164 - "Community 164"
-Cohesion: 0.25
+Cohesion: 0.17
 Nodes (8): Calendar feature — S3-readiness audit (Phase 9, PRD §11.17), Calendar-specific paths, Conclusion, Engine output paths, No hardcoded paths outside STORAGE_ROOT, S3 transition path (when ready), Storage roots (all env-driven), ZIP delivery
 
 ### Community 165 - "Community 165"
@@ -711,12 +707,8 @@ Cohesion: 0.40
 Nodes (5): Architecture, Async Queue, Backend Structure, Frontend Structure, Stack
 
 ### Community 172 - "Community 172"
-Cohesion: 0.40
-Nodes (5): Backend (Django), Commands, Docker (primary workflow), Frontend (Next.js), Utilities
-
-### Community 173 - "Community 173"
-Cohesion: 0.40
-Nodes (5): Knowledge Graph, Product Editor — standalone print-file generator, No AI image-processing guardrail, Standalone generator — no internal OMS push (v1.9), Scalar API reference page
+Cohesion: 0.33
+Nodes (6): Backend (Django), Commands, Docker (primary workflow), Frontend (Next.js), Tests, Utilities
 
 ### Community 174 - "Community 174"
 Cohesion: 0.40
@@ -727,16 +719,12 @@ Cohesion: 0.40
 Nodes (5): 1. Env vars, 2. Route registration, 3. Tell Product Editor where to call you, 4. Firewall, Wiring
 
 ### Community 176 - "Community 176"
-Cohesion: 0.40
-Nodes (5): 2.1 Current Production Workflow (As-Is), 2.2 Observed Problems, 2.3 Root Cause, 2.4 TAT Breakdown (Current vs Target), 2. Problem Statement
+Cohesion: 0.33
+Nodes (6): 1. Server prerequisites, 2. Configure environment, 3. TLS preparation (nginx + Cloudflare Origin Certificate), 4. Deploy, 5. Scale workers for peak load, Production Deployment
 
 ### Community 177 - "Community 177"
-Cohesion: 0.40
-Nodes (5): 4.1 Solution Track A — Automated Preview & Validation (Built), 4. Proposed Solution, A1 — Customer-Facing Preview Before Checkout, A2.1 — Embed Integration Architecture (v1.8), A2 — Direct-to-Production File Delivery (Post-Checkout)
-
-### Community 178 - "Community 178"
-Cohesion: 0.40
-Nodes (3): _convert_to_srgb(), Colour-managed source-image loader — the single choke point for opening customer, Convert a profile-tagged image to sRGB RGBA; fail open on any error.
+Cohesion: 0.50
+Nodes (3): GetLayoutView, Get layout JSON - requires API key., Ensure path is within allowed directory (prevents path traversal).
 
 ### Community 180 - "Community 180"
 Cohesion: 0.50
@@ -750,32 +738,20 @@ Nodes (4): 4.6 UI/UX flows, Flow A — Ops creates a calendar layout, Flow B —
 Cohesion: 0.50
 Nodes (3): Data Lifecycle & Retention, Known gaps (recommended follow-ups), On-demand erasure — `DELETE /api/ops/orders/<order_id>/purge`
 
-### Community 183 - "Community 183"
-Cohesion: 0.50
-Nodes (4): 3.1 Customer Experience, 3.2 Revenue & Conversion, 3.3 Operational Risk, 3. Business Impact
-
-### Community 184 - "Community 184"
-Cohesion: 0.50
-Nodes (4): 6. Recommended Path Forward, Phase 1 — Immediate (0–2 weeks), Phase 2 — Direct-to-Production (2–6 weeks), Phase 3 — Full Catalogue Rollout (1–3 months)
-
-### Community 185 - "Community 185"
-Cohesion: 0.67
-Nodes (3): Service Worker, Web-tier load baseline (ApacheBench), Post-automation success metrics
-
 ## Knowledge Gaps
-- **675 isolated node(s):** `Migration`, `Migration`, `Migration`, `Migration`, `Migration` (+670 more)
+- **685 isolated node(s):** `Migration`, `Migration`, `Migration`, `Migration`, `Migration` (+680 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **33 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **34 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `LayoutEngine` connect `Canvas & Embed Models` to `API Key & PIA Auth`, `Engine Filenames & Cleanup`, `Bearer Auth & Ops Views`, `Colour-Managed Image Loader`, `Community 145`, `Community 150`, `Bundled Font & Autofit`, `Celery Render Task Extractors`, `Community 151`, `Engine Canvas Compositing`, `Engine Surface Generation`, `Smart Downscale Tests`, `Canvas Colour Tests`, `Frame Alignment Tests`, `Layout File Views`, `Community 178`, `Frame Shape Tests`, `ML Orientation Client`, `Any-Content-Type Parser`, `Secure Export Download`, `S3 Readiness Audit`?**
-  _High betweenness centrality (0.074) - this node is a cross-community bridge._
-- **Why does `render_canvas_task()` connect `Celery Render Task Extractors` to `Layout File Views`, `Canvas & Embed Models`, `Docker Compose Stack`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
-- **Why does `EmbedSession` connect `Any-Content-Type Parser` to `API Key & PIA Auth`, `Django Admin Panels`, `Bearer Auth & Ops Views`, `Layout File Views`, `Canvas & Embed Models`, `Webhook & Embed Contract`, `Secure Export Download`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
+- **Why does `LayoutEngine` connect `Canvas & Embed Models` to `Smart Downscale Tests`, `API Key & PIA Auth`, `ML Orientation Client`, `Frame Shape Tests`, `Engine Filenames & Cleanup`, `Bearer Auth & Ops Views`, `Canvas Colour Tests`, `Layout File Views`, `Colour-Managed Image Loader`, `Community 177`, `Any-Content-Type Parser`, `Secure Export Download`, `Bundled Font & Autofit`, `Celery Render Task Extractors`, `Engine Canvas Compositing`, `S3 Readiness Audit`?**
+  _High betweenness centrality (0.068) - this node is a cross-community bridge._
+- **Why does `Migrations` connect `Any-Content-Type Parser` to `Async Generate View`?**
+  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+- **Why does `render_canvas_task()` connect `Celery Render Task Extractors` to `Docker Compose Stack`, `Frame Alignment Tests`, `Layout File Views`, `Canvas & Embed Models`, `Community 150`, `Engine Surface Generation`?**
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
 - **Are the 31 inferred relationships involving `LayoutEngine` (e.g. with `render_canvas_task()` and `_AnyContentTypeParser`) actually correct?**
   _`LayoutEngine` has 31 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 37 inferred relationships involving `APIKey` (e.g. with `APIKeyAdmin` and `APIRequestAdmin`) actually correct?**
