@@ -73,6 +73,13 @@ const GRID_KEY    = '__gridLayer';
 const BLEED_KEY   = '__bleedLayer';
 const SAFE_KEY    = '__safeLayer';
 
+// Guide colours. These must stay in sync with the "Safe Area" / "Bleed Zone"
+// legend swatches on the ops layout editor page (editor/layouts/page.tsx),
+// which have always advertised green and red. The strokes here were near-black
+// (#0f172a safe, #450a0a bleed), so the legend and the canvas disagreed.
+const SAFE_ZONE_COLOR  = '#10b981'; // emerald-500
+const BLEED_ZONE_COLOR = '#f43f5e'; // rose-500
+
 // ─── Interactive shape controls styling ──────────────────────────────────────
 
 const INTERACTIVE_SHAPE_OPTS = {
@@ -266,6 +273,15 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   // Canvas logical dimensions (passed from surface or fallback)
   const canvasW = canvasWidth || layout?.canvas?.width || (layout?.surfaces?.[0] as any)?.width || 1200;
   const canvasH = canvasHeight || layout?.canvas?.height || (layout?.surfaces?.[0] as any)?.height || 1800;
+
+  // Guide strokes and dashes live in canvas-pixel space, but the canvas is
+  // zoomed to fit the viewport — so a large layout (more canvas px) shrinks
+  // them on screen until the dashes read as a solid hairline. Scaling them
+  // with the canvas keeps their on-screen size roughly constant at any layout
+  // size. GUIDE_REF_W is the canvas width the raw 2px / [4,3] values were
+  // originally tuned against.
+  const GUIDE_REF_W = 1200;
+  const guideScale = Math.min(6, Math.max(1, canvasW / GUIDE_REF_W));
 
   // Track structural state for smart rebuild vs in-place update
   const prevOverlayCountRef = useRef(-1);
@@ -714,13 +730,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const sr = (fr > fw / 2 - 1 && fr > fh / 2 - 1)
         ? new Ellipse({
             left: fx, top: fy, originX: 'left', originY: 'top', rx: fw / 2, ry: fh / 2,
-            fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [4, 3],
+            fill: 'transparent', stroke: SAFE_ZONE_COLOR, strokeWidth: 2 * guideScale, strokeDashArray: [4 * guideScale, 3 * guideScale],
             selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7,
             strokeUniform: true,
           })
         : new Rect({
             left: fx, top: fy, originX: 'left', originY: 'top', width: fw, height: fh,
-            fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [4, 3],
+            fill: 'transparent', stroke: SAFE_ZONE_COLOR, strokeWidth: 2 * guideScale, strokeDashArray: [4 * guideScale, 3 * guideScale],
             selectable: false, evented: false, opacity: isTransforming ? 0.4 : 0.7, rx: fr, ry: fr,
             strokeUniform: true,
           });
@@ -754,13 +770,13 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const br = (fr > fw / 2 - 1 && fr > fh / 2 - 1)
         ? new Ellipse({
             left: fx - bleedPx, top: fy - bleedPx, originX: 'left', originY: 'top', rx: fw / 2 + bleedPx, ry: fh / 2 + bleedPx,
-            fill: 'transparent', stroke: '#450a0a', strokeWidth: 2, strokeDashArray: [6, 4],
+            fill: 'transparent', stroke: BLEED_ZONE_COLOR, strokeWidth: 2 * guideScale, strokeDashArray: [6 * guideScale, 4 * guideScale],
             selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
             strokeUniform: true,
           })
         : new Rect({
             left: fx - bleedPx, top: fy - bleedPx, originX: 'left', originY: 'top', width: fw + (bleedPx * 2), height: fh + (bleedPx * 2),
-            fill: 'transparent', stroke: '#450a0a', strokeWidth: 2, strokeDashArray: [6, 4],
+            fill: 'transparent', stroke: BLEED_ZONE_COLOR, strokeWidth: 2 * guideScale, strokeDashArray: [6 * guideScale, 4 * guideScale],
             selectable: false, evented: false, visible: isTransforming, opacity: 0.8,
             rx: fr > 0 ? fr + bleedPx : 0, ry: fr > 0 ? fr + bleedPx : 0,
             strokeUniform: true,

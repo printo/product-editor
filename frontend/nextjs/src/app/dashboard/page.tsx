@@ -158,11 +158,20 @@ export default function Dashboard() {
 
   // UseEffects (Must be before any conditional return)
   useEffect(() => {
-    setTitle('Select Template');
-    setDescription('Choose a design');
-    setCenterActions(<SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} />);
+    setTitle('');
+    setDescription('');
+    setCenterActions(
+      <div className="flex items-center gap-2 flex-1 min-w-0 md:flex-none md:w-full md:max-w-[900px]">
+        {/* !w-auto + min-w-0 override SearchInput's mobile w-[175px] shrink-0 so
+            search + filter + nav fit a 375px viewport without overlapping. */}
+        <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} className="flex-1 min-w-0 !w-auto" />
+        <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden md:flex" />
+      </div>
+    );
     setRightActions(null);
-  }, [searchQuery, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
+    // activeTagFilter is a dep because centerActions is a captured JSX snapshot —
+    // without it the dropdown would keep rendering the tag selected at mount.
+  }, [searchQuery, activeTagFilter, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
 
   useEffect(() => {
     if (status === 'authenticated') fetchLayouts();
@@ -187,7 +196,8 @@ export default function Dashboard() {
             </div>
           )}
 
-          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} />
+          {/* Mobile slot — the header row has no space for a fourth control. */}
+          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="flex md:hidden mb-4" />
 
           {isFetchingLayouts ? (
             <div className="flex justify-center py-20">

@@ -15,6 +15,10 @@ interface DropdownProps {
   options: DropdownOption[];
   placeholder?: string;
   triggerClassName?: string;
+  /** Applied to the trigger's label span. Lets a caller hide the label at a
+   *  breakpoint (e.g. an icon-width trigger on mobile) without a second
+   *  Dropdown instance. */
+  triggerLabelClassName?: string;
   panelClassName?: string;
   optionClassName?: string;
   disabled?: boolean;
@@ -32,6 +36,7 @@ export const Dropdown = ({
   options,
   placeholder = 'Select…',
   triggerClassName = '',
+  triggerLabelClassName = '',
   panelClassName = '',
   optionClassName = 'text-sm',
   disabled = false,
@@ -63,7 +68,7 @@ export const Dropdown = ({
         data-testid={testId}
         className={`flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${triggerClassName}`}
       >
-        <span style={selected?.labelStyle} className="truncate">{selected?.label ?? placeholder}</span>
+        <span style={selected?.labelStyle} className={`truncate ${triggerLabelClassName}`}>{selected?.label ?? placeholder}</span>
         <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (

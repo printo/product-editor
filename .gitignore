@@ -124,3 +124,7 @@ product-editor-hardening-prd.html
 
 # Local backup artifacts (Phase 4)
 backups/
+
+# Timestamped .env backups made before edits — local only, never commit secrets
+.env.bak.*
+**/.env.local.bak.*
