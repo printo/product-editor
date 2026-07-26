@@ -90,7 +90,7 @@ pnpm test -- -t "clamps the offset"              # one test by name
 pnpm test:parity                                 # calendar TS↔Python parity suites only
 ```
 
-**Backend — standalone modules, no pytest, no `manage.py test`.** Every file in `backend/django/services/tests/test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions and prints a pass count. There are 19 modules.
+**Backend — standalone modules, no pytest, no `manage.py test`.** Every file in `backend/django/services/tests/test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions and prints a pass count. There are 18 modules (CI globs them, so the count isn't pinned anywhere).
 
 Run one **through the container** — the dev Mac's system Python has no Pillow/Django, so this is the practical local route. Override the entrypoint: it ignores `$@` and would otherwise boot gunicorn and hang forever (see Deployment).
 

@@ -128,6 +128,45 @@ class ConfigView(APIView):
         return response
 
 
+def invalidate_layout_caches(name: str | None = None) -> None:
+    """
+    Drop every cache entry that can serve a stale copy of a layout.
+
+    Three families exist and they must be cleared together:
+      * "layouts_list_all"      — public list  (ListLayoutsView)
+      * "ops_layouts_list_all"  — ops list     (LayoutManagementView)
+      * "layout_detail:<name>:<surfaces>" — per-layout JSON, written by BOTH
+        GetLayoutView and EditorInitView, keyed by the optional ?surfaces=
+        filter so ONE layout can hold several entries.
+
+    The detail family was previously never invalidated at all. Because the
+    renderer reads the layout fresh from disk at render time while the editor
+    was served the cached copy, an ops edit opened a window where the customer
+    composed against stale frame geometry and the print used the new one — a
+    silent wrong print. A deleted layout also stayed openable until its TTL
+    lapsed.
+
+    `delete_pattern` is a django_redis extension (the configured backend); it
+    is guarded so a non-Redis backend or an unreachable Redis degrades to
+    "list caches cleared" rather than failing the write that triggered it.
+    """
+    from django.core.cache import cache as django_cache
+
+    django_cache.delete_many(["layouts_list_all", "ops_layouts_list_all"])
+
+    if not name:
+        return
+    try:
+        # Covers every ?surfaces= variant for this layout.
+        django_cache.delete_pattern(f"layout_detail:{name}:*")
+    except AttributeError:
+        # Backend without delete_pattern — clear the unparameterised key, which
+        # is the one the editor and partner API actually request.
+        django_cache.delete(f"layout_detail:{name}:")
+    except Exception as exc:  # pragma: no cover — cache must never break a write
+        logger.warning("Failed to invalidate layout_detail cache for %s: %s", name, exc)
+
+
 def _summarize_layout(data):
     """Trim a full layout def down to the fields an external catalog/picker needs.
 
@@ -426,7 +465,7 @@ class GenerateLayoutView(APIView):
                         # embed flow. Direct callers should poll render-status.
                         callback_url=None,
                         requires_manual_review=False,
-                        expires_at=timezone.now() + timedelta(days=30),
+                        expires_at=timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS),
                     ),
                 )
 
@@ -868,7 +907,7 @@ class GetLayoutView(APIView):
 
             if cached_data is not None:
                 response = Response(cached_data)
-                response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'
+                response['Cache-Control'] = 'private, max-age=30, must-revalidate'
                 return response
 
             path = os.path.join(storage.layouts_dir(), f"{safe_name}.json")
@@ -900,7 +939,7 @@ class GetLayoutView(APIView):
             django_cache.set(cache_key, data, 120)  # 2 min TTL, same as list endpoint
 
             response = Response(data)
-            response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'
+            response['Cache-Control'] = 'private, max-age=30, must-revalidate'
             return response
 
         except json.JSONDecodeError:
@@ -1436,9 +1475,13 @@ class LayoutManagementView(APIView):
                 except Exception as e:
                     logger.warning(f"Rename: mask move failed: {e}")
             
-            # Invalidate both layouts list caches so next GET reflects the change
-            from django.core.cache import cache as django_cache
-            django_cache.delete_many(["layouts_list_all", "ops_layouts_list_all"])
+            # Clear the list caches AND this layout's detail entries, so the
+            # editor cannot keep composing against the pre-edit geometry.
+            # On rename, old_name's entries must go too or the old id stays
+            # resolvable until its TTL lapses.
+            invalidate_layout_caches(layout_name)
+            if old_name and old_name != layout_name:
+                invalidate_layout_caches(old_name)
 
             return Response({"status": "success", "name": layout_name, "maskUrl": layout_data.get('maskUrl')})
         except json.JSONDecodeError:
@@ -1473,13 +1516,11 @@ class LayoutManagementView(APIView):
                 logger.warning(f"Failed to delete mask for layout {name}: {e}")
 
             os.remove(path)
-            # Invalidate BOTH layouts list caches, exactly as put()/post() do.
-            # Dropping only "layouts_list_all" left "ops_layouts_list_all" — the
-            # cache the ops Templates page actually reads — serving the deleted
-            # layout for the rest of its 2-minute TTL, so the row stayed on
-            # screen after a successful delete.
-            from django.core.cache import cache as django_cache
-            django_cache.delete_many(["layouts_list_all", "ops_layouts_list_all"])
+            # Clear both list caches AND this layout's detail entries. Dropping
+            # only "layouts_list_all" left the ops Templates page serving the
+            # deleted row for its 2-minute TTL; leaving the detail entries meant
+            # the deleted layout stayed openable in the editor for just as long.
+            invalidate_layout_caches(name)
             return Response({"status": "success", "detail": f"Layout {name} deleted"})
         except Exception as e:
             logger.error(f"Error deleting layout {name}: {str(e)}")
@@ -1901,7 +1942,7 @@ class EditorInitView(APIView):
         })
         # Cacheable on the proxy edge for short-lived shared cache; private so a
         # tenant's surfaces= filter doesn't bleed across tenants.
-        response['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=600'
+        response['Cache-Control'] = 'private, max-age=30, must-revalidate'
         return response
 
 
@@ -2044,7 +2085,7 @@ class EditorRenderView(APIView):
         # ── Persist CanvasData + RenderJob atomically ───────────────────────
         # Soft-proof + CMYK pipelines retired; everything routes to 'standard'.
         queue_name = 'standard'
-        expires_at = timezone.now() + timedelta(days=30)
+        expires_at = timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS)
 
         # Snapshot the render contract into its own field. editor_state stays
         # untouched: it is the frontend's autosaved design, and overwriting it
@@ -3029,7 +3070,7 @@ class CanvasStateView(APIView):
                 image_paths=image_paths or [],
                 fit_mode=fit_mode,
                 editor_state=editor_state,
-                expires_at=timezone.now() + timedelta(days=30),
+                expires_at=timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS),
             ),
         )
 

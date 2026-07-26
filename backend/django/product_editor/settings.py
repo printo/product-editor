@@ -221,6 +221,23 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(LAYOUTS_DIR, exist_ok=True)
 os.makedirs(EXPORTS_DIR, exist_ok=True)
 
+# How long a render's output files are kept. SINGLE SOURCE OF TRUTH — it must
+# drive both the `expires_at` we promise callers and the retention window
+# `garbage_collector_task` actually enforces.
+#
+# These used to disagree: CanvasData.expires_at was hardcoded to +30 days and
+# the webhook told callers the same, while the GC deleted at 14 days (7 when
+# EXPORTS_DIR is over 80% full). A partner trusting `expires_at` and fetching
+# on day 20 would have hit a 404.
+EXPORT_RETENTION_DAYS = int(os.getenv("EXPORT_RETENTION_DAYS", "14"))
+
+# Retention used instead when EXPORTS_DIR is under disk pressure. The GC drops
+# to this to buy headroom; it is deliberately NOT what we promise callers,
+# since it depends on runtime disk state.
+EXPORT_RETENTION_DAYS_UNDER_PRESSURE = int(
+    os.getenv("EXPORT_RETENTION_DAYS_UNDER_PRESSURE", "7")
+)
+
 
 
 # File Upload Configuration — single source of truth, driven by env var
