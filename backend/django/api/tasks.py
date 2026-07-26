@@ -671,13 +671,20 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
         if (base and job_id) else None
     )
 
-    # Files are GC'd 30 days after CanvasData creation by default
-    # (see garbage_collector_task retention). Surface that to the caller
-    # so they can plan when to fetch.
+    # What we tell the caller here MUST match what garbage_collector_task
+    # actually enforces — both derive from settings.EXPORT_RETENTION_DAYS.
+    # The fallback is only for rows written before expires_at was populated.
+    #
+    # Caveat worth knowing: the GC drops to EXPORT_RETENTION_DAYS_UNDER_PRESSURE
+    # when EXPORTS_DIR passes 80% full, so under disk pressure files can go
+    # earlier than this date. Callers should fetch promptly rather than treat
+    # expires_at as a guarantee.
     expires_at = (
         canvas.expires_at.isoformat()
         if canvas.expires_at
-        else (canvas.created_at + timedelta(days=30)).isoformat()
+        else (
+            canvas.created_at + timedelta(days=settings.EXPORT_RETENTION_DAYS)
+        ).isoformat()
     )
 
     webhook_payload = {
@@ -883,7 +890,11 @@ def garbage_collector_task():
     from api.models import ExportedResult, CanvasData, RenderJob
 
     now = timezone.now()
-    retention_days = 14
+    # Same constant that sets CanvasData.expires_at and the expires_at we send
+    # in the completion webhook — see settings.EXPORT_RETENTION_DAYS. Keep them
+    # reading one value; when these drifted, callers were promised 30 days for
+    # files the GC removed at 14.
+    retention_days = settings.EXPORT_RETENTION_DAYS
 
     try:
         disk_usage = shutil.disk_usage(settings.EXPORTS_DIR)
@@ -893,10 +904,11 @@ def garbage_collector_task():
         usage_percent = 0
 
     if usage_percent > 80:
+        retention_days = settings.EXPORT_RETENTION_DAYS_UNDER_PRESSURE
         logger.critical(
-            "EXPORTS_DIR disk usage at %.1f%% — reducing retention to 7 days", usage_percent
+            "EXPORTS_DIR disk usage at %.1f%% — reducing retention to %d days",
+            usage_percent, retention_days,
         )
-        retention_days = 7
 
     cutoff_date = now - timedelta(days=retention_days)
 
