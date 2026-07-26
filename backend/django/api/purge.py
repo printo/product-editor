@@ -171,6 +171,52 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
             files_deleted += d; freed_bytes += f; errors += e
             UploadedFile.objects.filter(file_path__in=linked_paths).delete()
 
+        # 2c. Discovery pass — the order's upload directory itself.
+        #
+        # Uploads are stored under UPLOADS_DIR/<order_id>/ (see
+        # services.storage.order_upload_dir), so ownership is visible in the
+        # path. That means we can delete what is actually there rather than
+        # only what the database remembers — the difference between "erased the
+        # rows we know about" and "erased this customer's data".
+        #
+        # Deliberately skipped for the shared no-order bucket, which holds
+        # direct-API uploads belonging to nobody in particular, and when another
+        # surviving order references a file inside (keep_paths).
+        from services.storage import NO_ORDER_BUCKET, order_upload_dir, upload_subdir
+
+        if upload_subdir(order_id) != NO_ORDER_BUCKET:
+            odir = order_upload_dir(order_id)
+            if os.path.isdir(odir):
+                shared = [p for p in keep_paths if p.startswith(odir + os.sep)]
+                if shared:
+                    # Rare: a surviving order reuses an original stored here.
+                    # Remove file-by-file and leave the shared ones.
+                    for root, _dirs, fnames in os.walk(odir):
+                        for fn in fnames:
+                            fp = os.path.join(root, fn)
+                            if fp in keep_paths:
+                                continue
+                            attempted_paths.add(fp)
+                            d, f, e = _delete_files([fp])
+                            files_deleted += d; freed_bytes += f; errors += e
+                else:
+                    for root, _dirs, fnames in os.walk(odir):
+                        for fn in fnames:
+                            attempted_paths.add(os.path.join(root, fn))
+                    attempted_dirs.add(odir)
+                    try:
+                        freed_bytes += sum(
+                            os.path.getsize(os.path.join(r, fn))
+                            for r, _d, fs in os.walk(odir) for fn in fs
+                        )
+                        files_deleted += sum(len(fs) for _r, _d, fs in os.walk(odir))
+                        shutil.rmtree(odir)
+                    except OSError as exc:
+                        errors.append(f"{odir}: {exc}")
+
+            # Rows for anything that lived there, whether or not we had a path.
+            UploadedFile.objects.filter(order_id=order_id).delete()
+
         # 4. CanvasData.delete() cascades RenderJob rows.
         canvas_rows = len(canvases)
         canvas_qs.filter(id__in=purged_ids).delete()

@@ -145,6 +145,72 @@ def test_survivors_make_erasure_incomplete():
         )
 
 
+# ── Per-order upload layout: traversal safety ────────────────────────────────
+#
+# These exist because the first draft was NOT safe. order_id permits '.' as a
+# character, so '..' matched the validation regex — and the purge rmtree's the
+# directory this resolves to, i.e. the parent of UPLOADS_DIR. Every dot-shaped
+# input below was a live path-traversal vector.
+
+def test_dot_shaped_order_ids_never_become_directories():
+    from services.storage import NO_ORDER_BUCKET, upload_subdir
+    for evil in ("..", ".", "...", "./", "../..", ".hidden"):
+        assert upload_subdir(evil) == NO_ORDER_BUCKET, (
+            f"{evil!r} must not be used as a directory name — it escapes or "
+            "hides the uploads root"
+        )
+
+
+def test_separator_and_oversized_order_ids_are_rejected():
+    from services.storage import NO_ORDER_BUCKET, upload_subdir
+    for evil in ("a/b", "a\\b", "../../etc/passwd", "", "   ", "x" * 65):
+        assert upload_subdir(evil) == NO_ORDER_BUCKET
+
+
+def test_well_formed_order_ids_keep_their_own_directory():
+    from services.storage import upload_subdir
+    for ok in ("PE-JOB_1.2", "EXT-123", "A" * 64, "order.1-2_3"):
+        assert upload_subdir(ok) == ok
+
+
+def test_resolved_upload_dir_always_stays_inside_uploads_root():
+    import os
+    from django.conf import settings
+    from services.storage import order_upload_dir
+
+    root = os.path.realpath(settings.UPLOADS_DIR)
+    for candidate in ("..", ".", "../../etc", "a/b", "", "PE-OK", "x" * 65):
+        resolved = order_upload_dir(candidate)
+        assert resolved == root or resolved.startswith(root + os.sep), (
+            f"{candidate!r} resolved to {resolved!r}, outside {root!r} — the "
+            "purge deletes this path"
+        )
+
+
+# ── Discovery: the purge deletes what is there, not just what rows describe ──
+
+def test_purge_removes_the_orders_upload_directory():
+    src = _purge_source()
+    assert "order_upload_dir" in src, (
+        "the purge must resolve the order's upload directory to do a discovery "
+        "pass — without it, a file whose row was lost is unreachable"
+    )
+    assert "NO_ORDER_BUCKET" in src, (
+        "the shared no-order bucket must be excluded from the directory delete "
+        "— it holds direct-API uploads belonging to no single order"
+    )
+
+
+def test_uploads_are_written_per_order():
+    import inspect
+    from services.storage import LocalStorage
+    src = inspect.getsource(LocalStorage.save_upload)
+    assert "order_upload_dir" in src, (
+        "save_upload must write into the order's directory, or ownership is "
+        "not visible in the path and discovery cannot work"
+    )
+
+
 if __name__ == "__main__":
     import os
     import django

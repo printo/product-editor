@@ -174,16 +174,43 @@ current uploads alongside legacy ones. The two are distinguishable only by
 Phase 3 was waived rather than implemented precisely because the fresh-start
 reset removed the legacy rows, so no such tool ever needed writing.
 
-### What the sweep does and does not do
+### Discovery, not just verification (added after the first pass)
 
-It verifies that everything the purge **knew about** is gone, and reports what
-survived. It cannot discover *unknown* upload files for an order: uploads are
-stored flat under `UPLOADS_DIR` with a random filename prefix, so nothing in the
-path identifies the owner. `UploadedFile.order_id` is what makes ownership
-knowable; the sweep is the check that deletion driven by it took effect.
+The sweep initially could only verify that everything the purge *knew about* was
+gone — uploads were stored flat under `UPLOADS_DIR` with a random filename
+prefix, so nothing in the path identified the owner, and a file whose row was
+lost was unreachable.
 
-If uploads are ever restructured into per-order directories, the sweep could be
-extended to a true discovery pass. Until then, the row is the source of truth.
+Uploads are now written to **`UPLOADS_DIR/<order_id>/`**
+(`services.storage.order_upload_dir`). Ownership is visible in the path, so the
+purge deletes the order's directory outright: it erases what is actually there
+rather than what the database remembers. Verified against a file placed on disk
+with **no `UploadedFile` row at all** — previously invisible to erasure, now
+removed.
+
+Two deliberate exclusions:
+
+- **`_no_order/`** holds direct partner API uploads, which are made before any
+  order exists. They belong to no order and are excluded from the directory
+  delete; the GC still removes them on age.
+- When a *surviving* order references a file inside the directory (shared
+  original), the purge falls back to deleting file-by-file and leaves the shared
+  one — the `keep_paths` rule still wins over discovery.
+
+### Path traversal — caught in review, worth remembering
+
+`order_id` permits `.` as a character, so **`..` matched the validation regex**.
+Since the purge `rmtree`s the directory the order id resolves to, `order_id=".."`
+would have targeted the parent of the uploads root.
+
+`upload_subdir()` now rejects dot-only and dot-leading names explicitly, and
+`order_upload_dir()` re-checks that the resolved path stays inside
+`UPLOADS_DIR`. Six traversal cases are pinned in
+`services/tests/test_erasure_contract.py`.
+
+The lesson generalises: a validation regex written for *identifiers* is not
+automatically safe as a *path segment*. Anything reused as a filesystem name
+needs its own check.
 
 ### Verified failure mode
 

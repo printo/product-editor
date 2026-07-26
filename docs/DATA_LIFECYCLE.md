@@ -46,13 +46,18 @@ The response now reports **`erasure_complete`** and **`unlocated_upload_rows`**;
 an incomplete erasure also logs a warning. A bare `files_deleted: 0` is no
 longer indistinguishable from success.
 
+**Uploads are stored per order** — `UPLOADS_DIR/<order_id>/` — so ownership is
+visible in the path. The purge deletes that directory outright, which means it
+erases what is actually on disk rather than only what the database can
+enumerate: a file whose row was lost is still found. Direct partner API uploads
+have no order and go to a shared `_no_order/` bucket, excluded from the
+directory delete and cleaned by the GC on age.
+
 **Verification sweep.** After the deletes commit, the purge re-checks every path
 and directory it tried to remove, retries once, and returns anything still there
 as `residual_files` / `residual_dirs`. Those feed `erasure_complete`, so a
 deletion that silently failed (permission error, lock) can no longer report
-success. It verifies what the purge *knew about* — uploads are stored flat with a
-random filename prefix, so ownership comes from `UploadedFile.order_id`, not the
-path.
+success.
 
 No legacy rows remain: the instance was reset to a fresh start before `0011`
 landed, so there was nothing to backfill.

@@ -428,7 +428,8 @@ class GenerateLayoutView(APIView):
             upload_paths = []
             for f in files:
                 fname = get_random_string(8) + "_" + f.name
-                path = storage.save_upload(fname, f.file)
+                # Per-order directory so erasure can find these by path.
+                path = storage.save_upload(fname, f.file, order_id=order_id or '')
                 upload_paths.append(path)
                 if api_key:
                     UploadedFile.objects.create(
@@ -610,6 +611,7 @@ class GenerateLayoutView(APIView):
             try:
                 for f in files:
                     fname = get_random_string(8) + "_" + f.name
+                    # Direct-API sync path has no order context -> _no_order bucket.
                     path = storage.save_upload(fname, f.file)
                     upload_paths.append(path)
                     if api_key:
@@ -3396,9 +3398,25 @@ class ChunkedUploadCompleteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Assemble chunks in order into UPLOADS_DIR.
+        # Resolve the owning order BEFORE choosing where to write, so the file
+        # lands in that order's directory. Same precedence EditorRenderView
+        # uses: X-Order-ID (injected by the embed proxy from
+        # EmbedSession.order_id) first, then an explicit field.
+        #
+        # Storing per-order is what lets DPDP erasure discover a customer's
+        # files from the path alone, rather than depending on database rows to
+        # enumerate them — see docs/DPDP_ERASURE_GAP_PRD.md.
+        order_id = (
+            (request.headers.get('X-Order-ID') or '').strip()
+            or str(request.data.get('order_id') or '').strip()
+        )
+
+        # Assemble chunks in order into the order's upload directory.
+        from services.storage import order_upload_dir
         final_name = get_random_string(8) + '_' + meta['filename']
-        final_path = os.path.join(settings.UPLOADS_DIR, final_name)
+        target_dir = order_upload_dir(order_id)
+        os.makedirs(target_dir, exist_ok=True)
+        final_path = os.path.join(target_dir, final_name)
         assembled_size = 0
 
         try:
@@ -3444,18 +3462,8 @@ class ChunkedUploadCompleteView(APIView):
             api_key = request.user.api_key
 
         if api_key:
-            # Order linkage, resolved the same way EditorRenderView does it:
-            # X-Order-ID (injected by the embed proxy from EmbedSession.order_id)
-            # first, then an explicit field from a direct/dashboard caller.
-            #
-            # This is what makes DPDP erasure work. Without it the purge could
-            # only find a customer's files via CanvasData.image_paths, which
-            # autosave blanks every 2 seconds — so an abandoned upload was
-            # unreachable by any order-scoped erasure.
-            order_id = (
-                (request.headers.get('X-Order-ID') or '').strip()
-                or str(request.data.get('order_id') or '').strip()
-            )
+            # order_id was resolved above, before the file was written, so the
+            # row and the directory it lives in always agree.
             UploadedFile.objects.create(
                 api_key=api_key,
                 file_path=final_path,
