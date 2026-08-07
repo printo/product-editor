@@ -6,6 +6,7 @@ import time
 import logging
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from django.db.models import Q
 from django.utils import timezone
 from django.conf import settings
 
@@ -965,8 +966,29 @@ def garbage_collector_task():
         ).values_list('order_id', flat=True)
     )
 
+    # Sweep on the expiry STAMPED ON THE ROW, not on `created_at + retention`
+    # recomputed now. The old form was retroactive: shortening
+    # EXPORT_RETENTION_DAYS deleted files whose expiry we had already promised a
+    # partner in the completion webhook, and the download endpoint then served a
+    # ZIP silently missing those files. CanvasData and the async render outputs
+    # were already swept on a stored expires_at; these two now match.
+    #
+    # Rows written before expires_at was populated carry NULL and keep the old
+    # age-based behaviour, so nothing already on disk changes semantics.
+    #
+    # Under genuine disk pressure the valve still wins: setting
+    # EXPORT_RETENTION_DAYS_UNDER_PRESSURE below the normal window is an
+    # explicit decision to break the promise to reclaim space (see settings.py),
+    # so in that case we fall back to pure age.
+    under_pressure = retention_days < settings.EXPORT_RETENTION_DAYS
+
+    def _expiry_filter(now_ts, cutoff):
+        if under_pressure:
+            return Q(created_at__lt=cutoff)
+        return Q(expires_at__lt=now_ts) | Q(expires_at__isnull=True, created_at__lt=cutoff)
+
     expired_exports = ExportedResult.objects.filter(
-        created_at__lt=cutoff_date,
+        _expiry_filter(now, cutoff_date),
         is_deleted=False,
     ).only('id', 'export_file_path')
 
@@ -1026,7 +1048,7 @@ def garbage_collector_task():
     from api.models import UploadedFile
     upload_cutoff = now - timedelta(days=retention_days)
     expired_uploads = UploadedFile.objects.filter(
-        created_at__lt=upload_cutoff,
+        _expiry_filter(now, upload_cutoff),
         is_deleted=False,
     ).only('id', 'file_path')
     upload_deleted = 0

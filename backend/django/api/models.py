@@ -1,8 +1,27 @@
 import secrets
 import uuid
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
+
+
+def default_file_expiry():
+    """
+    Retention deadline stamped onto a file row when it is created.
+
+    Stamped per row rather than recomputed at sweep time, because the GC used
+    to delete exports and uploads on `created_at + EXPORT_RETENTION_DAYS`
+    evaluated at sweep time. Shortening that env var therefore acted
+    RETROACTIVELY: files whose expiry had already been promised to a partner in
+    the completion webhook (`expires_at`) could vanish before that date, and the
+    download endpoint would then hand back a ZIP silently missing the customer's
+    originals. CanvasData and the async render outputs already worked off a
+    stored `expires_at`; this brings the other two sweeps onto the same clock.
+    """
+    return timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS)
 
 
 class APIKey(models.Model):
@@ -132,7 +151,10 @@ class UploadedFile(models.Model):
 
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    expires_at = models.DateTimeField(null=True, blank=True, help_text="File will be auto-deleted after this date")
+    expires_at = models.DateTimeField(
+        null=True, blank=True, default=default_file_expiry,
+        help_text="File will be auto-deleted after this date",
+    )
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
     
@@ -164,9 +186,9 @@ class ExportedResult(models.Model):
     
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    expires_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True, default=default_file_expiry)
     is_deleted = models.BooleanField(default=False)
-    
+
     class Meta:
         db_table = 'exported_results'
         verbose_name = 'Exported Result'
