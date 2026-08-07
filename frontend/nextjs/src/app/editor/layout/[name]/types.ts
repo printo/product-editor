@@ -87,6 +87,12 @@ export interface ImpositionSettings {
   marginMm: number;
   gutterMm: number;
   orientation: 'portrait' | 'landscape';
+  /** Draw crop marks at each item's corners. */
+  cropMarksEnabled: boolean;
+  /** Requested mark length in mm. Automatically clamped down when the gutter
+   *  or margin can't hold it — a mark is never allowed to cross into the
+   *  neighbouring artwork or run off the sheet. */
+  cropMarkLenMm: number;
 }
 
 export interface PlacedItem {
