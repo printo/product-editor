@@ -580,14 +580,56 @@ fi
 # Workers share content with the backend image but get tagged separately; we
 # don't bother backing them up individually (rolling back the backend image
 # and rebuilding workers from the same Dockerfile gets the old code back).
+#
+# Two bugs kept this from ever holding the "last 3" limit in production, where
+# 11 backend backups (2.46 GB each) had piled up since a single busy deploy day:
+#
+#   1. It was gated on $MODE, so `deploy.sh frontend` never pruned backend
+#      backups. Since a frontend-only deploy also never rebuilds the backend,
+#      nothing pruned them for as long as nobody ran a backend deploy — 12 days
+#      in the case that surfaced this. The prune is now unconditional: old
+#      backups are dead weight regardless of which half we are deploying.
+#
+#   2. It deleted by IMAGE ID (`awk '{print $3}'`). Retagging the same image on
+#      successive deploys gives several backup tags one shared ID, and
+#      `docker rmi <id>` refuses to remove a multiply-tagged image without -f.
+#      The `2>/dev/null` then swallowed the error and the script reported
+#      success. Deleting by TAG instead simply drops the tag; Docker reclaims
+#      the layers when the last tag referencing them goes.
+#
+# Sorting is on the tag's own `backup-YYYYmmdd-HHMMSS` stamp, not CreatedAt:
+# retagged images share a build date, so CreatedAt cannot order them.
+prune_backup_images() {
+  local repo="$1"
+  local stale
+  stale=$(
+    docker images --format '{{.Repository}}:{{.Tag}}' "$repo" 2>/dev/null \
+      | grep -E ':backup-[0-9]{8}-[0-9]{6}$' \
+      | sort -r \
+      | tail -n +4
+  ) || true
+
+  if [[ -z "$stale" ]]; then
+    print_info "No old ${repo##*-} backups to remove"
+    return 0
+  fi
+
+  local count=0
+  while IFS= read -r tag; do
+    [[ -z "$tag" ]] && continue
+    if docker rmi "$tag" >/dev/null 2>&1; then
+      count=$((count + 1))
+    else
+      print_warning "Could not remove $tag (still in use?)"
+    fi
+  done <<< "$stale"
+  print_status "Removed ${count} old ${repo##*-} backup image(s), kept last 3"
+}
+
 print_header "Cleanup"
 print_action "Removing old backup images (keeping last 3)..."
-if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
-  docker images | grep "product-editor-backend.*backup" | tail -n +4 | awk '{print $3}' | xargs -r docker rmi 2>/dev/null && print_status "Old backend backups removed" || print_info "No old backend backups to remove"
-fi
-if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
-  docker images | grep "product-editor-frontend.*backup" | tail -n +4 | awk '{print $3}' | xargs -r docker rmi 2>/dev/null && print_status "Old frontend backups removed" || print_info "No old frontend backups to remove"
-fi
+prune_backup_images product-editor-backend
+prune_backup_images product-editor-frontend
 
 # Reclaim build cache and dangling images.
 #
