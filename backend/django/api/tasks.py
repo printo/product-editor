@@ -1169,14 +1169,31 @@ def garbage_collector_task():
     except Exception as exc:
         logger.error("GC: tombstone cleanup failed: %s", exc)
 
+    # ── API audit-trail cleanup ───────────────────────────────────────────
+    # Kept on its own, much longer clock than the files (see
+    # settings.API_AUDIT_RETENTION_DAYS): the trail has to outlive the data it
+    # describes to be worth anything. Swept here so it cannot become the next
+    # unbounded-growth surprise.
+    audit_deleted = 0
+    try:
+        from api.models import APIRequest
+        audit_cutoff = now - timedelta(days=settings.API_AUDIT_RETENTION_DAYS)
+        audit_deleted, _ = APIRequest.objects.filter(created_at__lt=audit_cutoff).delete()
+        if audit_deleted:
+            logger.info("GC: deleted %d expired API audit row(s)", audit_deleted)
+    except Exception as exc:
+        logger.error("GC: API audit cleanup failed: %s", exc)
+
     logger.info(
         "GC complete: exports deleted=%d (%.2f MB), skipped=%d manual-review, "
         "uploads deleted=%d (%.2f MB), async render files deleted=%d (%.2f MB), "
-        "stale chunk sessions=%d, canvas_data deleted=%d, tombstones=%d, disk=%.1f%%",
+        "stale chunk sessions=%d, canvas_data deleted=%d, tombstones=%d, "
+        "audit rows=%d, disk=%.1f%%",
         deleted_count, deleted_bytes / 1024 / 1024, skipped_count,
         upload_deleted, upload_deleted_bytes / 1024 / 1024,
         async_files_deleted, async_bytes_deleted / 1024 / 1024,
-        stale_sessions, canvas_deleted, tombstones_deleted, usage_percent,
+        stale_sessions, canvas_deleted, tombstones_deleted, audit_deleted,
+        usage_percent,
     )
 
     return {
@@ -1190,5 +1207,6 @@ def garbage_collector_task():
         'stale_chunk_sessions_cleaned': stale_sessions,
         'canvas_data_deleted': canvas_deleted,
         'tombstones_deleted': tombstones_deleted,
+        'audit_rows_deleted': audit_deleted,
         'disk_usage_percent': usage_percent,
     }
