@@ -50,6 +50,9 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
             # response phase runs, so we must persist it here.
             raw_request = getattr(request, '_request', request)
             raw_request._api_auth_source = api_key.name
+            # The key object itself, so APIRequestLoggingMiddleware can record
+            # WHICH credential performed the action, not just its name.
+            raw_request._api_auth_key = api_key
 
             logger.info(f"API Key authenticated: {api_key.name}")
             return (APIKeyUser(api_key), token)

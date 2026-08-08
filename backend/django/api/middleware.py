@@ -2,6 +2,7 @@
 API Middleware
 Contains logging and rate limiting for API requests.
 """
+import re
 import time
 import logging
 from django.http import JsonResponse
@@ -10,21 +11,67 @@ from django.utils.deprecation import MiddlewareMixin
 logger = logging.getLogger(__name__)
 
 
+def _get_client_ip(request):
+    """
+    Resolve the real client IP.
+
+    Trust ONLY headers nginx sets from its real_ip resolution of
+    CF-Connecting-IP (proxy/nginx/nginx.conf), never the left-most
+    X-Forwarded-For hop — that token is fully client-controlled, so reading it
+    let an attacker mint unlimited rate-limit buckets by rotating a forged IP
+    (and grief a victim by forging theirs). X-Real-IP is the resolved client IP;
+    the RIGHT-most XFF hop is the value nginx appends ($remote_addr);
+    REMOTE_ADDR is the last resort.
+
+    Shared by the rate limiter and the audit trail so a spoofed address can
+    never be believed by one and rejected by the other.
+    """
+    x_real_ip = request.META.get('HTTP_X_REAL_IP')
+    if x_real_ip:
+        return x_real_ip.strip()
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        return x_forwarded_for.split(',')[-1].strip()
+    return request.META.get('REMOTE_ADDR', '0.0.0.0')
+
+
 class APIRequestLoggingMiddleware(MiddlewareMixin):
-    """Middleware for logging API requests"""
-    
+    """
+    Logs API activity to the container log AND to the APIRequest table.
+
+    The table existed from the initial commit but nothing ever wrote to it, so
+    `APIRequest.objects.count()` was 0 for every key forever. That is a trap: it
+    reads like an audit trail, and a "0 requests" answer looks like proof a
+    credential was never used when it is really proof nothing was ever recorded.
+    Container logs were the only history, and they rotate at 50 MB x 3.
+
+    Persisting here gives DPDP questions ("who downloaded this order's files,
+    and when?") an answer that outlives log rotation.
+    """
+
+    # High-frequency paths that would swamp the table without adding anything an
+    # investigation would want. Chunk PUTs fire hundreds of times per order and
+    # the /complete call that finalises the file IS recorded; render-status is
+    # polled every few seconds for the life of a job.
+    AUDIT_EXEMPT_PREFIXES = (
+        '/api/health',
+        '/api/config',
+        '/api/render-status/',
+    )
+    AUDIT_EXEMPT_RE = re.compile(r'^/api/upload/[^/]+/chunk')
+
     def __init__(self, get_response):
         self.get_response = get_response
-    
+
     def __call__(self, request):
         start_time = time.time()
-        
+
         # Log request
         if request.path.startswith('/api/'):
             logger.info(f"API Request: {request.method} {request.path}")
-        
+
         response = self.get_response(request)
-        
+
         # Log response
         if request.path.startswith('/api/'):
             duration = time.time() - start_time
@@ -34,8 +81,43 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
             # already discarded by the time this middleware phase runs.
             user_label = getattr(request, '_api_auth_source', 'anonymous')
             logger.info(f"API Response: {response.status_code} in {duration:.3f}s [Source: {user_label}]")
-        
+            self._record_audit(request, response, duration, user_label)
+
         return response
+
+    def _should_audit(self, path: str) -> bool:
+        if not path.startswith('/api/'):
+            return False
+        if path.startswith(self.AUDIT_EXEMPT_PREFIXES):
+            return False
+        return not self.AUDIT_EXEMPT_RE.match(path)
+
+    def _record_audit(self, request, response, duration, user_label):
+        """
+        Persist one audit row. Never allowed to affect the response: an audit
+        trail that can 500 the API is worse than no audit trail.
+        """
+        if not self._should_audit(request.path):
+            return
+        try:
+            from api.models import APIRequest
+
+            APIRequest.objects.create(
+                api_key=getattr(request, '_api_auth_key', None),
+                auth_source=(user_label or 'anonymous')[:100],
+                endpoint=request.path[:255],
+                method=(request.method or '')[:10],
+                status_code=response.status_code,
+                response_time_ms=int(duration * 1000),
+                request_size_bytes=int(request.META.get('CONTENT_LENGTH') or 0),
+                response_size_bytes=int(response.get('Content-Length') or 0),
+                # Trust nginx's X-Real-IP (else the RIGHT-most XFF hop); the
+                # left-most hop is client-controlled and trivially spoofed.
+                ip_address=_get_client_ip(request),
+                user_agent=(request.META.get('HTTP_USER_AGENT') or '')[:500],
+            )
+        except Exception as exc:  # noqa: BLE001 — audit must never break traffic
+            logger.warning("Audit write failed for %s: %s", request.path, exc)
 
 
 class RateLimitMiddleware(MiddlewareMixin):
@@ -107,17 +189,4 @@ class RateLimitMiddleware(MiddlewareMixin):
         return self.get_response(request)
 
     def _get_client_ip(self, request):
-        # Trust ONLY headers nginx sets from its real_ip resolution of
-        # CF-Connecting-IP (proxy/nginx/nginx.conf), never the left-most
-        # X-Forwarded-For hop — that token is fully client-controlled, so
-        # reading it let an attacker mint unlimited rate-limit buckets by
-        # rotating a forged IP (and grief a victim by forging theirs).
-        # X-Real-IP is the resolved client IP; the RIGHT-most XFF hop is the
-        # value nginx appends ($remote_addr); REMOTE_ADDR is the last resort.
-        x_real_ip = request.META.get('HTTP_X_REAL_IP')
-        if x_real_ip:
-            return x_real_ip.strip()
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            return x_forwarded_for.split(',')[-1].strip()
-        return request.META.get('REMOTE_ADDR', '0.0.0.0')
+        return _get_client_ip(request)

@@ -245,6 +245,18 @@ EXPORT_RETENTION_DAYS_UNDER_PRESSURE = int(
     os.getenv("EXPORT_RETENTION_DAYS_UNDER_PRESSURE", str(EXPORT_RETENTION_DAYS))
 )
 
+# How long API audit rows are kept, independent of file retention.
+#
+# Deliberately much longer than EXPORT_RETENTION_DAYS: the point of the audit
+# trail is to answer "who touched this order's data" AFTER the data is gone.
+# Tying it to the file window would delete the evidence at the same moment as
+# the thing it is evidence about.
+#
+# Swept by garbage_collector_task. Rows are small and the high-frequency paths
+# (health, config, render-status polling, chunk PUTs) are not recorded, so 90
+# days is a few hundred thousand rows at current volumes.
+API_AUDIT_RETENTION_DAYS = int(os.getenv("API_AUDIT_RETENTION_DAYS", "90"))
+
 
 
 # File Upload Configuration — single source of truth, driven by env var
@@ -362,6 +374,12 @@ LOGGING = {
         "api": {
             "handlers": ["console"],
             "level": "INFO",
+            # Without this the record is emitted twice: once by this logger's
+            # own console handler and again by root's after propagation. The
+            # container log is the only place API activity is retained beyond
+            # the audit table, and it is capped at 50 MB x 3 rotations, so the
+            # duplicates were halving how far back an investigation could see.
+            "propagate": False,
         },
     },
 }

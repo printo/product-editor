@@ -81,7 +81,16 @@ class APIKey(models.Model):
 class APIRequest(models.Model):
     """Model to track all API requests for auditing and analytics."""
     
-    api_key = models.ForeignKey(APIKey, on_delete=models.CASCADE, related_name='requests')
+    # Nullable: PIA-authenticated and anonymous calls carry no APIKey, and an
+    # audit trail that silently drops them is worse than none — those are the
+    # staff-initiated ops actions most worth being able to reconstruct.
+    api_key = models.ForeignKey(
+        APIKey, on_delete=models.SET_NULL, related_name='requests',
+        null=True, blank=True,
+    )
+    # Who acted, denormalised so the record survives key deletion/rotation:
+    # the API key's name, "PIA" for a staff token, or "anonymous".
+    auth_source = models.CharField(max_length=100, blank=True, default='', db_index=True)
     endpoint = models.CharField(max_length=255, db_index=True)
     method = models.CharField(max_length=10, choices=[('GET', 'GET'), ('POST', 'POST'), ('PUT', 'PUT'), ('DELETE', 'DELETE')])
     
