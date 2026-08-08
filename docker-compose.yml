@@ -344,6 +344,67 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # ── Observability Stack (Loki + Promtail + Grafana) ────────────────────────
+  loki:
+    image: grafana/loki:3.0.0
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/tmp/loki
+    networks:
+      - web
+    ports:
+      - "3100:3100"
+    deploy:
+      resources:
+        limits:
+          memory: 250M
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - web
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - loki
+    networks:
+      - web
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - monitoring
+
 networks:
   web:
 
@@ -351,3 +412,6 @@ volumes:
   postgres_data:
   redis_data:
   nginx_logs:
+  loki_data:
+  grafana_data:
+

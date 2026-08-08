@@ -405,3 +405,24 @@ RENDER_JOB_STATUS_CACHE_TTL = {
     'failed': int(os.getenv('CACHE_TTL_FAILED', '300')),         # Terminal state
     'default': int(os.getenv('CACHE_TTL_DEFAULT', '5')),         # Fallback
 }
+
+# ── Sentry Error Tracking Initialization ─────────────────────────────────────
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.celery import CeleryIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[
+            DjangoIntegration(),
+            CeleryIntegration(),
+        ],
+        environment=os.getenv("ENVIRONMENT", "production" if not DEBUG else "development"),
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        send_default_pii=False,
+    )
+    sentry_sdk.set_tag("app", "product-editor")
+    sentry_sdk.set_tag("component", "backend")
+

@@ -1,9 +1,10 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { HeaderProvider, useHeader } from '@/context/HeaderContext';
 import { Header } from '@/components/Header';
+import { initObservability } from '@/lib/observability';
 
 // Must be a child of HeaderProvider (not a sibling) so it can read the
 // ResizeObserver-measured headerHeight and always match the real header.
@@ -15,6 +16,10 @@ const HeaderSpacer = () => {
 export const AppWrapper = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
   const isLoginPage = pathname === '/login';
+
+  useEffect(() => {
+    initObservability();
+  }, []);
 
   return (
     <HeaderProvider>
@@ -28,3 +33,4 @@ export const AppWrapper = ({ children }: { children: ReactNode }) => {
     </HeaderProvider>
   );
 };
+

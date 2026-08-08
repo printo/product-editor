@@ -14,6 +14,7 @@ celery[redis]==5.3.4
 django-celery-beat==2.7.0
 django-celery-results==2.5.1
 django-csp==3.8
+sentry-sdk==2.13.0
 
 # ── Server-side auto-orientation (MediaPipe Pose Landmarker) ────────────────
 # Loaded lazily by services/orientation.py when the gunicorn backend container
