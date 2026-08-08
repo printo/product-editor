@@ -261,7 +261,21 @@ class CanvasData(models.Model):
 
     # Canvas configuration
     layout_name = models.CharField(max_length=255)
-    image_paths = models.JSONField(help_text="List of uploaded file paths")
+    # default=list is load-bearing, not tidiness. CanvasStateView.put keeps
+    # image_paths OUT of update_or_create's `defaults` on purpose: the autosave
+    # payload is {layout_name, editor_state} and writing `image_paths or []`
+    # blanked the recorded paths every 2 seconds, which is what broke DPDP
+    # erasure (see docs/DPDP_ERASURE_GAP_PRD.md).
+    #
+    # The field being NOT NULL with no default made that correct decision fail
+    # on INSERT: the first autosave for a new order sent no paths, Django wrote
+    # NULL, and Postgres rejected it — "null value in column image_paths
+    # violates not-null constraint", a 500. Since no row was created, the next
+    # autosave took the same path, so a new order never got its state saved at
+    # all. A model-level default applies on INSERT only and is untouched by
+    # UPDATE, which is exactly the required behaviour: creates succeed, and
+    # autosave still cannot clobber paths recorded at submit time.
+    image_paths = models.JSONField(default=list, help_text="List of uploaded file paths")
     fit_mode = models.CharField(max_length=20, default='cover')
     # Output format — choices enforced server-side and at the API surface.
     # Future formats can be added here once the engine + frontend support them.
