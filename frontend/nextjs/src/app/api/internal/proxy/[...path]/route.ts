@@ -144,9 +144,26 @@ async function handler(
   }
 
   // 4. Pipe the body through unchanged for write methods.
+  //
+  // Wrap in a Blob (re-readable) instead of passing the ArrayBuffer directly:
+  // Node's undici-based fetch DETACHES an ArrayBuffer when it hands it to the
+  // network layer, so any 3xx from the upstream fails the body re-send with
+  // "Cannot perform ArrayBuffer.prototype.slice on a detached ArrayBuffer".
+  //
+  // That is not hypothetical here. Next.js strips the trailing slash from
+  // `/api/internal/proxy/canvas-state/<id>/` with a 308 before this handler
+  // runs, so the `hasTrailingSlash` preservation above sees none and Django is
+  // asked for a slash-less URL — which CommonMiddleware answers with a 301 to
+  // add the slash back. fetch followed that 301, the detached body threw, and
+  // the route returned 502. Every editor autosave from the dashboard failed
+  // that way, silently, while GETs on the same path succeeded (301 -> 200)
+  // because they have no body to re-send.
+  //
+  // The embed proxy already carried this exact fix; this path was missed.
   let body: BodyInit | null = null;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    body = await req.arrayBuffer();
+    const arrayBuf = await req.arrayBuffer();
+    body = arrayBuf.byteLength > 0 ? new Blob([arrayBuf]) : null;
   }
 
   // 5. Forward and stream the response back.
