@@ -759,7 +759,7 @@ Key surfaces added in the resilience/compliance pass — grep these before touch
 
 ## Migrations
 
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0011_uploadedfile_order_id`.
+Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0014_audit_trail`.
 
 | Migration | Change |
 |---|---|
@@ -772,10 +772,26 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 | 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` (webhook URL, propagated to CanvasData via `X-Callback-URL` header) |
 | 0008 | `CanvasData.render_state` — submit-time render payload snapshot. Separates the two writers that shared `editor_state` (autosave vs submit): submit no longer wipes the customer's auto-saved design, and a post-submit autosave can't strip a queued job's payload. `render_canvas_task` reads `render_state or editor_state` (legacy fallback for jobs enqueued pre-deploy). |
 | 0009 | Consolidates drifted model state: two `RenderJob` indexes (`queue_name/status/created_at`, `status/completed_at`) that existed in the model but never got a migration, drops a duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-name. |
-| 0011 | `UploadedFile.order_id` — order linkage recorded at upload time (from `X-Order-ID` / request). DPDP erasure previously found a customer's files only via `CanvasData.image_paths`, which autosave blanked every 2 s, so `purge_order_data` deleted the rows, reported `files_deleted: 0` and left the photos on disk. Blank default — direct-API uploads carry no order context. See `docs/DPDP_ERASURE_GAP_PRD.md`. |
 | 0010 | `EmbedSession.include_uploads` (default `True`) — opt out to keep customer originals out of the delivered ZIP for faster downloads. Propagated to the render via the `X-Include-Uploads` header the embed proxy injects, and snapshotted into `CanvasData.render_state`. |
+| 0011 | `UploadedFile.order_id` — order linkage recorded at upload time (from `X-Order-ID` / request). DPDP erasure previously found a customer's files only via `CanvasData.image_paths`, which autosave blanked every 2 s, so `purge_order_data` deleted the rows, reported `files_deleted: 0` and left the photos on disk. Blank default — direct-API uploads carry no order context. See `docs/DPDP_ERASURE_GAP_PRD.md`. |
+| 0012 | `UploadedFile.expires_at` / `ExportedResult.expires_at` gain a `default` (the fields already existed, unpopulated), plus a backfill of `created_at + EXPORT_RETENTION_DAYS` for existing rows. The GC swept these two on `created_at + retention` **recomputed at sweep time**, so lowering `EXPORT_RETENTION_DAYS` acted RETROACTIVELY — deleting files whose expiry had already been sent to a partner as webhook `expires_at`. Silently: `CanvasData` and async render outputs use a stored `expires_at` so their print files survived, but the uploads went early and `RenderJobDownloadView` skips missing files with only a log line, handing back a ZIP without `1_customer_uploads/`. All four sweeps now run off one clock. **The backfill reads the retention in force at migration time — deploy before lowering the env var.** |
+| 0013 | `CanvasData.image_paths` gains `default=list`. `CanvasStateView.put` deliberately keeps `image_paths` out of `update_or_create`'s `defaults` (writing `image_paths or []` blanked recorded paths every 2 s — the 0011 erasure bug), but the column is NOT NULL with no default, so INSERT wrote NULL and the **first autosave for any new order 500'd**. No row was created, so every retry took the same path and a new order never persisted its editor state at all. A model default applies on INSERT only, never UPDATE: creates succeed, autosave still can't clobber submit-time paths. |
+| 0014 | `APIRequest.api_key` → nullable `SET_NULL`, plus `APIRequest.auth_source`. The table existed from the initial commit with **nothing ever writing to it**, so `APIRequest.objects.count()` returned 0 for every key forever — which reads as proof a credential was never used and is really proof nothing was recorded. `SET_NULL` keeps history across a key rotation (`CASCADE` erased it) and lets PIA/anonymous ops actions be recorded; `auth_source` denormalises the actor so the row still names it after the key row is gone. See "API audit trail" below. |
 
 **Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.
+
+## API audit trail (0014)
+
+`APIRequest` rows are written by `api/middleware.py::APIRequestLoggingMiddleware` — one per API call, carrying the resolved credential, `auth_source`, endpoint, status, duration, sizes, client IP and user agent.
+
+**Why this matters:** the model existed from the initial commit and *nothing ever wrote to it*. `APIRequest.objects.count()` returned 0 for every key, forever. That is worse than an empty table — during a leaked-key investigation it reads as proof the credential was never used, when it only proves nothing was recorded. Container logs were the sole history, capped at 50 MB × 3 and reset on every container recreate.
+
+- **Not everything is recorded.** `/api/health`, `/api/config`, `/api/render-status/` and chunk `PUT`s are exempt — render-status alone produced ~1,500 rows/hour during one large job. The `/complete` call that finalises a stored file *is* recorded. If you add a high-frequency endpoint, add it to `AUDIT_EXEMPT_PREFIXES`; if you add one that touches customer data, make sure it is **not** matched by an exemption, or you create a silent blind spot. `services/tests/test_audit_middleware.py` pins both directions.
+- **The write can never break a request** — it is wrapped, and a failure only logs a warning. An audit trail that can 500 the API is worse than none.
+- **Status is the view's, not the wire's,** for `APPEND_SLASH` redirects: the middleware sits after `CommonMiddleware`, so its response phase runs first and sees the pre-redirect 404 while the client receives a 301. Attribution (credential, path, time, IP) is unaffected.
+- **Rows are swept by the GC** on `API_AUDIT_RETENTION_DAYS` (default 90), independent of file retention.
+
+`_get_client_ip` is module-level and shared with `RateLimitMiddleware` so a spoofed `X-Forwarded-For` can never be trusted by one and rejected by the other.
 
 ## Deployment (`deploy.sh`)
 
@@ -846,6 +862,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 | `DB_CONN_MAX_AGE` | `600` | Persistent DB connection age in seconds; raise / set to `0` if PgBouncer is in front |
 | `CSP_REPORT_ONLY` | `True` | django-csp emits headers but enforces nothing — flip to `False` once policy is validated |
 | `CELERY_CONCURRENCY` | unset | Celery auto-detects from CPU count; set to cap on shared servers |
+| `API_AUDIT_RETENTION_DAYS` | `90` | How long `APIRequest` audit rows are kept. Deliberately much longer than `EXPORT_RETENTION_DAYS` — the trail has to outlive the data it describes to answer "who touched this order". Swept by `garbage_collector_task` |
 | `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | Set to `False` if nginx already redirects HTTP→HTTPS (which it does by default; this var is redundant in the current setup) |
 | `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | Only honored when `DEBUG=1` |
 | `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` | `https://printo.in` | Last-resort fallback for `postMessage` targetOrigin if `ancestorOrigins` and `referrer` are both unavailable |
@@ -903,7 +920,7 @@ The full prioritised list is in [docs/PRD.md](docs/PRD.md) §8 — these are the
 2. **(Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50`** to prod `.env` if you want a non-default ceiling. Default 50 if absent.
 3. **(Optional) Add `CSP_REPORT_ONLY=True`** — already the default; only set explicitly if you want to flip it later.
 4. **Rebuild the backend image.** `requirements.txt` gained `django-csp==3.8` and the Dockerfile is now multi-stage. `deploy.sh` already runs `docker-compose build`, so this happens automatically.
-5. **Check for unapplied migrations.** The backend container self-migrates on boot, so a normal deploy needs nothing here — but confirm with `docker-compose exec backend python manage.py showmigrations api` and compare against the Migrations table (latest is `0010_embedsession_include_uploads`). Only migrate from the `backend` container, never from a worker or beat container.
+5. **Check for unapplied migrations.** The backend container self-migrates on boot, so a normal deploy needs nothing here — but confirm with `docker-compose exec backend python manage.py showmigrations api` and compare against the Migrations table (latest is `0014_audit_trail`). Only migrate from the `backend` container, never from a worker or beat container.
 6. **Verify healthchecks come up green** — `docker-compose ps` should show `(healthy)` next to `proxy`, `backend`, and `frontend`. The proxy probe hits `/nginx-health` on localhost:80; the backend probe hits `/api/health`; the frontend probe hits `/`. `proxy` `depends_on: backend: { condition: service_healthy }` so a slow backend blocks proxy startup until ready.
 7. **Smoke-test login on prod** — bad password should still say "Invalid credentials"; if PIA is reachable, login should succeed. The new error-code distinction (PiaTimeout / PiaServiceUnavailable) only surfaces during actual outages.
 
