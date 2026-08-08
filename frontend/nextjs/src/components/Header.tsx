@@ -80,8 +80,12 @@ export const Header = () => {
           )}
         </div>
 
-        {/* Center: Universal Search / Centerpiece — desktop only; mobile gets its own full-width row below */}
-        <div className="hidden md:flex flex-1 justify-center px-2 md:px-4 min-w-0 overflow-hidden">
+        {/* Center: Universal Search / Centerpiece — desktop only; mobile gets its own full-width row below.
+            No overflow-hidden here: centerActions can include a Dropdown (e.g. TagFilter) whose open
+            panel is position:absolute and must paint outside this row, not get clipped by it. Content
+            (SearchInput min-w-0, fixed-width TagFilter/Fonts) already shrinks to fit via flex, so this
+            never needed the clip for horizontal safety. */}
+        <div className="hidden md:flex flex-1 justify-center px-2 md:px-4 min-w-0">
           {centerActions}
         </div>
 
