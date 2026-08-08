@@ -6,22 +6,64 @@ import { captionOverridesFromMm } from '@/lib/caption-layout';
 
 let picaInstance: any = null;
 
+/** Ceiling on a single pica resize before we give up and use native scaling. */
+const PICA_RESIZE_TIMEOUT_MS = 20_000;
+
+/**
+ * Reject if `p` has not settled within `ms`.
+ *
+ * Necessary because a promise that never settles cannot be caught: `await`
+ * simply parks forever and every enclosing try/catch is bypassed. That is not
+ * hypothetical here — see resizeImageWithPica below.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    p.finally(() => clearTimeout(timer)),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]);
+}
+
 /**
  * Resizes an image using Pica for high quality.
+ *
+ * Web workers are DISABLED deliberately. Pica's default feature set includes
+ * 'ww', which builds a worker from an inline payload — and Turbopack (pica is
+ * in transpilePackages) rewrites that payload with references to
+ * `__turbopack_context__`, which does not exist in worker scope. Every worker
+ * therefore died on spawn with:
+ *
+ *   Uncaught ReferenceError: __turbopack_context__ is not defined
+ *
+ * pica had already posted the work to them, so `resize()` never resolved AND
+ * never rejected. The export path awaited it forever: the Download button span
+ * indefinitely with no error, on every photo large enough to need downscaling
+ * (isExport && finalScale < 0.9). Thumbnails were unaffected because that
+ * branch is export-only, which is why previews looked fine.
+ *
+ * Resizing on the main thread costs a few hundred ms for a 12 MP source and
+ * actually completes. The timeout below is belt-and-braces: any future stall
+ * falls back to native canvas scaling instead of hanging the download.
  */
 async function resizeImageWithPica(img: HTMLImageElement, width: number, height: number): Promise<HTMLCanvasElement> {
   if (!picaInstance) {
     const pica = (await import('pica')).default;
-    picaInstance = pica();
+    picaInstance = pica({ features: ['js', 'wasm'] });
   }
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(width);
   canvas.height = Math.round(height);
-  await picaInstance.resize(img, canvas, {
-    unsharpAmount: 80,
-    unsharpRadius: 0.6,
-    unsharpThreshold: 2
-  });
+  await withTimeout(
+    picaInstance.resize(img, canvas, {
+      unsharpAmount: 80,
+      unsharpRadius: 0.6,
+      unsharpThreshold: 2,
+    }),
+    PICA_RESIZE_TIMEOUT_MS,
+    'pica resize',
+  );
   return canvas;
 }
 
