@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ('api', '0012_stamp_file_expiry'),
+        ('api', '0013_canvasdata_image_paths_default'),
     ]
 
     operations = [
