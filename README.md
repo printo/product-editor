@@ -4,6 +4,21 @@ A production-ready full-stack application for generating photo layouts for perso
 
 ---
 
+## Knowledge Graph
+
+The repository includes a code knowledge graph in `graphify-out/`. For architecture questions, dependency tracing, or understanding how a frontend flow reaches the backend render pipeline, query it before grepping the tree.
+
+```bash
+graphify query "how does the render pipeline work"
+graphify path "EditorRenderView" "notify_caller_webhook_task"
+graphify explain "render_canvas_task"
+graphify update .
+```
+
+Use `graphify update .`, not `graphify . --update`. The `update` subcommand refreshes the code graph locally without requiring an LLM API key.
+
+---
+
 ## Technology Stack
 
 **Backend**
@@ -90,10 +105,76 @@ Run the backend + infra in Docker, but the Next.js dev server on the host for ho
 docker-compose up -d backend db redis redis-cache celery-worker-standard celery-worker-priority
 cd frontend/nextjs
 pnpm install
-pnpm dev   # http://localhost:3000
+pnpm dev         # http://localhost:3000
+# If routes start 404ing in dev, use:
+pnpm dev:clean
 ```
 
 Set `frontend/nextjs/.env.local` so it talks to the Dockerized backend (`INTERNAL_API_URL=http://localhost:8000/api`, plus the same `INTERNAL_API_KEY` / `AUTH_SECRET` as `.env`).
+
+---
+
+## Development Commands
+
+### Frontend
+
+```bash
+cd frontend/nextjs
+pnpm dev
+pnpm dev:clean
+pnpm build
+pnpm typecheck
+pnpm lint
+pnpm lint:fix
+```
+
+### Backend
+
+```bash
+cd backend/django
+python manage.py migrate
+python manage.py showmigrations
+python manage.py shell
+```
+
+### Tests
+
+Frontend tests run with Jest:
+
+```bash
+cd frontend/nextjs
+pnpm test
+pnpm test:watch
+pnpm test -- src/lib/__tests__/dpi-utils.test.ts
+pnpm test -- -t "clamps the offset"
+pnpm test:parity
+```
+
+Backend tests are standalone modules under `backend/django/services/tests/` and are usually run through the backend container because the host Python environment often lacks Django/Pillow:
+
+```bash
+docker-compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
+docker-compose run --rm --entrypoint bash backend -c 'for f in services/tests/test_*.py; do /opt/venv/bin/python -m "services.tests.$(basename "$f" .py)" || echo "FAIL $f"; done'
+```
+
+If you already have a local virtualenv with `requirements.txt` installed, set `DEBUG=1` before running the backend tests directly so Django's production secret-key guard does not abort startup.
+
+---
+
+## Utility Scripts
+
+```bash
+./deploy.sh
+./fresh-install.sh
+./benchmark.sh
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-calendar.sh
+./scripts/test-backup-restore.sh
+./scripts/backup.sh
+./scripts/restore.sh
+```
+
+Both smoke tests default to `BASE=http://localhost:5004`. To exercise the nginx edge locally, use `BASE=https://localhost` and pass `-k` to `curl` because the local certificate is self-signed.
 
 ---
 
@@ -169,6 +250,15 @@ docker-compose up -d --scale celery-worker-standard=4
 ## API Reference
 
 All backend endpoints (except `/api/health`) require `Authorization: Bearer YOUR_API_KEY`.
+
+If you want to browse the API in the browser:
+
+| Purpose | Local URL | Path |
+|---|---|---|
+| Interactive API docs (Scalar UI) | `http://localhost:8000/docs/api/` | `/docs/api/` |
+| Raw OpenAPI schema (JSON) | `http://localhost:8000/api/schema/` | `/api/schema/` |
+
+If you're using the nginx edge locally, the docs are also available at `https://localhost/docs/api/`.
 
 The Next.js frontend uses two server-side proxies — neither exposes an API key to the browser:
 
@@ -259,24 +349,29 @@ Direct API callers without an `EmbedSession` (i.e. the `/api/layout/generate` fl
 ## Async Queue Architecture
 
 ```
-POST /api/layout/generate (with order_id)
+dashboard or embed editor submit
+        │
+        ├── uploads source files via chunked upload API
+        │
+        ▼
+POST /api/editor/render (or embed proxy)
         │
         ▼
   ┌─────────────────┐        ┌──────────────────────────────────┐
   │   Django API    │─enqueue─▶  Redis (priority queue)          │──▶ celery-worker-priority
   │  (202 response) │        │  Redis (standard queue)           │──▶ celery-worker-standard
   └─────────────────┘        └──────────────────────────────────┘
-                                              │
-                                      render complete
-                                              │
-                  ┌───────────────────────────┴───────────────────────────┐
-                  │                                                       │
-       has callback_url?                                       no callback_url
-                  │                                                       │
-       ┌──────────▼──────────────┐                              dashboard polls
-       │ notify_caller_webhook_  │──▶ HMAC-signed POST to        /api/render-status,
-       │ task (separate task)    │    EmbedSession.callback_url  fetches ZIP from
-       └─────────────────────────┘    (printo.in storefront)     /api/jobs/<id>/download
+                                             │
+                                     render complete
+                                             │
+                 ┌───────────────────────────┴───────────────────────────┐
+                 │                                                       │
+      embed flow with callback_url                              dashboard / direct API
+                 │                                                       │
+      ┌──────────▼──────────────┐                              poll /api/render-status
+      │ notify_caller_webhook_  │──▶ HMAC-signed POST to       then GET /api/jobs/<id>/download
+      │ task (separate task)    │    EmbedSession.callback_url
+      └─────────────────────────┘
 ```
 
 Key behaviours:
@@ -286,6 +381,7 @@ Key behaviours:
 - **Order resubmit** — `update_or_create` on `order_id`; resubmissions never crash
 - **Dispatch safety** — Redis failure in `on_commit` marks job `failed` with error; never silently stuck in `queued`
 - **Caller webhook** — separate Celery task, only dispatched when `canvas.callback_url` is set; retries 5× independently; sets `requires_manual_review=True` on final failure
+- **Single render path** — both embed "Save & Continue" and dashboard download use the same server-side render flow; the old small-job browser render shortcut is gone
 
 ---
 
@@ -302,19 +398,24 @@ cat backup.sql | docker-compose exec -T db psql -U postgres product_editor
 docker-compose exec backend python manage.py migrate
 ```
 
-Current migrations (latest: `0009_renderjob_status_completed_idx`):
+Current migrations (latest: `0014_audit_trail`):
 
 | Migration | Change |
 |---|---|
 | 0001 | Initial schema — `APIKey`, `RenderJob`, `ExportedResult`, `EmbedSession`, `UploadedFile`, `CanvasData` |
-| 0002 | `CanvasData.callback_url` — per-request webhook URL for caller (embed) webhook |
-| 0003 | `CanvasData.editor_state` JSON field + `UploadedFile.upload_session` — canvas persistence and chunked-upload session tracking |
-| 0004 | `CanvasData.updated_at` (`auto_now`) + `canvas_data_expires_idx` index — GC age queries |
-| 0005 | `CanvasData` uniqueness changed from global `order_id` to composite `(order_id, api_key)` — tenant isolation fix |
-| 0006 | `EmbedSession.order_id` — caller's job ID, injected as `X-Order-ID` by embed proxy |
-| 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` |
-| 0008 | `CanvasData.render_state` — submit-time render payload snapshot, separated from `editor_state` (autosave) so submit no longer clobbers a customer's in-progress design |
-| 0009 | Consolidates drifted model state: two missing `RenderJob` indexes, drops a duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-name |
+| 0002 | `CanvasData.callback_url` |
+| 0003 | `CanvasData.editor_state` + `UploadedFile.upload_session` |
+| 0004 | `CanvasData.updated_at` + GC index |
+| 0005 | `CanvasData` uniqueness changed to `(order_id, api_key)` for tenant isolation |
+| 0006 | `EmbedSession.order_id` — caller's job ID injected as `X-Order-ID` by the embed proxy |
+| 0007 | v1.8 bundle: partial GC index on `ExportedResult`, removal of CMYK soft-proof fields, `export_format` choices `png|pdf`, and `EmbedSession.callback_url` |
+| 0008 | `CanvasData.render_state` — separates submit-time render payload from autosaved `editor_state` |
+| 0009 | Adds missing `RenderJob` indexes, removes duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-generated name |
+| 0010 | `EmbedSession.include_uploads` — allows the delivered ZIP to omit original uploads |
+| 0011 | `UploadedFile.order_id` — preserves order linkage for DPDP erasure and file cleanup |
+| 0012 | Stored `expires_at` defaults and backfill for `UploadedFile` / `ExportedResult` so webhook expiry and GC retention stay aligned |
+| 0013 | `CanvasData.image_paths` default list — fixes first-autosave failures on new orders |
+| 0014 | API audit trail hardening: `APIRequest.api_key` becomes nullable `SET_NULL`, plus `APIRequest.auth_source` |
 
 ---
 
@@ -358,7 +459,7 @@ docker stats product-editor-celery-worker-standard-1
 - Bearer token + per-key permission flags (`can_generate_layouts`, `can_access_exports`, `is_ops_team`)
 - **Embed flow**: short-lived UUID embed tokens exchanged server-side at `/api/embed/proxy` — real API key never touches the browser
 - **Dashboard / editor flow**: all calls proxied through `/api/internal/proxy` (gated by NextAuth session cookie + `INTERNAL_API_KEY` server env var) — no API key in client JS bundle
-- Ops-path guard in internal proxy: `ops/*` routes re-check `session.is_ops_team` before forwarding, preventing privilege escalation through the shared key
+- Destructive internal ops routes need an explicit proxy-side guard. The shared `INTERNAL_API_KEY` is ops-flagged, so Django-side `IsOpsTeam` alone does not protect routes reached through the internal proxy
 - Path traversal protection: UUID v4 regex validation on all `upload_id` parameters
 - `APIKey.last_used_at` writes throttled to once per 5 minutes to reduce DB write churn
 - CORS restriction + security headers (HSTS, X-Frame-Options, nosniff)
@@ -386,35 +487,97 @@ docker stats product-editor-celery-worker-standard-1
 
 ```
 storage/
-├── uploads/    # customer-uploaded source images (30-day expiry)
+├── uploads/    # customer-uploaded source images
 ├── layouts/    # JSON layout templates
 ├── masks/      # SVG/PNG mask files
-└── exports/    # generated render outputs (14-day expiry; 7-day when disk > 80%)
+└── exports/    # generated render outputs
 ```
+
+Retention is controlled by stored `expires_at` values and `EXPORT_RETENTION_DAYS` rather than the older hard-coded 30-day / 14-day behaviour. The repo also stores SKU mappings in `storage/sku_layouts.json`, and chunk uploads are staged under `UPLOADS_DIR/.chunks/<upload_id>/` during assembly.
 
 ---
 
 ## Environment Variables
 
+The README now follows `.env.example`, which is the source of truth for local and production configuration.
+
+### Core runtime
+
 | Variable | Required | Description |
 |---|---|---|
+| `COMPOSE_PROFILES` | No | Compose profile selection. `.env.example` enables the nginx edge via `prod` |
+| `NODE_ENV` | Yes | Runtime mode. `.env.example` uses `production` |
+| `DEBUG` | Yes | `0` for production; defaults to off even if unset |
 | `DJANGO_SECRET_KEY` | Yes | Django secret key. Boot fails under `DEBUG=0` if left at the dev default |
-| `AUTH_SECRET` | Yes | NextAuth JWT signing secret (≥ 32 chars). Compose aborts on boot if unset |
-| `EMBED_INTERNAL_SECRET` | Yes | Gates the embed session-validate endpoint |
-| `DEBUG` | Yes | `0` for production (defaults to `0` even if unset) |
-| `PUBLIC_HOST` | Yes | Production domain (also baked into the bootstrap self-signed cert's CN) |
+| `PUBLIC_HOST` | Yes | Hostname nginx accepts; also used in the bootstrap cert CN |
+| `SECURE_SSL_REDIRECT` | No | Set `False` when nginx already redirects HTTP→HTTPS |
+| `ALLOWED_HOSTS` | Yes | Comma-separated Django host allowlist |
+| `CORS_ALLOWED_ORIGINS` | No | Comma-separated allowed browser origins |
+
+### Database
+
+| Variable | Required | Description |
+|---|---|---|
+| `POSTGRES_HOST` | Yes | Database host, usually `db` in Docker |
+| `POSTGRES_PORT` | Yes | Database container port |
+| `POSTGRES_HOST_PORT` | No | Host-mapped Postgres port (default `5432`) |
+| `POSTGRES_USER` | Yes | Database user |
 | `POSTGRES_PASSWORD` | Yes | Database password |
-| `REDIS_URL` | Yes | Redis connection string (Celery broker, db `0`) |
-| `DIRECT_API_KEY` | Yes | Internal ops team API key (seeded into Django DB on first run) |
+| `POSTGRES_DB` | Yes | Database name |
+
+### API keys and auth
+
+| Variable | Required | Description |
+|---|---|---|
+| `DIRECT_API_KEY` | Yes | Internal ops team API key seeded into Django on boot |
 | `EXTERNAL_API_KEY` | No | External partner key |
 | `TESTING_API_KEY` | No | Testing key |
-| `INTERNAL_API_KEY` | Yes | Server-only key for the Next.js internal proxy — same value as `DIRECT_API_KEY`. **Must NOT be prefixed `NEXT_PUBLIC_`** |
-| `PIA_API_BASE_URL` | No | Upstream auth service (default `https://pia.printo.in/api/v1`) |
-| `CELERY_CONCURRENCY` | No | Worker slots per container (default: auto-detected from CPU count) |
-| `CELERY_QUEUE` | No | Queue name(s) for worker (default: `priority,standard`) |
-| `FRONTEND_HOST_PORT` | No | Host port for frontend (default: 5004) |
-| `BACKEND_HOST_PORT` | No | Host port for backend (default: 8000) |
-| `POSTGRES_HOST_PORT` | No | Host port for Postgres (default: 5432) |
+| `INTERNAL_API_KEY` | Yes | Server-only key used by the Next.js internal proxy. Set it to the **same value** as `DIRECT_API_KEY` |
+| `AUTH_SECRET` | Yes | NextAuth JWT signing secret (≥ 32 chars). Compose aborts on boot if unset |
+| `AUTH_URL` | Yes | Public auth base URL for NextAuth |
+| `AUTH_TRUST_HOST` | No | NextAuth host trust toggle |
+| `EMBED_INTERNAL_SECRET` | Yes | Shared secret for `/api/embed/session/validate`, used by the embed proxy |
+| `PIA_API_BASE_URL` | No | Upstream Printo auth service base URL |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | No | Public Google Sign-In client ID, inlined at frontend build time |
+
+### Frontend and proxy
+
+| Variable | Required | Description |
+|---|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | Yes | Frontend API base path. `.env.example` uses `/api` through nginx |
+| `FRONTEND_HOST_PORT` | No | Host port for the frontend container (default `5004`) |
+| `BACKEND_HOST_PORT` | No | Host port for the backend container (default `8000`) |
+| `CSP_REPORT_ONLY` | No | Keeps django-csp in report-only mode until policy is validated |
+
+### Storage, uploads, and retention
+
+| Variable | Required | Description |
+|---|---|---|
+| `STORAGE_ROOT` | Yes | Base storage path from which uploads, layouts, masks, and exports are derived |
+| `MAX_UPLOAD_FILE_SIZE_MB` | No | Single source of truth for file upload limits (default `50`) |
+| `MAX_IMAGE_DIMENSION_PX` | No | Upload-side decompression-bomb guard for very large images (default `16384`) |
+| `EXPORT_RETENTION_DAYS` | No | Retention for rendered outputs and uploaded originals |
+| `EXPORT_RETENTION_DAYS_UNDER_PRESSURE` | No | Optional shorter retention once export disk usage crosses the pressure threshold |
+| `AUTO_ORIENTATION_MODE` | No | Server-side orientation detection mode: `mediapipe`, `hybrid`, or `off` |
+
+### Redis, workers, and web serving
+
+| Variable | Required | Description |
+|---|---|---|
+| `REDIS_URL` | Yes | Redis connection string for Celery broker / result backend |
+| `REDIS_CACHE_URL` | No | Django cache Redis URL. In app settings it defaults by swapping Redis db `0` to db `1` |
+| `CELERY_CONCURRENCY` | No | Worker slots per container. Leave unset to auto-detect from CPU count |
+| `GUNICORN_WORKERS` | No | Gunicorn worker count override |
+| `GUNICORN_THREADS` | No | Gunicorn threads per worker |
+| `GUNICORN_TIMEOUT` | No | Gunicorn request timeout |
+| `GUNICORN_MAX_REQUESTS` | No | Gunicorn recycle threshold per worker |
+| `GUNICORN_LOG_LEVEL` | No | Gunicorn log level |
+
+### Audit and security tuning
+
+| Variable | Required | Description |
+|---|---|---|
+| `API_AUDIT_RETENTION_DAYS` | No | Retention for `APIRequest` audit rows (default `90`) |
 
 ---
 
