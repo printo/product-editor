@@ -168,11 +168,30 @@ Rotated. Backup: ${BACKUP}
 Nothing has restarted yet. The old key still works until the backend reboots.
 
 Next:
-  1. Redeploy so entrypoint.sh re-seeds the DIRECT row from the new value:
-       ./deploy.sh backend
+  1. Restart the backend AND the frontend TOGETHER.
 
-  2. Confirm the dashboard works (it authenticates with INTERNAL_API_KEY):
+     ./deploy.sh backend is NOT enough, and getting this wrong takes the
+     dashboard down. It re-seeds the DIRECT row with the new key but leaves the
+     frontend running with the OLD INTERNAL_API_KEY in its process
+     environment, so every dashboard call then presents a key that matches no
+     row - 403 on everything until the frontend restarts too. No code has
+     changed here, so recreate rather than rebuild:
+
+       docker-compose up -d --force-recreate \\
+         backend frontend celery-worker-priority celery-worker-standard celery-beat
+
+     (./deploy.sh both also works, but rebuilds images for no reason.)
+
+  2. Confirm the API answers:
        curl -sf https://\${PUBLIC_HOST}/api/health && echo OK
+
+  2b. Confirm the NEW key actually authenticates. The DB row matching only
+      proves entrypoint.sh seeded it, not that the credential works:
+       KEY=\$(grep '^DIRECT_API_KEY=' ${ENV_FILE} | cut -d= -f2-)
+       curl -s -o /dev/null -w '%{http_code}\\n' -X POST \\
+         http://localhost:8000/api/embed/session \\
+         -H "Authorization: Bearer \$KEY" -H 'Content-Type: application/json' \\
+         -d '{"order_id":"ROT-VERIFY"}'      # expect 201
 
   3. Confirm the DB row took the new key — prints only the last 4:
        docker-compose exec -T backend python manage.py shell -c \\
