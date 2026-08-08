@@ -54,6 +54,52 @@ Open `graphify-out/graph.html` in a browser for the interactive visualisation.
 
 ---
 
+## Hard constraints — git and shipping
+
+Mirrors the equivalent section in `PIA/pops-prod-ui/CLAUDE.md`, adapted: this
+repo has no `staging` branch, so **`main` is production**. `deploy.sh` git-pulls
+`main` on the server, which means anything merged is one deploy away from
+customers. The gate between "written" and "live" is your check-in with the
+user — there is nothing else.
+
+- **Never push, open a PR, or merge without checking in first.** A request to do
+  the work is not a request to ship it. Do the work, run the checks, then STOP
+  and report what changed and what you verified — then wait for an explicit
+  go-ahead before `git push`, `gh pr create`, or `gh pr merge`. Chaining
+  implement → test → commit → push → PR → merge into one autonomous pass is the
+  failure mode. It ran that way throughout 2026-08-08 (PRs #41–#53): each change
+  was individually sound and verified, but the user was left reviewing merges
+  rather than deciding them.
+
+- **Always branch from freshly-pulled `main`.**
+  `git checkout main && git pull && git checkout -b <name>` — never
+  `git checkout -b` from wherever the tree happens to be sitting. This checkout
+  is shared with other Claude Code sessions (three at once on 2026-08-08), so
+  local `main` goes stale within minutes. Twice that day a `git pull` failed
+  silently — once because stderr was suppressed with `2>/dev/null`, once because
+  untracked files blocked the merge — and work began against a base 7 commits
+  behind.
+
+- **Run `git status` and `git log --oneline -5` before every commit.** With
+  several sessions in one directory, uncommitted files may not be yours. **Never
+  `git add -A` or `git commit -a` in this repo — stage explicit paths.** On
+  2026-08-08 a session found four modified and two untracked files belonging to
+  another session; they were only safe to discard after verifying each was
+  byte-identical to `origin/main`.
+
+- **Say what you found and left behind.** If another session's work is sitting
+  in the tree, name the files rather than silently working around them.
+
+- **Delete the remote branch after a merge:**
+  `git push origin --delete <branch>`. Otherwise every `git pull` on the
+  production server prints the whole accumulated list as `[new branch]`, burying
+  the output that matters. 13 merged branches had piled up by the end of
+  2026-08-08.
+
+- **A PR number is not something to predict.** Use the URL `gh pr create`
+  returns. On 2026-08-08 a PR was referenced as "#47" before it existed; #47
+  turned out to be an unrelated PR from another session.
+
 ## Commands
 
 ### Frontend (Next.js)
