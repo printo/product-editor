@@ -10,6 +10,23 @@ const nextConfig = {
   },
   transpilePackages: ['lucide-react', 'pica', 'smartcrop'],
   allowedDevOrigins: ['product-editor.printo.in'],
+  // Next.js strips a trailing slash with a 308 BEFORE a route handler runs.
+  // Both API proxies deliberately preserve the trailing slash when building the
+  // upstream URL (`hasTrailingSlash`), because Django's URLconf requires it —
+  // but that code could never fire, since the slash was already gone. Django
+  // then answered the slash-less URL with its own APPEND_SLASH 301.
+  //
+  // The cost of that round trip is paid three times over: the BROWSER re-sends
+  // the whole body on the 308 (autosave payloads carry per-canvas previews, on
+  // a customer base that is mostly phone/tablet), the proxy re-sends it again
+  // on Django's 301, and the audit trail records a junk 404 row per save.
+  // It also made autosave fail outright until the body was made re-readable —
+  // undici detaches an ArrayBuffer on the first send, so the redirect retry
+  // threw (see the Blob wrapper in both proxy routes).
+  //
+  // Disabling the redirect lets the proxies' existing preservation logic work
+  // as designed: one hop, one upload, no APPEND_SLASH.
+  skipTrailingSlashRedirect: true,
   turbopack: {}, // ✅ Required in Next 16 if 'webpack' block is present
   async rewrites() {
     return [
