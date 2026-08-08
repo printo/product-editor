@@ -3516,7 +3516,12 @@ export default function LayoutEditorPage() {
           </div>
 
           {/* ── Fixed Processing Overlay ────────────────────────────────────── */}
-          {(isProcessing || isDownloading) && renderProgress && (
+          {/* isImposing included: executeImposition sets renderProgress on every
+              placed item, but this overlay never rendered during an imposition,
+              so the download showed a bare spinner. With no feedback, a slow
+              render and a hung one look identical — which is exactly how a
+              never-settling pica resize went unnoticed. */}
+          {(isProcessing || isDownloading || isImposing) && renderProgress && (
             <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
               <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-300">
                 <div className="flex items-center justify-between">
