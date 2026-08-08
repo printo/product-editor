@@ -78,7 +78,7 @@ docker-compose exec backend python manage.py migrate
 | Frontend | https://localhost (via nginx proxy) or http://localhost:5004 (direct) |
 | Backend API | http://localhost:8000/api |
 | Django Admin | http://localhost:8000/admin/django-admin/ |
-| API Docs (Swagger) | http://localhost:8000/api/docs/ |
+| API Docs (Scalar) | http://localhost:8000/docs/api/ |
 
 > **Note:** `.env.local` in `frontend/nextjs/` overrides docker-compose env vars. Always set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) when running inside Docker. If `5004`/`8000`/`5432` conflict with other projects on your machine, override `FRONTEND_HOST_PORT` / `BACKEND_HOST_PORT` / `POSTGRES_HOST_PORT` in `.env`.
 
