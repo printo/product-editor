@@ -10,7 +10,16 @@
     </style>
   </head>
   <body>
-    <script id="api-reference" data-url="/api/schema/"></script>
+    {% comment %}
+    Only show client libraries relevant to integration partners
+    (shell/ruby/node/php/python) — the rest of Scalar's default list is
+    dead weight here. Ids come from the target/client map in standalone.js.
+    {% endcomment %}
+    <script
+      id="api-reference"
+      data-url="/api/schema/"
+      data-configuration='{"hiddenClients":["c/libcurl","clojure/clj_http","csharp/httpclient","csharp/restsharp","dart/http","fsharp/httpclient","go/native","http/http1.1","java/asynchttp","java/nethttp","java/okhttp","java/unirest","js/axios","js/fetch","js/jquery","js/ofetch","js/xhr","kotlin/okhttp","objc/nsurlsession","ocaml/cohttp","powershell/restmethod","powershell/webrequest","r/httr2","rust/reqwest","swift/nsurlsession"]}'
+    ></script>
     <script src="{% static 'scalar/standalone.js' %}"></script>
   </body>
   </html>
