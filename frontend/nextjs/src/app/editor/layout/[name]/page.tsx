@@ -49,6 +49,7 @@ import {
   CROP_MARK_LEN_MAX_MM,
   canvasSpecToInches,
   computeImpositionLayout,
+  cropMarkLengthsFor,
   resolveSheetSize,
   type ItemSize,
 } from './imposition';
@@ -2497,7 +2498,6 @@ export default function LayoutEditorPage() {
     const pw = Math.round(sheetWIn * scale), ph = Math.round(sheetHIn * scale);
     const mPx = (impositionSettings.marginMm / MM_TO_IN) * scale;
     const markOffset = cropMarks.offsetIn * scale;
-    const markLen = cropMarks.lenIn * scale;
 
     let aborted = false;
 
@@ -2561,14 +2561,19 @@ export default function LayoutEditorPage() {
         }
         // Skipped entirely when the gutter/margin leaves no room — drawing them
         // anyway put black lines across the neighbouring photo.
-        if (markLen > 0) {
-          for (const [cx, cy, dx, dy] of [
-            [px, py, -1, -1], [px + iw, py, 1, -1],
-            [px, py + ih, -1, 1], [px + iw, py + ih, 1, 1],
-          ] as [number, number, number, number][]) {
-            fc.add(new Line([cx, cy + dy * markOffset, cx, cy + dy * (markOffset + markLen)], { stroke: '#64748b', strokeWidth: 0.5, selectable: false, evented: false }));
-            fc.add(new Line([cx + dx * markOffset, cy, cx + dx * (markOffset + markLen), cy], { stroke: '#64748b', strokeWidth: 0.5, selectable: false, evented: false }));
-          }
+        // Per-side lengths: an edge facing the paper gets a usable mark, an
+        // edge facing another photo stays short enough not to bleed onto it.
+        const L = cropMarkLengthsFor(item, sheet.items, impositionSettings, sheetWIn, sheetHIn);
+        const vLen = { '-1': L.top * scale, '1': L.bottom * scale } as Record<string, number>;
+        const hLen = { '-1': L.left * scale, '1': L.right * scale } as Record<string, number>;
+        for (const [cx, cy, dx, dy] of [
+          [px, py, -1, -1], [px + iw, py, 1, -1],
+          [px, py + ih, -1, 1], [px + iw, py + ih, 1, 1],
+        ] as [number, number, number, number][]) {
+          const vl = vLen[String(dy)];
+          const hl = hLen[String(dx)];
+          if (vl > 0) fc.add(new Line([cx, cy + dy * markOffset, cx, cy + dy * (markOffset + vl)], { stroke: '#64748b', strokeWidth: 0.5, selectable: false, evented: false }));
+          if (hl > 0) fc.add(new Line([cx + dx * markOffset, cy, cx + dx * (markOffset + hl), cy], { stroke: '#64748b', strokeWidth: 0.5, selectable: false, evented: false }));
         }
       }
       // renderAll, not requestRenderAll: the whole scene is built in one pass,
@@ -2923,7 +2928,6 @@ export default function LayoutEditorPage() {
 
       // 1. Prepare for sheet generation
       const cropMarkOff = Math.round(cropMarks.offsetIn * dpi);
-      const cropMarkLen = Math.round(cropMarks.lenIn * dpi);
       const sheetBlobs: { name: string; blob: Blob }[] = [];
       // StaticCanvas, not Canvas: the interactive one allocates a second
       // full-size "upper canvas" it never uses (~139 MB per A4 sheet), and
@@ -2976,11 +2980,14 @@ export default function LayoutEditorPage() {
 
           // Crop marks, clamped by resolveCropMarkGeometry so they can never
           // reach into the neighbouring photo or run off the sheet edge.
-          if (cropMarkLen > 0) {
-            for (const [cx, cy, dx, dy] of [[px, py, -1, -1], [px + pw, py, 1, -1], [px, py + ph, -1, 1], [px + pw, py + ph, 1, 1]] as [number, number, number, number][]) {
-              fabricSheet.add(new Line([cx, cy + dy * cropMarkOff, cx, cy + dy * (cropMarkOff + cropMarkLen)], { stroke: '#000', strokeWidth: 1, selectable: false, evented: false }));
-              fabricSheet.add(new Line([cx + dx * cropMarkOff, cy, cx + dx * (cropMarkOff + cropMarkLen), cy], { stroke: '#000', strokeWidth: 1, selectable: false, evented: false }));
-            }
+          const L = cropMarkLengthsFor(item, sheet.items, impositionSettings, sheetWIn, sheetHIn);
+          const vPx = { '-1': Math.round(L.top * dpi), '1': Math.round(L.bottom * dpi) } as Record<string, number>;
+          const hPx = { '-1': Math.round(L.left * dpi), '1': Math.round(L.right * dpi) } as Record<string, number>;
+          for (const [cx, cy, dx, dy] of [[px, py, -1, -1], [px + pw, py, 1, -1], [px, py + ph, -1, 1], [px + pw, py + ph, 1, 1]] as [number, number, number, number][]) {
+            const vl = vPx[String(dy)];
+            const hl = hPx[String(dx)];
+            if (vl > 0) fabricSheet.add(new Line([cx, cy + dy * cropMarkOff, cx, cy + dy * (cropMarkOff + vl)], { stroke: '#000', strokeWidth: 1, selectable: false, evented: false }));
+            if (hl > 0) fabricSheet.add(new Line([cx + dx * cropMarkOff, cy, cx + dx * (cropMarkOff + hl), cy], { stroke: '#000', strokeWidth: 1, selectable: false, evented: false }));
           }
 
           done++;
@@ -4362,9 +4369,11 @@ export default function LayoutEditorPage() {
                           <span className="text-xs text-slate-400">mm</span>
                         </div>
                       </div>
-                      {impositionSettings.cropMarksEnabled && impositionResult.cropMarks.shortened && impositionResult.cropMarks.lenIn > 0 && (
+                      {impositionSettings.cropMarksEnabled && impositionResult.cropMarks.shortened && impositionResult.cropMarks.maxLenIn > 0 && (
                         <p className="text-xs text-slate-500 leading-relaxed">
-                          Shortened to {(impositionResult.cropMarks.lenIn * MM_TO_IN).toFixed(1)} mm so they stay clear of the artwork. Widen the gutter for full-length marks.
+                          {impositionResult.cropMarks.minLenIn < impositionResult.cropMarks.maxLenIn - 1e-9
+                            ? `Marks are ${(impositionResult.cropMarks.minLenIn * MM_TO_IN).toFixed(1)}–${(impositionResult.cropMarks.maxLenIn * MM_TO_IN).toFixed(1)} mm — the shorter ones sit where the gutter or margin is tight, so they stay clear of the artwork.`
+                            : `Shortened to ${(impositionResult.cropMarks.maxLenIn * MM_TO_IN).toFixed(1)} mm so they stay clear of the artwork. Widen the gutter and margin for full-length marks.`}
                         </p>
                       )}
                     </div>
@@ -4401,7 +4410,7 @@ export default function LayoutEditorPage() {
                       </div>
                     )}
 
-                    {impositionResult.cropMarks.lenIn === 0 && !impositionResult.cropMarks.disabled && (
+                    {impositionResult.cropMarks.maxLenIn === 0 && !impositionResult.cropMarks.disabled && (
                       <div className="px-4 py-3 bg-slate-50 rounded-md border border-slate-200 flex items-start gap-2.5">
                         <AlertTriangle className="w-4 h-4 mt-0.5 text-slate-500 flex-shrink-0" />
                         <p className="text-xs text-slate-600 leading-relaxed min-w-0">

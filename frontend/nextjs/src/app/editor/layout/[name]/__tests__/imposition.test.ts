@@ -3,10 +3,11 @@ import {
   CROP_MARK_LEN_MM,
   canvasSpecToInches,
   computeImpositionLayout,
-  resolveCropMarkGeometry,
+  cropMarkLengthsFor,
+  cropMarkOffsetIn,
   resolveSheetSize,
 } from '../imposition';
-import type { ImpositionSettings } from '../types';
+import type { ImpositionSettings, PlacedItem } from '../types';
 
 const base: ImpositionSettings = {
   preset: 'a4',
@@ -67,87 +68,100 @@ describe('canvasSpecToInches', () => {
   });
 });
 
-describe('resolveCropMarkGeometry', () => {
-  it('shortens the mark so it cannot reach into a neighbouring photo', () => {
-    // 5 mm gutter is shared by two neighbours -> 2.5 mm each, minus the 2 mm
-    // offset leaves 0.5 mm of drawable mark.
-    const g = resolveCropMarkGeometry(base);
-    expect(g.lenIn).toBeCloseTo(0.5 / MM_TO_IN, 9);
-    expect(g.shortened).toBe(true);
+describe('crop marks — per-side clamping', () => {
+  const item = (x: number, y: number, w = 4, h = 6): PlacedItem =>
+    ({ canvasIdx: 0, x, y, w, h, rotated: false });
+  const A4 = { w: 8.27, h: 11.69 };
+  const mm = (v: number) => v / MM_TO_IN;
+
+  it('gives an edge facing the paper the full requested length', () => {
+    const only = item(mm(20), mm(20));
+    const L = cropMarkLengthsFor(only, [only], { ...base, cropMarkLenMm: 5, marginMm: 20 }, A4.w, A4.h);
+    expect(L.left * MM_TO_IN).toBeCloseTo(5, 6);
+    expect(L.top * MM_TO_IN).toBeCloseTo(5, 6);
   });
 
-  // The contract is "a DRAWN mark never crosses into a neighbour". When there
-  // is no room the mark is suppressed (lenIn === 0) and the offset is moot —
-  // renderers must skip drawing entirely in that case.
-  it('never lets a drawn mark exceed half the gutter', () => {
-    for (const gutterMm of [0, 1, 3, 5, 8, 14, 20, 40]) {
-      const g = resolveCropMarkGeometry({ ...base, gutterMm, marginMm: 50 });
-      if (g.lenIn === 0) continue;
-      expect(g.offsetIn + g.lenIn).toBeLessThanOrEqual(gutterMm / 2 / MM_TO_IN + 1e-12);
+  it('halves the gutter for an edge facing another photo', () => {
+    // 10 mm gutter -> 5 mm each side, minus the 2 mm offset = 3 mm.
+    const a = item(mm(20), mm(20));
+    const b = item(mm(20) + 4 + mm(10), mm(20));
+    const L = cropMarkLengthsFor(a, [a, b], { ...base, cropMarkLenMm: 5, gutterMm: 10, marginMm: 20 }, A4.w, A4.h);
+    expect(L.right * MM_TO_IN).toBeCloseTo(3, 6);
+    expect(L.left * MM_TO_IN).toBeCloseTo(5, 6);   // outer side unaffected
+  });
+
+  it('reproduces the reported case: default gutter no longer kills every mark', () => {
+    // gutter 5 / margin 6 previously shortened EVERY mark to 0.5 mm because the
+    // sheet-wide minimum was applied to all four sides. Outer marks now use the
+    // margin they actually have.
+    const s = { ...base, gutterMm: 5, marginMm: 6, cropMarkLenMm: 5 };
+    const a = item(mm(6), mm(6));
+    const b = item(mm(6) + 4 + mm(5), mm(6));
+    const L = cropMarkLengthsFor(a, [a, b], s, A4.w, A4.h);
+    expect(L.right * MM_TO_IN).toBeCloseTo(0.5, 6);   // faces the neighbour
+    expect(L.left * MM_TO_IN).toBeCloseTo(4, 6);      // faces the paper — usable
+    expect(L.top * MM_TO_IN).toBeCloseTo(4, 6);
+  });
+
+  it('never lets a drawn mark cross into a neighbour', () => {
+    for (const gutterMm of [0, 1, 3, 5, 8, 14, 30]) {
+      const gap = mm(gutterMm);
+      const a = item(mm(20), mm(20));
+      const b = item(mm(20) + 4 + gap, mm(20));
+      const L = cropMarkLengthsFor(a, [a, b], { ...base, gutterMm, cropMarkLenMm: 20, marginMm: 20 }, A4.w, A4.h);
+      if (L.right === 0) continue;
+      // offset + length must stay inside this item's half of the gutter
+      expect(cropMarkOffsetIn() + L.right).toBeLessThanOrEqual(gap / 2 + 1e-12);
     }
   });
 
-  it('never lets a drawn mark exceed the margin', () => {
-    for (const marginMm of [0, 1, 3, 7, 20]) {
-      const g = resolveCropMarkGeometry({ ...base, marginMm, gutterMm: 100 });
-      if (g.lenIn === 0) continue;
-      expect(g.offsetIn + g.lenIn).toBeLessThanOrEqual(marginMm / MM_TO_IN + 1e-12);
+  it('never lets a drawn mark run off the sheet', () => {
+    for (const marginMm of [0, 1, 3, 6, 20]) {
+      const only = item(mm(marginMm), mm(marginMm));
+      const L = cropMarkLengthsFor(only, [only], { ...base, marginMm, cropMarkLenMm: 20 }, A4.w, A4.h);
+      if (L.left > 0) expect(cropMarkOffsetIn() + L.left).toBeLessThanOrEqual(mm(marginMm) + 1e-12);
+      if (L.top > 0) expect(cropMarkOffsetIn() + L.top).toBeLessThanOrEqual(mm(marginMm) + 1e-12);
     }
   });
 
-  it('suppresses the mark when the gutter is too tight to hold even the offset', () => {
-    // 3 mm gutter -> 1.5 mm per side, below the 2 mm offset.
-    expect(resolveCropMarkGeometry({ ...base, gutterMm: 3, marginMm: 50 }).lenIn).toBe(0);
+  it('suppresses a side with no room instead of drawing a negative mark', () => {
+    const only = item(mm(1), mm(1));
+    const L = cropMarkLengthsFor(only, [only], { ...base, marginMm: 1 }, A4.w, A4.h);
+    expect(L.left).toBe(0);
+    expect(L.top).toBe(0);
   });
 
-  it('draws the full requested length when there is ample room', () => {
-    const g = resolveCropMarkGeometry({ ...base, gutterMm: 30, marginMm: 20 });
-    expect(g.lenIn).toBeCloseTo(CROP_MARK_LEN_MM / MM_TO_IN, 9);
-    expect(g.shortened).toBe(false);
-    expect(g.disabled).toBe(false);
+  it('draws nothing at all when the operator switches marks off', () => {
+    const only = item(mm(20), mm(20));
+    const L = cropMarkLengthsFor(only, [only], { ...base, cropMarksEnabled: false, marginMm: 20 }, A4.w, A4.h);
+    expect([L.left, L.right, L.top, L.bottom]).toEqual([0, 0, 0, 0]);
   });
 
-  it('suppresses the mark entirely when there is no room at all', () => {
-    const g = resolveCropMarkGeometry({ ...base, gutterMm: 0, marginMm: 0 });
-    expect(g.lenIn).toBe(0);
-    expect(g.shortened).toBe(true);
-    expect(g.disabled).toBe(false);
+  it('reports the spread of drawn lengths on the result', () => {
+    // 4x6 on A4 at these settings fits one per sheet, so the right/bottom edges
+    // face open paper and take the full 5 mm, while left/top are capped by the
+    // 6 mm margin (6 - 2 offset = 4). The spread is the point: one sheet-wide
+    // number could not express it.
+    const r = computeImpositionLayout({ ...base, gutterMm: 5, marginMm: 6, cropMarkLenMm: 5 }, photos4x6(4));
+    expect(r.cropMarks.minLenIn * MM_TO_IN).toBeCloseTo(4, 6);
+    expect(r.cropMarks.maxLenIn * MM_TO_IN).toBeCloseTo(5, 6);
+    expect(r.cropMarks.shortened).toBe(true);
   });
 
-  it('honours a longer operator-chosen length when the space allows', () => {
-    const g = resolveCropMarkGeometry({ ...base, cropMarkLenMm: 12, gutterMm: 40, marginMm: 30 });
-    expect(g.lenIn).toBeCloseTo(12 / MM_TO_IN, 9);
-    expect(g.shortened).toBe(false);
+  it('reports no shortening when every mark gets its full length', () => {
+    const r = computeImpositionLayout({ ...base, gutterMm: 30, marginMm: 20, cropMarkLenMm: 5 }, photos4x6(1));
+    expect(r.cropMarks.shortened).toBe(false);
+    expect(r.cropMarks.maxLenIn * MM_TO_IN).toBeCloseTo(5, 6);
   });
 
-  it('treats the operator-chosen length as a maximum, not a guarantee', () => {
-    // Asks for 12 mm but a 10 mm gutter only affords 5 mm per side, less the
-    // 2 mm offset -> 3 mm.
-    const g = resolveCropMarkGeometry({ ...base, cropMarkLenMm: 12, gutterMm: 10, marginMm: 30 });
-    expect(g.lenIn).toBeCloseTo(3 / MM_TO_IN, 9);
-    expect(g.shortened).toBe(true);
-    expect(g.requestedLenIn).toBeCloseTo(12 / MM_TO_IN, 9);
-  });
-
-  it('draws nothing when the operator switches marks off', () => {
-    const g = resolveCropMarkGeometry({ ...base, cropMarksEnabled: false, gutterMm: 40, marginMm: 30 });
-    expect(g.lenIn).toBe(0);
-    expect(g.disabled).toBe(true);
-    // Not a space problem, so it must not be reported as shortened.
-    expect(g.shortened).toBe(false);
-  });
-
-  it('never reports shortened for a shorter requested length that fits', () => {
-    const g = resolveCropMarkGeometry({ ...base, cropMarkLenMm: 1, gutterMm: 30, marginMm: 20 });
-    expect(g.lenIn).toBeCloseTo(1 / MM_TO_IN, 9);
-    expect(g.shortened).toBe(false);
-  });
-
-  it('falls back to the default length for a non-finite input', () => {
-    const g = resolveCropMarkGeometry({ ...base, cropMarkLenMm: NaN, gutterMm: 40, marginMm: 30 });
-    expect(g.lenIn).toBeCloseTo(CROP_MARK_LEN_MM / MM_TO_IN, 9);
+  it('reports zero-length marks when they are switched off', () => {
+    const r = computeImpositionLayout({ ...base, cropMarksEnabled: false }, photos4x6(2));
+    expect(r.cropMarks.disabled).toBe(true);
+    expect(r.cropMarks.maxLenIn).toBe(0);
+    expect(r.cropMarks.shortened).toBe(false);
   });
 });
+
 
 describe('orientation', () => {
   it('packs a landscape sheet using the swapped axes', () => {

@@ -61,15 +61,20 @@ export function canvasSpecToInches(spec: CanvasSpec | null | undefined): ItemSiz
 export interface CropMarkGeometry {
   /** Gap between the trim edge and the start of the mark, in inches. */
   offsetIn: number;
-  /** Drawn length of the mark, in inches. 0 means nothing is drawn. */
-  lenIn: number;
   /** Length the operator asked for, in inches. */
   requestedLenIn: number;
-  /** True when the mark had to be trimmed below the requested length to fit. */
+  /** Shortest mark actually drawn anywhere on the sheets, in inches. */
+  minLenIn: number;
+  /** Longest mark actually drawn anywhere on the sheets, in inches. */
+  maxLenIn: number;
+  /** True when at least one mark had to be trimmed below the request. */
   shortened: boolean;
   /** True when the operator switched marks off — not a space problem. */
   disabled: boolean;
 }
+
+/** Drawn mark length per side of one placed item, in inches. */
+export interface ItemMarkLengths { left: number; right: number; top: number; bottom: number }
 
 /**
  * Crop marks are drawn OUTWARD from each corner of a placed item, so they
@@ -79,30 +84,93 @@ export interface CropMarkGeometry {
  * is treated as a MAXIMUM and clamped to the room actually available: marks can
  * never touch artwork or run off the sheet at any gutter/margin combination.
  */
-export function resolveCropMarkGeometry(settings: ImpositionSettings): CropMarkGeometry {
-  const offsetIn = CROP_MARK_OFFSET_MM / MM_TO_IN;
-  const requestedMm = Number.isFinite(settings.cropMarkLenMm)
+export function cropMarkOffsetIn(): number {
+  return CROP_MARK_OFFSET_MM / MM_TO_IN;
+}
+
+function requestedMarkLenIn(settings: ImpositionSettings): number {
+  const mm = Number.isFinite(settings.cropMarkLenMm)
     ? Math.max(0, settings.cropMarkLenMm)
     : CROP_MARK_LEN_MM;
-  const requestedLenIn = requestedMm / MM_TO_IN;
+  return mm / MM_TO_IN;
+}
 
-  if (settings.cropMarksEnabled === false) {
-    return { offsetIn, lenIn: 0, requestedLenIn, shortened: false, disabled: true };
+/**
+ * Free space beyond one edge of an item, in inches.
+ *
+ * An edge either faces the paper (all of it is available — the marks live in
+ * trim waste) or faces another item across the gutter, in which case the two
+ * neighbours share that gap and each may use half.
+ */
+function sideRoomIn(
+  item: PlacedItem,
+  items: PlacedItem[],
+  side: 'left' | 'right' | 'top' | 'bottom',
+  sheetWIn: number,
+  sheetHIn: number,
+): number {
+  const horizontal = side === 'left' || side === 'right';
+  // An item is only an obstacle if it actually overlaps on the other axis.
+  const overlaps = (o: PlacedItem) => horizontal
+    ? o.y + o.h > item.y + EPS && o.y < item.y + item.h - EPS
+    : o.x + o.w > item.x + EPS && o.x < item.x + item.w - EPS;
+
+  let gapToNeighbour = Infinity;
+  for (const o of items) {
+    if (o === item || !overlaps(o)) continue;
+    let gap = Infinity;
+    if (side === 'left'   && o.x + o.w <= item.x + EPS)                 gap = item.x - (o.x + o.w);
+    if (side === 'right'  && o.x >= item.x + item.w - EPS)              gap = o.x - (item.x + item.w);
+    if (side === 'top'    && o.y + o.h <= item.y + EPS)                 gap = item.y - (o.y + o.h);
+    if (side === 'bottom' && o.y >= item.y + item.h - EPS)              gap = o.y - (item.y + item.h);
+    if (gap < gapToNeighbour) gapToNeighbour = gap;
   }
-  // Marks must fit in the tightest space they can land in. The gutter is
-  // shared by two neighbours, so each side may only use half of it.
-  const roomIn = Math.min(settings.gutterMm / 2, settings.marginMm) / MM_TO_IN;
-  const availableIn = roomIn - offsetIn;
-  if (availableIn <= 0) {
-    return { offsetIn, lenIn: 0, requestedLenIn, shortened: true, disabled: false };
+  if (gapToNeighbour !== Infinity) return gapToNeighbour / 2;
+
+  // No neighbour — the run to the paper edge is entirely ours.
+  switch (side) {
+    case 'left':   return item.x;
+    case 'top':    return item.y;
+    case 'right':  return sheetWIn - (item.x + item.w);
+    case 'bottom': return sheetHIn - (item.y + item.h);
   }
-  const lenIn = Math.min(requestedLenIn, availableIn);
+}
+
+/**
+ * Mark length for each side of one item.
+ *
+ * Clamped PER SIDE rather than once for the whole sheet. The earlier version
+ * took `min(gutter/2, margin)` and applied it to all four sides of every item,
+ * so the tightest gap anywhere shortened every mark on the sheet. At the
+ * default 5 mm gutter that produced 0.5 mm marks — 6 px at 300 DPI, present
+ * but impossible to find on the printed sheet, which is what an operator
+ * reported. An edge facing the paper has the full run to the sheet edge
+ * available and no neighbour to bleed onto, so it gets a usable mark; only the
+ * edges that genuinely face another photo stay short.
+ */
+export function cropMarkLengthsFor(
+  item: PlacedItem,
+  items: PlacedItem[],
+  settings: ImpositionSettings,
+  sheetWIn: number,
+  sheetHIn: number,
+): ItemMarkLengths {
+  if (settings.cropMarksEnabled === false) return { left: 0, right: 0, top: 0, bottom: 0 };
+  const offsetIn = cropMarkOffsetIn();
+  const requested = requestedMarkLenIn(settings);
+  const forSide = (side: 'left' | 'right' | 'top' | 'bottom') => {
+    const available = sideRoomIn(item, items, side, sheetWIn, sheetHIn) - offsetIn;
+    return available <= 0 ? 0 : Math.min(requested, available);
+  };
+  return { left: forSide('left'), right: forSide('right'), top: forSide('top'), bottom: forSide('bottom') };
+}
+
+/** Offset + requested length + on/off. Per-side lengths come from cropMarkLengthsFor. */
+export function resolveCropMarkGeometry(settings: ImpositionSettings): Omit<CropMarkGeometry, 'minLenIn' | 'maxLenIn' | 'shortened'> {
   return {
-    offsetIn,
-    lenIn,
-    requestedLenIn,
-    shortened: lenIn < requestedLenIn - EPS,
-    disabled: false,
+    offsetIn: cropMarkOffsetIn(),
+    requestedLenIn: requestedMarkLenIn(settings),
+    disabled: settings.cropMarksEnabled === false,
   };
 }
 
@@ -129,7 +197,7 @@ export interface ImpositionResult {
 function emptyResult(
   itemCount: number,
   mode: ImpositionMode,
-  cropMarks: CropMarkGeometry,
+  cropMarks: Omit<CropMarkGeometry, 'minLenIn' | 'maxLenIn' | 'shortened'>,
   opts: { noUsableArea?: boolean; skippedCount?: number } = {},
 ): ImpositionResult {
   return {
@@ -138,7 +206,7 @@ function emptyResult(
     unplacedCount: itemCount,
     placedPerCanvas: new Array(itemCount).fill(0),
     mode,
-    cropMarks,
+    cropMarks: { ...cropMarks, minLenIn: 0, maxLenIn: 0, shortened: false },
     noUsableArea: opts.noUsableArea ?? false,
   };
 }
@@ -242,13 +310,35 @@ export function computeImpositionLayout(
     flushSheet();
   }
 
+  // Summarise the marks actually drawn, so the UI can say what the operator
+  // will see rather than quoting a single sheet-wide number.
+  let minLenIn = Infinity;
+  let maxLenIn = 0;
+  if (!cropMarks.disabled) {
+    for (const sheet of sheets) {
+      for (const it of sheet.items) {
+        const L = cropMarkLengthsFor(it, sheet.items, settings, sheetWIn, sheetHIn);
+        for (const v of [L.left, L.right, L.top, L.bottom]) {
+          if (v < minLenIn) minLenIn = v;
+          if (v > maxLenIn) maxLenIn = v;
+        }
+      }
+    }
+  }
+  if (!Number.isFinite(minLenIn)) minLenIn = 0;
+
   return {
     sheets,
     skippedCount,
     unplacedCount: placedPerCanvas.filter((c) => c === 0).length,
     placedPerCanvas,
     mode,
-    cropMarks,
+    cropMarks: {
+      ...cropMarks,
+      minLenIn,
+      maxLenIn,
+      shortened: !cropMarks.disabled && minLenIn < cropMarks.requestedLenIn - EPS,
+    },
     noUsableArea: false,
   };
 }
