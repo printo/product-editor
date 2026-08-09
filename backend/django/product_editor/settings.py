@@ -420,9 +420,11 @@ if SENTRY_DSN:
             CeleryIntegration(),
         ],
         environment=os.getenv("ENVIRONMENT", "production" if not DEBUG else "development"),
-        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
-        send_default_pii=False,
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0")),
+        send_default_pii=os.getenv("SENTRY_SEND_DEFAULT_PII", "1") == "1",
+        enable_logs=True,
     )
     sentry_sdk.set_tag("app", "product-editor")
     sentry_sdk.set_tag("component", "backend")
+
 

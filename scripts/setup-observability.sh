@@ -26,8 +26,10 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
-SENTRY_DSN_INPUT="${1:-${SENTRY_DSN:-}}"
+DEFAULT_SENTRY_DSN="https://bc02ad1b321515e44a699d4c660cd3c9@o22858.ingest.us.sentry.io/4511880429961216"
+SENTRY_DSN_INPUT="${1:-${SENTRY_DSN:-$DEFAULT_SENTRY_DSN}}"
 GRAFANA_PASS_INPUT="${2:-${GRAFANA_ADMIN_PASSWORD:-admin}}"
+
 
 # 2. Update or append SENTRY_DSN if provided
 if [ -n "${SENTRY_DSN_INPUT}" ]; then

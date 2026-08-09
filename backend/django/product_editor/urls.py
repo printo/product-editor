@@ -3,7 +3,11 @@ from django.urls import path, include
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView
 
+def trigger_error(request):
+    division_by_zero = 1 / 0
+
 urlpatterns = [
+    path("sentry-debug/", trigger_error),
     path("admin/django-admin/", admin.site.urls),
     path("api/", include("api.urls")),
     # OpenAPI 3 schema (JSON) — consumed by Scalar UI
@@ -12,3 +16,4 @@ urlpatterns = [
     # not an API endpoint. nginx must route /docs/ to the backend for this.
     path("docs/api/", TemplateView.as_view(template_name="scalar.html"), name="api-docs"),
 ]
+
