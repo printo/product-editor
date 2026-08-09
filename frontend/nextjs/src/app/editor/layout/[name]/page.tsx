@@ -884,6 +884,15 @@ export default function LayoutEditorPage() {
   useEffect(() => {
     // Don't save before the layout is known or before the orderId is set.
     if (!orderId || !layout) return;
+    // Never write while a restore is still in flight. `canvases` is empty on
+    // mount and the save below is deliberately allowed to write an empty state
+    // (see "delete all" note), so without this guard a canvas-state GET slower
+    // than the 2 s debounce loses the race and PUTs an empty design over the
+    // customer's saved one — silently and unrecoverably. Production responses
+    // are ~400 ms, but this app is used mostly on phones and tablets where a
+    // >2 s response is ordinary. Cleared on every exit path of the restore
+    // effect, so nothing can strand the editor in a non-saving state.
+    if (restorePending) return;
     // Skip the first save that fires as a side-effect of restoring state —
     // we'd just be writing back the exact data we loaded from the server.
     if (isRestoringRef.current) { isRestoringRef.current = false; return; }
@@ -949,7 +958,7 @@ export default function LayoutEditorPage() {
     // surfaceStates/activeSurfaceKey are intentionally read via refs so this
     // effect only re-runs when the active surface's canvases actually change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvases, orderId, layout]);
+  }, [canvases, orderId, layout, restorePending]);
 
   // ── Auto-restore: run once after layout is ready ──────────────────────────
   useEffect(() => {
@@ -987,9 +996,11 @@ export default function LayoutEditorPage() {
           globalFitMode: FitMode;
         }> = data.editor_state.surfaces;
 
-        // Flag: the state updates below will trigger the auto-save effect —
-        // suppress that one fire since we just loaded the data from the server.
-        isRestoringRef.current = true;
+        // NOTE: the auto-save suppression flag is deliberately NOT set here.
+        // It used to be, which meant a payload that restored nothing (an active
+        // surface with zero canvases) still armed it — and the flag then
+        // swallowed the customer's next genuine save. It is set below, only on
+        // the path that actually applies state.
 
         // Remove any stale ?canvas= param from a previous session so the modal
         // doesn't auto-open on top of the freshly-restored state.
@@ -1071,6 +1082,9 @@ export default function LayoutEditorPage() {
           // local hint was stale or unavailable.
           setRestoreCount(Math.min(activeSaved.canvases.length, MAX_SKELETON_CARDS));
           const hydrated = hydrate(activeSaved.canvases);
+          // Suppress the one auto-save fire these updates trigger — we would
+          // just be writing back what we loaded a moment ago.
+          isRestoringRef.current = true;
           skipNextGenerateRef.current = true; // suppress generateCanvases trigger
           setCanvases(hydrated);
           // Repopulate `files` from the hydrated frames in the SAME commit
