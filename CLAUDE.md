@@ -894,7 +894,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 |---|---|
 | `PUBLIC_HOST` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
 | `AUTH_SECRET` | NextAuth JWT signing secret (≥ 32 chars) |
-| `INTERNAL_API_KEY` | API key the internal proxy sends to Django. **Set it equal to `DIRECT_API_KEY`'s value** — the resolved APIKey must be `is_ops_team=True` or `/ops/*` proxy paths break (Django's `IsOpsTeam` inspects this service account, not the human session), and a `create_api_key`-minted key is NOT ops-flagged. `entrypoint.sh` re-seeds the DIRECT row from `DIRECT_API_KEY` on every web boot, so reusing it survives DB restores (a one-off minted key wouldn't). |
+| `INTERNAL_API_KEY` | API key the internal proxy sends to Django. Its own independent value — as of `feat/independent-internal-api-key`, no longer required to equal `DIRECT_API_KEY`. `entrypoint.sh` seeds a dedicated `is_ops_team=True` "INTERNAL" row from it on every web boot (mirroring `DIRECT`'s access, since `/ops/*` proxy paths need the same reach — Django's `IsOpsTeam` inspects this service account's `is_ops_team` flag, not the human session, and a `create_api_key`-minted key is NOT ops-flagged by default). If this still holds an old value equal to `DIRECT_API_KEY` (from before the two were split), the seed step logs a warning and skips rather than failing the boot — dashboard/editor traffic keeps resolving via the `DIRECT` row in the meantime, so there's no rush to rotate it. |
 | `PIA_API_BASE_URL` | Upstream auth (default `https://pia.printo.in/api/v1`) |
 | `POSTGRES_*` / `REDIS_URL` | Standard infra |
 
