@@ -16,8 +16,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 cd "${PROJECT_ROOT}"
 
-GOOGLE_CHAT_WEBHOOK="https://chat.googleapis.com/v1/spaces/AAQArthWpc0/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=dGcvKaV_JK7gRKJdwAs1kWlg1x-Qn18I3kTQJ1xl9-E"
-
 echo "=== Product Editor Observability Setup ==="
 
 # 1. Ensure .env exists
@@ -26,8 +24,19 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
-DEFAULT_SENTRY_DSN="https://bc02ad1b321515e44a699d4c660cd3c9@o22858.ingest.us.sentry.io/4511880429961216"
-SENTRY_DSN_INPUT="${1:-${SENTRY_DSN:-$DEFAULT_SENTRY_DSN}}"
+# Load .env into the environment so the fallbacks below see what's actually
+# on disk, not just whatever the calling shell happened to export.
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+
+# The webhook URL IS the credential (key+token live in it) — it only ever
+# comes from .env, never hardcoded here and never a positional arg (args
+# show up in shell history and `ps`).
+GOOGLE_CHAT_WEBHOOK="${GOOGLE_CHAT_WEBHOOK:?Set GOOGLE_CHAT_WEBHOOK in .env first (Google Chat space -> Apps & integrations -> Webhooks)}"
+
+SENTRY_DSN_INPUT="${1:-${SENTRY_DSN:-}}"
 GRAFANA_PASS_INPUT="${2:-${GRAFANA_ADMIN_PASSWORD:-admin}}"
 
 
@@ -46,6 +55,8 @@ if [ -n "${SENTRY_DSN_INPUT}" ]; then
     echo "NEXT_PUBLIC_SENTRY_DSN=${SENTRY_DSN_INPUT}" >> .env
   fi
   rm -f .env.bak
+else
+  echo "--> No SENTRY_DSN provided (arg or .env) — leaving Sentry unconfigured."
 fi
 
 # 3. Ensure GRAFANA_ADMIN_PASSWORD is set in .env
