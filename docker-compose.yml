@@ -405,7 +405,10 @@ services:
       # so a half-configured OAuth setup can't lock everyone out. The admin
       # account above stays as a break-glass fallback either way.
       - GF_AUTH_GOOGLE_ENABLED=${GF_AUTH_GOOGLE_ENABLED:-false}
-      - GF_AUTH_GOOGLE_CLIENT_ID=${GF_AUTH_GOOGLE_CLIENT_ID:-}
+      # Same client the app's own Google sign-in already uses (see
+      # login/page.tsx) — this ID is non-secret by design (GIS/OAuth client
+      # IDs are public), reused here rather than registering a second one.
+      - GF_AUTH_GOOGLE_CLIENT_ID=${GF_AUTH_GOOGLE_CLIENT_ID:-875434468582-2a7h0gahc6sq6jm3gfmre9cca1lhh0p7.apps.googleusercontent.com}
       - GF_AUTH_GOOGLE_CLIENT_SECRET=${GF_AUTH_GOOGLE_CLIENT_SECRET:-}
       - GF_AUTH_GOOGLE_ALLOWED_DOMAINS=printo.in
       - GF_AUTH_GOOGLE_ALLOW_SIGN_UP=true
