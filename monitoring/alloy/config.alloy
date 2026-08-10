@@ -1,0 +1,38 @@
+// Receives Grafana Faro Web SDK payloads (frontend RUM: web vitals,
+// console errors, custom events) from the browser and forwards them into
+// the Loki instance already running in this stack. Reached only via
+// nginx's /faro/ location -- see proxy/nginx/nginx.conf -- never a
+// published port, same pattern as grafana/loki elsewhere in this file.
+faro.receiver "default" {
+	// Loki rejects any stream with zero labels (400 "at least one label
+	// pair is required per stream") -- confirmed by hand, Alloy silently
+	// dropped every batch until this was added. service_name matches the
+	// label convention promtail already uses for the nginx/container logs.
+	extra_log_labels = {
+		service_name = "faro-rum",
+	}
+
+	server {
+		listen_address           = "0.0.0.0"
+		listen_port              = 12347
+		cors_allowed_origins     = ["*"]
+		max_allowed_payload_size = "5MiB"
+
+		rate_limiting {
+			enabled  = true
+			strategy = "global"
+			rate     = 50
+			burst_size = 100
+		}
+	}
+
+	output {
+		logs = [loki.write.default.receiver]
+	}
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

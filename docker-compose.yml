@@ -428,6 +428,31 @@ services:
     profiles:
       - monitoring
 
+  alloy:
+    image: grafana/alloy:latest
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    # No published port — reached only via the proxy's /faro/ location
+    # (nginx.conf). Receives frontend RUM payloads from customer browsers
+    # (Faro Web SDK) and forwards them into loki, same pattern as
+    # promtail. See monitoring/alloy/config.alloy.
+    volumes:
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    depends_on:
+      - loki
+    networks:
+      - web
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - monitoring
+
 networks:
   web:
 
