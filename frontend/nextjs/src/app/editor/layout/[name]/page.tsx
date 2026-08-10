@@ -27,6 +27,7 @@ import {
 } from '@/lib/upload-utils';
 import { saveFile, getFilesForOrder, pruneStaleOrders, FileStoreQuotaError, getPersistenceMode } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
+import CanvasCardSkeleton from '@/components/CanvasCardSkeleton';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import { getImageMetadata, getImageSize, detectJpegColorSpace, isImageComplete } from '@/lib/image-utils';
 import { collectLowDpiFrames, type LowDpiFrame } from '@/lib/dpi-utils';
@@ -163,6 +164,43 @@ function resolveRotation(
 function formatWait(seconds: number): string {
   if (seconds < 90) return `~${Math.max(5, Math.round(seconds / 5) * 5)} s`;
   return `~${Math.round(seconds / 60)} min`;
+}
+
+// ── Restore-skeleton card-count hint ───────────────────────────────────────
+// How many cards the order had last time, remembered locally so the restore
+// placeholders render at the right count on the very first paint instead of
+// snapping when the payload arrives. Cosmetic only — never a source of truth,
+// and every access is guarded: localStorage throws outright in some privacy
+// modes and in cross-site iframes (Safari ITP), which is exactly where the
+// embed flow runs.
+const CARD_COUNT_HINT_PREFIX = 'pe:cards:';
+/** Upper bound on placeholders, so a corrupt hint can't render 10k nodes. */
+const MAX_SKELETON_CARDS = 24;
+
+function cardCountHintKey(orderId: string): string {
+  return `${CARD_COUNT_HINT_PREFIX}${orderId}`;
+}
+
+function readCardCountHint(): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const id = new URLSearchParams(window.location.search).get('order_id');
+    if (!id) return 0;
+    const n = Number(window.localStorage.getItem(cardCountHintKey(id)));
+    return Number.isFinite(n) && n > 0 ? Math.min(n, MAX_SKELETON_CARDS) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeCardCountHint(orderId: string, count: number): void {
+  if (typeof window === 'undefined' || !orderId) return;
+  try {
+    if (count > 0) window.localStorage.setItem(cardCountHintKey(orderId), String(count));
+    else window.localStorage.removeItem(cardCountHintKey(orderId));
+  } catch {
+    /* storage blocked — the hint is optional */
+  }
 }
 
 /** Embed post-submit status panel (Phase 3 — no more dead-end): polls
@@ -420,6 +458,20 @@ export default function LayoutEditorPage() {
   const [renderProgress, setRenderProgress] = useState<{ current: number; total: number } | null>(null);
   const [canvases, setCanvases] = useState<CanvasItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // ── Restore placeholders ────────────────────────────────────────────────
+  // `order_id` is written into the URL on first mount, so its presence at
+  // startup means this is a revisit and a restore may be inbound. Knowing that
+  // synchronously — before any fetch — lets the grid show skeletons instead of
+  // the "No images selected" empty state, which otherwise claims the customer's
+  // design is gone for the ~2s the restore takes. Cleared on every exit path of
+  // the restore effect, including the 404 "nothing saved" case.
+  const [restorePending, setRestorePending] = useState<boolean>(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('order_id')
+  );
+  // Card count from the last visit, so the placeholder count is right on the
+  // first paint rather than snapping when the payload lands. Purely cosmetic —
+  // any failure just falls back to a default.
+  const [restoreCount, setRestoreCount] = useState<number>(() => readCardCountHint());
   const [globalFitMode, setGlobalFitMode] = useState<FitMode>('contain');
   // Blur Effect defaults ON — fills the empty space around a photo with a
   // blurred copy so near-square products (e.g. polaroid) look filled without
@@ -832,6 +884,15 @@ export default function LayoutEditorPage() {
   useEffect(() => {
     // Don't save before the layout is known or before the orderId is set.
     if (!orderId || !layout) return;
+    // Never write while a restore is still in flight. `canvases` is empty on
+    // mount and the save below is deliberately allowed to write an empty state
+    // (see "delete all" note), so without this guard a canvas-state GET slower
+    // than the 2 s debounce loses the race and PUTs an empty design over the
+    // customer's saved one — silently and unrecoverably. Production responses
+    // are ~400 ms, but this app is used mostly on phones and tablets where a
+    // >2 s response is ordinary. Cleared on every exit path of the restore
+    // effect, so nothing can strand the editor in a non-saving state.
+    if (restorePending) return;
     // Skip the first save that fires as a side-effect of restoring state —
     // we'd just be writing back the exact data we loaded from the server.
     if (isRestoringRef.current) { isRestoringRef.current = false; return; }
@@ -897,7 +958,7 @@ export default function LayoutEditorPage() {
     // surfaceStates/activeSurfaceKey are intentionally read via refs so this
     // effect only re-runs when the active surface's canvases actually change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvases, orderId, layout]);
+  }, [canvases, orderId, layout, restorePending]);
 
   // ── Auto-restore: run once after layout is ready ──────────────────────────
   useEffect(() => {
@@ -935,9 +996,11 @@ export default function LayoutEditorPage() {
           globalFitMode: FitMode;
         }> = data.editor_state.surfaces;
 
-        // Flag: the state updates below will trigger the auto-save effect —
-        // suppress that one fire since we just loaded the data from the server.
-        isRestoringRef.current = true;
+        // NOTE: the auto-save suppression flag is deliberately NOT set here.
+        // It used to be, which meant a payload that restored nothing (an active
+        // surface with zero canvases) still armed it — and the flag then
+        // swallowed the customer's next genuine save. It is set below, only on
+        // the path that actually applies state.
 
         // Remove any stale ?canvas= param from a previous session so the modal
         // doesn't auto-open on top of the freshly-restored state.
@@ -1015,7 +1078,13 @@ export default function LayoutEditorPage() {
           ss => ss.key === (savedActiveKey ?? activeSurfaceKey)
         );
         if (activeSaved?.canvases?.length) {
+          // Correct the placeholder count before the cards swap in, in case the
+          // local hint was stale or unavailable.
+          setRestoreCount(Math.min(activeSaved.canvases.length, MAX_SKELETON_CARDS));
           const hydrated = hydrate(activeSaved.canvases);
+          // Suppress the one auto-save fire these updates trigger — we would
+          // just be writing back what we loaded a moment ago.
+          isRestoringRef.current = true;
           skipNextGenerateRef.current = true; // suppress generateCanvases trigger
           setCanvases(hydrated);
           // Repopulate `files` from the hydrated frames in the SAME commit
@@ -1034,11 +1103,22 @@ export default function LayoutEditorPage() {
         }
       } catch {
         // Restore failures are silent — user just starts fresh.
+      } finally {
+        // Every exit path lands here — 404 (nothing saved), a layout mismatch,
+        // a thrown fetch, or success. Leaving this set would strand the
+        // skeletons on screen in place of the upload prompt.
+        setRestorePending(false);
       }
     })();
     // Run exactly once when layout becomes available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout, layoutLoading, orderId]);
+
+  // Remember the card count for this order so a refresh can size its restore
+  // placeholders correctly before the payload lands.
+  useEffect(() => {
+    if (orderId) writeCardCountHint(orderId, canvases.length);
+  }, [canvases.length, orderId]);
 
   const canvasesRef = useRef<CanvasItem[]>([]);
   useEffect(() => {
@@ -3567,8 +3647,16 @@ export default function LayoutEditorPage() {
             </div>
           )}
 
-          {/* ── Empty state (no canvases, not processing) ─────────────────── */}
-          {!isProcessing && canvases.length === 0 && (
+          {/* ── Restoring a saved design ──────────────────────────────────── */}
+          {!isProcessing && canvases.length === 0 && restorePending && (
+            <CanvasCardSkeleton
+              count={restoreCount || 3}
+              aspectRatio={`${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}`}
+            />
+          )}
+
+          {/* ── Empty state (no canvases, not processing, nothing to restore) ─ */}
+          {!isProcessing && canvases.length === 0 && !restorePending && (
             <div 
               className={clsx(
                 "flex flex-col items-center justify-center py-24 gap-5 select-none border-2 border-dashed rounded-3xl transition-all cursor-pointer",
