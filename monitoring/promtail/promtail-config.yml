@@ -21,11 +21,12 @@ scrape_configs:
         regex: '/(.*)'
         target_label: 'service_name'
     pipeline_stages:
-      - json:
-          expressions:
-            log: log
-            stream: stream
-            time: time
+      # Promtail's docker_sd_configs target already unwraps Docker's own
+      # {"log":...,"stream":...,"time":...} envelope before pipeline_stages
+      # ever sees a line -- an extra json stage expecting that envelope here
+      # parses the wrong thing and silently extracts nothing (confirmed by
+      # running this: with it, no line ever produced a "status" label).
+      # This parses nginx's own json_analytics line directly.
       - json:
           expressions:
             remote_addr: remote_addr
@@ -36,7 +37,6 @@ scrape_configs:
             body_bytes_sent: body_bytes_sent
             request_time: request_time
             upstream_response_time: upstream_response_time
-          source: log
       - labels:
           status: status
           request_method: request_method

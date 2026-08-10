@@ -194,7 +194,7 @@ services:
       - NEXT_PUBLIC_API_BASE_URL=/api
       - INTERNAL_API_URL=http://backend:8000/api
       - NODE_ENV=${NODE_ENV:-production}
-      - AUTH_TRUST_HOST=true
+      - AUTH_TRUST_HOST=${AUTH_TRUST_HOST:-true}
       # Fail-fast (Phase 4): no baked default — a missing secret aborts the
       # deploy loudly instead of shipping a forgeable session-signing key.
       - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET must be set in .env (>=32 chars)}
@@ -348,13 +348,19 @@ services:
   loki:
     image: grafana/loki:3.0.0
     command: -config.file=/etc/loki/loki-config.yml
+    # A freshly created named volume is root-owned; the image's default
+    # non-root user (10001) can't mkdir under it -- confirmed by hand, Loki
+    # crash-loops on first boot with "mkdir /tmp/loki/rules: permission
+    # denied" otherwise. Loki has no network exposure (see above), so running
+    # it as root trades nothing meaningful away here.
+    user: "0:0"
     volumes:
       - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki_data:/tmp/loki
     networks:
       - web
-    ports:
-      - "3100:3100"
+    # No published port — only promtail (writes) and grafana (reads) talk to
+    # Loki, both over the internal "web" network. Nothing external needs it.
     deploy:
       resources:
         limits:
@@ -384,11 +390,28 @@ services:
 
   grafana:
     image: grafana/grafana-oss:latest
-    ports:
-      - "3001:3000"
+    # No published port — reached only via the proxy's /grafana/ location
+    # (nginx.conf), same pattern backend/frontend already use. Access control
+    # is Grafana's own login, not network position.
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
+      # Reverse-proxied under /grafana/ on the same public domain as
+      # everything else — see nginx.conf's ^~ /grafana/ location.
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-https://localhost/grafana/}
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      # Printo Google login (same @printo.in domain gate as the app's own
+      # sign-in) — off until GF_AUTH_GOOGLE_CLIENT_ID/SECRET are set in .env,
+      # so a half-configured OAuth setup can't lock everyone out. The admin
+      # account above stays as a break-glass fallback either way.
+      - GF_AUTH_GOOGLE_ENABLED=${GF_AUTH_GOOGLE_ENABLED:-false}
+      # Same client the app's own Google sign-in already uses (see
+      # login/page.tsx) — this ID is non-secret by design (GIS/OAuth client
+      # IDs are public), reused here rather than registering a second one.
+      - GF_AUTH_GOOGLE_CLIENT_ID=${GF_AUTH_GOOGLE_CLIENT_ID:-875434468582-2a7h0gahc6sq6jm3gfmre9cca1lhh0p7.apps.googleusercontent.com}
+      - GF_AUTH_GOOGLE_CLIENT_SECRET=${GF_AUTH_GOOGLE_CLIENT_SECRET:-}
+      - GF_AUTH_GOOGLE_ALLOWED_DOMAINS=printo.in
+      - GF_AUTH_GOOGLE_ALLOW_SIGN_UP=true
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
