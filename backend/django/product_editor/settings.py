@@ -424,7 +424,6 @@ if SENTRY_DSN:
         # Off by default — the DPDP erasure pipeline (OrderDataPurgeView) can't
         # reach into Sentry's cloud to remove anything captured here.
         send_default_pii=os.getenv("SENTRY_SEND_DEFAULT_PII", "0") == "1",
-        enable_logs=True,
     )
     sentry_sdk.set_tag("app", "product-editor")
     sentry_sdk.set_tag("component", "backend")
