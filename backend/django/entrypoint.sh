@@ -54,6 +54,7 @@ from api.models import APIKey
 direct_key   = os.getenv("DIRECT_API_KEY")
 external_key = os.getenv("EXTERNAL_API_KEY")
 test_key     = os.getenv("TESTING_API_KEY")
+internal_key = os.getenv("INTERNAL_API_KEY")
 
 # Use update_or_create keyed on *name* (not key) so that rotating the env-var
 # value updates the existing DB record instead of raising IntegrityError
@@ -96,6 +97,38 @@ if test_key:
         ),
     )
     print(f"{'✓ Created' if created else '✓ Updated'} TESTING API key from environment")
+
+if internal_key:
+    # This used to just BE the DIRECT key (INTERNAL_API_KEY was required to
+    # equal DIRECT_API_KEY) -- now it's its own row, so the Next.js internal
+    # proxy's traffic gets its own audit trail and can be rotated on its own
+    # without touching DIRECT. `key` is unique at the DB level, so if
+    # INTERNAL_API_KEY still holds the OLD shared value (matching DIRECT's
+    # row, from before this change or before you've rotated it), this insert
+    # collides. Never let that take the whole site down on boot: skip it,
+    # keep starting gunicorn, and say exactly what to do. Traffic keeps
+    # working in the meantime because it still resolves to the DIRECT row,
+    # exactly as before this change.
+    from django.db import IntegrityError
+    try:
+        _, created = APIKey.objects.update_or_create(
+            name="INTERNAL",
+            defaults=dict(
+                key=internal_key,
+                description="Next.js internal proxy service account (dashboard/editor traffic)",
+                is_active=True, is_ops_team=True,
+                can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
+                max_requests_per_day=10000,
+            ),
+        )
+        print(f"{'✓ Created' if created else '✓ Updated'} INTERNAL API key from environment")
+    except IntegrityError:
+        print(
+            "⚠️  Skipped seeding INTERNAL API key — INTERNAL_API_KEY's value "
+            "already belongs to another key (normally DIRECT, from before "
+            "they were split). Generate INTERNAL_API_KEY a new, unique value "
+            "and redeploy whenever convenient; nothing is broken until then."
+        )
 
 # Print key names only — never log full key values to stdout since container
 # logs are typically forwarded to centralised log aggregators (Datadog, etc.).

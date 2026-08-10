@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Rotate the DIRECT / INTERNAL API key pair and drop the leaked NEXT_PUBLIC copy.
+# Rotate DIRECT_API_KEY and drop the leaked NEXT_PUBLIC copy.
 #
 # WHY THIS EXISTS
 #
@@ -22,13 +22,16 @@
 # means create/edit/DELETE layouts, edit theme presets and holiday data, mint
 # embed sessions, and download any order's rendered exports and uploads.
 #
-# WHY BOTH KEYS MOVE TOGETHER
+# DIRECT_API_KEY AND INTERNAL_API_KEY ARE INDEPENDENT NOW
 #
-# CLAUDE.md requires INTERNAL_API_KEY == DIRECT_API_KEY: the internal proxy
-# authenticates as this key, and the resolved APIKey row must be is_ops_team
-# for /ops/* paths to work. Change one without the other and the dashboard
-# starts 401-ing immediately. This script writes both in a single pass so they
-# cannot drift.
+# They used to have to be equal (CLAUDE.md required it). Since
+# feat/independent-internal-api-key, INTERNAL_API_KEY seeds its own
+# is_ops_team=True "INTERNAL" row in entrypoint.sh, so this script only
+# rotates DIRECT_API_KEY — it does not touch INTERNAL_API_KEY at all, and
+# rotating one no longer requires anything of the other. To rotate
+# INTERNAL_API_KEY, generate a new value yourself the same way (openssl
+# rand, or the same editor_<unix>_<token> shape below) and redeploy the
+# backend — it seeds automatically, no dedicated script needed.
 #
 # BLAST RADIUS — READ BEFORE RUNNING
 #
@@ -37,24 +40,21 @@
 #         docker-compose logs backend | grep -c "Source: DIRECT"
 #     and, once PR #44 is deployed, the durable version:
 #         APIRequest.objects.filter(auth_source="DIRECT")
-#   * The dashboard is unavailable between writing .env and finishing the
-#     redeploy. Pick a quiet window.
+#   * The dashboard/editor keep working throughout — they authenticate via
+#     INTERNAL_API_KEY, which this script does not touch.
 #
 # Usage:
 #   ./scripts/rotate-api-key.sh                    # dry run against ./.env
-#   ./scripts/rotate-api-key.sh --apply            # rotate
+#   ./scripts/rotate-api-key.sh --apply
 #   ./scripts/rotate-api-key.sh --apply /path/.env
-#   ./scripts/rotate-api-key.sh --apply --force    # proceed despite a mismatch
 #
 set -euo pipefail
 
 APPLY=0
-FORCE=0
 ENV_FILE=".env"
 for arg in "$@"; do
   case "$arg" in
     --apply) APPLY=1 ;;
-    --force) FORCE=1 ;;
     *) ENV_FILE="$arg" ;;
   esac
 done
@@ -65,38 +65,17 @@ read_var() { grep -E "^[[:space:]]*${1}=" "$ENV_FILE" | head -1 | cut -d= -f2- |
 tail4()    { local v="$1"; [[ -n "$v" ]] && printf '…%s' "${v: -4}" || printf '(unset)'; }
 
 DIRECT_CUR="$(read_var DIRECT_API_KEY)"
-INTERNAL_CUR="$(read_var INTERNAL_API_KEY)"
 PUBLIC_CUR="$(read_var NEXT_PUBLIC_DEVELOPMENT_API_KEY)"
 
-echo "Rotating API key pair in ${ENV_FILE}"
+echo "Rotating DIRECT_API_KEY in ${ENV_FILE}"
 echo
 echo "  Current state (last 4 chars only — full values are never printed):"
 printf '    %-32s %s\n' "DIRECT_API_KEY"   "$(tail4 "$DIRECT_CUR")"
-printf '    %-32s %s\n' "INTERNAL_API_KEY" "$(tail4 "$INTERNAL_CUR")"
 printf '    %-32s %s\n' "NEXT_PUBLIC_DEVELOPMENT_API_KEY" "$(tail4 "$PUBLIC_CUR")"
 echo
 
 # ── Pre-flight ────────────────────────────────────────────────────────────
 [[ -n "$DIRECT_CUR" ]] || { echo "ABORT: DIRECT_API_KEY is not set in ${ENV_FILE}." >&2; exit 1; }
-
-if [[ -z "$INTERNAL_CUR" ]]; then
-  echo "ABORT: INTERNAL_API_KEY is not set. It must exist and equal DIRECT_API_KEY," >&2
-  echo "       or /ops/* paths through the internal proxy will break." >&2
-  exit 1
-fi
-
-if [[ "$DIRECT_CUR" != "$INTERNAL_CUR" ]]; then
-  echo "  ⚠ DIRECT_API_KEY and INTERNAL_API_KEY DO NOT MATCH."
-  echo "    CLAUDE.md requires them equal — the internal proxy authenticates as this"
-  echo "    key and the resolved APIKey row must be is_ops_team. A mismatch means"
-  echo "    something is already wrong; rotating would paper over it."
-  if [[ $FORCE -eq 0 ]]; then
-    echo "    Investigate first, or re-run with --force to set BOTH to the new value." >&2
-    exit 1
-  fi
-  echo "    --force given: both will be set to the new value."
-  echo
-fi
 
 if [[ -z "$PUBLIC_CUR" ]]; then
   echo "  NEXT_PUBLIC_DEVELOPMENT_API_KEY is already absent — nothing to remove."
@@ -123,7 +102,7 @@ Dry run — nothing written. Re-run with --apply to rotate.
 
 When you do, this will:
   1. back up .env to .env.bak.<timestamp>
-  2. set DIRECT_API_KEY and INTERNAL_API_KEY to the SAME new value
+  2. set DIRECT_API_KEY to the new value
   3. delete the NEXT_PUBLIC_DEVELOPMENT_API_KEY line
 and restart nothing — the redeploy is yours to run.
 DRY
@@ -140,18 +119,16 @@ TMP="$(mktemp)"
 # reinterpreted as regex syntax or a delimiter.
 awk -v k="$NEW_KEY" '
   /^[[:space:]]*DIRECT_API_KEY=/                  { print "DIRECT_API_KEY=" k;   next }
-  /^[[:space:]]*INTERNAL_API_KEY=/                { print "INTERNAL_API_KEY=" k; next }
   /^[[:space:]]*NEXT_PUBLIC_DEVELOPMENT_API_KEY=/ { next }
   { print }
 ' "$ENV_FILE" > "$TMP"
 
-# Verify before overwriting: both present, equal, and the public copy gone.
+# Verify before overwriting: DIRECT present once, public copy gone.
 nd=$(grep -cE '^[[:space:]]*DIRECT_API_KEY='   "$TMP" || true)
-ni=$(grep -cE '^[[:space:]]*INTERNAL_API_KEY=' "$TMP" || true)
 np=$(grep -cE '^[[:space:]]*NEXT_PUBLIC_DEVELOPMENT_API_KEY=' "$TMP" || true)
-if [[ "$nd" != "1" || "$ni" != "1" || "$np" != "0" ]]; then
+if [[ "$nd" != "1" || "$np" != "0" ]]; then
   rm -f "$TMP"
-  echo "ABORT: post-write check failed (direct=$nd internal=$ni public=$np). ${ENV_FILE} untouched." >&2
+  echo "ABORT: post-write check failed (direct=$nd public=$np). ${ENV_FILE} untouched." >&2
   exit 1
 fi
 
@@ -162,25 +139,20 @@ cat <<EOF
 Rotated. Backup: ${BACKUP}
 
   DIRECT_API_KEY   -> $(tail4 "$NEW_KEY")
-  INTERNAL_API_KEY -> $(tail4 "$NEW_KEY")   (same value, as required)
   NEXT_PUBLIC_DEVELOPMENT_API_KEY removed
 
 Nothing has restarted yet. The old key still works until the backend reboots.
+INTERNAL_API_KEY is untouched — the dashboard/editor keep working through
+this whole rotation without interruption.
 
 Next:
-  1. Restart the backend AND the frontend TOGETHER.
+  1. Restart the backend. Frontend/celery don't reference DIRECT_API_KEY, so
+     they don't need to move:
 
-     ./deploy.sh backend is NOT enough, and getting this wrong takes the
-     dashboard down. It re-seeds the DIRECT row with the new key but leaves the
-     frontend running with the OLD INTERNAL_API_KEY in its process
-     environment, so every dashboard call then presents a key that matches no
-     row - 403 on everything until the frontend restarts too. No code has
-     changed here, so recreate rather than rebuild:
+       docker-compose up -d --force-recreate backend
 
-       docker-compose up -d --force-recreate \\
-         backend frontend celery-worker-priority celery-worker-standard celery-beat
-
-     (./deploy.sh both also works, but rebuilds images for no reason.)
+     (./deploy.sh backend also works, but rebuilds the image for no reason —
+     no code changed here.)
 
   2. Confirm the API answers:
        curl -sf https://\${PUBLIC_HOST}/api/health && echo OK
