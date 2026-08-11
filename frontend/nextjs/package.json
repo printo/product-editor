@@ -24,6 +24,7 @@
     "exifreader": "^4.38.0",
     "fabric": "^7.2.0",
     "framer-motion": "^11.18.2",
+    "heic2any": "^0.0.4",
     "jose": "^6.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.453.0",

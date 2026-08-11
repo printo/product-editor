@@ -18,17 +18,24 @@ const MAX_PARALLEL_FILES = 4;        // saturates ~10 Mbps uplink without floodi
 // The server rejects anything outside this set, so we filter client-side to
 // fail fast with a clear, file-named message instead of a late, cryptic
 // "Upload complete failed for …" surfaced from Django at render time.
+// HEIC/HEIF are deliberately NOT in this list — the backend still can't open
+// them. They're allowed at pick-time (see IMAGE_ACCEPT_ATTR below) and
+// converted to JPEG client-side via lib/heic-convert.ts before a file ever
+// reaches this check, so by the time isAllowedImageFile() runs, HEIC has
+// already become JPEG.
 export const ALLOWED_IMAGE_EXTENSIONS = [
   'jpg', 'jpeg', 'jpe', 'jfif', 'png', 'webp', 'tiff', 'tif', 'gif',
 ] as const;
 
 // `accept` value for <input type="file">. Explicit extensions + MIME types so
 // the OS picker greys out unsupported files. Plain `image/*` lets through SVG,
-// BMP, AVIF, HEIC, etc. — none of which the renderer accepts (this is how a
-// stray favicon.svg slipped in and only failed at render time).
+// BMP, AVIF, etc. — none of which the renderer accepts (this is how a stray
+// favicon.svg slipped in and only failed at render time). HEIC/HEIF ARE
+// listed here even though they're absent from ALLOWED_IMAGE_EXTENSIONS above
+// — see the comment there; they get converted to JPEG before that check runs.
 export const IMAGE_ACCEPT_ATTR =
-  '.jpg,.jpeg,.jpe,.jfif,.png,.webp,.tiff,.tif,.gif,' +
-  'image/jpeg,image/png,image/webp,image/tiff,image/gif';
+  '.jpg,.jpeg,.jpe,.jfif,.png,.webp,.tiff,.tif,.gif,.heic,.heif,' +
+  'image/jpeg,image/png,image/webp,image/tiff,image/gif,image/heic,image/heif';
 
 // Short, human-readable form for error copy.
 export const ALLOWED_IMAGE_LABEL = 'JPG, PNG, WEBP, TIFF, or GIF';
