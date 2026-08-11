@@ -20,11 +20,11 @@ import { clsx } from 'clsx';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
 import {
   uploadFiles,
-  partitionByAllowedType,
   unsupportedFilesMessage,
   isAllowedImageFile,
   IMAGE_ACCEPT_ATTR,
 } from '@/lib/upload-utils';
+import { convertHeicFileIfNeeded, convertAndPartitionFiles, isHeicFile } from '@/lib/heic-convert';
 import { saveFile, getFilesForOrder, pruneStaleOrders, FileStoreQuotaError, getPersistenceMode } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
 import CanvasCardSkeleton from '@/components/CanvasCardSkeleton';
@@ -455,6 +455,9 @@ export default function LayoutEditorPage() {
   const [layoutLoading, setLayoutLoading] = useState(true);
   const [files, setFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  // Separate from isProcessing (which is coupled to the renderProgress bar) —
+  // true only while an iPhone HEIC photo is being decoded to JPEG client-side.
+  const [heicConverting, setHeicConverting] = useState(false);
   const [renderProgress, setRenderProgress] = useState<{ current: number; total: number } | null>(null);
   const [canvases, setCanvases] = useState<CanvasItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -2062,17 +2065,22 @@ export default function LayoutEditorPage() {
   const handleDrop = async (e: React.DragEvent, idx: number, surfaceKey: string | null = null) => {
     e.preventDefault();
     setDragOverIdx(null);
-    if (isProcessing) return;
-    
+    if (isProcessing || heicConverting) return;
+
     const droppedFiles = Array.from(e.dataTransfer.files);
-    
+
     if (droppedFiles.length > 0) {
       // ── Handle external files ──────────────────────────────────────────────
       // Validate by extension (matches the backend). A plain
       // `type.startsWith('image/')` check would let .svg through —
-      // image/svg+xml is an image MIME the renderer can't accept.
-      const { accepted: okFiles, rejected } = partitionByAllowedType(droppedFiles);
-      setUnsupportedWarning(rejected.length > 0 ? unsupportedFilesMessage(rejected) : null);
+      // image/svg+xml is an image MIME the renderer can't accept. HEIC/HEIF
+      // are converted to JPEG first — drag-and-drop ignores <input accept>,
+      // so an iPhone HEIC can arrive here directly (see heic-convert.ts).
+      const heicPresent = droppedFiles.some(isHeicFile);
+      if (heicPresent) setHeicConverting(true);
+      const { accepted: okFiles, warning } = await convertAndPartitionFiles(droppedFiles);
+      if (heicPresent) setHeicConverting(false);
+      setUnsupportedWarning(warning);
       if (okFiles.length === 0) return;
       const firstFile = okFiles[0];
 
@@ -2209,8 +2217,14 @@ export default function LayoutEditorPage() {
     // below so an only-unsupported selection leaves existing previews intact.
     // Routed through unsupportedWarning (not `error`) so the notice isn't wiped
     // by generateCanvases() when a partial selection still produces canvases.
-    const { accepted: newlyPicked, rejected } = partitionByAllowedType(Array.from(e.target.files));
-    setUnsupportedWarning(rejected.length > 0 ? unsupportedFilesMessage(rejected) : null);
+    // iPhone HEIC photos are converted to JPEG here first (see heic-convert.ts)
+    // — neither the Fabric canvas preview nor the backend can open HEIC.
+    const rawFiles = Array.from(e.target.files);
+    const heicPresent = rawFiles.some(isHeicFile);
+    if (heicPresent) setHeicConverting(true);
+    const { accepted: newlyPicked, warning } = await convertAndPartitionFiles(rawFiles);
+    if (heicPresent) setHeicConverting(false);
+    setUnsupportedWarning(warning);
     if (newlyPicked.length === 0) return;
 
     // "Add Files" — a native <input> selection is never cumulative (picking
@@ -2350,6 +2364,16 @@ export default function LayoutEditorPage() {
     if (!pendingReplace) return;
     const { canvasIdx, frameIdx, surfaceKey } = pendingReplace;
     setPendingReplace(null);
+    const wasHeic = isHeicFile(file);
+    if (wasHeic) setHeicConverting(true);
+    try {
+      file = await convertHeicFileIfNeeded(file);
+    } catch (err) {
+      setUnsupportedWarning(err instanceof Error ? err.message : `"${file.name}" couldn't be converted.`);
+      return;
+    } finally {
+      if (wasHeic) setHeicConverting(false);
+    }
     if (!isAllowedImageFile(file)) {
       setUnsupportedWarning(unsupportedFilesMessage([file]));
       return;
@@ -3123,7 +3147,9 @@ export default function LayoutEditorPage() {
   // Phase 8 — cell image override upload
   const handleCellImageFileSelected = useCallback(async (file: File) => {
     if (!selectedCalendarCell || !orderId) return;
-    if (!isAllowedImageFile(file)) {
+    // HEIC/HEIF pass this gate too — uploadCalendarCellImage converts them to
+    // JPEG as its first step (see calendar-cell-upload.ts).
+    if (!isAllowedImageFile(file) && !isHeicFile(file)) {
       setUnsupportedWarning(unsupportedFilesMessage([file]));
       return;
     }
@@ -3643,6 +3669,23 @@ export default function LayoutEditorPage() {
                     }
                   </p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── HEIC → JPEG conversion (iPhone photos) ──────────────────────── */}
+          {/* No percentage: heic2any's WASM decoder doesn't report progress,
+              and this step is usually well under a couple of seconds. */}
+          {heicConverting && (
+            <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-3 animate-in zoom-in-95 duration-300 flex flex-col items-center">
+                <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+                <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
+                  Converting iPhone Photo
+                </span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Preparing HEIC image for editing
+                </span>
               </div>
             </div>
           )}

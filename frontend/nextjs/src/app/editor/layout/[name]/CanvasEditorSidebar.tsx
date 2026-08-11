@@ -9,6 +9,7 @@ import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { isAllowedImageFile, IMAGE_ACCEPT_ATTR } from '@/lib/upload-utils';
+import { convertHeicFiles } from '@/lib/heic-convert';
 import type { CanvasItem, FitMode, Overlay, TextOverlay, ImageOverlay } from './types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -594,10 +595,14 @@ export function CanvasEditorSidebar({
                     <input type="file" multiple accept={IMAGE_ACCEPT_ATTR} className="hidden"
                       onChange={async e => {
                         if (!e.target.files?.length) return;
-                        // Drop unsupported types (e.g. .svg) — they'd preview in
-                        // the browser but fail to render server-side.
-                        const files = Array.from(e.target.files).filter(isAllowedImageFile);
+                        const rawFiles = Array.from(e.target.files);
                         e.target.value = '';
+                        // iPhone HEIC photos are converted to JPEG first (see
+                        // heic-convert.ts), then unsupported types (e.g. .svg)
+                        // are dropped — they'd preview in the browser but fail
+                        // to render server-side.
+                        const { converted } = await convertHeicFiles(rawFiles);
+                        const files = converted.filter(isAllowedImageFile);
                         if (files.length === 0) return;
                         pushUndo(editingCanvas, true);
                         let updated = { ...editingCanvas };

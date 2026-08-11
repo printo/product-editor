@@ -28,6 +28,7 @@ import {
 } from '@/lib/upload-utils';
 import { saveFile as defaultSaveFile } from '@/lib/file-store';
 import { detectFileOrientation } from '@/lib/ml-orientation';
+import { convertHeicFileIfNeeded } from '@/lib/heic-convert';
 
 /** ── Public contract ─────────────────────────────────────────────────── */
 
@@ -123,6 +124,18 @@ export async function uploadCalendarCellImage(
   file: File,
   opts: UploadCalendarCellImageOptions,
 ): Promise<UploadCalendarCellImageResult> {
+  // iPhone HEIC/HEIF photos are converted to JPEG first — neither the
+  // preview blobUrl below nor the backend (no HEIC decoder) can open HEIC.
+  // Wrapped in the module's own error type so callers only need to handle
+  // CalendarCellUploadError, not reach into heic-convert.ts too.
+  try {
+    file = await convertHeicFileIfNeeded(file);
+  } catch (err) {
+    throw new CalendarCellUploadError(
+      'heic-conversion-failed',
+      err instanceof Error ? err.message : `"${file.name}" couldn't be converted.`,
+    );
+  }
   validateCellImageFile(file);
 
   const uploadFn = opts.uploadFn ?? defaultUploadFile;
