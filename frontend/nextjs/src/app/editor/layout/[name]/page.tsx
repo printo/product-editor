@@ -1726,14 +1726,24 @@ export default function LayoutEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalBlurFill, renderCanvas]);
 
-  const openEditor = (idx: number, surfaceKey?: string) => {
+  // Keyed by `${surfaceKey ?? ''}:${idx}` — a quick-action toggle (Fit/Cover,
+  // Blur, Rotate, BG) commits into `canvases`/`surfaceStates` only after its
+  // async re-render finishes inside updateCanvasState. openEditor awaits the
+  // matching entry so opening the modal mid-toggle can't seed it with the
+  // pre-toggle frame (e.g. Fit Mode showing "Cover" right after the card
+  // switched to "Contain").
+  const pendingCanvasUpdatesRef = useRef<Map<string, Promise<CanvasItem | undefined>>>(new Map());
+
+  const openEditor = async (idx: number, surfaceKey?: string) => {
     let targetCanvases = canvases;
     if (surfaceKey && surfaceKey !== activeSurfaceKey) {
       setActiveSurfaceKey(surfaceKey);
       const surface = surfaceStates.find(s => s.key === surfaceKey);
       if (surface) targetCanvases = surface.canvases;
     }
-    const c = targetCanvases[idx];
+    const pendingKey = `${surfaceKey ?? ''}:${idx}`;
+    const pending = pendingCanvasUpdatesRef.current.get(pendingKey);
+    const c = (pending ? await pending : undefined) ?? targetCanvases[idx];
     if (!c) return;
     setActiveCanvasIdx(idx);
     const sp = new URLSearchParams(window.location.search);
@@ -1756,37 +1766,50 @@ export default function LayoutEditorPage() {
     }
   };
 
-  const updateCanvasState = useCallback(async (idx: number, surfaceKey: string | null, updateFn: (c: CanvasItem) => CanvasItem | Promise<CanvasItem>) => {
-    if (surfaceKey) {
-      const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
-      if (sIdx === -1) return;
-      const targetSurface = surfaceStates[sIdx];
-      const targetCanvas = targetSurface.canvases[idx];
-      if (!targetCanvas) return;
+  const updateCanvasState = useCallback((idx: number, surfaceKey: string | null, updateFn: (c: CanvasItem) => CanvasItem | Promise<CanvasItem>) => {
+    const pendingKey = `${surfaceKey ?? ''}:${idx}`;
+    const run = (async (): Promise<CanvasItem | undefined> => {
+      if (surfaceKey) {
+        const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
+        if (sIdx === -1) return undefined;
+        const targetSurface = surfaceStates[sIdx];
+        const targetCanvas = targetSurface.canvases[idx];
+        if (!targetCanvas) return undefined;
 
-      const updatedCanvas = await updateFn(targetCanvas);
-      // If every frame is missing its original file (restored from saved state,
-      // no re-upload yet), skip the re-render to avoid overwriting the stored
-      // dataUrl preview with a blank canvas.
-      const canRerender = updatedCanvas.frames.some(f => f.originalFile !== null);
-      if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas, { thumbnail: true });
+        const updatedCanvas = await updateFn(targetCanvas);
+        // If every frame is missing its original file (restored from saved state,
+        // no re-upload yet), skip the re-render to avoid overwriting the stored
+        // dataUrl preview with a blank canvas.
+        const canRerender = updatedCanvas.frames.some(f => f.originalFile !== null);
+        if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas, { thumbnail: true });
 
-      setSurfaceStates(prev => prev.map((s, i) =>
-        i === sIdx ? { ...s, canvases: s.canvases.map((c, ci) => ci === idx ? updatedCanvas : c) } : s
-      ));
-      if (surfaceKey === activeSurfaceKey) {
+        setSurfaceStates(prev => prev.map((s, i) =>
+          i === sIdx ? { ...s, canvases: s.canvases.map((c, ci) => ci === idx ? updatedCanvas : c) } : s
+        ));
+        if (surfaceKey === activeSurfaceKey) {
+          setCanvases(prev => prev.map((c, ci) => ci === idx ? updatedCanvas : c));
+        }
+        return updatedCanvas;
+      } else {
+        const targetCanvas = canvases[idx];
+        if (!targetCanvas) return undefined;
+
+        const updatedCanvas = await updateFn(targetCanvas);
+        const canRerender = updatedCanvas.frames.some(f => f.originalFile !== null);
+        if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas, { thumbnail: true });
+
         setCanvases(prev => prev.map((c, ci) => ci === idx ? updatedCanvas : c));
+        return updatedCanvas;
       }
-    } else {
-      const targetCanvas = canvases[idx];
-      if (!targetCanvas) return;
+    })();
 
-      const updatedCanvas = await updateFn(targetCanvas);
-      const canRerender = updatedCanvas.frames.some(f => f.originalFile !== null);
-      if (canRerender) updatedCanvas.dataUrl = await renderCanvas(updatedCanvas, { thumbnail: true });
-
-      setCanvases(prev => prev.map((c, ci) => ci === idx ? updatedCanvas : c));
-    }
+    pendingCanvasUpdatesRef.current.set(pendingKey, run);
+    run.finally(() => {
+      if (pendingCanvasUpdatesRef.current.get(pendingKey) === run) {
+        pendingCanvasUpdatesRef.current.delete(pendingKey);
+      }
+    });
+    return run;
   }, [surfaceStates, canvases, activeSurfaceKey, renderCanvas]);
 
   const handleQuickRotate = (idx: number, surfaceKey: string | null = null) => {
@@ -1876,7 +1899,7 @@ export default function LayoutEditorPage() {
         .then(() => updateCanvasState(p.idx, p.surfaceKey, c => ({
           ...c,
           frames: c.frames.map((f, i) => i === p.frameIdx ? { ...f, offset: { x: pending.x, y: pending.y } } : f),
-        })))
+        })).then(() => {}))
         .catch(() => {});
     };
     if (immediate) { flush(); return; }
