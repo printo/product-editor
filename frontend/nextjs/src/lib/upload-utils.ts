@@ -18,11 +18,12 @@ const MAX_PARALLEL_FILES = 4;        // saturates ~10 Mbps uplink without floodi
 // The server rejects anything outside this set, so we filter client-side to
 // fail fast with a clear, file-named message instead of a late, cryptic
 // "Upload complete failed for …" surfaced from Django at render time.
-// HEIC/HEIF are deliberately NOT in this list — the backend still can't open
-// them. They're allowed at pick-time (see IMAGE_ACCEPT_ATTR below) and
-// converted to JPEG client-side via lib/heic-convert.ts before a file ever
-// reaches this check, so by the time isAllowedImageFile() runs, HEIC has
-// already become JPEG.
+// HEIC/HEIF and PDF are deliberately NOT in this list — the backend can't
+// open HEIC, and can't open PDF at all (Pillow has no PDF reader). They're
+// allowed at pick-time (see the ACCEPT_ATTR constants below) and converted
+// to plain JPEG/PNG client-side — HEIC via lib/heic-convert.ts, PDF pages via
+// lib/pdf-import.ts — before a file ever reaches this check, so by the time
+// isAllowedImageFile() runs, both have already become a normal image.
 export const ALLOWED_IMAGE_EXTENSIONS = [
   'jpg', 'jpeg', 'jpe', 'jfif', 'png', 'webp', 'tiff', 'tif', 'gif',
 ] as const;
@@ -36,6 +37,12 @@ export const ALLOWED_IMAGE_EXTENSIONS = [
 export const IMAGE_ACCEPT_ATTR =
   '.jpg,.jpeg,.jpe,.jfif,.png,.webp,.tiff,.tif,.gif,.heic,.heif,' +
   'image/jpeg,image/png,image/webp,image/tiff,image/gif,image/heic,image/heif';
+
+// Separate constant, not a mutation of IMAGE_ACCEPT_ATTR above — PDF import
+// is wired into specific entry points only (see lib/pdf-import.ts and the
+// use-pdf-page-import hook), and IMAGE_ACCEPT_ATTR is shared by inputs that
+// should NOT suddenly show .pdf as selectable just because it changed here.
+export const IMAGE_AND_PDF_ACCEPT_ATTR = IMAGE_ACCEPT_ATTR + ',.pdf,application/pdf';
 
 // Short, human-readable form for error copy.
 export const ALLOWED_IMAGE_LABEL = 'JPG, PNG, WEBP, TIFF, or GIF';

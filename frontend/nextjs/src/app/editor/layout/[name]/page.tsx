@@ -22,9 +22,11 @@ import {
   uploadFiles,
   unsupportedFilesMessage,
   isAllowedImageFile,
-  IMAGE_ACCEPT_ATTR,
+  IMAGE_AND_PDF_ACCEPT_ATTR,
 } from '@/lib/upload-utils';
 import { convertHeicFileIfNeeded, convertAndPartitionFiles, isHeicFile } from '@/lib/heic-convert';
+import { pdfDerivedFiles } from '@/lib/pdf-import';
+import { usePdfPageImport } from '@/components/use-pdf-page-import';
 import { saveFile, getFilesForOrder, pruneStaleOrders, FileStoreQuotaError, getPersistenceMode } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
 import CanvasCardSkeleton from '@/components/CanvasCardSkeleton';
@@ -546,6 +548,7 @@ export default function LayoutEditorPage() {
   const [pendingTruncated, setPendingTruncated] = useState<{ all: File[]; bad: File[] } | null>(null);
   const [showAutoFillPicker, setShowAutoFillPicker] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
+  const { expandPdfPages, pdfPickerElement } = usePdfPageImport();
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   // Include the customer's original uploads in the download ZIP — OFF by default
   // so the archive is just mock + print (much smaller/faster). The ref mirrors
@@ -1415,12 +1418,19 @@ export default function LayoutEditorPage() {
             const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
             const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
 
-            // Server-side MediaPipe Pose Landmarker decides rotation when
-            // it can find a pose. When it declines, we leave the photo
-            // as-is — see resolveRotation for why we DON'T fall back to
-            // the aspect heuristic (it flips wide group photos sideways).
-            const ml = await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined);
-            const rotation = resolveRotation(ml, imgW, imgH, frameW, frameH);
+            // Server-side MediaPipe Pose Landmarker decides rotation when the
+            // aspect heuristic doesn't already call for a fill-rotate — see
+            // resolveRotation. PDF-derived pages are document content, not
+            // photos: pose detection would find nothing (wasting a round
+            // trip) and the aspect heuristic could rotate a deliberately-
+            // designed page just because its ratio doesn't match the frame —
+            // skip both entirely for those.
+            const rotation = pdfDerivedFiles.has(file)
+              ? 0
+              : resolveRotation(
+                  await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined),
+                  imgW, imgH, frameW, frameH,
+                );
 
             let offset = { x: 0, y: 0 };
             if (fitMode === 'cover') {
@@ -1525,8 +1535,14 @@ export default function LayoutEditorPage() {
                   const frameW = frameSpec.width <= 1 ? frameSpec.width * canvasW : frameSpec.width;
                   const frameH = frameSpec.height <= 1 ? frameSpec.height * canvasH : frameSpec.height;
 
-                  const ml = await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined);
-                  const rotation = resolveRotation(ml, imgW, imgH, frameW, frameH);
+                  // PDF-derived pages skip auto-orientation entirely — see
+                  // the other call site above for why.
+                  const rotation = pdfDerivedFiles.has(file)
+                    ? 0
+                    : resolveRotation(
+                        await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined),
+                        imgW, imgH, frameW, frameH,
+                      );
 
                   let offset = { x: 0, y: 0 };
                   if (globalFitModeRef.current === 'cover') {
@@ -2067,7 +2083,13 @@ export default function LayoutEditorPage() {
     setDragOverIdx(null);
     if (isProcessing || heicConverting) return;
 
-    const droppedFiles = Array.from(e.dataTransfer.files);
+    const rawDroppedFiles = Array.from(e.dataTransfer.files);
+    // A PDF dropped onto one specific surface card can only ever contribute
+    // one photo — each surface holds exactly one by design — so constrain
+    // the picker to single-select there rather than letting the customer
+    // pick more pages and having the surfaceKey branch below silently keep
+    // only the first (see the plan's "single-select mode" note).
+    const droppedFiles = await expandPdfPages(rawDroppedFiles, { maxSelectable: surfaceKey ? 1 : null });
 
     if (droppedFiles.length > 0) {
       // ── Handle external files ──────────────────────────────────────────────
@@ -2219,7 +2241,10 @@ export default function LayoutEditorPage() {
     // by generateCanvases() when a partial selection still produces canvases.
     // iPhone HEIC photos are converted to JPEG here first (see heic-convert.ts)
     // — neither the Fabric canvas preview nor the backend can open HEIC.
-    const rawFiles = Array.from(e.target.files);
+    // PDFs are expanded into customer-picked page images even earlier (see
+    // pdf-import.ts) — before HEIC conversion, so its downstream checks
+    // never need to know a file originated from a PDF.
+    const rawFiles = await expandPdfPages(Array.from(e.target.files), { maxSelectable: null });
     const heicPresent = rawFiles.some(isHeicFile);
     if (heicPresent) setHeicConverting(true);
     const { accepted: newlyPicked, warning } = await convertAndPartitionFiles(rawFiles);
@@ -2364,6 +2389,10 @@ export default function LayoutEditorPage() {
     if (!pendingReplace) return;
     const { canvasIdx, frameIdx, surfaceKey } = pendingReplace;
     setPendingReplace(null);
+    // A single slot can only ever take one photo — single-select picker.
+    const [expandedFile] = await expandPdfPages([file], { maxSelectable: 1 });
+    if (!expandedFile) return; // PDF picker was cancelled
+    file = expandedFile;
     const wasHeic = isHeicFile(file);
     if (wasHeic) setHeicConverting(true);
     try {
@@ -3147,6 +3176,10 @@ export default function LayoutEditorPage() {
   // Phase 8 — cell image override upload
   const handleCellImageFileSelected = useCallback(async (file: File) => {
     if (!selectedCalendarCell || !orderId) return;
+    // A calendar cell can only ever take one photo — single-select picker.
+    const [expandedFile] = await expandPdfPages([file], { maxSelectable: 1 });
+    if (!expandedFile) return; // PDF picker was cancelled
+    file = expandedFile;
     // HEIC/HEIF pass this gate too — uploadCalendarCellImage converts them to
     // JPEG as its first step (see calendar-cell-upload.ts).
     if (!isAllowedImageFile(file) && !isHeicFile(file)) {
@@ -3179,7 +3212,7 @@ export default function LayoutEditorPage() {
     } finally {
       setCalendarImageUploading(false);
     }
-  }, [selectedCalendarCell, orderId, apiBase, getAuthHeaders, updateCellEntries]);
+  }, [selectedCalendarCell, orderId, apiBase, getAuthHeaders, updateCellEntries, expandPdfPages]);
 
   const handleCalendarMonthTileClick = (surfaceIndex: number, year: number, month: number) => {
     // Open the first day of the month by default — customer can tap a specific cell after.
@@ -3424,7 +3457,7 @@ export default function LayoutEditorPage() {
       <input
         ref={replacePhotoInputRef}
         type="file"
-        accept={IMAGE_ACCEPT_ATTR}
+        accept={IMAGE_AND_PDF_ACCEPT_ATTR}
         className="hidden"
         aria-hidden
         onChange={e => {
@@ -3560,7 +3593,7 @@ export default function LayoutEditorPage() {
             </div>
             <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink relative group">
               <div className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all", (files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'border-emerald-200 bg-emerald-50/30' : 'border-indigo-200 bg-indigo-50/30 hover:border-indigo-400')}>
-                <input ref={uploadInputRef} type="file" multiple onChange={handleFileChange} accept={IMAGE_ACCEPT_ATTR} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                <input ref={uploadInputRef} type="file" multiple onChange={handleFileChange} accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                 <div className={clsx("w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm", totalUploadedCount > 0 ? 'bg-emerald-500 text-white' : 'bg-indigo-600 text-white')}>
                   <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
                 </div>
@@ -4109,7 +4142,7 @@ export default function LayoutEditorPage() {
               <input
                 ref={calendarCellFileInputRef}
                 type="file"
-                accept={IMAGE_ACCEPT_ATTR}
+                accept={IMAGE_AND_PDF_ACCEPT_ATTR}
                 className="hidden"
                 aria-hidden
                 onChange={e => {
@@ -4590,8 +4623,10 @@ export default function LayoutEditorPage() {
           getFileUrl={getFileUrl}
           loadGoogleFont={loadGoogleFont}
           skipNextGenerateRef={skipNextGenerateRef}
+          expandPdfPages={expandPdfPages}
         />
       )}
+      {pdfPickerElement}
     </div>
   );
 }
