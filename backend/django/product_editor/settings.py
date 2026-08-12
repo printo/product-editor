@@ -412,6 +412,7 @@ if SENTRY_DSN:
     import sentry_sdk
     from sentry_sdk.integrations.django import DjangoIntegration
     from sentry_sdk.integrations.celery import CeleryIntegration
+    from django.core.exceptions import DisallowedHost
 
     sentry_sdk.init(
         dsn=SENTRY_DSN,
@@ -424,6 +425,14 @@ if SENTRY_DSN:
         # Off by default — the DPDP erasure pipeline (OrderDataPurgeView) can't
         # reach into Sentry's cloud to remove anything captured here.
         send_default_pii=os.getenv("SENTRY_SEND_DEFAULT_PII", "0") == "1",
+        # Internet-wide bots routinely probe the raw origin IP directly
+        # (bypassing Cloudflare/the real domain) with garbage Host headers --
+        # confirmed live, a scanner hitting /api/mcp via the bare IP. Django's
+        # own protection correctly rejects these with a 400; that's the
+        # feature working, not a bug. The fix is NOT adding the scanned IP to
+        # ALLOWED_HOSTS (that would weaken the same protection) -- just don't
+        # let routine scanner noise page anyone as an "Escalating" issue.
+        ignore_errors=[DisallowedHost],
     )
     sentry_sdk.set_tag("app", "product-editor")
     sentry_sdk.set_tag("component", "backend")
