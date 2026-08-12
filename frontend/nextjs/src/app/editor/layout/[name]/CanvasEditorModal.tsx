@@ -173,11 +173,17 @@ export function CanvasEditorModal({
   }, [handleUndo, handleRedo]);
 
   // ── Editor save ───────────────────────────────────────────────────────────
-    const handleSaveChanges = async () => {
+  const handleSaveChanges = async () => {
     if (!editingCanvas) return;
     if (renderTimeoutRef.current) { clearTimeout(renderTimeoutRef.current); renderTimeoutRef.current = null; }
-    const freshDataUrl = fabricEditorRef.current?.toFullResDataURL(false)
-      ?? await renderCanvas(editingCanvas, null, true, false);
+    // Always render off-screen via fabric-renderer.ts rather than snapshotting
+    // the live Fabric canvas with toFullResDataURL(). That canvas's backing
+    // buffer tracks the modal's responsive viewport container (see the
+    // ResizeObserver in FabricEditor.tsx), not the fixed print canvas size, so
+    // a raw snapshot comes out letterboxed with transparent padding — the
+    // print content shrunk and centered inside an oddly-proportioned buffer.
+    // The off-screen render always produces a clean, exactly-sized thumbnail.
+    const freshDataUrl = await renderCanvas(editingCanvas, null, true, false);
     const updated = [...canvases];
     updated[activeCanvasIdx] = { ...editingCanvas, dataUrl: freshDataUrl };
     setCanvases(updated);
