@@ -50,6 +50,11 @@ export interface CanvasEditorModalProps {
   getFileUrl: (file: File) => string;
   loadGoogleFont: (name: string) => void;
   skipNextGenerateRef: React.MutableRefObject<boolean>;
+  /** Expands any PDFs in a picked file list into customer-chosen page
+   *  images, showing a picker modal when needed — see use-pdf-page-import.
+   *  Passed down from page.tsx so there's one picker queue per editor
+   *  session, not a separate one per sidebar instance. */
+  expandPdfPages: (files: File[], opts: { maxSelectable: number | null }) => Promise<File[]>;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -58,7 +63,7 @@ export function CanvasEditorModal({
   activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, globalFitMode, selectedFonts,
   apiBase, getAuthHeaders,
   setEditingCanvas, setCanvases, setFiles, setError, onClose, onOpenCanvas,
-  getFileUrl, loadGoogleFont, skipNextGenerateRef,
+  getFileUrl, loadGoogleFont, skipNextGenerateRef, expandPdfPages,
 }: CanvasEditorModalProps) {
 
   // ── Local state (editor-only) ──────────────────────────────────────────────
@@ -447,6 +452,7 @@ export function CanvasEditorModal({
         selectedFonts={selectedFonts}
         getImageMetadata={getImageMetadata}
         calculateSmartCropOffsets={calculateSmartCropOffsets}
+        expandPdfPages={expandPdfPages}
       />
     </div>
   );

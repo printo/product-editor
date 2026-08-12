@@ -8,7 +8,7 @@ import { Dropdown } from '@/components/ui/Dropdown';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
-import { isAllowedImageFile, IMAGE_ACCEPT_ATTR } from '@/lib/upload-utils';
+import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import { convertHeicFiles } from '@/lib/heic-convert';
 import type { CanvasItem, FitMode, Overlay, TextOverlay, ImageOverlay } from './types';
 
@@ -30,6 +30,9 @@ export interface CanvasEditorSidebarProps {
   selectedFonts: string[];
   getImageMetadata: (file: File) => Promise<{ width: number; height: number; orientation: number; element: HTMLImageElement }>;
   calculateSmartCropOffsets: (img: HTMLImageElement | HTMLCanvasElement, frameW: number, frameH: number, rotation: number, cacheKey?: string) => Promise<{ x: number; y: number }>;
+  /** Expands any PDFs in a picked file list into customer-chosen page
+   *  images, showing a picker modal when needed — see use-pdf-page-import. */
+  expandPdfPages: (files: File[], opts: { maxSelectable: number | null }) => Promise<File[]>;
 }
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -129,6 +132,7 @@ export function CanvasEditorSidebar({
   selectedFonts,
   getImageMetadata,
   calculateSmartCropOffsets,
+  expandPdfPages,
 }: CanvasEditorSidebarProps) {
 
   const [activeAddTab, setActiveAddTab] = useState<TabKey>('text');
@@ -592,16 +596,18 @@ export function CanvasEditorSidebar({
                       <p className="text-[11px] font-medium uppercase">Add Photo</p>
                       <p className="text-[10px] text-slate-400 uppercase tracking-tight opacity-80">Floating overlay</p>
                     </div>
-                    <input type="file" multiple accept={IMAGE_ACCEPT_ATTR} className="hidden"
+                    <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
                       onChange={async e => {
                         if (!e.target.files?.length) return;
                         const rawFiles = Array.from(e.target.files);
                         e.target.value = '';
-                        // iPhone HEIC photos are converted to JPEG first (see
+                        // PDF pages are expanded first (see pdf-import.ts), then
+                        // iPhone HEIC photos are converted to JPEG (see
                         // heic-convert.ts), then unsupported types (e.g. .svg)
                         // are dropped — they'd preview in the browser but fail
                         // to render server-side.
-                        const { converted } = await convertHeicFiles(rawFiles);
+                        const expandedFiles = await expandPdfPages(rawFiles, { maxSelectable: null });
+                        const { converted } = await convertHeicFiles(expandedFiles);
                         const files = converted.filter(isAllowedImageFile);
                         if (files.length === 0) return;
                         pushUndo(editingCanvas, true);

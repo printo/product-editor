@@ -26,6 +26,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { CalendarProductPreview } from '@/components/CalendarProductPreview';
 import { CalendarEditPanel } from '@/components/CalendarEditPanel';
+import { usePdfPageImport } from '@/components/use-pdf-page-import';
+import { IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import {
   CalendarCellUploadError,
   uploadCalendarCellImage,
@@ -89,6 +91,7 @@ export default function CalendarPreviewClient() {
   // Holds blob: URLs from in-session uploads so we can revoke them on unmount.
   const cellBlobUrlsRef = useRef<Map<string, string>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { expandPdfPages, pdfPickerElement } = usePdfPageImport();
 
   // P8.3 — real file-picker → chunked-upload → IDB persistence. The dev page
   // hits the backend through the internal proxy (Bearer-key path); in the
@@ -97,6 +100,10 @@ export default function CalendarPreviewClient() {
   // backend's unavailable (the dev page often runs without docker compose).
   const handleCellImageSelected = async (file: File) => {
     setUploadError(null);
+    // A calendar cell can only ever take one photo — single-select picker.
+    const [expandedFile] = await expandPdfPages([file], { maxSelectable: 1 });
+    if (!expandedFile) return; // PDF picker was cancelled
+    file = expandedFile;
     setUploading(true);
     try {
       const result = await uploadCalendarCellImage(file, {
@@ -156,10 +163,11 @@ export default function CalendarPreviewClient() {
 
   return (
     <div className="min-h-screen bg-zinc-50 flex">
+      {pdfPickerElement}
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept={IMAGE_AND_PDF_ACCEPT_ATTR}
         className="hidden"
         onChange={e => {
           const file = e.target.files?.[0];

@@ -30,6 +30,7 @@
     "lucide-react": "^0.453.0",
     "next": "^16.2.0",
     "next-auth": "^5.0.0-beta.30",
+    "pdfjs-dist": "^6.2.108",
     "pica": "^9.0.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
