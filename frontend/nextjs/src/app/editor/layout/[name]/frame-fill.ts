@@ -19,6 +19,7 @@ export interface FrameFillState {
   fillStyle?: 'blur' | 'border';
   caption?: string;
   captionEnabled?: boolean;
+  rotation?: number;
 }
 
 export interface FrameGeom {
@@ -66,13 +67,39 @@ export function buildFrameFill(
   // (never attached to the document) and blur it. The blur image carries its
   // OWN frame-shaped clipPath in its own coordinate space.
   if (!imageEl) return null;
+
+  // imageEl is the RAW source element — Fabric applies the sharp photo's
+  // `angle` at render time without ever rotating the underlying pixels. Rotate
+  // into an intermediate canvas first so the blurred fill matches the same
+  // orientation as the rotated photo on top (mirrors engine.py, which rotates
+  // before painting the fill — see _paint_frame_fill).
+  let blurSource: CanvasImageSource = imageEl;
+  const rot = ((fs.rotation || 0) % 360 + 360) % 360;
+  if (rot !== 0) {
+    const rad = (rot * Math.PI) / 180;
+    const sinA = Math.abs(Math.sin(rad));
+    const cosA = Math.abs(Math.cos(rad));
+    const rotW = Math.max(1, Math.round(imgW * cosA + imgH * sinA));
+    const rotH = Math.max(1, Math.round(imgW * sinA + imgH * cosA));
+    const rotCanvas = document.createElement('canvas');
+    rotCanvas.width = rotW;
+    rotCanvas.height = rotH;
+    const rotCtx = rotCanvas.getContext('2d');
+    if (rotCtx) {
+      rotCtx.translate(rotW / 2, rotH / 2);
+      rotCtx.rotate(rad);
+      rotCtx.drawImage(imageEl, -imgW / 2, -imgH / 2, imgW, imgH);
+      blurSource = rotCanvas;
+    }
+  }
+
   const blurCanvas = document.createElement('canvas');
   blurCanvas.width = Math.max(1, Math.round(fw));
   blurCanvas.height = Math.max(1, Math.round(fh));
   const ctx = blurCanvas.getContext('2d');
   if (ctx) {
     ctx.filter = 'blur(18px)';
-    ctx.drawImage(imageEl, 0, 0, blurCanvas.width, blurCanvas.height);
+    ctx.drawImage(blurSource, 0, 0, blurCanvas.width, blurCanvas.height);
   }
   return new FabricImage(blurCanvas, {
     left: fx + fw / 2, top: fy + fh / 2,
