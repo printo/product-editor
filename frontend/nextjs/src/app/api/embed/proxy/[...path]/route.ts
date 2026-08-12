@@ -163,6 +163,13 @@ async function handler(
   const { path } = await params;
   const upstreamPath = (path || []).join('/');
 
+  // Next's catch-all segments drop a trailing slash, but Django runs with
+  // APPEND_SLASH. On GET that only costs a 301 (which fetch follows), but on
+  // PUT/POST Django refuses to redirect — it cannot re-send the body — and
+  // raises RuntimeError, surfacing as a 500. Autosave (PUT canvas-state/<id>/)
+  // hit exactly that. Preserve whatever the caller sent.
+  const trailingSlash = req.nextUrl.pathname.endsWith('/') ? '/' : '';
+
   // Path allowlist — reject ops/admin/anything not customer-facing BEFORE
   // we even validate the token, so attackers can't probe Django auth surfaces.
   if (!isPathAllowed(upstreamPath)) {
@@ -178,7 +185,7 @@ async function handler(
   }
   const { apiKey, orderId, callbackUrl, includeUploads } = session;
 
-  const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${req.nextUrl.search}`;
+  const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${trailingSlash}${req.nextUrl.search}`;
 
   // Forward only safe, non-hop-by-hop headers. Accept-Encoding: identity
   // — see the matching note in /api/internal/proxy/[...path]/route.ts —
