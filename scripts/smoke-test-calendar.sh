@@ -9,6 +9,10 @@
 #   API_KEY=<real-api-key> ./scripts/smoke-test-calendar.sh             # localhost:5004
 #   API_KEY=<key> BASE=https://product-editor.printo.in ./scripts/smoke-test-calendar.sh
 #
+#   # From the prod server, against the nginx edge — needs CURL_INSECURE
+#   # because the origin cert is not publicly trusted (see the TLS note below):
+#   API_KEY=<key> BASE=https://localhost CURL_INSECURE=1 ./scripts/smoke-test-calendar.sh
+#
 # Exits 0 if every check passes, 1 otherwise.
 #
 # Note: PUT /api/ops/layouts/<name> requires an ops-team session cookie, not
@@ -27,6 +31,20 @@ if [ -z "$API_KEY" ]; then
   echo "✗ API_KEY env var is required (a real Printo API key)"
   exit 2
 fi
+
+# ── TLS verification ─────────────────────────────────────────────────────────
+# Same reasoning as smoke-test-embed.sh: the origin cert is a Cloudflare Origin
+# certificate, not publicly trusted, so curl aborts before sending and every
+# check reports 000 — indistinguishable from the stack being down. Enable with
+# CURL_INSECURE=1; auto-enabled for an HTTPS localhost base (operator testing
+# the nginx edge from the box itself), never for a real remote host.
+CURL_OPTS=""
+case "$BASE" in
+  https://localhost*|https://127.0.0.1*) CURL_OPTS="-k" ;;
+esac
+[ "${CURL_INSECURE:-0}" = "1" ] && CURL_OPTS="-k"
+curl() { command curl ${CURL_OPTS} "$@"; }
+[ -n "$CURL_OPTS" ] && printf "\033[33m!\033[0m TLS verification disabled for %s\n" "$BASE"
 
 # Pretty step printer ────────────────────────────────────────────────────────
 step() { printf "\n\033[1;36m▸ %s\033[0m\n" "$1"; }
