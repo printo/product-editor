@@ -1220,7 +1220,7 @@ def garbage_collector_task():
         usage_percent,
     )
 
-    return {
+    result = {
         'deleted_count': deleted_count,
         'deleted_bytes': deleted_bytes,
         'skipped_count': skipped_count,
@@ -1234,3 +1234,14 @@ def garbage_collector_task():
         'audit_rows_deleted': audit_deleted,
         'disk_usage_percent': usage_percent,
     }
+
+    # Leave a durable trace that this sweep happened. Everything above is
+    # otherwise recorded only in the Celery log, which dies with the container,
+    # and the DB keeps no evidence because the tombstone purge above removes the
+    # very rows that would have shown it. A GC that silently stops running is
+    # invisible until the disk fills — it was, for over a week, until prod hit
+    # 89%. Surfaced on /api/celery/monitor/; see services/gc_status.py.
+    from services.gc_status import record_gc_run
+    record_gc_run(result)
+
+    return result

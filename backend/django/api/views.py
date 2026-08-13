@@ -829,7 +829,8 @@ class CeleryMonitoringView(APIView):
         from api.models import RenderJob
         from django.utils import timezone
         from datetime import timedelta
-        
+        from services.gc_status import read_gc_status
+
         inspect = current_app.control.inspect()
         
         # Queue depths from reserved tasks
@@ -882,7 +883,14 @@ class CeleryMonitoringView(APIView):
                 'processing': job_counts['processing'],
                 'completed_24h': job_counts['completed_24h'],
                 'failed_24h': job_counts['failed_24h'],
-            }
+            },
+            # Whether the nightly sweep is actually running. `stale: true` is the
+            # field to alert on — it means either no sweep has ever been recorded
+            # or the last one is older than GC_STALE_AFTER_HOURS. Do NOT infer
+            # this from ExportedResult.is_deleted: the sweep purges its own
+            # tombstones in the same pass, so that count reads 0 whether the GC
+            # ran an hour ago or has never run at all. See services/gc_status.py.
+            'garbage_collector': read_gc_status(),
         })
 
 
