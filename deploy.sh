@@ -70,7 +70,7 @@ fi
 # images rebuilt for workers to see the new code. The `backend` and
 # `workers` modes both rebuild this set; `both` does it implicitly via
 # `docker-compose build` with no args.
-WORKER_SERVICES="celery-worker-priority celery-worker-standard celery-beat"
+WORKER_SERVICES="celery-worker-standard celery-beat"
 BACKEND_SERVICES="backend $WORKER_SERVICES"
 
 # ── Prepare nginx config ────────────────────────────────────────────────────

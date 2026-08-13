@@ -217,14 +217,29 @@ services:
       retries: 5
       start_period: 30s
 
-  # ── Priority worker — soft-proof / express / store-pickup orders ─────────────
-  # Listens ONLY to the 'priority' queue so standard-queue backlog never delays
-  # time-sensitive renders.
-  # Concurrency: auto-detected from CPU count (no CELERY_CONCURRENCY override).
-  # Set CELERY_CONCURRENCY in .env if you need to cap it on a shared server.
-  # Memory: 2 GB limit — Pillow CMYK soft-proof peak is ~400-600 MB per task;
-  # this gives headroom for the auto-detected concurrency level.
-  celery-worker-priority:
+  # ── Render worker — the only Celery worker ───────────────────────────────────
+  # There used to be a second worker bound to a 'priority' queue for the
+  # soft-proof / CMYK express path. That pipeline was retired in v1.8 and
+  # NOTHING has routed to 'priority' since: all three entries in
+  # product_editor/celery.py task_routes point at 'standard', and both dispatch
+  # sites (api/views.py GenerateLayoutView + EditorRenderView) hardcode
+  # queue_name = 'standard'. The container had therefore never run a single
+  # task while holding a full Django + Pillow + MediaPipe process resident —
+  # removed rather than left to look like capacity it never provided.
+  #
+  # This worker consumes BOTH queues on purpose. celery.py still invites
+  # callers to opt in via apply_async(queue='priority'); with no consumer on
+  # that queue such a task would wait in Redis forever and the customer's
+  # render would vanish with no error. Draining both costs nothing and closes
+  # that trap. (Ordering is not a priority guarantee — Celery round-robins
+  # across -Q queues. It is a safety net, not a QoS tier.)
+  #
+  # Scale horizontally under load:
+  #   docker compose up --scale celery-worker-standard=4
+  # Concurrency: auto-detected from CPU count per replica — 2 render slots on
+  # the 2-core prod box. Set CELERY_CONCURRENCY in .env to cap it.
+  # Memory: 2 GB per replica — safe for large multi-image Pillow compositing.
+  celery-worker-standard:
     build:
       context: .
       dockerfile: backend/django/Dockerfile
@@ -237,10 +252,12 @@ services:
       - POSTGRES_PORT=5432
       - REDIS_URL=redis://redis:6379/0
       - REDIS_CACHE_URL=redis://redis-cache:6379/0
-      - CELERY_QUEUE=priority
+      # Both queues — see the safety-net note above. Matches entrypoint.sh's
+      # own default, so a worker started without CELERY_QUEUE behaves the same.
+      - CELERY_QUEUE=priority,standard
       # CELERY_CONCURRENCY is intentionally NOT set here — Celery auto-detects
-      # based on the number of CPUs available to the container.
-      # Override in .env (e.g. CELERY_CONCURRENCY=4) if needed.
+      # based on the number of CPUs available to the container, so the worker
+      # scales with whatever the host has. Override in .env to cap it.
     volumes:
       - ./storage:/app/storage
     depends_on:
@@ -264,54 +281,6 @@ services:
     # connection is wedged. Visibility only — plain compose does not auto-heal
     # unhealthy containers; `docker compose ps` shows the state and deploy can
     # gate on it. `$$` escapes the compose variable expansion of $(hostname).
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/venv/bin/celery -A product_editor inspect ping -d celery@$$(hostname) --timeout 10 | grep -q pong"]
-      interval: 60s
-      timeout: 15s
-      retries: 3
-      start_period: 60s
-
-  # ── Standard worker ────────— PNG/TIFF exports for regular delivery orders ────────
-  # Scale horizontally under load:
-  #   docker compose up --scale celery-worker-standard=4
-  # Concurrency: auto-detected from CPU count per replica.
-  # Memory: 2 GB per replica — safe for large multi-image Pillow compositing.
-  celery-worker-standard:
-    build:
-      context: .
-      dockerfile: backend/django/Dockerfile
-    command: celery-worker
-    env_file:
-      - .env
-    environment:
-      - STORAGE_ROOT=/app/storage
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - REDIS_URL=redis://redis:6379/0
-      - REDIS_CACHE_URL=redis://redis-cache:6379/0
-      - CELERY_QUEUE=standard
-      # CELERY_CONCURRENCY is intentionally NOT set here — Celery auto-detects
-      # based on the number of CPUs available to the container.
-    volumes:
-      - ./storage:/app/storage
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      redis-cache:
-        condition: service_healthy
-    networks:
-      - web
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 512M
-    restart: unless-stopped
-    logging: *default-logging
-    # Ping the worker THROUGH the broker (Phase 4) — see celery-worker-priority.
     healthcheck:
       test: ["CMD-SHELL", "/opt/venv/bin/celery -A product_editor inspect ping -d celery@$$(hostname) --timeout 10 | grep -q pong"]
       interval: 60s

@@ -115,8 +115,7 @@ graph TB
     PEBE[Django 5 + DRF<br/>+ gunicorn gthread]
     PEDB[(Postgres 16)]
     PERedis[Redis 7<br/>db0=broker<br/>db1=cache]
-    PEPriority[celery-worker-priority]
-    PEStandard[celery-worker-standard]
+    PEStandard[celery-worker-standard<br/>-Q priority,standard]
     PEBeat[celery-beat]
     PEDisk[Local disk<br/>EXPORTS_DIR]
   end
@@ -128,7 +127,6 @@ graph TB
   PEBE -->|Django ORM| PEDB
   PEBE -->|broker db0| PERedis
   PEBE -->|cache db1| PERedis
-  PERedis -->|consume| PEPriority
   PERedis -->|consume| PEStandard
   PEBeat -->|schedule| PERedis
   PEPriority -->|writes ZIPs| PEDisk

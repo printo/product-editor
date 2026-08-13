@@ -227,7 +227,7 @@ input. Then dispatch a bubbling `change`.
 ```bash
 docker-compose up -d
 docker-compose exec backend python manage.py migrate   # Always run migrations via backend container
-docker-compose ps celery-worker-priority celery-worker-standard
+docker-compose ps celery-worker-standard celery-beat
 docker-compose logs -f <service>
 ```
 
@@ -339,16 +339,23 @@ flowchart TD
 - `services/image_loader.py` — **the single choke point for opening customer photos server-side** (`open_source_rgba(path)`): EXIF orientation + ICC→sRGB colour management (Display-P3 iPhone photos, AdobeRGB, CMYK-tagged JPEGs) via lcms2, fail-open on malformed profiles. All three render paths (frames in `engine.py`, image overlays, calendar cell images) load through it; output PNGs are tagged with an explicit sRGB profile (`srgb_profile_bytes()`). Never call `Image.open(...).convert("RGBA")` directly on customer photos — it silently discards the embedded profile and shifts colours in print.
 - `services/fonts.py` — `get_font(size_px, weight)` returns a cached `PIL.ImageFont` for the bundled `services/fonts_assets/Inter-Variable.ttf`. Uses the variable axis to serve any weight from a single 859 KB .ttf. Falls back to PIL default on missing-font (logged once). Boot-time `startup_check()` warns if the font is absent.
 - `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. README in the same dir documents the install convention.
-- `product_editor/celery.py` — Queue routing (priority vs. standard), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
+- `product_editor/celery.py` — Queue routing (all three tasks → `standard`; the `priority` queue has no producer — see Async Queue below), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
 - `product_editor/settings.py` — `csp.middleware.CSPMiddleware` is wired in after `SecurityMiddleware`; CSP starts in report-only mode via `CSP_REPORT_ONLY`
 - **Backend Dockerfile** is multi-stage — builder installs `build-essential` + `libpq-dev` to compile wheels; runner ships only `libpq5` + the venv. Drops ~250 MB from the final image. The `collectstatic` `RUN` supplies an **inline build-only `DJANGO_SECRET_KEY`** (build-time only, not baked into the image ENV) so the settings.py fail-fast guard doesn't abort the build — see `## Deployment` for the full rationale.
 
 ### Async Queue
-Two Celery worker services run in parallel with explicit queue routing in `product_editor/celery.py`:
-- `celery-worker-priority`: Soft-proof/express jobs
-- `celery-worker-standard`: Regular exports
 
-Concurrency is **auto-detected from CPU count** per replica (no `CELERY_CONCURRENCY` set in compose). Override via `.env` if needed. Memory cap is 2 GB per replica.
+**One** Celery worker service: `celery-worker-standard`, consuming `-Q priority,standard`.
+
+There were two until Aug 2026 — a second worker bound to `priority` alone, for the soft-proof/CMYK express path. That pipeline was retired in v1.8 and nothing routed to `priority` afterwards: all three `task_routes` entries in `product_editor/celery.py` point at `standard`, and both dispatch sites (`GenerateLayoutView` and `EditorRenderView`) hardcode `queue_name = 'standard'`. The container had never executed a task, while holding a full Django + Pillow + MediaPipe process resident. It was removed rather than left looking like capacity it never provided.
+
+**The surviving worker deliberately drains both queues.** `celery.py` still documents `apply_async(queue='priority')` as an opt-in, and with no consumer on that queue such a task would sit in Redis forever — the render would silently never happen, with no error anywhere. Listening to both closes that trap at zero cost. It is a safety net, **not** a QoS tier: Celery round-robins across `-Q` queues, so naming `priority` first buys no actual precedence. If express orders ever need to genuinely jump the line, that requires a second worker *plus* a dispatch site that routes to it — don't assume the current config provides it.
+
+Concurrency is **auto-detected from CPU count** per replica (no `CELERY_CONCURRENCY` set in compose), so the worker scales with whatever the host has — 2 render slots on the current 2-core prod box. Override via `.env` if you need to cap it on a shared server. Memory cap is 2 GB per replica.
+
+The service name still says `standard`, which is now a slight misnomer. It was kept to avoid renaming the container on prod and touching `deploy.sh` / `restore.sh` / dashboards for cosmetics.
+
+Scale horizontally under load: `docker compose up -d --scale celery-worker-standard=4`.
 
 Worker config (in `product_editor/celery.py`):
 - `worker_prefetch_multiplier = 1` — fetch one task at a time per slot

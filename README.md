@@ -51,8 +51,7 @@ Use `graphify update .`, not `graphify . --update`. The `update` subcommand refr
 |---|---|
 | `backend` | Django API + Gunicorn web server |
 | `frontend` | Next.js customer-facing editor |
-| `celery-worker-priority` | Render worker — `priority` queue only (express / store-pickup orders) |
-| `celery-worker-standard` | Render worker — `standard` queue only (regular delivery orders) |
+| `celery-worker-standard` | Render worker — the only one. Consumes `priority,standard` (nothing produces to `priority`; it is drained so a stray dispatch can't be lost) |
 | `celery-beat` | Periodic task scheduler (daily GC at 02:00 UTC) |
 | `redis` | Broker, result backend, status cache |
 | `db` | PostgreSQL database |
@@ -102,7 +101,7 @@ docker-compose exec backend python manage.py migrate
 Run the backend + infra in Docker, but the Next.js dev server on the host for hot reload:
 
 ```bash
-docker-compose up -d backend db redis redis-cache celery-worker-standard celery-worker-priority
+docker-compose up -d backend db redis redis-cache celery-worker-standard
 cd frontend/nextjs
 pnpm install
 pnpm dev         # http://localhost:3000
@@ -358,8 +357,8 @@ POST /api/editor/render (or embed proxy)
         │
         ▼
   ┌─────────────────┐        ┌──────────────────────────────────┐
-  │   Django API    │─enqueue─▶  Redis (priority queue)          │──▶ celery-worker-priority
-  │  (202 response) │        │  Redis (standard queue)           │──▶ celery-worker-standard
+  │   Django API    │─enqueue─▶  Redis (standard queue)          │──▶ celery-worker-standard
+  │  (202 response) │        │  Redis (priority queue — unused)  │──▶  (same worker, -Q both)
   └─────────────────┘        └──────────────────────────────────┘
                                              │
                                      render complete
@@ -426,7 +425,6 @@ Current migrations (latest: `0014_audit_trail`):
 docker-compose ps
 
 # Live logs
-docker-compose logs -f celery-worker-priority
 docker-compose logs -f celery-worker-standard
 
 # Queue depth + worker stats (ops key required)
