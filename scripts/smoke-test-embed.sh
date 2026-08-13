@@ -57,6 +57,9 @@ curl() { command curl ${CURL_OPTS} "$@"; }
 step() { printf "\n\033[1;36m▸ %s\033[0m\n" "$1"; }
 ok()   { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS + 1)); }
 bad()  { printf "  \033[31m✗\033[0m %s\n" "$1"; FAIL=$((FAIL + 1)); }
+# Neutral: a step that could not run here (missing optional dep, empty
+# environment). Counts as neither pass nor fail — matches smoke-test-calendar.sh.
+skip() { printf "  \033[33m⊘\033[0m %s\n" "$1"; }
 
 # ── 1. Health -----------------------------------------------------------------
 step "1. Backend health"
@@ -203,8 +206,7 @@ open('/tmp/se-chunk.png', 'wb').write(
     b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr)
     + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
 " 2>/dev/null || {
-  bad "python3 required to build the test PNG (skipping upload)"
-  FAIL=$((FAIL - 1))
+  skip "python3 required to build the test PNG (skipping upload)"
   goto_summary=1
 }
 
@@ -256,79 +258,117 @@ fi
 # to EXPORTS_DIR — on the 2-core prod box that competes with customer renders.
 if [ "${SMOKE_RENDER:-0}" = "1" ] && [ -n "${UPLOAD_ID:-}" ]; then
   step "12. Render submit → poll → download"
-  RENDER_LAYOUT="${RENDER_LAYOUT:-circle_48mm}"
 
-  status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
-    -X POST "$BASE/api/editor/render" \
-    -H "Authorization: Bearer $API_KEY" \
-    -H 'Content-Type: application/json' \
-    -d "{\"layout_name\":\"$RENDER_LAYOUT\",\"order_id\":\"$ORDER_ID\",\"export_format\":\"png\",\"canvases\":[{\"canvas_index\":0,\"frames\":[{\"frame_index\":0,\"upload_id\":\"$UPLOAD_ID\",\"offset_x\":0,\"offset_y\":0,\"scale\":1,\"rotation\":0,\"fit_mode\":\"cover\"}]}]}")
-  if [ "$status" = "202" ]; then
-    JOB_ID=$(python3 -c 'import json; print(json.load(open("/tmp/se.body"))["job_id"])')
-    ok "POST /api/editor/render → 202, job=${JOB_ID:0:8}…"
-  else
-    bad "POST /api/editor/render → $status (expected 202; layout '$RENDER_LAYOUT' missing?)"
-    JOB_ID=""
+  # Discover a layout that actually exists on the TARGET, rather than assuming
+  # one. This step first shipped hardcoding `circle_48mm`, which exists only in
+  # the repo's storage/layouts/ dev seed data — production carries a completely
+  # different ops-authored catalogue (classic_prints_-_4x6_in, square_8x8, …),
+  # so the render passed locally and failed on prod with
+  #   FileNotFoundError: '/app/storage/layouts/circle_48mm.json'
+  # after burning all 4 retries on a condition that could never resolve.
+  #
+  # Prefer single-surface + single-frame: the payload below sends one frame and
+  # no surface_key, and a multi-surface layout needs the real key or it renders
+  # blank (see CLAUDE.md, "Per-surface render grouping").
+  if [ -z "${RENDER_LAYOUT:-}" ]; then
+    curl -s -o /tmp/se.layouts "$BASE/api/layouts?fields=summary" \
+      -H "Authorization: Bearer $API_KEY"
+    RENDER_LAYOUT=$(python3 -c "
+import json
+try:
+    items = json.load(open('/tmp/se.layouts')).get('layouts') or []
+except Exception:
+    items = []
+ok = [d for d in items
+      if isinstance(d, dict) and d.get('name')
+      and d.get('productType') != 'calendar'
+      and d.get('surfaceCount') == 1]
+exact = [d for d in ok if d.get('frameCount') == 1]
+print((exact or ok or [{}])[0].get('name', ''))
+" 2>/dev/null || echo "")
   fi
 
-  if [ -n "$JOB_ID" ]; then
-    # A 1-frame 100×100 render finishes in ~1-2s; 60s is generous headroom
-    # without stalling the script if the worker is wedged.
-    JOB_STATUS=""
-    for _ in $(seq 1 30); do
-      sleep 2
-      curl -s -o /tmp/se.body "$BASE/api/render-status/$JOB_ID/" \
-        -H "Authorization: Bearer $API_KEY"
-      JOB_STATUS=$(python3 -c 'import json; print(json.load(open("/tmp/se.body")).get("status",""))' 2>/dev/null || echo "")
-      case "$JOB_STATUS" in completed|failed) break ;; esac
-    done
+  if [ -z "$RENDER_LAYOUT" ]; then
+    skip "No single-surface layout found on $BASE (set RENDER_LAYOUT=<name> to force)"
+  else
+    ok "using layout '$RENDER_LAYOUT'"
 
-    if [ "$JOB_STATUS" = "completed" ]; then
-      ok "render reached 'completed'"
-      status=$(curl -s -o /tmp/se.zip -w '%{http_code}' \
-        "$BASE/api/jobs/$JOB_ID/download/" -H "Authorization: Bearer $API_KEY")
-      [ "$status" = "200" ] && ok "ZIP download → 200" || bad "ZIP download → $status"
+    status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
+      -X POST "$BASE/api/editor/render" \
+      -H "Authorization: Bearer $API_KEY" \
+      -H 'Content-Type: application/json' \
+      -d "{\"layout_name\":\"$RENDER_LAYOUT\",\"order_id\":\"$ORDER_ID\",\"export_format\":\"png\",\"canvases\":[{\"canvas_index\":0,\"frames\":[{\"frame_index\":0,\"upload_id\":\"$UPLOAD_ID\",\"offset_x\":0,\"offset_y\":0,\"scale\":1,\"rotation\":0,\"fit_mode\":\"cover\"}]}]}")
+    if [ "$status" = "202" ]; then
+      JOB_ID=$(python3 -c 'import json; print(json.load(open("/tmp/se.body"))["job_id"])')
+      ok "POST /api/editor/render → 202, job=${JOB_ID:0:8}…"
+    else
+      bad "POST /api/editor/render → $status (expected 202)"
+      JOB_ID=""
+    fi
 
-      # The combined archive must keep its three numbered folders — printo.in
-      # and any existing partner extracts by those paths.
-      if [ "$status" = "200" ]; then
-        if python3 -c '
+    if [ -n "$JOB_ID" ]; then
+      # A 1-frame 100×100 render finishes in ~1-2s; 60s is generous headroom
+      # without stalling the script if the worker is wedged.
+      JOB_STATUS=""
+      for _ in $(seq 1 30); do
+        sleep 2
+        curl -s -o /tmp/se.body "$BASE/api/render-status/$JOB_ID/" \
+          -H "Authorization: Bearer $API_KEY"
+        JOB_STATUS=$(python3 -c 'import json; print(json.load(open("/tmp/se.body")).get("status",""))' 2>/dev/null || echo "")
+        case "$JOB_STATUS" in completed|failed) break ;; esac
+      done
+
+      if [ "$JOB_STATUS" = "completed" ]; then
+        ok "render reached 'completed'"
+        status=$(curl -s -o /tmp/se.zip -w '%{http_code}' \
+          "$BASE/api/jobs/$JOB_ID/download/" -H "Authorization: Bearer $API_KEY")
+        [ "$status" = "200" ] && ok "ZIP download → 200" || bad "ZIP download → $status"
+
+        # The combined archive must keep its three numbered folders — printo.in
+        # and any existing partner extracts by those paths.
+        if [ "$status" = "200" ]; then
+          if python3 -c '
 import sys, zipfile
 names = zipfile.ZipFile("/tmp/se.zip").namelist()
 sys.exit(0 if any(n.startswith("3_print/") for n in names) else 1)'; then
-          ok "combined ZIP keeps 3_print/ layout"
-        else
-          bad "combined ZIP lost its 3_print/ folder"
+            ok "combined ZIP keeps 3_print/ layout"
+          else
+            bad "combined ZIP lost its 3_print/ folder"
+          fi
         fi
-      fi
 
-      # Split archives — one part each, flat at the root, so the caller can
-      # store mock and print in separate fields without unpacking one archive.
-      for part in print mock uploads; do
-        status=$(curl -s -o /tmp/se.zip -w '%{http_code}' \
-          "$BASE/api/jobs/$JOB_ID/download/?content=$part" \
-          -H "Authorization: Bearer $API_KEY")
-        if [ "$status" != "200" ]; then
-          bad "?content=$part → $status (expected 200)"
-          continue
-        fi
-        if python3 -c '
+        # Split archives — one part each, flat at the root, so the caller can
+        # store mock and print in separate fields without unpacking one archive.
+        for part in print mock uploads; do
+          status=$(curl -s -o /tmp/se.zip -w '%{http_code}' \
+            "$BASE/api/jobs/$JOB_ID/download/?content=$part" \
+            -H "Authorization: Bearer $API_KEY")
+          if [ "$status" != "200" ]; then
+            bad "?content=$part → $status (expected 200)"
+            continue
+          fi
+          if python3 -c '
 import sys, zipfile
 names = zipfile.ZipFile("/tmp/se.zip").namelist()
 # non-empty, and nothing nested in a folder
 sys.exit(0 if names and not any("/" in n for n in names) else 1)'; then
-          ok "?content=$part → 200, flat non-empty archive"
-        else
-          bad "?content=$part → 200 but archive empty or foldered"
-        fi
-      done
+            ok "?content=$part → 200, flat non-empty archive"
+          else
+            bad "?content=$part → 200 but archive empty or foldered"
+          fi
+        done
 
-      status=$(curl -s -o /dev/null -w '%{http_code}' \
-        "$BASE/api/jobs/$JOB_ID/download/?content=bogus" \
-        -H "Authorization: Bearer $API_KEY")
-      [ "$status" = "400" ] && ok "?content=bogus → 400" || bad "?content=bogus → $status (expected 400)"
-    else
-      bad "render did not complete (last status: ${JOB_STATUS:-unknown})"
+        status=$(curl -s -o /dev/null -w '%{http_code}' \
+          "$BASE/api/jobs/$JOB_ID/download/?content=bogus" \
+          -H "Authorization: Bearer $API_KEY")
+        [ "$status" = "400" ] && ok "?content=bogus → 400" || bad "?content=bogus → $status (expected 400)"
+      else
+        # Surface the server's own reason — the render-status payload carries an
+        # `error` field, and without printing it the operator sees only "failed"
+        # and has to go digging through worker logs.
+        REASON=$(python3 -c 'import json; print(json.load(open("/tmp/se.body")).get("error","") or "")' 2>/dev/null || echo "")
+        bad "render did not complete (status: ${JOB_STATUS:-unknown})${REASON:+ — $REASON}"
+      fi
     fi
   fi
 fi
