@@ -253,6 +253,15 @@ EXPORT_RETENTION_DAYS_UNDER_PRESSURE = int(
 # wolf. 36h means a single missed night trips it and nothing else does.
 GC_STALE_AFTER_HOURS = int(os.getenv("GC_STALE_AFTER_HOURS", "36"))
 
+# Reclamation of export directories no DB row accounts for — see
+# services/orphan_exports.py. 'off' | 'dry_run' | 'delete'.
+#
+# Defaults to dry_run, which reports and deletes nothing. Unlike every other
+# sweep, this one deletes on the ABSENCE of a database row, so a subtly wrong
+# query would destroy live print files rather than merely miss some. Read a
+# night of dry_run counts before setting it to 'delete'.
+GC_ORPHAN_SWEEP = os.getenv("GC_ORPHAN_SWEEP", "dry_run")
+
 # How long API audit rows are kept, independent of file retention.
 #
 # Deliberately much longer than EXPORT_RETENTION_DAYS: the point of the audit

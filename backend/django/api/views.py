@@ -819,6 +819,29 @@ class RenderStatusView(APIView):
         return Response(response_data)
 
 
+def _disk_status():
+    """Live disk usage for EXPORTS_DIR, for the ops monitoring endpoint.
+
+    Returns a dict with an `error` key instead of raising: a stat failure must
+    degrade one field, not 500 the endpoint an operator is using to find out
+    what is wrong.
+    """
+    import shutil
+    try:
+        usage = shutil.disk_usage(settings.EXPORTS_DIR)
+    except Exception as exc:
+        return {'error': str(exc)}
+    percent = (usage.used / usage.total) * 100 if usage.total else 0
+    return {
+        'total_gb': round(usage.total / 1024 ** 3, 2),
+        'used_gb': round(usage.used / 1024 ** 3, 2),
+        'free_gb': round(usage.free / 1024 ** 3, 2),
+        'used_percent': round(percent, 1),
+        # Same 80% line garbage_collector_task trips on, so the two agree.
+        'pressure': percent > 80,
+    }
+
+
 class CeleryMonitoringView(APIView):
     """Monitoring endpoint for ops team to check Celery worker status."""
     permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
@@ -891,6 +914,13 @@ class CeleryMonitoringView(APIView):
             # tombstones in the same pass, so that count reads 0 whether the GC
             # ran an hour ago or has never run at all. See services/gc_status.py.
             'garbage_collector': read_gc_status(),
+            # Live disk, read now rather than lifted from the last sweep's stats.
+            # That distinction is the whole point: disk_usage_percent inside
+            # garbage_collector.stats is only as fresh as the last sweep, so at
+            # the moment it matters most — no sweeps happening — it is absent or
+            # stale. Production reached 89% unnoticed twice for exactly that
+            # reason. `pressure` mirrors the >80% threshold the GC itself uses.
+            'disk': _disk_status(),
         })
 
 
