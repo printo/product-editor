@@ -87,6 +87,50 @@ function reportHeicFailure(stage: HeicFailureStage, file: File, cause: unknown):
  *
  * Off-screen canvas only — never attached to the document.
  */
+/**
+ * Last-resort decode on the server, where a current libheif runs.
+ *
+ * This is the path that actually rescues a modern iPhone photo. `heic2any`
+ * bundles a 2021 libheif that cannot read the `tmap` gain-map HDR structure
+ * iOS 18 writes, and the browser fallback above only exists on Safari/iOS —
+ * Chrome and Firefox ship no HEIC codec at all. So on the desktop browsers
+ * most customers use, neither client-side attempt can succeed and this is the
+ * only thing standing between the customer and "please re-export as JPEG".
+ *
+ * Built by the caller because only it knows which proxy to talk to (embed vs
+ * internal) and how to authenticate — keeping this module free of both.
+ */
+export type ServerHeicConverter = (file: File) => Promise<File>;
+
+export function createServerHeicConverter(
+  apiBase: string,
+  getAuthHeaders: () => Record<string, string>,
+): ServerHeicConverter {
+  return async (file: File): Promise<File> => {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    // No Content-Type header: the browser must set the multipart boundary.
+    const res = await fetch(`${apiBase}/heic/convert`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body,
+    });
+    if (!res.ok) {
+      throw new Error(`server HEIC convert failed: ${res.status}`);
+    }
+    const blob = await res.blob();
+    if (blob.size === 0) throw new Error('server returned an empty image');
+    return new File([blob], jpegName(file.name), {
+      type: 'image/jpeg',
+      lastModified: file.lastModified,
+    });
+  };
+}
+
+function jpegName(name: string): string {
+  return name.replace(/\.(heic|heif)$/i, '') + '.jpg';
+}
+
 async function decodeHeicViaBrowser(file: File): Promise<Blob> {
   const bitmap = await createImageBitmap(file);
   try {
@@ -109,50 +153,76 @@ async function decodeHeicViaBrowser(file: File): Promise<Blob> {
 /**
  * Converts a single HEIC/HEIF File to JPEG. Non-HEIC files pass through
  * unchanged, so callers can await this unconditionally on every pick.
- * Throws HeicConversionError on failure (corrupt file, an exotic
- * multi-image HEIC variant, or the WASM decoder failing to load).
+ *
+ * Three decoders are tried in order, cheapest first:
+ *   1. heic2any        — no round-trip, but a 2021 libheif: fails on the
+ *                        tmap gain-map HDR photos current iPhones produce.
+ *   2. the browser     — free and instant where it exists, i.e. Safari/iOS
+ *                        only; Chrome and Firefox have no HEIC codec.
+ *   3. the server      — current libheif, works everywhere, costs one upload.
+ *
+ * Throws HeicConversionError only when all available decoders fail.
  */
-export async function convertHeicFileIfNeeded(file: File): Promise<File> {
+export async function convertHeicFileIfNeeded(
+  file: File,
+  serverConvert?: ServerHeicConverter,
+): Promise<File> {
   if (!isHeicFile(file)) return file;
 
-  let heic2any: typeof import('heic2any').default;
-  try {
-    ({ default: heic2any } = await import('heic2any'));
-  } catch (err) {
-    reportHeicFailure('load', file, err);
-    throw new HeicConversionError(
-      `"${file.name}" is an iPhone photo (HEIC) and the converter couldn't be ` +
-        `loaded. Check your connection and try adding it again.`,
-      'load',
-      { cause: err },
-    );
-  }
+  let result: Blob | Blob[] | null = null;
+  // Kept for the report if every decoder fails: the FIRST failure describes
+  // the photo, while later ones mostly describe the browser ("no HEIC codec"),
+  // which says nothing useful about why this file could not be read.
+  let primaryError: unknown = null;
+  let stage: HeicFailureStage = 'decode';
 
-  let result: Blob | Blob[];
+  // 1. heic2any — no network round-trip when it works.
   try {
+    const { default: heic2any } = await import('heic2any');
     result = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
   } catch (err) {
+    primaryError = err;
+    // A failed dynamic import is a chunk-load problem, not a bad photo.
+    stage = err instanceof Error && /import|chunk|fetch|network/i.test(err.message)
+      ? 'load'
+      : 'decode';
+  }
+
+  // 2. The browser's own codec — Safari/iOS only.
+  if (result === null) {
     try {
       result = await decodeHeicViaBrowser(file);
-    } catch (fallbackErr) {
-      // Report the ORIGINAL heic2any error — the fallback failing on Chrome
-      // just means "no system HEIC codec", which says nothing about the file.
-      console.error('[heic-convert] browser fallback also failed:', fallbackErr);
-      reportHeicFailure('decode', file, err);
-      throw new HeicConversionError(
-        `"${file.name}" is an iPhone photo (HEIC) that couldn't be converted. ` +
-          `Please re-export it as JPEG from Photos and add it again.`,
-        'decode',
-        { cause: err },
-      );
+    } catch (err) {
+      console.error('[heic-convert] browser codec unavailable or failed:', err);
     }
+  }
+
+  // 3. The server — current libheif. Returns a finished File, not a Blob.
+  if (result === null && serverConvert) {
+    try {
+      return await serverConvert(file);
+    } catch (err) {
+      console.error('[heic-convert] server conversion failed:', err);
+    }
+  }
+
+  if (result === null) {
+    reportHeicFailure(stage, file, primaryError);
+    throw new HeicConversionError(
+      `"${file.name}" is an iPhone photo (HEIC) that couldn't be converted. ` +
+        `Please re-export it as JPEG from Photos and add it again.`,
+      stage,
+      { cause: primaryError },
+    );
   }
 
   // heic2any returns an array for multi-image HEIC (e.g. a Live Photo's
   // paired frames) — the first frame is the actual photo.
   const blob = Array.isArray(result) ? result[0] : result;
-  const newName = file.name.replace(/\.(heic|heif)$/i, '') + '.jpg';
-  return new File([blob], newName, { type: 'image/jpeg', lastModified: file.lastModified });
+  return new File([blob], jpegName(file.name), {
+    type: 'image/jpeg',
+    lastModified: file.lastModified,
+  });
 }
 
 export interface HeicConversionFailure {
@@ -166,13 +236,17 @@ export interface HeicConversionFailure {
  * doesn't block the rest of the selection.
  */
 export async function convertHeicFiles(
-  files: File[]
+  files: File[],
+  serverConvert?: ServerHeicConverter,
 ): Promise<{ converted: File[]; failures: HeicConversionFailure[] }> {
   const converted: File[] = [];
   const failures: HeicConversionFailure[] = [];
+  // Sequential on purpose: a 24 MP HEIC decode is heavy, and a 20-photo pick
+  // decoding in parallel would either wedge a phone's memory (client path) or
+  // open 20 concurrent conversion requests (server path).
   for (const file of files) {
     try {
-      converted.push(await convertHeicFileIfNeeded(file));
+      converted.push(await convertHeicFileIfNeeded(file, serverConvert));
     } catch (err) {
       failures.push({
         file,
@@ -191,9 +265,10 @@ export async function convertHeicFiles(
  * they can't drift on how the two rejection paths are combined.
  */
 export async function convertAndPartitionFiles(
-  files: File[]
+  files: File[],
+  serverConvert?: ServerHeicConverter,
 ): Promise<{ accepted: File[]; warning: string | null }> {
-  const { converted, failures } = await convertHeicFiles(files);
+  const { converted, failures } = await convertHeicFiles(files, serverConvert);
   const { accepted, rejected } = partitionByAllowedType(converted);
   const warnings = [
     ...(rejected.length > 0 ? [unsupportedFilesMessage(rejected)] : []),

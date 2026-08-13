@@ -140,6 +140,12 @@ const ALLOWED_PATH_PREFIXES = [
   // whether to call orientation/detect at all. Carries no secrets by contract
   // — see ConfigView's docstring before adding fields to it.
   'config',            // GET runtime feature flags (autoOrientationMode)
+  // iPhone HEIC fallback. The in-browser decoder (heic2any, a 2021 libheif)
+  // cannot read the tmap gain-map HDR format current iPhones write, and
+  // Chrome/Firefox have no HEIC codec of their own — without this the
+  // customer's photo is unusable inside the iframe. POST-only, stateless:
+  // decodes the posted bytes to JPEG and returns them, persisting nothing.
+  'heic',              // POST heic/convert — HEIC/HEIF → JPEG
 ] as const;
 
 function isPathAllowed(p: string): boolean {

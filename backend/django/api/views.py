@@ -3671,3 +3671,105 @@ class OrientationDetectView(APIView):
             'confidence': suggestion.confidence,
             'source': suggestion.source,
         })
+
+
+class HeicConvertView(APIView):
+    """
+    POST /api/heic/convert  — decode an iPhone HEIC/HEIF photo to JPEG.
+
+    The editor converts HEIC in the browser (``lib/heic-convert.ts``) and only
+    calls this when that fails. It fails routinely: ``heic2any`` bundles a 2021
+    libheif that cannot read the ``tmap`` gain-map HDR structure current
+    iPhones write, and Chrome/Firefox have no HEIC codec to fall back on. See
+    ``services/heic.py`` for the full description of the format.
+
+    Stateless and inline, deliberately mirroring ``OrientationDetectView``:
+    nothing is persisted, no Celery round-trip. The customer is waiting on a
+    canvas preview, so a queued job would either stall the preview or force a
+    second render pass. Decoding a 24 MP HEIC costs roughly a second of CPU.
+
+    Returns the raw JPEG (``image/jpeg``) rather than JSON+base64 — base64
+    would inflate a 2.4 MB photo by a third for no benefit, since the caller
+    wraps the bytes in a File either way.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(
+        tags=["upload"],
+        summary="Convert a HEIC/HEIF photo to JPEG",
+        description=(
+            "Accepts a single `file` multipart field containing HEIC/HEIF bytes "
+            "and returns the decoded image as `image/jpeg`. Used as the fallback "
+            "when in-browser HEIC conversion fails."
+        ),
+        responses={
+            200: OpenApiResponse(description="image/jpeg binary"),
+            400: OpenApiResponse(description="Missing file, too large, or not decodable"),
+            503: OpenApiResponse(description="HEIC decoder unavailable in this build"),
+        },
+    )
+    def post(self, request):
+        from django.http import HttpResponse
+        from services.heic import (
+            decode_heic_to_jpeg, HeicDecodeError, HeicUnavailableError,
+        )
+
+        upload_file = request.FILES.get('file')
+        if not upload_file:
+            return Response(
+                {'detail': "Missing 'file' multipart field"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Same ceiling as a normal upload. Checked before read() so an oversize
+        # payload never lands in memory — this endpoint holds the whole file,
+        # unlike the chunked upload path.
+        max_bytes = settings.MAX_UPLOAD_FILE_SIZE
+        if upload_file.size and upload_file.size > max_bytes:
+            return Response(
+                {'detail': f'File exceeds {settings.MAX_UPLOAD_FILE_SIZE_MB} MB limit'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = upload_file.read()
+        if len(data) > max_bytes:
+            return Response(
+                {'detail': f'File exceeds {settings.MAX_UPLOAD_FILE_SIZE_MB} MB limit'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            jpeg_bytes, width, height = decode_heic_to_jpeg(data)
+        except HeicUnavailableError:
+            logger.warning("heic/convert: pillow-heif not installed — returning 503")
+            return Response(
+                {'detail': 'HEIC conversion is not available on this server'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except HeicDecodeError as exc:
+            # Genuinely undecodable input is the caller's problem, not a server
+            # fault — 400 so the editor shows "re-export as JPEG" rather than
+            # retrying a request that will always fail the same way.
+            logger.info(
+                "heic/convert: undecodable input (%s bytes): %s", len(data), exc,
+            )
+            return Response(
+                {'detail': 'This file could not be read as a HEIC photo'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:
+            logger.exception("heic/convert: unexpected failure")
+            return Response(
+                {'detail': 'Conversion failed'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        logger.info(
+            "heic/convert: %s (%d bytes) → JPEG %dx%d (%d bytes)",
+            upload_file.name or 'unnamed', len(data), width, height, len(jpeg_bytes),
+        )
+        response = HttpResponse(jpeg_bytes, content_type='image/jpeg')
+        response['Content-Length'] = len(jpeg_bytes)
+        response['X-Image-Width'] = str(width)
+        response['X-Image-Height'] = str(height)
+        return response

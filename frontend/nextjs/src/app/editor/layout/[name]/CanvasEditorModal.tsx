@@ -16,6 +16,7 @@ import { ShapesPicker } from './ShapesPicker';
 import { IconBrowser } from './IconBrowser';
 import { ColorPicker } from '@/components/ColorPicker';
 import { CanvasEditorSidebar } from './CanvasEditorSidebar';
+import type { ServerHeicConverter } from '@/lib/heic-convert';
 
 // Dynamically import FabricEditor so that Fabric.js (~2 MB) is excluded from
 // the initial bundle and only downloaded when the editor modal opens.
@@ -55,6 +56,8 @@ export interface CanvasEditorModalProps {
    *  Passed down from page.tsx so there's one picker queue per editor
    *  session, not a separate one per sidebar instance. */
   expandPdfPages: (files: File[], opts: { maxSelectable: number | null }) => Promise<File[]>;
+  /** Forwarded to the sidebar's image-overlay picker — see heic-convert.ts. */
+  serverHeicConvert?: ServerHeicConverter;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -63,7 +66,7 @@ export function CanvasEditorModal({
   activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, globalFitMode, selectedFonts,
   apiBase, getAuthHeaders,
   setEditingCanvas, setCanvases, setFiles, setError, onClose, onOpenCanvas,
-  getFileUrl, loadGoogleFont, skipNextGenerateRef, expandPdfPages,
+  getFileUrl, loadGoogleFont, skipNextGenerateRef, expandPdfPages, serverHeicConvert,
 }: CanvasEditorModalProps) {
 
   // ── Local state (editor-only) ──────────────────────────────────────────────
@@ -459,6 +462,7 @@ export function CanvasEditorModal({
         getImageMetadata={getImageMetadata}
         calculateSmartCropOffsets={calculateSmartCropOffsets}
         expandPdfPages={expandPdfPages}
+        serverHeicConvert={serverHeicConvert}
       />
     </div>
   );

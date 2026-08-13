@@ -6,7 +6,7 @@ from .views import (
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
     CanvasStateView, SKULayoutView, CalendarStylesView, HolidaysView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
-    OrientationDetectView,
+    OrientationDetectView, HeicConvertView,
     EditorRenderView, EditorInitView,
 )
 
@@ -19,6 +19,7 @@ urlpatterns = [
     path("health", HealthView.as_view(), name="health"),
     path("config", ConfigView.as_view(), name="config"),
     path("orientation/detect", OrientationDetectView.as_view(), name="orientation-detect"),
+    path("heic/convert", HeicConvertView.as_view(), name="heic-convert"),
     path("exports/<path:file_path>", SecureExportDownloadView.as_view(), name="export-download"),
 
     # Async rendering endpoints

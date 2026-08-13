@@ -500,12 +500,32 @@ The split is served by `?content=` on the one endpoint (`all` — the default �
 ```
 layouts, canvas-state, editor/render, editor/init, render-status, jobs,
 upload, fonts, sku-layouts, embed/session, orientation, config,
-holidays, calendar-styles
+holidays, calendar-styles, heic
 ```
 
 Anything else returns 403 *before* token resolution, so an attacker can't probe Django auth surfaces with a stolen embed token.
 
 `orientation` covers `POST /api/orientation/detect` (v1.11 auto-orient). Stateless inference — reads the posted image, returns `{rotation, confidence, source}`, persists nothing. Returns 503 when `AUTO_ORIENTATION_MODE=off`. `config` is the public `AllowAny` flags endpoint the editor reads on mount to decide whether to call `orientation/detect` at all — keep secrets out of it.
+
+`heic` covers `POST /api/heic/convert` — see "HEIC decoding" below. Stateless: decodes the posted bytes and returns `image/jpeg`, persisting nothing.
+
+## HEIC decoding (iPhone photos)
+
+Three decoders are tried in order by `convertHeicFileIfNeeded` ([lib/heic-convert.ts](frontend/nextjs/src/lib/heic-convert.ts)); the first that succeeds wins:
+
+| # | Decoder | Works when | Cost |
+|---|---|---|---|
+| 1 | `heic2any` (bundled libheif, **2021**) | older/simpler HEICs | none — pure client |
+| 2 | the browser's own codec (`createImageBitmap`) | **Safari/iOS only** | none — pure client |
+| 3 | `POST /api/heic/convert` → `services/heic.py` (pillow-heif, libheif 1.19) | always | one upload + ~1 s CPU |
+
+**Why all three exist.** Current iPhones (iOS 18) write a `tmap` derived image — Apple's ISO 21496-1 gain-map HDR — whose pixels live in `grid` tiles. `heic2any` predates that format and fails outright on it; it was last published in 2021, so there is no newer version to upgrade to. Chrome and Firefox ship **no HEIC codec at all**, so decoder 2 does not exist for them. That combination means a modern iPhone photo is undecodable in Chrome without the server, which is what `services/heic.py` is for. Verified against a real 24 MP iOS 18 gain-map photo: the server decode matches macOS's own decode to RMSE 0.26.
+
+Two details in `services/heic.py` worth not "simplifying":
+- It preserves the embedded **ICC profile** on the JPEG instead of flattening to sRGB. `services/image_loader.open_source_rgba` already colour-manages at render time; converting early would drop the Display-P3 profile these photos carry and shift the print's colours.
+- It writes **no EXIF**. libheif applies the container's `irot`/`imir` while decoding, so the pixels come back upright — re-attaching the source EXIF would make `exif_transpose` downstream rotate a second time.
+
+It does NOT `register_heif_opener()`: that patches Pillow globally for the whole process. Opening explicitly via `pillow_heif.open_heif` keeps the effect local to the call.
 
 **Sliding session TTL** — sessions are created with a 2-hour expiry, but `EmbedSessionValidateView` extends by 1 hour whenever the remaining lifetime drops below 30 min. Active editing sessions stay alive without a hard cutoff; idle sessions still expire on schedule. One DB write per hour of activity in the worst case.
 
