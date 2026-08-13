@@ -2,7 +2,7 @@
 
 **Audience:** the team owning [printo.in](https://printo.in)'s backend / storefront. **Scope:** receive the signed webhook fired by the Product Editor when a customer's render completes, then fetch the rendered ZIP and attach it to the customer's order.
 
-**Status:** as of v1.10 (May 6, 2026). Source-of-truth: `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py). If the contract below disagrees with that task, the task wins.
+**Status:** as of Aug 13, 2026 — adds `print_download_url` / `mock_download_url` / `uploads_download_url` to the webhook payload. `download_url` is unchanged and still supported. Source-of-truth: `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py). If the contract below disagrees with that task, the task wins.
 
 This document is a complete drop-in implementation. Pick the handler that matches your stack (Node/TypeScript or Python/Django shown), wire the route, set the env vars, and you're done.
 
@@ -35,16 +35,41 @@ This handler is what completes step 3.
 
 ```json
 {
-  "order_id":      "PE-F5D6D769",
-  "job_id":        "0c612ca1-465e-401f-9586-409f571580cd",
-  "status":        "completed",
-  "download_url":  "https://product-editor.printo.in/api/jobs/0c612ca1-465e-401f-9586-409f571580cd/download/",
-  "expires_at":    "2026-06-04T14:39:11.123456+00:00",
-  "file_count":    15,
-  "layout_name":   "classic_4x6",
-  "export_format": "png"
+  "order_id":             "PE-F5D6D769",
+  "job_id":               "0c612ca1-465e-401f-9586-409f571580cd",
+  "status":               "completed",
+  "download_url":         "https://product-editor.printo.in/api/jobs/0c612ca1-.../download/",
+  "print_download_url":   "https://product-editor.printo.in/api/jobs/0c612ca1-.../download/?content=print",
+  "mock_download_url":    "https://product-editor.printo.in/api/jobs/0c612ca1-.../download/?content=mock",
+  "uploads_download_url": "https://product-editor.printo.in/api/jobs/0c612ca1-.../download/?content=uploads",
+  "expires_at":           "2026-06-04T14:39:11.123456+00:00",
+  "file_count":           15,
+  "layout_name":          "classic_4x6",
+  "export_format":        "png"
 }
 ```
+
+**Which URL should you use?** All four point at the same completed job and take
+the same Bearer auth. They differ only in what the ZIP contains:
+
+| Field | ZIP contains | Use when |
+|---|---|---|
+| `download_url` | `1_customer_uploads/` + `2_mock/` + `3_print/`, in folders | You want one archive and will split it yourself |
+| `print_download_url` | the 300 DPI print files, flat at the root | You store print files in their own field |
+| `mock_download_url` | the small web preview JPEGs, flat at the root | You store mocks in their own field — this is the small, fast one |
+| `uploads_download_url` | the customer's original photos, flat at the root | You need the originals |
+
+`download_url` is unchanged from v1.8 and is **not** deprecated — if you already
+read it, nothing needs to change. The three split URLs were added (Aug 2026) for
+storefronts that keep mock and print in separate fields, so they can fetch each
+directly instead of unpacking and sorting one archive.
+
+`uploads_download_url` is **`null`** when the embed session was created with
+`include_uploads: false` — there is nothing behind it in that case, so guard for
+null rather than assuming a string.
+
+Nothing is duplicated on our disk: the split is served by a `?content=` filter
+over the same rendered files.
 
 **Body — failure:** (sent best-effort if delivery fails after all retries are exhausted)
 
@@ -60,7 +85,7 @@ This handler is what completes step 3.
 
 **Expected response from your handler:** `200 OK` (or any 2xx). Anything else is treated as a delivery failure — Product Editor retries up to **6 attempts total** (1 initial + 5 retries) with exponential backoff `2^n` seconds: 1, 2, 4, 8, 16 s. Per `notify_caller_webhook_task` `max_retries=5` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py).
 
-### ZIP fetch — `GET <download_url>`
+### ZIP fetch — `GET <any of the four *_download_url values>`
 
 **Headers:**
 
@@ -68,9 +93,32 @@ This handler is what completes step 3.
 |---|---|
 | `Authorization` | `Bearer <YOUR_PRINTO_API_KEY>` — same key your storefront uses to create embed sessions |
 
-**Response:** `200 OK` with `Content-Type: application/zip`, body = the ZIP archive containing all rendered files. Typical size 30–500 MB depending on canvas count. The download is streamed; do not buffer in memory.
+**Response:** `200 OK` with `Content-Type: application/zip`, body = the ZIP archive. The combined archive is typically 30–500 MB depending on canvas count; the mock archive is a small fraction of that. The download is streamed; do not buffer in memory.
 
-The ZIP layout (since v1.8) is three subfolders: `1_customer_uploads/`, `2_mock/`, `3_print/`.
+**Archive layouts:**
+
+```
+download_url          →  1_customer_uploads/IMG_1258.jpg
+                         2_mock/classic_4x6_1_preview.jpg
+                         3_print/classic_4x6_1.png
+
+print_download_url    →  classic_4x6_1.png          ← flat, no folder
+mock_download_url     →  classic_4x6_1_preview.jpg  ← flat, no folder
+uploads_download_url  →  IMG_1258.jpg               ← flat, no folder
+```
+
+A single-part archive puts its files at the root, since a folder containing only
+one kind of file is just an extra level to walk. The combined archive keeps its
+three numbered folders exactly as before.
+
+**Status codes worth handling:**
+
+| Code | Meaning |
+|---|---|
+| `200` | ZIP follows |
+| `404` on `mock_download_url` | No previews could be generated for this job. Returned deliberately instead of a valid-looking empty ZIP, so you never store a 22-byte archive against an order |
+| `404` on `uploads_download_url` | The originals were not kept (or have since been swept — see `expires_at`) |
+| `409` | The job is not finished. Should not happen from a `status: completed` webhook |
 
 ---
 
@@ -114,6 +162,11 @@ router.post('/api/internal/pe-callback', async (req: Request, res: Response) => 
     job_id: string;
     status: 'completed' | 'failed';
     download_url?: string;
+    // Split archives (Aug 2026). uploads_download_url is null when the
+    // session opted out of shipping the customer's originals.
+    print_download_url?: string;
+    mock_download_url?: string;
+    uploads_download_url?: string | null;
     expires_at?: string;
     file_count?: number;
     layout_name?: string;
@@ -139,6 +192,10 @@ router.post('/api/internal/pe-callback', async (req: Request, res: Response) => 
     queueDownloadJob({
       orderId: payload.order_id,
       jobId: payload.job_id,
+      // Prefer the split archives so mock and print land in their own
+      // fields; fall back to the combined one for older jobs.
+      printUrl: payload.print_download_url ?? payload.download_url,
+      mockUrl: payload.mock_download_url,
       downloadUrl: payload.download_url,
       expiresAt: payload.expires_at,
       fileCount: payload.file_count,
@@ -230,6 +287,11 @@ def pe_callback(request):
         return JsonResponse({'ok': True}, status=200)
 
     if status == 'completed' and payload.get('download_url'):
+        # Split archives (Aug 2026): fetch mock and print separately so each
+        # lands in its own field. Falls back to the combined archive for jobs
+        # rendered before this shipped. uploads_download_url may be None.
+        print_url = payload.get('print_download_url') or payload['download_url']
+        mock_url = payload.get('mock_download_url')
         # Fetch out-of-band — Product Editor has a 10s webhook timeout.
         fetch_and_attach_rendered_files.delay(
             order_id=order_id,
@@ -361,6 +423,9 @@ const body = JSON.stringify({
   job_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
   status: 'completed',
   download_url: 'https://product-editor.printo.in/api/jobs/aaaaaaaa-.../download/',
+  print_download_url: 'https://product-editor.printo.in/api/jobs/aaaaaaaa-.../download/?content=print',
+  mock_download_url: 'https://product-editor.printo.in/api/jobs/aaaaaaaa-.../download/?content=mock',
+  uploads_download_url: 'https://product-editor.printo.in/api/jobs/aaaaaaaa-.../download/?content=uploads',
   expires_at: '2026-06-04T14:39:11.123456+00:00',
   file_count: 1,
   layout_name: 'classic_4x6',
