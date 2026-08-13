@@ -72,6 +72,11 @@ storage/uploads/*
 !storage/uploads/.gitkeep
 storage/exports/*
 !storage/exports/.gitkeep
+# Runtime state, not config: written by garbage_collector_task on every sweep.
+# Unlike layouts/fonts/sku_layouts.json in this directory, it is per-environment
+# and must never be committed — a checked-in copy would report a stale sweep
+# from someone else's machine as if it were this box's.
+storage/gc_last_run.json
 
 # nginx (origin TLS material + basic-auth users — never commit)
 proxy/nginx/certs/*

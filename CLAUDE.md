@@ -366,6 +366,12 @@ Retry strategy: `self.retry()` with exponential backoff (2s → 4s → 8s), max 
 
 `garbage_collector_task` runs daily at 02:00 UTC and has `soft_time_limit=3300` / `time_limit=3600` so a hung GC sweep can never permanently block a worker slot.
 
+**Check whether the GC is actually running via `garbage_collector.stale` on `GET /api/celery/monitor/`** (ops-only). Do NOT try to infer it from the database: the sweep flags rows `is_deleted=True` and then hard-deletes those same tombstones later in the *same* pass, so `ExportedResult.objects.filter(is_deleted=True).count()` reads **0** whether the GC ran an hour ago or has never run at all. It looks like a "did it run?" signal and is not one — that misreading cost real debugging time on 2026-08-13.
+
+`services/gc_status.py` records each completed sweep (timestamp + counters) to `storage/gc_last_run.json`, atomically, and `CeleryMonitoringView` reads it back. A file under `STORAGE_ROOT` rather than a DB row because `./storage` is bind-mounted and therefore survives container recreation — the exact thing that lost the log evidence during that incident — and because it needs no migration. It is runtime state, not config: gitignored, unlike the other JSON files in that directory.
+
+`stale` is the field to alert on. It is True when no sweep has been recorded, when the record is unreadable, and when the last one is older than `GC_STALE_AFTER_HOURS` (default 36). Only successful runs are recorded, so a crashed sweep shows up as growing staleness. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
+
 Always call `transaction.on_commit(lambda: task.apply_async(...))` **inside** the `atomic()` block so the callback fires only after the DB commit. Calling it outside an open transaction executes immediately (which works but is non-standard and fragile).
 
 ## Server-Side Render Flow
@@ -922,6 +928,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 | `DB_CONN_MAX_AGE` | `600` | Persistent DB connection age in seconds; raise / set to `0` if PgBouncer is in front |
 | `CSP_REPORT_ONLY` | `True` | django-csp emits headers but enforces nothing — flip to `False` once policy is validated |
 | `CELERY_CONCURRENCY` | unset | Celery auto-detects from CPU count; set to cap on shared servers |
+| `GC_STALE_AFTER_HOURS` | `36` | Age at which the last GC sweep reports `stale: true` on `/api/celery/monitor/`. 36 rather than 24 so a merely-late run doesn't cry wolf while a single missed night still trips it |
 | `API_AUDIT_RETENTION_DAYS` | `90` | How long `APIRequest` audit rows are kept. Deliberately much longer than `EXPORT_RETENTION_DAYS` — the trail has to outlive the data it describes to answer "who touched this order". Swept by `garbage_collector_task` |
 | `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | Set to `False` if nginx already redirects HTTP→HTTPS (which it does by default; this var is redundant in the current setup) |
 | `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | Only honored when `DEBUG=1` |

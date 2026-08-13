@@ -245,6 +245,14 @@ EXPORT_RETENTION_DAYS_UNDER_PRESSURE = int(
     os.getenv("EXPORT_RETENTION_DAYS_UNDER_PRESSURE", str(EXPORT_RETENTION_DAYS))
 )
 
+# Age at which the last recorded GC sweep counts as stale, surfaced as
+# `garbage_collector.stale` on /api/celery/monitor/ (see services/gc_status.py).
+#
+# 36h, not 24h: the sweep runs daily at 02:00 UTC, so a 24h threshold would flag
+# every run that is merely a few hours late — one restart near 02:00 and it cries
+# wolf. 36h means a single missed night trips it and nothing else does.
+GC_STALE_AFTER_HOURS = int(os.getenv("GC_STALE_AFTER_HOURS", "36"))
+
 # How long API audit rows are kept, independent of file retention.
 #
 # Deliberately much longer than EXPORT_RETENTION_DAYS: the point of the audit
