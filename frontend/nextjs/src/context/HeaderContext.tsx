@@ -25,7 +25,17 @@ const HeaderContext = createContext<HeaderContextType | undefined>(undefined);
 // very first paint (before the ResizeObserver reports back) isn't 0.
 const DEFAULT_HEADER_HEIGHT = 80;
 
-export const HeaderProvider = ({ children }: { children: ReactNode }) => {
+export const HeaderProvider = ({
+  children,
+  headerless = false,
+}: {
+  children: ReactNode;
+  /** No <header> is mounted (embed iframe) — consumers must offset by 0, not
+   *  by the pre-measurement default. Without this the editor's sticky toolbar
+   *  hangs 80px below the viewport top on a headerless page, because the
+   *  ResizeObserver that would have corrected the default never runs. */
+  headerless?: boolean;
+}) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [centerActions, setCenterActions] = useState<ReactNode>(null);
@@ -38,7 +48,7 @@ export const HeaderProvider = ({ children }: { children: ReactNode }) => {
       description, setDescription,
       centerActions, setCenterActions,
       rightActions, setRightActions,
-      headerHeight, setHeaderHeight,
+      headerHeight: headerless ? 0 : headerHeight, setHeaderHeight,
     }}>
       {children}
     </HeaderContext.Provider>

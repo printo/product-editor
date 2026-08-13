@@ -28,9 +28,81 @@ export function isHeicFile(file: File): boolean {
 }
 
 export class HeicConversionError extends Error {
-  constructor(message: string) {
-    super(message);
+  /** Which half of the conversion failed — see reportHeicFailure. */
+  readonly stage: HeicFailureStage;
+
+  constructor(message: string, stage: HeicFailureStage, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = 'HeicConversionError';
+    this.stage = stage;
+  }
+}
+
+/**
+ * 'load'   — the heic2any chunk itself never arrived (offline, a blocked or
+ *            404'd chunk, a CSP that rejects it inside the embed iframe).
+ *            Retrying usually works, and it is NOT a problem with the photo.
+ * 'decode' — the chunk loaded and the decoder rejected this specific file.
+ *            Retrying will fail identically; re-exporting as JPEG is the fix.
+ *
+ * The two used to share one bare `catch {}`, which discarded the underlying
+ * error entirely — so a live failure reported by a customer could not be
+ * told apart from a bad photo, and nothing reached Sentry. Never widen this
+ * back into a single silent catch.
+ */
+export type HeicFailureStage = 'load' | 'decode';
+
+function reportHeicFailure(stage: HeicFailureStage, file: File, cause: unknown): void {
+  const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+  console.error(
+    `[heic-convert] ${stage} failed for "${file.name}" ` +
+      `(${file.type || 'no mime'}, ${file.size} bytes): ${detail}`,
+  );
+  // Imported lazily and fire-and-forget: this module is a plain utility on the
+  // photo-pick path, and a static @sentry/nextjs import would put the whole
+  // SDK in its import graph (which the Jest resolver also can't follow).
+  // Reporting must never delay or break a pick, so nothing here is awaited.
+  void import('@sentry/nextjs')
+    .then(Sentry => {
+      Sentry.captureException(cause instanceof Error ? cause : new Error(detail), {
+        tags: { feature: 'heic-convert', heic_stage: stage },
+        extra: { fileName: file.name, fileSize: file.size, fileType: file.type },
+      });
+    })
+    .catch(() => {
+      // Sentry absent (no DSN in dev, or blocked) — the console.error above
+      // is still the record.
+    });
+}
+
+/**
+ * Second-chance decode using the browser's own image pipeline.
+ *
+ * heic2any bundles a 2021 build of libheif, which rejects some HEICs current
+ * iPhones produce (10-bit HEVC, certain HDR/Live Photo containers). Safari
+ * and iOS decode those natively via Apple's system codec, and HEIC uploads
+ * come overwhelmingly from iPhones — so when the bundled decoder gives up,
+ * the platform underneath it very often succeeds. Chrome/Firefox have no HEIC
+ * codec and throw here, which is fine: they land back on the caller's error.
+ *
+ * Off-screen canvas only — never attached to the document.
+ */
+async function decodeHeicViaBrowser(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('2d canvas context unavailable');
+    ctx.drawImage(bitmap, 0, 0);
+    const blob = await new Promise<Blob | null>(resolve =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.92),
+    );
+    if (!blob) throw new Error('canvas.toBlob returned null');
+    return blob;
+  } finally {
+    bitmap.close();
   }
 }
 
@@ -43,15 +115,37 @@ export class HeicConversionError extends Error {
 export async function convertHeicFileIfNeeded(file: File): Promise<File> {
   if (!isHeicFile(file)) return file;
 
+  let heic2any: typeof import('heic2any').default;
+  try {
+    ({ default: heic2any } = await import('heic2any'));
+  } catch (err) {
+    reportHeicFailure('load', file, err);
+    throw new HeicConversionError(
+      `"${file.name}" is an iPhone photo (HEIC) and the converter couldn't be ` +
+        `loaded. Check your connection and try adding it again.`,
+      'load',
+      { cause: err },
+    );
+  }
+
   let result: Blob | Blob[];
   try {
-    const { default: heic2any } = await import('heic2any');
     result = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
-  } catch {
-    throw new HeicConversionError(
-      `"${file.name}" is an iPhone photo (HEIC) that couldn't be converted. ` +
-        `Please try again, or re-export it as JPEG from Photos.`
-    );
+  } catch (err) {
+    try {
+      result = await decodeHeicViaBrowser(file);
+    } catch (fallbackErr) {
+      // Report the ORIGINAL heic2any error — the fallback failing on Chrome
+      // just means "no system HEIC codec", which says nothing about the file.
+      console.error('[heic-convert] browser fallback also failed:', fallbackErr);
+      reportHeicFailure('decode', file, err);
+      throw new HeicConversionError(
+        `"${file.name}" is an iPhone photo (HEIC) that couldn't be converted. ` +
+          `Please re-export it as JPEG from Photos and add it again.`,
+        'decode',
+        { cause: err },
+      );
+    }
   }
 
   // heic2any returns an array for multi-image HEIC (e.g. a Live Photo's

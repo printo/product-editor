@@ -662,12 +662,22 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
           "order_id":      "<caller's id>",
           "job_id":        "<RenderJob uuid>",
           "status":        "completed",
-          "download_url":  "https://<PUBLIC_HOST>/api/jobs/<uuid>/download/",
+          "download_url":         ".../api/jobs/<uuid>/download/",
+          "print_download_url":   ".../api/jobs/<uuid>/download/?content=print",
+          "mock_download_url":    ".../api/jobs/<uuid>/download/?content=mock",
+          "uploads_download_url": ".../api/jobs/<uuid>/download/?content=uploads",
           "expires_at":    "<ISO 8601 timestamp>",
           "file_count":    <int>,
           "layout_name":   "<name>",
           "export_format": "png" | "pdf"
         }
+        ``download_url`` is the combined three-folder archive and is kept for
+        callers that already read it. The three ``*_download_url`` fields are
+        the same job packaged one part per archive, for callers (printo.in)
+        that store mock and print artefacts in separate fields.
+        ``uploads_download_url`` is null when the session opted out of
+        shipping the customer's originals (EmbedSession.include_uploads).
+        All four need the caller's api_key as ``Authorization: Bearer``.
     Signed with HMAC-SHA256(api_key.key, raw_body) sent in ``X-Signature`` header
     so the caller can verify the request came from us.
     """
@@ -711,10 +721,21 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
     # render_state). Baked into the URL so their fetch gets the intended ZIP —
     # defaults to include for pre-existing jobs with no flag recorded.
     include_uploads = bool((canvas.render_state or {}).get('include_uploads', True))
-    download_url = (
-        f'{base}/api/jobs/{job_id}/download/?include_uploads={"1" if include_uploads else "0"}'
-        if (base and job_id) else None
+
+    def _download_url(query: str) -> str | None:
+        return f'{base}/api/jobs/{job_id}/download/?{query}' if (base and job_id) else None
+
+    download_url = _download_url(
+        f'include_uploads={"1" if include_uploads else "0"}'
     )
+    # One archive per part, for callers that store mock and print separately.
+    # The combined download_url above is unchanged so nothing that reads it
+    # has to move.
+    print_download_url = _download_url('content=print')
+    mock_download_url = _download_url('content=mock')
+    # Null rather than a URL that would 404: the session opted out of shipping
+    # the customer's originals, so there is nothing behind it.
+    uploads_download_url = _download_url('content=uploads') if include_uploads else None
 
     # What we tell the caller here MUST match what garbage_collector_task
     # actually enforces — both derive from settings.EXPORT_RETENTION_DAYS.
@@ -737,6 +758,9 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
         'job_id':        job_id,
         'status':        'completed',
         'download_url':  download_url,
+        'print_download_url':   print_download_url,
+        'mock_download_url':    mock_download_url,
+        'uploads_download_url': uploads_download_url,
         'expires_at':    expires_at,
         'file_count':    len(output_paths or []),
         'layout_name':   canvas.layout_name,

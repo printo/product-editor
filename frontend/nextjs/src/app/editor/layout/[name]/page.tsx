@@ -2759,7 +2759,10 @@ export default function LayoutEditorPage() {
   // (~10–20 s of upload + poll) is acceptable.
   const executeServerRender = async () => {
     setIsDownloading(true);
-    setServerRenderLabel('Preparing upload…');
+    // Embed customers get plain product wording; the dashboard keeps the
+    // operational labels staff rely on to tell a slow upload from a slow
+    // render. The work is identical either way — only the copy differs.
+    setServerRenderLabel(embedToken ? 'Saving your design…' : 'Preparing upload…');
     setRenderProgress({ current: 0, total: 100 });
     try {
       // 1. Collect all canvases in order across all surfaces. A surface the
@@ -2858,7 +2861,7 @@ export default function LayoutEditorPage() {
       }
 
       // 3. Upload files — progress 0–60%
-      setServerRenderLabel('Uploading files…');
+      setServerRenderLabel(embedToken ? 'Saving your photos…' : 'Uploading files…');
       const uploadResults = await uploadFiles(
         allFiles,
         apiBase,
@@ -2869,7 +2872,7 @@ export default function LayoutEditorPage() {
       );
 
       // 4. Build render payload: canvases → frames → upload_id + per-frame transforms
-      setServerRenderLabel('Submitting render job…');
+      setServerRenderLabel(embedToken ? 'Finishing up…' : 'Submitting render job…');
       setRenderProgress({ current: 65, total: 100 });
 
       const canvasesPayload = allCanvases.map((c, canvasIdx) => ({
@@ -3696,10 +3699,17 @@ export default function LayoutEditorPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col gap-1">
                     <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
-                      {isDownloading ? 'Preparing Download' : 'Processing Your Design'}
+                      {/* Only the SUBMIT pass (isDownloading) is reworded for
+                          embed — this same overlay also covers canvas preview
+                          generation after a photo pick, which is not a save. */}
+                      {isDownloading
+                        ? (embedToken ? 'Saving Your Design' : 'Preparing Download')
+                        : 'Processing Your Design'}
                     </span>
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      {isDownloading ? 'Bundling high-res print files' : 'Optimizing images for print'}
+                      {isDownloading
+                        ? (embedToken ? 'This may take a moment' : 'Bundling high-res print files')
+                        : 'Optimizing images for print'}
                     </span>
                   </div>
                   <span className="text-[14px] font-black text-indigo-600 tabular-nums bg-indigo-50 px-3 py-1 rounded-xl">
