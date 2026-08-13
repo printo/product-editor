@@ -40,7 +40,7 @@ read -r -p "Type 'restore' to proceed: " REPLY
 [[ "$REPLY" == "restore" ]] || { echo "Aborted."; exit 1; }
 
 echo "[restore] stopping app containers (db stays up)…"
-$DC stop backend celery-worker-priority celery-worker-standard celery-beat frontend || true
+$DC stop backend celery-worker-standard celery-beat frontend || true
 
 echo "[restore] restoring database…"
 $DC exec -T db pg_restore --clean --if-exists -U "$PG_USER" -d "$PG_DB" < "$DUMP"

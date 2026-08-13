@@ -130,4 +130,4 @@ echo "Backed up to ${BACKUP}"
 echo "Variables: ${before} -> ${after} (removed $((before - after)))"
 echo
 echo "Nothing has restarted. Apply with:"
-echo "  docker-compose up -d --force-recreate backend frontend celery-worker-priority celery-worker-standard celery-beat"
+echo "  docker-compose up -d --force-recreate backend frontend celery-worker-standard celery-beat"
