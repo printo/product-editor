@@ -77,21 +77,6 @@ BACKEND_SERVICES="backend $WORKER_SERVICES"
 print_header "Preparing Proxy Configuration"
 mkdir -p proxy/nginx/certs
 
-# Ensure .htpasswd is a file, not a directory. Docker bind-mounts auto-create
-# missing host paths AS DIRECTORIES, which silently breaks any container
-# expecting a file at that path. (This was the same footgun that nuked the
-# previous Traefik acme.json — keep the defensive rm.)
-if [ -d proxy/nginx/.htpasswd ]; then
-  print_warning "Removing existing proxy/nginx/.htpasswd directory (Docker bind-mount auto-create)."
-  rm -rf proxy/nginx/.htpasswd
-fi
-if [ ! -f proxy/nginx/.htpasswd ]; then
-  print_action "Creating default admin htpasswd..."
-  # default: admin / admin (same hash as the old Traefik file)
-  echo "admin:\$apr1\$1mi1zF/0\$xS99PzABcMUa4qvh9b7aQ." > proxy/nginx/.htpasswd
-  print_status "Default .htpasswd created"
-fi
-
 # ── Origin TLS cert ─────────────────────────────────────────────────────────
 # Production: paste a Cloudflare Origin Certificate (CF dashboard → SSL/TLS →
 # Origin Server → Create Certificate) into proxy/nginx/certs/origin.crt and
@@ -130,7 +115,6 @@ print_action "Validating proxy/nginx/nginx.conf syntax..."
 if docker run --rm \
   -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
-  -v "$(pwd)/proxy/nginx/.htpasswd:/etc/nginx/.htpasswd:ro" \
   nginx:1.27-alpine nginx -t >/dev/null 2>&1; then
   print_status "nginx.conf is valid"
 else
@@ -138,7 +122,6 @@ else
   docker run --rm \
     -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
     -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
-    -v "$(pwd)/proxy/nginx/.htpasswd:/etc/nginx/.htpasswd:ro" \
     nginx:1.27-alpine nginx -t || true
   exit 1
 fi
@@ -690,7 +673,7 @@ fi
 if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
   print_info "Backend API: ${GREEN}${BACKEND_URL}/api${NC}"
   print_info "Health Check: ${GREEN}${BACKEND_URL}/api/health${NC}"
-  print_info "Admin Panel: ${GREEN}${BACKEND_URL}/admin/django-admin/${NC}"
+  print_info "Admin Panel: ${GREEN}${BACKEND_URL}/django-admin/${NC}"
 fi
 
 echo ""
