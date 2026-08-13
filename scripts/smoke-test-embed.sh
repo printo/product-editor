@@ -6,6 +6,18 @@
 #   API_KEY=<real-api-key> ./scripts/smoke-test-embed.sh                       # localhost:5004
 #   API_KEY=<key> BASE=https://product-editor.printo.in ./scripts/smoke-test-embed.sh
 #
+#   # From the prod server, against the nginx edge (the path prod actually
+#   # serves). Needs CURL_INSECURE — see the TLS note below:
+#   API_KEY=<key> BASE=https://localhost CURL_INSECURE=1 ./scripts/smoke-test-embed.sh
+#
+# Optional:
+#   CURL_INSECURE=1  skip TLS verification (see below)
+#   SMOKE_RENDER=1   also submit a real render and poll it to completion (step
+#                    12). Off by default: it occupies a Celery worker slot and
+#                    writes 300-DPI output to EXPORTS_DIR, which on the 2-core
+#                    prod box competes with live customer renders.
+#   RENDER_LAYOUT=<name>  layout for step 12 (default: circle_48mm, 1 frame)
+#
 # Exits 0 if every check passes, 1 otherwise.
 
 set -u
@@ -19,6 +31,27 @@ if [ -z "$API_KEY" ]; then
   echo "✗ API_KEY env var is required (a real Printo API key)"
   exit 2
 fi
+
+# ── TLS verification ─────────────────────────────────────────────────────────
+# The origin cert is a Cloudflare Origin certificate — signed by CF's origin
+# CA, not a public one — so curl refuses it and aborts BEFORE sending the
+# request. Every check then reports 000, which reads as "the whole stack is
+# down" rather than "the cert isn't publicly trusted", and sends you debugging
+# the wrong thing. Enable with CURL_INSECURE=1, and do it automatically for an
+# HTTPS localhost base, which is only ever an operator testing the edge from
+# the box itself. Never auto-relaxed for a real remote host.
+CURL_OPTS=""
+case "$BASE" in
+  https://localhost*|https://127.0.0.1*) CURL_OPTS="-k" ;;
+esac
+[ "${CURL_INSECURE:-0}" = "1" ] && CURL_OPTS="-k"
+
+# Shadow curl so all ~25 call sites pick this up without edits; `command curl`
+# stops the function recursing into itself. Unquoted $CURL_OPTS is deliberate —
+# it must vanish entirely when empty rather than pass an empty argument.
+curl() { command curl ${CURL_OPTS} "$@"; }
+
+[ -n "$CURL_OPTS" ] && printf "\033[33m!\033[0m TLS verification disabled for %s\n" "$BASE"
 
 # Pretty step printer ────────────────────────────────────────────────────────
 step() { printf "\n\033[1;36m▸ %s\033[0m\n" "$1"; }
@@ -150,16 +183,27 @@ status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/sku-layouts/")
 # fixed when the view switched to a custom *-accepting parser.
 step "11. Chunked upload init → chunk PUT (image/png) → complete"
 
-# Build a real 100×100 PNG (PIL's open-and-verify in /complete needs a valid image).
-PNG_HEX='89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c63600100000005000164b25c80000000049454e44ae426082'
+# Build a real 100×100 PNG. Two constraints, both learned the hard way:
+#   - /complete runs PIL open-and-verify, so it must be a genuinely valid PNG.
+#   - validators.py rejects anything below MIN_IMAGE_DIMENSION (50px), so a 1×1
+#     placeholder is NOT usable. (A 1×1 PNG_HEX constant used to sit here,
+#     unreferenced; it would have been rejected had anyone wired it up.)
+# Written with stdlib zlib+struct rather than Pillow: python3 is already
+# required above for JSON parsing, but Pillow is NOT installed on the prod
+# server, which silently skipped this whole step there.
 python3 -c "
-from PIL import Image
-import io
-img = Image.new('RGB', (100, 100), (200, 50, 50))
-img.save('/tmp/se-chunk.png', 'PNG')
+import zlib, struct
+def chunk(tag, data):
+    return (struct.pack('>I', len(data)) + tag + data
+            + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff))
+W = H = 100
+ihdr = struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0)   # 8-bit, colour type 2 = RGB
+raw = b''.join(b'\x00' + bytes((200, 50, 50)) * W for _ in range(H))
+open('/tmp/se-chunk.png', 'wb').write(
+    b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr)
+    + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
 " 2>/dev/null || {
-  bad "Python3 + Pillow required for upload smoke test (skipping)"
-  PASS=$((PASS - 1))
+  bad "python3 required to build the test PNG (skipping upload)"
   FAIL=$((FAIL - 1))
   goto_summary=1
 }
@@ -190,14 +234,64 @@ if [ "${goto_summary:-0}" != "1" ]; then
       --data-binary @/tmp/se-chunk.png)
     [ "$status" = "200" ] && ok "PUT chunk (image/png raw body) → 200" || bad "PUT chunk → $status"
 
-    # Complete
+    # Complete. X-Order-ID is what the embed proxy injects in the real flow;
+    # /complete uses it to file the upload under the order's directory, which
+    # is how DPDP erasure finds a customer's photos from the path alone
+    # (migration 0011 / docs/DPDP_ERASURE_GAP_PRD.md). Without it the upload
+    # lands in _no_order and that linkage goes untested.
     status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
       -X POST "$BASE/api/upload/$UPLOAD_ID/complete" \
+      -H "X-Order-ID: $ORDER_ID" \
       -H "Authorization: Bearer $API_KEY")
     [ "$status" = "201" ] && ok "POST /complete → 201" || bad "POST /complete → $status"
   fi
 
   rm -f /tmp/se-chunk.png
+fi
+
+# ── 12. Real render: submit → poll to completion → download (opt-in) ----------
+# Everything above stops at /complete, so until this step existed a fully green
+# run proved the upload path and NOTHING about rendering. Opt-in via
+# SMOKE_RENDER=1 because it queues a real Celery job and writes 300-DPI output
+# to EXPORTS_DIR — on the 2-core prod box that competes with customer renders.
+if [ "${SMOKE_RENDER:-0}" = "1" ] && [ -n "${UPLOAD_ID:-}" ]; then
+  step "12. Render submit → poll → download"
+  RENDER_LAYOUT="${RENDER_LAYOUT:-circle_48mm}"
+
+  status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
+    -X POST "$BASE/api/editor/render" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H 'Content-Type: application/json' \
+    -d "{\"layout_name\":\"$RENDER_LAYOUT\",\"order_id\":\"$ORDER_ID\",\"export_format\":\"png\",\"canvases\":[{\"canvas_index\":0,\"frames\":[{\"frame_index\":0,\"upload_id\":\"$UPLOAD_ID\",\"offset_x\":0,\"offset_y\":0,\"scale\":1,\"rotation\":0,\"fit_mode\":\"cover\"}]}]}")
+  if [ "$status" = "202" ]; then
+    JOB_ID=$(python3 -c 'import json; print(json.load(open("/tmp/se.body"))["job_id"])')
+    ok "POST /api/editor/render → 202, job=${JOB_ID:0:8}…"
+  else
+    bad "POST /api/editor/render → $status (expected 202; layout '$RENDER_LAYOUT' missing?)"
+    JOB_ID=""
+  fi
+
+  if [ -n "$JOB_ID" ]; then
+    # A 1-frame 100×100 render finishes in ~1-2s; 60s is generous headroom
+    # without stalling the script if the worker is wedged.
+    JOB_STATUS=""
+    for _ in $(seq 1 30); do
+      sleep 2
+      curl -s -o /tmp/se.body "$BASE/api/render-status/$JOB_ID/" \
+        -H "Authorization: Bearer $API_KEY"
+      JOB_STATUS=$(python3 -c 'import json; print(json.load(open("/tmp/se.body")).get("status",""))' 2>/dev/null || echo "")
+      case "$JOB_STATUS" in completed|failed) break ;; esac
+    done
+
+    if [ "$JOB_STATUS" = "completed" ]; then
+      ok "render reached 'completed'"
+      status=$(curl -s -o /dev/null -w '%{http_code}' \
+        "$BASE/api/jobs/$JOB_ID/download/" -H "Authorization: Bearer $API_KEY")
+      [ "$status" = "200" ] && ok "ZIP download → 200" || bad "ZIP download → $status"
+    else
+      bad "render did not complete (last status: ${JOB_STATUS:-unknown})"
+    fi
+  fi
 fi
 
 # ── Summary -------------------------------------------------------------------
