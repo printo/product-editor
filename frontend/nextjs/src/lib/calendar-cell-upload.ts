@@ -28,7 +28,7 @@ import {
 } from '@/lib/upload-utils';
 import { saveFile as defaultSaveFile } from '@/lib/file-store';
 import { detectFileOrientation } from '@/lib/ml-orientation';
-import { convertHeicFileIfNeeded } from '@/lib/heic-convert';
+import { convertHeicFileIfNeeded, createServerHeicConverter } from '@/lib/heic-convert';
 
 /** ── Public contract ─────────────────────────────────────────────────── */
 
@@ -129,7 +129,10 @@ export async function uploadCalendarCellImage(
   // Wrapped in the module's own error type so callers only need to handle
   // CalendarCellUploadError, not reach into heic-convert.ts too.
   try {
-    file = await convertHeicFileIfNeeded(file);
+    file = await convertHeicFileIfNeeded(
+      file,
+      createServerHeicConverter(opts.apiBase, opts.getAuthHeaders),
+    );
   } catch (err) {
     throw new CalendarCellUploadError(
       'heic-conversion-failed',

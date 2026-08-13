@@ -24,7 +24,7 @@ import {
   isAllowedImageFile,
   IMAGE_AND_PDF_ACCEPT_ATTR,
 } from '@/lib/upload-utils';
-import { convertHeicFileIfNeeded, convertAndPartitionFiles, isHeicFile } from '@/lib/heic-convert';
+import { convertHeicFileIfNeeded, convertAndPartitionFiles, isHeicFile, createServerHeicConverter } from '@/lib/heic-convert';
 import { pdfDerivedFiles } from '@/lib/pdf-import';
 import { usePdfPageImport } from '@/components/use-pdf-page-import';
 import { saveFile, getFilesForOrder, pruneStaleOrders, FileStoreQuotaError, getPersistenceMode } from '@/lib/file-store';
@@ -452,6 +452,16 @@ export default function LayoutEditorPage() {
 
   const isAdmin = !embedToken &&
     (session?.user?.role === 'admin' || session?.is_ops_team === true);
+
+  // Last-resort HEIC decoder, running current libheif on the server. Needed
+  // because the in-browser decoders cannot read the gain-map HDR photos
+  // current iPhones write, and Chrome/Firefox have no HEIC codec at all.
+  // Routed through whichever proxy this flow already uses, so the embed
+  // iframe never sees an API key. See lib/heic-convert.ts.
+  const serverHeicConvert = useMemo(
+    () => createServerHeicConverter(apiBase, getAuthHeaders),
+    [apiBase, getAuthHeaders],
+  );
 
   const [layout, setLayout] = useState<any | null>(null);
   const [layoutLoading, setLayoutLoading] = useState(true);
@@ -2123,7 +2133,7 @@ export default function LayoutEditorPage() {
       // so an iPhone HEIC can arrive here directly (see heic-convert.ts).
       const heicPresent = droppedFiles.some(isHeicFile);
       if (heicPresent) setHeicConverting(true);
-      const { accepted: okFiles, warning } = await convertAndPartitionFiles(droppedFiles);
+      const { accepted: okFiles, warning } = await convertAndPartitionFiles(droppedFiles, serverHeicConvert);
       if (heicPresent) setHeicConverting(false);
       setUnsupportedWarning(warning);
       if (okFiles.length === 0) return;
@@ -2270,7 +2280,7 @@ export default function LayoutEditorPage() {
     const rawFiles = await expandPdfPages(Array.from(e.target.files), { maxSelectable: null });
     const heicPresent = rawFiles.some(isHeicFile);
     if (heicPresent) setHeicConverting(true);
-    const { accepted: newlyPicked, warning } = await convertAndPartitionFiles(rawFiles);
+    const { accepted: newlyPicked, warning } = await convertAndPartitionFiles(rawFiles, serverHeicConvert);
     if (heicPresent) setHeicConverting(false);
     setUnsupportedWarning(warning);
     if (newlyPicked.length === 0) return;
@@ -2419,7 +2429,7 @@ export default function LayoutEditorPage() {
     const wasHeic = isHeicFile(file);
     if (wasHeic) setHeicConverting(true);
     try {
-      file = await convertHeicFileIfNeeded(file);
+      file = await convertHeicFileIfNeeded(file, serverHeicConvert);
     } catch (err) {
       setUnsupportedWarning(err instanceof Error ? err.message : `"${file.name}" couldn't be converted.`);
       return;
@@ -4657,6 +4667,7 @@ export default function LayoutEditorPage() {
           loadGoogleFont={loadGoogleFont}
           skipNextGenerateRef={skipNextGenerateRef}
           expandPdfPages={expandPdfPages}
+          serverHeicConvert={serverHeicConvert}
         />
       )}
       {pdfPickerElement}

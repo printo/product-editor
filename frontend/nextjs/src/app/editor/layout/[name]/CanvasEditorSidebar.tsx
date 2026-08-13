@@ -9,7 +9,7 @@ import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
-import { convertHeicFiles } from '@/lib/heic-convert';
+import { convertHeicFiles, type ServerHeicConverter } from '@/lib/heic-convert';
 import type { CanvasItem, FitMode, Overlay, TextOverlay, ImageOverlay } from './types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -33,6 +33,10 @@ export interface CanvasEditorSidebarProps {
   /** Expands any PDFs in a picked file list into customer-chosen page
    *  images, showing a picker modal when needed — see use-pdf-page-import. */
   expandPdfPages: (files: File[], opts: { maxSelectable: number | null }) => Promise<File[]>;
+  /** Server-side HEIC decode, used when the browser decoders fail — see
+   *  lib/heic-convert.ts. Optional so the component still renders in
+   *  isolation (tests, storybook) without an API base. */
+  serverHeicConvert?: ServerHeicConverter;
 }
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -133,6 +137,7 @@ export function CanvasEditorSidebar({
   getImageMetadata,
   calculateSmartCropOffsets,
   expandPdfPages,
+  serverHeicConvert,
 }: CanvasEditorSidebarProps) {
 
   const [activeAddTab, setActiveAddTab] = useState<TabKey>('text');
@@ -607,7 +612,7 @@ export function CanvasEditorSidebar({
                         // are dropped — they'd preview in the browser but fail
                         // to render server-side.
                         const expandedFiles = await expandPdfPages(rawFiles, { maxSelectable: null });
-                        const { converted } = await convertHeicFiles(expandedFiles);
+                        const { converted } = await convertHeicFiles(expandedFiles, serverHeicConvert);
                         const files = converted.filter(isAllowedImageFile);
                         if (files.length === 0) return;
                         pushUndo(editingCanvas, true);

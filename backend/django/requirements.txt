@@ -16,6 +16,21 @@ django-celery-results==2.5.1
 django-csp==3.8
 sentry-sdk==2.13.0
 
+# ── HEIC/HEIF decoding (iPhone photos) ──────────────────────────────────────
+# Bundles a current libheif (1.19.x) as a manylinux wheel — no system packages
+# needed. Used by services/heic.py behind POST /api/heic/convert.
+#
+# Why this exists at all: the browser-side heic2any decoder is a 2021 build of
+# libheif and cannot read the format current iPhones produce. An iOS 18 photo
+# is a `tmap` derived image (Apple gain-map HDR) whose pixels live in `grid`
+# tiles; that decoder does not recognise the primary item and fails outright.
+# Chrome and Firefox have no HEIC codec of their own to fall back to, so
+# without a server-side decode those photos cannot be used at all.
+#
+# Pinned to the release that resolves against Pillow 10.3.0 — do NOT bump
+# Pillow to chase a newer pillow-heif without re-testing the render pipeline.
+pillow-heif==0.22.0
+
 # ── Server-side auto-orientation (MediaPipe Pose Landmarker) ────────────────
 # Loaded lazily by services/orientation.py when the gunicorn backend container
 # handles POST /api/orientation/detect (synchronous, inline). Celery workers
