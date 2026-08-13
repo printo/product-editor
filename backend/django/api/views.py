@@ -2766,25 +2766,62 @@ class HolidaysView(APIView):
 
 class RenderJobDownloadView(APIView):
     """
-    Stream all output files of a completed render job as a single ZIP archive.
+    Stream the output files of a completed render job as a ZIP archive.
 
     This replaces the client-side ZIP assembly (JSZip + canvas re-render) with a
     lightweight server-side stream, eliminating the CPU/RAM spike on low-end devices.
 
-    GET /api/jobs/<job_id>/download/
+    GET /api/jobs/<job_id>/download/[?content=all|print|mock|uploads]
+
+    ``content`` selects WHICH part of the job is packaged, so a caller that
+    stores mock and print artefacts in separate fields (printo.in does) can
+    fetch each one directly instead of receiving one archive and splitting it:
+
+      all      (default) — the original three-folder archive:
+                           1_customer_uploads/, 2_mock/, 3_print/
+      print    — the 300 DPI print files only, at the archive root
+      mock     — the small web preview JPEGs only, at the archive root
+      uploads  — the customer's original photos only, at the archive root
+
+    ``all`` is the default and its layout is unchanged, so existing callers
+    reading ``download_url`` keep working byte-for-byte.
     """
     permission_classes = [IsAuthenticatedWithAPIKey, CanAccessExports]
+
+    #: Valid ?content= values. 'all' must stay the default for back-compat.
+    CONTENT_CHOICES = ('all', 'print', 'mock', 'uploads')
 
     @extend_schema(
         tags=["exports"],
         summary="Download completed job output as ZIP",
         description=(
-            "Streams all output files (PNG or PDF) for a completed render job as a "
-            "single ZIP archive. Returns 409 if the job has not yet completed."
+            "Streams output files for a completed render job as a ZIP archive. "
+            "Use `content` to fetch one part on its own (print / mock / uploads) "
+            "instead of the combined archive. Returns 409 if the job has not yet "
+            "completed."
         ),
+        parameters=[
+            OpenApiParameter(
+                "content", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                enum=list(CONTENT_CHOICES),
+                description=(
+                    "Which part to package. `all` (default) returns the combined "
+                    "1_customer_uploads/ + 2_mock/ + 3_print/ archive; the others "
+                    "return just that part, flat at the archive root."
+                ),
+            ),
+            OpenApiParameter(
+                "include_uploads", OpenApiTypes.BOOL, OpenApiParameter.QUERY,
+                description=(
+                    "Include the customer's original photos. Defaults to true. "
+                    "Ignored when `content` is `print` or `mock`."
+                ),
+            ),
+        ],
         responses={
             200: OpenApiResponse(description="application/zip binary stream"),
-            404: OpenApiResponse(description="Job not found or no output files"),
+            400: OpenApiResponse(description="Invalid content parameter"),
+            404: OpenApiResponse(description="Job not found or no matching files"),
             409: OpenApiResponse(description="Job not yet completed"),
         },
     )
@@ -2818,6 +2855,15 @@ class RenderJobDownloadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        content = str(request.query_params.get('content', 'all')).strip().lower() or 'all'
+        if content not in self.CONTENT_CHOICES:
+            return Response(
+                {'detail': f"content must be one of: {', '.join(self.CONTENT_CHOICES)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        want_print = content in ('all', 'print')
+        want_mock = content in ('all', 'mock')
+
         # ── 3_print/ — high-res 300 DPI render output ──────────────────────
         # Path-traversal guard: every path must resolve inside EXPORTS_DIR.
         exports_root = os.path.realpath(settings.EXPORTS_DIR)
@@ -2829,7 +2875,9 @@ class RenderJobDownloadView(APIView):
             else:
                 logger.warning("RenderJobDownloadView: blocked print path %s for job %s", raw_path, job_id)
 
-        if not safe_print_paths:
+        # Only fatal when the caller actually wants render output — a
+        # ?content=uploads fetch is still serviceable without it.
+        if not safe_print_paths and (want_print or want_mock):
             return Response(
                 {'detail': 'No accessible output files found on disk'},
                 status=status.HTTP_404_NOT_FOUND,
@@ -2850,8 +2898,9 @@ class RenderJobDownloadView(APIView):
         include_uploads = str(
             request.query_params.get('include_uploads', 'true')
         ).strip().lower() not in ('0', 'false', 'no', 'off')
+        want_uploads = include_uploads and content in ('all', 'uploads')
         safe_upload_entries: list[tuple[str, str]] = []  # (resolved_path, arcname_basename)
-        if include_uploads:
+        if want_uploads:
             uploads_root = os.path.realpath(settings.UPLOADS_DIR)
             upload_records = {
                 uf.file_path: uf.original_filename
@@ -2919,8 +2968,23 @@ class RenderJobDownloadView(APIView):
         # name compact while still disambiguating repeated downloads of the
         # same layout. layout_name is sanitised for safe use in the
         # Content-Disposition header.
+        if content == 'uploads' and not safe_upload_entries:
+            return Response(
+                {'detail': 'No customer uploads are available for this job'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         safe_layout = re.sub(r'[^A-Za-z0-9_.\-]+', '-', (canvas.layout_name or 'design')).strip('-._') or 'design'
-        zip_name = f"{safe_layout[:48]}-{str(job_id)[:8]}.zip"
+        # Single-part archives carry the part in the filename so a caller
+        # saving all three doesn't end up with three identically-named files.
+        suffix = '' if content == 'all' else f'-{content}'
+        zip_name = f"{safe_layout[:48]}-{str(job_id)[:8]}{suffix}.zip"
+
+        # The combined archive keeps its three numbered folders (existing
+        # callers extract by that path); a single-part archive puts its files
+        # flat at the root, where a folder of one kind would be noise.
+        def arcname(folder: str, basename: str) -> str:
+            return f'{folder}/{basename}' if content == 'all' else basename
         tmp = tempfile.NamedTemporaryFile(
             mode='w+b', suffix='.zip', delete=False, dir=exports_root,
         )
@@ -2929,30 +2993,35 @@ class RenderJobDownloadView(APIView):
             with zipfile.ZipFile(tmp, mode='w', compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
                 # 1_customer_uploads/ — original photos as customer named them
                 for path, original_name in safe_upload_entries:
-                    zf.write(path, arcname=f'1_customer_uploads/{original_name}')
+                    zf.write(path, arcname=arcname('1_customer_uploads', original_name))
 
                 # 2_mock/ + 3_print/ — paired by index from the print list
-                for idx, print_path in enumerate(safe_print_paths, start=1):
+                for print_path in safe_print_paths:
                     print_basename = os.path.basename(print_path)
-                    zf.write(print_path, arcname=f'3_print/{print_basename}')
+                    if want_print:
+                        zf.write(print_path, arcname=arcname('3_print', print_basename))
+
+                    if not want_mock:
+                        continue
 
                     # Prefer the pre-generated sibling JPEG (cheap path).
                     # Falls back to on-the-fly downscaling for legacy jobs
                     # rendered before the engine started writing siblings.
                     stem = os.path.splitext(print_basename)[0]
+                    mock_name = f'{stem}_preview.jpg'
                     sibling_mock = os.path.splitext(print_path)[0] + '_preview.jpg'
                     sibling_mock_real = os.path.realpath(sibling_mock)
                     if (
                         os.path.isfile(sibling_mock_real)
                         and sibling_mock_real.startswith(exports_root + os.sep)
                     ):
-                        zf.write(sibling_mock_real, arcname=f'2_mock/{stem}_preview.jpg')
+                        zf.write(sibling_mock_real, arcname=arcname('2_mock', mock_name))
                         mock_count += 1
                     else:
                         mock_bytes = _build_mock_jpeg_bytes(print_path)
                         if mock_bytes is not None:
                             zf.writestr(
-                                f'2_mock/{stem}_preview.jpg',
+                                arcname('2_mock', mock_name),
                                 mock_bytes,
                                 compress_type=zipfile.ZIP_STORED,
                             )
@@ -2968,12 +3037,27 @@ class RenderJobDownloadView(APIView):
                 pass
             raise
 
+        # A mock-only archive with nothing in it is a failure, not an empty
+        # success — the caller asked for previews and would otherwise store a
+        # valid-looking 22-byte ZIP against the order.
+        if content == 'mock' and mock_count == 0:
+            tmp.close()
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            logger.warning("No mock previews could be produced for job %s", job_id)
+            return Response(
+                {'detail': 'No preview images are available for this job'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         api_key = request.user.api_key if isinstance(request.user, APIKeyUser) else None
         if api_key:
             logger.info(
-                "Job ZIP downloaded: job=%s uploads=%d mocks=%d prints=%d size=%d by %s",
-                job_id, len(safe_upload_entries), mock_count,
-                len(safe_print_paths), zip_size, api_key.name,
+                "Job ZIP downloaded: job=%s content=%s uploads=%d mocks=%d prints=%d size=%d by %s",
+                job_id, content, len(safe_upload_entries), mock_count,
+                len(safe_print_paths) if want_print else 0, zip_size, api_key.name,
             )
 
         # FileResponse streams in chunks (8 KB by default) and closes the file

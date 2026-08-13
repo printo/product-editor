@@ -276,7 +276,7 @@ All exports go through one unified server-side pipeline. The previous client-sid
 3. Backend creates `CanvasData` + `RenderJob`, dispatches `render_canvas_task` to Celery.
 4. Celery worker: `LayoutEngine` consumes the submit-time `CanvasData.render_state` snapshot (falling back to `editor_state` only for pre-migration jobs) → Pillow renders at 300 DPI (PNG by default; PDF when `export_format='pdf'`).
 5. After render, files sit on disk under `EXPORTS_DIR/<job_id>/`, ready to be served by `GET /api/jobs/<job_id>/download/`.
-6. **Delivery — embed flow:** if `EmbedSession.callback_url` was set at session creation, `notify_caller_webhook_task` POSTs `{ order_id, job_id, status, download_url, expires_at, file_count, layout_name, export_format }` to that URL plus an `X-Signature: sha256=<hmac>` header signed with the api_key. The caller fetches the ZIP from `download_url` using their api_key as Bearer auth. *No internal OMS push exists.*
+6. **Delivery — embed flow:** if `EmbedSession.callback_url` was set at session creation, `notify_caller_webhook_task` POSTs `{ order_id, job_id, status, download_url, print_download_url, mock_download_url, uploads_download_url, expires_at, file_count, layout_name, export_format }` to that URL plus an `X-Signature: sha256=<hmac>` header signed with the api_key. The caller fetches the ZIP(s) it wants using their api_key as Bearer auth — the combined archive, or the three single-part archives. *No internal OMS push exists.*
 7. **Delivery — dashboard flow:** no webhook task fires. The browser polls `/api/render-status/{job_id}/` with exponential backoff, then fetches the ZIP from `/api/jobs/{job_id}/download/` directly.
 8. Frontend behaviour after submit:
    - **Embed**: fires `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` so the parent's UI can show "your design is being prepared". The actual file delivery happens via the webhook (above), not via postMessage.
@@ -472,7 +472,10 @@ Neither `order_id` nor `callback_url` ever appears in the iframe URL — they fl
   "order_id":      "EXT-JOB-123",
   "job_id":        "<RenderJob uuid>",
   "status":        "completed" | "failed",
-  "download_url":  "https://product-editor.printo.in/api/jobs/<uuid>/download/",
+  "download_url":         "https://product-editor.printo.in/api/jobs/<uuid>/download/",
+  "print_download_url":   "https://product-editor.printo.in/api/jobs/<uuid>/download/?content=print",
+  "mock_download_url":    "https://product-editor.printo.in/api/jobs/<uuid>/download/?content=mock",
+  "uploads_download_url": "https://product-editor.printo.in/api/jobs/<uuid>/download/?content=uploads",
   "expires_at":    "<ISO 8601>",
   "file_count":    12,
   "layout_name":   "circle_48mm",
@@ -480,7 +483,11 @@ Neither `order_id` nor `callback_url` ever appears in the iframe URL — they fl
 }
 ```
 
-Headers: `Content-Type: application/json`, `X-Signature: sha256=<hex>`. Caller verifies with `hmac.compare_digest(hmac.new(api_key, raw_body, sha256).hexdigest(), signature)`. Then fetches `download_url` with their api_key as `Authorization: Bearer <key>` to get the ZIP.
+Headers: `Content-Type: application/json`, `X-Signature: sha256=<hex>`. Caller verifies with `hmac.compare_digest(hmac.new(api_key, raw_body, sha256).hexdigest(), signature)`. Then fetches whichever URL it needs with their api_key as `Authorization: Bearer <key>` to get the ZIP.
+
+**One archive or three.** `download_url` is the combined archive — `1_customer_uploads/` + `2_mock/` + `3_print/` in one file — and is unchanged, so a caller already reading it needs no migration. The three `*_download_url` fields are the SAME job packaged one part per archive, each flat at the archive root, for callers that store mock and print artefacts in separate fields (printo.in does). `uploads_download_url` is `null` when the session set `include_uploads=false` — there is nothing behind it, so it is not advertised.
+
+The split is served by `?content=` on the one endpoint (`all` — the default — `print`, `mock`, `uploads`); nothing is duplicated on disk. Requesting `content=mock` on a job whose previews could not be built returns 404 rather than a valid-looking empty ZIP.
 
 **Embed proxy path allowlist** ([route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts:124)) — only these prefixes pass through:
 
@@ -995,6 +1002,6 @@ Routing, TLS, and tunables live in [`proxy/nginx/nginx.conf`](proxy/nginx/nginx.
 | Populate SKU mapping | `PUT /api/sku-layouts/` with real Printo SKU codes (top 5 SKUs from PRD: fridge magnets, photo prints, canvas prints, coasters, photo mugs). The endpoint exists; the data is empty. | Viji / Catalog Ops |
 | Monitor CSP violations | Watch DevTools / browser console / future report endpoint while CSP is in report-only. Flip `CSP_REPORT_ONLY=False` once the policy is validated against the editor (Fabric.js `'unsafe-eval'`) and embed iframe (`frame-ancestors`). | Kanna |
 | Clean up 56 lint warnings | `pnpm lint` lists them — all `no-unused-vars` (dead imports, unused state setters, unused destructured params). Easy local cleanups; non-blocking. | Kanna |
-| printo.in webhook endpoint | Their backend needs to: (1) accept `POST /api/internal/pe-callback` with the v1.8 webhook payload, (2) verify `X-Signature` HMAC against the api_key, (3) fetch `download_url` with the api_key as Bearer auth, (4) attach the ZIP to the order. Their frontend can also listen for `pe:render_job` postMessage for "preparing your design" UX. | printo.in backend + frontend |
+| printo.in webhook endpoint | Their backend needs to: (1) accept `POST /api/internal/pe-callback` with the v1.8 webhook payload, (2) verify `X-Signature` HMAC against the api_key, (3) fetch `mock_download_url` and `print_download_url` with the api_key as Bearer auth into their separate mock/print fields (or `download_url` for the combined archive), (4) attach them to the order. Their frontend can also listen for `pe:render_job` postMessage for "preparing your design" UX. | printo.in backend + frontend |
 | Rate limiter → Redis | If the frontend container is ever scaled horizontally, swap the in-memory `Map` in `src/app/actions/auth.ts` for a Redis-backed limiter. Current single-process limiter is fine for the current single-replica deploy. | Kanna / DevOps |
 | Unify LayoutDef shape | The 10 `(layoutDef as any)?.surfaces?.[0]` casts in `editor/layout/[name]/page.tsx` are about a discriminated layout shape (canvas-on-root vs surfaces-array). Pick one canonical shape and migrate. Once done, re-enable `@typescript-eslint/no-explicit-any` to `error`. | Kanna |

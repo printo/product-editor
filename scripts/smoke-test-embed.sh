@@ -285,9 +285,48 @@ if [ "${SMOKE_RENDER:-0}" = "1" ] && [ -n "${UPLOAD_ID:-}" ]; then
 
     if [ "$JOB_STATUS" = "completed" ]; then
       ok "render reached 'completed'"
-      status=$(curl -s -o /dev/null -w '%{http_code}' \
+      status=$(curl -s -o /tmp/se.zip -w '%{http_code}' \
         "$BASE/api/jobs/$JOB_ID/download/" -H "Authorization: Bearer $API_KEY")
       [ "$status" = "200" ] && ok "ZIP download → 200" || bad "ZIP download → $status"
+
+      # The combined archive must keep its three numbered folders — printo.in
+      # and any existing partner extracts by those paths.
+      if [ "$status" = "200" ]; then
+        if python3 -c '
+import sys, zipfile
+names = zipfile.ZipFile("/tmp/se.zip").namelist()
+sys.exit(0 if any(n.startswith("3_print/") for n in names) else 1)'; then
+          ok "combined ZIP keeps 3_print/ layout"
+        else
+          bad "combined ZIP lost its 3_print/ folder"
+        fi
+      fi
+
+      # Split archives — one part each, flat at the root, so the caller can
+      # store mock and print in separate fields without unpacking one archive.
+      for part in print mock uploads; do
+        status=$(curl -s -o /tmp/se.zip -w '%{http_code}' \
+          "$BASE/api/jobs/$JOB_ID/download/?content=$part" \
+          -H "Authorization: Bearer $API_KEY")
+        if [ "$status" != "200" ]; then
+          bad "?content=$part → $status (expected 200)"
+          continue
+        fi
+        if python3 -c '
+import sys, zipfile
+names = zipfile.ZipFile("/tmp/se.zip").namelist()
+# non-empty, and nothing nested in a folder
+sys.exit(0 if names and not any("/" in n for n in names) else 1)'; then
+          ok "?content=$part → 200, flat non-empty archive"
+        else
+          bad "?content=$part → 200 but archive empty or foldered"
+        fi
+      done
+
+      status=$(curl -s -o /dev/null -w '%{http_code}' \
+        "$BASE/api/jobs/$JOB_ID/download/?content=bogus" \
+        -H "Authorization: Bearer $API_KEY")
+      [ "$status" = "400" ] && ok "?content=bogus → 400" || bad "?content=bogus → $status (expected 400)"
     else
       bad "render did not complete (last status: ${JOB_STATUS:-unknown})"
     fi
