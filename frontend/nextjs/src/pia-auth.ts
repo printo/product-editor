@@ -118,6 +118,7 @@ const nextAuth = NextAuth({
           refreshToken: data.refresh,
           accessTokenExpires: decoded.exp * 1000,
           is_ops_team: data.is_ops_team || false,
+          is_super_user: data.is_super_user || false,
         }
       },
     }),
@@ -200,6 +201,7 @@ const nextAuth = NextAuth({
           refreshToken: data.refresh,
           accessTokenExpires: decoded.exp * 1000,
           is_ops_team: data.is_ops_team || false,
+          is_super_user: data.is_super_user || false,
         }
       },
     }),
@@ -216,6 +218,7 @@ const nextAuth = NextAuth({
           refreshToken: user.refreshToken,
           accessTokenExpires: user.accessTokenExpires,
           is_ops_team: user.is_ops_team,
+          is_super_user: user.is_super_user,
         }
       }
 
@@ -292,6 +295,7 @@ const nextAuth = NextAuth({
             session.user.role = token.role as string | undefined
             session.accessToken = token.accessToken as string | undefined
             session.is_ops_team = token.is_ops_team as boolean | undefined
+            session.is_super_user = token.is_super_user as boolean | undefined
             // Surface refresh errors to the client so the app can prompt re-login
             if (token.error) {
                 session.error = token.error as string

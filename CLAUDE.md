@@ -975,7 +975,7 @@ The full prioritised list is in [docs/PRD.md](docs/PRD.md) §8 — these are the
 Routing, TLS, and tunables live in [`proxy/nginx/nginx.conf`](proxy/nginx/nginx.conf) — single source, no per-service labels. The `certs/` workflow: paste a Cloudflare Origin Certificate (`SSL/TLS → Origin Server → Create Certificate`, RSA 2048, 15-year, hostnames `product-editor.printo.in` or `*.printo.in`) into `proxy/nginx/certs/origin.crt` and the matching key into `proxy/nginx/certs/origin.key` (`chmod 600`). Set Cloudflare SSL/TLS mode to **Full (strict)**. Skip → `deploy.sh` generates a self-signed bootstrap that requires CF "Full" (not strict). Notable behaviour:
 
 - `^~ /api/auth/`, `^~ /api/internal/proxy/`, `^~ /api/embed/proxy/` → frontend:3000
-- `^~ /admin/django-admin/` → backend:8000 with basic auth (file at `proxy/nginx/.htpasswd`, default `admin/admin`)
+- `^~ /django-admin/` → backend:8000, gated by nginx `auth_request` against `frontend:3000/api/internal/verify-django-admin` (checks the PIA/Google session for `is_super_user`; denied → `@django_admin_denied` → the `/django-admin-denied` page). Not basic-auth anymore — `proxy/nginx/.htpasswd` is unused as of this change.
 - `^~ /api/` → backend:8000 (`proxy_buffering off`, `proxy_read_timeout 600s` for streaming ZIPs + sync renders)
 - `/` (catch-all) → frontend:3000
 - HTTP→HTTPS redirect on port 80

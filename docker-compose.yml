@@ -23,7 +23,6 @@ services:
     volumes:
       - ./proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./proxy/nginx/certs:/etc/nginx/certs:ro
-      - ./proxy/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
       - nginx_logs:/var/log/nginx
     depends_on:
       backend:
@@ -155,7 +154,7 @@ services:
         condition: service_healthy
       redis-cache:
         condition: service_healthy
-    # Routing for /api/* and /admin/django-admin/* is defined in
+    # Routing for /api/* and /django-admin/* is defined in
     # proxy/nginx/nginx.conf. Container-level labels are no longer needed.
     networks:
       - web

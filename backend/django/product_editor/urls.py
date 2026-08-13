@@ -8,7 +8,7 @@ def trigger_error(request):
 
 urlpatterns = [
     path("sentry-debug/", trigger_error),
-    path("admin/django-admin/", admin.site.urls),
+    path("django-admin/", admin.site.urls),
     path("api/", include("api.urls")),
     # OpenAPI 3 schema (JSON) — consumed by Scalar UI
     path("api/schema/", SpectacularAPIView.as_view(), name="openapi-schema"),
