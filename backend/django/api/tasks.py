@@ -1114,18 +1114,36 @@ def garbage_collector_task():
     # Async renders (via render_canvas_task) write output paths to
     # RenderJob.output_paths but do NOT create ExportedResult records, so
     # the ExportedResult-based GC loop above never touches them.
-    # Clean up by finding completed RenderJobs whose CanvasData has expired
-    # and deleting the actual files on disk.
+    # Clean up by finding RenderJobs whose CanvasData has expired and deleting
+    # the actual files on disk.
+    #
+    # NOT filtered on status='completed' any more, and that omission is the
+    # point. A job killed mid-render — worker OOM, SIGKILL, container recreate —
+    # leaves output files behind with no cleanup path. It never reaches
+    # 'completed', so this sweep skipped it; then its CanvasData expired, the
+    # delete below cascaded the RenderJob away, and the files became
+    # unreachable: no row names them, so no query-driven sweep can ever find
+    # them again. That is how 62 orphaned export directories accumulated on
+    # production (see reconcile_orphan_exports below, which reclaims the ones
+    # already stranded).
+    #
+    # Safe to include unfinished jobs because the filter is on the CANVAS having
+    # expired — a full retention window — while a render has a 55-minute soft
+    # limit. Anything still 'processing' that far past its canvas expiry is dead.
+    # The created_at guard is belt-and-braces for the one case that could race:
+    # a brand-new job submitted against an already-expired CanvasData (a reprint
+    # of an old order). A day is far more than a render needs, and every orphan
+    # we are chasing is over a week old.
     async_files_deleted = 0
     async_bytes_deleted = 0
     try:
         expired_jobs = (
             RenderJob.objects
             .filter(
-                status='completed',
                 canvas_data__expires_at__lt=now,
                 canvas_data__requires_manual_review=False,
                 output_paths__isnull=False,
+                created_at__lt=now - timedelta(days=1),
             )
             .exclude(output_paths=[])
             .select_related('canvas_data')
@@ -1220,7 +1238,20 @@ def garbage_collector_task():
         usage_percent,
     )
 
+    # ── Orphaned export directories ───────────────────────────────────────
+    # The only sweep here that starts from the filesystem rather than a DB row,
+    # because it is the only one that can reclaim a file whose row is gone. Off
+    # by default (dry_run reports without deleting) — see
+    # services/orphan_exports.py for why this one earns extra caution.
+    orphan_result: dict = {}
+    try:
+        from services.orphan_exports import reconcile_orphan_exports
+        orphan_result = reconcile_orphan_exports(now=now)
+    except Exception as exc:
+        logger.error("GC: orphan export sweep failed: %s", exc)
+
     result = {
+        'orphan_exports': orphan_result,
         'deleted_count': deleted_count,
         'deleted_bytes': deleted_bytes,
         'skipped_count': skipped_count,

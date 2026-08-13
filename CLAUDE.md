@@ -372,6 +372,18 @@ Retry strategy: `self.retry()` with exponential backoff (2s → 4s → 8s), max 
 
 `stale` is the field to alert on. It is True when no sweep has been recorded, when the record is unreadable, and when the last one is older than `GC_STALE_AFTER_HOURS` (default 36). Only successful runs are recorded, so a crashed sweep shows up as growing staleness. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
 
+The same endpoint carries a **live `disk` block** (`used_percent`, `free_gb`, `pressure` at >80%), read at request time rather than lifted from the last sweep's stats. That distinction is the point: `garbage_collector.stats.disk_usage_percent` is only as fresh as the last sweep, so at the moment it matters most — nothing sweeping — it is absent or stale. Production hit 89% unnoticed twice for that reason.
+
+### Orphaned export directories
+
+Every sweep in `garbage_collector_task` except one starts from a DB row and follows it to a file, so none of them can reclaim a file whose row is gone. `services/orphan_exports.py` is the exception: it enumerates `EXPORTS_DIR` and removes directories nothing in the database accounts for.
+
+They formed because the async-render cleanup used to filter on `status='completed'`. A job killed mid-render (worker OOM, SIGKILL, container recreate) never reached that state, so its output files were skipped; later its `CanvasData` expired, the cascade removed the `RenderJob`, and the only pointer to those files went with it. 62 directories (54 MB) had stranded that way by 2026-08-13. **That filter is now gone** — the sweep matches on the *canvas* having expired plus a `created_at` guard of one day, which is safe because a render has a 55-minute soft limit while the canvas window is a full retention period.
+
+`GC_ORPHAN_SWEEP` controls the reclamation: `off` | `dry_run` (default) | `delete`. It defaults to reporting only, because unlike every other sweep this one deletes on the *absence* of evidence — a subtly wrong query would destroy live print files rather than merely miss some. Read a night of dry-run counts from `garbage_collector.stats.orphan_exports` before arming it.
+
+Five independent conditions must all hold before a directory is touched (`_classify`): the name parses as a UUID, no `RenderJob` has that id, no `ExportedResult` path references it, no `CanvasData.order_id` matches it (a partner order id can legitimately be UUID-shaped), and its mtime is older than retention + 1 day. **Any new export-directory naming convention must be added there**, or those directories will look like orphans. A DB failure keeps everything rather than treating an empty result set as "all orphans".
+
 Always call `transaction.on_commit(lambda: task.apply_async(...))` **inside** the `atomic()` block so the callback fires only after the DB commit. Calling it outside an open transaction executes immediately (which works but is non-standard and fragile).
 
 ## Server-Side Render Flow
@@ -949,6 +961,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 | `CSP_REPORT_ONLY` | `True` | django-csp emits headers but enforces nothing — flip to `False` once policy is validated |
 | `CELERY_CONCURRENCY` | unset | Celery auto-detects from CPU count; set to cap on shared servers |
 | `GC_STALE_AFTER_HOURS` | `36` | Age at which the last GC sweep reports `stale: true` on `/api/celery/monitor/`. 36 rather than 24 so a merely-late run doesn't cry wolf while a single missed night still trips it |
+| `GC_ORPHAN_SWEEP` | `dry_run` | Reclamation of export dirs no DB row accounts for: `off` / `dry_run` / `delete`. Reports only by default — it is the one sweep that deletes on absence of evidence. See "Orphaned export directories" |
 | `API_AUDIT_RETENTION_DAYS` | `90` | How long `APIRequest` audit rows are kept. Deliberately much longer than `EXPORT_RETENTION_DAYS` — the trail has to outlive the data it describes to answer "who touched this order". Swept by `garbage_collector_task` |
 | `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | Set to `False` if nginx already redirects HTTP→HTTPS (which it does by default; this var is redundant in the current setup) |
 | `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | Only honored when `DEBUG=1` |
