@@ -1,6 +1,10 @@
-# PRD — Book / Photobook Layout Creator
+# PRD — Book / Booklet / Photobook Layout Creator
 
-**Status:** 🔵 **Draft, not scheduled — nothing built.** Written 2026-07-26 so the design decisions are captured while the calendar precedent is fresh. Re-verified 2026-08-14 against `main` @ `79104d0`: no `productType: "book"` exists anywhere in the frontend types or the backend services, and the §4 design decisions (D1–D6) are all still open. The `API_SURFACE_SEPARATION_PRD.md` cleanup this is meant to land on top of has also not started, so §5.4's touch list is unchanged.
+**Scope note:** "book" here means any **bound, page-ordered product** — photobook, booklet, brochure, notebook, catalogue. The page model below is deliberately product-agnostic; "photobook" is the first SKU family, not the boundary.
+
+**Status:** 🔵 **Draft, not scheduled — nothing built.** Written 2026-07-26 so the design decisions are captured while the calendar precedent is fresh. Re-verified 2026-08-14 against `main` @ `79104d0`: no `productType: "book"` exists anywhere in the frontend types or the backend services. The `API_SURFACE_SEPARATION_PRD.md` cleanup this is meant to land on top of has also not started, so §5.4's touch list is unchanged.
+
+**Updated 2026-08-14** with product direction from Kanna: **D2 and D4 are now answered** (customer-entered page count auto-populating inner pages; author only a cover template and a single inner-page template) and a new decision **D7 — per-role page size** is open, because cover and inner pages will not always share a trim size. D1, D3, D5, D6 remain open.
 **Author:** Kanna Perumal (with Claude Code)
 **Related:** [`CALENDAR_FEATURE_PRD.md`](CALENDAR_FEATURE_PRD.md) — the calendar product is the closest precedent and this PRD deliberately mirrors its architecture. [`API_SURFACE_SEPARATION_PRD.md`](API_SURFACE_SEPARATION_PRD.md) — the render-submission cleanup this feature should land on top of, not around.
 
@@ -78,11 +82,22 @@ Two candidate models:
 
 **Recommendation: (a) flat page list, with spread grouping derived for display.** The renderer, the ZIP contract and `canvases_meta` all already speak "one surface, one file". Physical sheet pairing is an imposition concern and `zip-utils` / the imposition sheet flow already exists for that. Deriving spreads for the *preview* is cheap; deriving pages from sheets for the *renderer* is a permanent tax.
 
-### D2 — Is page count fixed by the template or chosen by the customer?
+### D2 — Is page count fixed by the template or chosen by the customer? — ✅ **ANSWERED 2026-08-14**
 
-If customer-chosen, it becomes the first product where the **surface count is customer state**, which touches validation, autosave, the render payload, and pricing. Needs a range (`minPages`, `maxPages`, `pageStep` — books usually step in multiples of 4 because of how signatures fold).
+**Decision: customer-entered, within a template-declared range.** The customer types a page count; the inner pages are then **auto-populated** from the single inner-page template, and the front and back covers are always present and never part of that count. This makes books the first product where the **surface count is customer state** — see R1, which this decision promotes from a risk to a certainty that Phase 1 must design for.
 
-**Recommendation:** template declares `pageCount: { min, max, step, default }`; customer picks within it. Do not ship an unbounded count.
+Template declares `pageCount: { min, max, step, default }`. Do not ship an unbounded count; books step in multiples of 4 because of how signatures fold.
+
+**Consequences to design for:**
+- Covers are addressed by role, never by index, so changing the page count cannot renumber them.
+- Per-page overrides key off page index, so lowering the count must decide between discarding overrides on removed pages or holding them (recommend: hold, and restore if the count goes back up — this mirrors how the calendar keeps Feb 29 entries through a non-leap year, PRD §11.8).
+- The autosave/restore path must survive a page-count change mid-session without losing edits on surviving pages — extend `canvas-merge.ts` identity reuse to pages.
+
+### D2a — What does the ops author actually author? — ✅ **ANSWERED 2026-08-14**
+
+**Decision: exactly two page templates — a cover and ONE inner page.** Everything else is derived. The author does not lay out page 7; they lay out "an inner page", and the materializer stamps it N times.
+
+This is deliberately narrower than the `roles` map sketched in §5.1. Keep `pageOverrides` as the escape hatch for the occasional bespoke page, but the authoring UI's happy path is two canvases, not a page list.
 
 ### D3 — Photo → page mapping
 
@@ -92,13 +107,26 @@ The calendar settled on "12 outputs, month *i* gets photo-canvas *(i mod N)*". B
 
 **Recommendation:** auto-flow in upload order, one photo per frame; short-fill leaves genuinely blank pages (a real product need — people leave pages for writing); overflow warns and offers to extend to the next valid page count. Warn-and-proceed, never block — consistent with `submit-guards.ts`.
 
-### D4 — Cover treatment
+### D4 — Cover treatment — ✅ **ANSWERED 2026-08-14**
 
-Covers usually differ: different trim (wrap + spine), different material, sometimes a different bleed. Is the cover:
-- a page in the same list with a `role: "cover"` override, or
-- a separate surface authored independently?
+**Decision: front and back covers are authored separately from the inner page, and are always present.** They sit outside the customer's page count (see D2) and are addressed by role, not index.
 
-**Recommendation:** `role` on the page entry, with a per-role template block. Keeps one ordered list. Spine width depends on page count × paper thickness — that is a **computed** dimension and needs a formula in the template (`spineWidthMm = pageCount * paperThicknessMm`), which is a genuinely new concept for this codebase.
+They stay entries in the one ordered page list with `role: "cover" | "backCover"` — one list keeps the renderer, the ZIP contract and `canvases_meta` all speaking "one surface, one file". What changes versus the original recommendation is that a cover carries **its own canvas size**, not just its own frame template — see D7.
+
+Spine width still depends on page count × paper thickness — a **computed** dimension needing a formula in the template (`spineWidthMm = pageCount * paperThicknessMm`), which is a genuinely new concept for this codebase. With D2 answered, the spine is now recomputed whenever the customer changes the page count, so it cannot be resolved once at author time.
+
+### D7 — Per-role page size (cover ≠ inner) — 🔴 **OPEN, new 2026-08-14**
+
+**Sometimes the cover and the inner pages share a trim size; sometimes they do not.** A hardcover wrap is larger than the block it binds; a booklet cover is often identical to its inners. The §5.1 schema sketch assumes ONE book-level `trim`, which cannot express this.
+
+Options:
+
+- **(a) `trim` per role.** Each role declares its own `{ widthMm, heightMm, bleedMm }`, defaulting to the book-level value when absent. Simple, explicit, and matches how multi-surface layouts already work today — each surface carries its own `canvas` block, so the engine needs no change at all.
+- **(b) One `trim` plus a cover `oversizeMm` delta.** Compact, and expresses the common "cover is 3 mm bigger all round" case, but cannot express a cover with a genuinely different aspect.
+
+**Recommendation: (a).** It costs nothing at the engine — `_generate_for_surface` already reads `surface["canvas"]` per surface, so differing sizes fall out for free. (b) is a special case of (a) and can be sugar in the authoring UI rather than a schema concept.
+
+**What still needs answering:** whether a mixed-size book is one ZIP with differing page dimensions (fine for the contract, potentially confusing for print ops) or whether covers should be delivered as a separate archive part alongside `print`/`mock`.
 
 ### D5 — Gutter / safe area on inner edges
 
@@ -116,35 +144,44 @@ Spreads read like the real book but double the canvas width and complicate per-f
 
 ### 5.1 Schema sketch
 
+Reflecting D2 / D2a / D4 / D7: the author supplies **one cover template and one inner-page template**, each with its own canvas size, and the customer's page count stamps the inner template N times.
+
 ```jsonc
 {
   "name": "softcover_a4_landscape",          // = filename stem, authoritative
   "productType": "book",
   "tags": ["Photobook"],
   "book": {
-    "trim":       { "widthMm": 297, "heightMm": 210 },
-    "bleedMm":    3,
+    "bleedMm":    3,                          // default; a role may override
     "gutterMm":   12,                         // inner margin, mirrored by parity
     "pageCount":  { "min": 20, "max": 60, "step": 4, "default": 24 },
-    "paperThicknessMm": 0.12,                 // → spine width
-    "roles": {
-      "cover":       { "template": "cover",       "spine": true },
-      "insideCover": { "template": "blank" },
-      "page":        { "template": "single-photo" },
-      "backCover":   { "template": "blank" }
+    "paperThicknessMm": 0.12,                 // → spine width, recomputed on count change
+
+    // D2a — exactly two authored templates. Each carries its OWN canvas (D7),
+    // so a cover larger than the block needs no extra concept: the engine
+    // already reads canvas per surface.
+    "cover": {
+      "canvas": { "widthMm": 303, "heightMm": 216, "bleedMm": 3 },
+      "spine":  true,
+      "frames": [ /* … */ ]
     },
-    "templates": {
-      "single-photo": { "frames": [ /* … as today, in mm … */ ] },
-      "two-up":       { "frames": [ /* … */ ] },
-      "blank":        { "frames": [] },
-      "cover":        { "frames": [ /* … */ ] }
-    }
+    "innerPage": {
+      "canvas": { "widthMm": 297, "heightMm": 210 },
+      // 1 frame = one photo per page; N frames = a collage page. This is the
+      // ONLY thing that distinguishes the two layout styles — no flag needed.
+      "frames": [ /* 1 frame, or N for a collage … */ ]
+    },
+    "backCover": { "canvas": { "$ref": "cover.canvas" }, "frames": [] }
   },
   "pageOverrides": {                          // ops escape hatch, same shape as calendar surfaceOverrides
-    "3": { "template": "two-up" }
+    "3": { "frames": [ /* a one-off bespoke page */ ] }
   }
 }
 ```
+
+**Collage vs single-photo inner pages need no schema flag.** A collage page is simply an inner-page template with more than one frame, exactly as a multi-surface product works today. The materializer stamps whatever frame set it is given; the renderer already composites N frames per surface.
+
+⚠️ **Prerequisite, now landed:** until 2026-08-14 the editor allocated exactly ONE photo per surface regardless of that surface's frame count, so any surface with more than one frame received one photo which the slot planner's modulo then repeated into every frame — a collage page would have printed the same photo in every cell. Fixed in `surface-allocation.ts` (`allocateFilesToSurfaces` / `planFrameSlots`). A book build **depends on that fix**; do not re-introduce a one-photo-per-surface assumption.
 
 ### 5.2 New server module
 
@@ -234,7 +271,16 @@ Sized against the calendar build, which ran ~10 phases / ~25 days.
 
 ## 9. What to do next
 
-1. Answer **D1–D6**. D1 and D2 gate everything else.
-2. Confirm the real product spec with Catalog Ops: actual trim sizes, page ranges, paper thickness, cover types.
+1. Answer the **still-open decisions: D1, D3, D5, D6, D7**. D1 gates everything else; D7 gates the schema. (D2, D2a and D4 were answered 2026-08-14 — see §4.)
+2. Confirm the real product spec with Catalog Ops: actual trim sizes for **both** cover and inner block, page ranges, paper thickness, cover types, and which SKUs are collage-style vs one-photo-per-page.
 3. Re-verify §3 against `HEAD` — this PRD was written against `4105f66`.
 4. Only then open Phase 1.
+
+### Phasing impact of the 2026-08-14 answers
+
+| Phase | Change |
+|---|---|
+| 0 | Shorter — three decisions already closed, but D7 was added. Net ≈ unchanged. |
+| 1 | **Grows.** Customer-variable page count (D2) is now certain rather than possible, so the payload/autosave shape must handle a changing surface count from day one. |
+| 5 | **Shrinks.** Authoring two templates (D2a) is a much smaller UI than a per-page role editor. |
+| 8 | **Grows slightly.** Spine width is recomputed on every page-count change, not resolved once at author time. |

@@ -37,7 +37,7 @@ code, **the code is right**.
 | Doc | Status |
 |---|---|
 | [`API_SURFACE_SEPARATION_PRD.md`](API_SURFACE_SEPARATION_PRD.md) | 🟡 Open, not started; re-verified 2026-08-14. Its **Core Product Invariant** section *is* current policy regardless — dashboard and embed access must render byte-equivalent output — and is restated in CLAUDE.md as the "access-mode invariant". |
-| [`BOOK_LAYOUT_PRD.md`](BOOK_LAYOUT_PRD.md) | 🔵 Draft, unscheduled, nothing built. Design decisions D1–D6 all still open. |
+| [`BOOK_LAYOUT_PRD.md`](BOOK_LAYOUT_PRD.md) | 🔵 Draft, unscheduled, nothing built. Covers any bound page-ordered product (photobook, booklet, brochure), not just photobooks. Updated 2026-08-14: **D2, D2a and D4 answered** (customer-entered page count auto-populates inner pages; author one cover + one inner-page template; covers sit outside the count). **D1, D3, D5, D6 and the new D7** (cover and inner pages may differ in size) still open. |
 
 ## Adjacent
 

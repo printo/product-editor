@@ -35,6 +35,9 @@ import { getImageMetadata, getImageSize, detectJpegColorSpace, isImageComplete }
 import { collectLowDpiFrames, type LowDpiFrame } from '@/lib/dpi-utils';
 import { planCanvasReuse, countCanvasesLosingEdits } from './canvas-merge';
 import {
+  allocateFilesToSurfaces, planFrameSlots, surfaceFrameCount, totalSurfaceCapacity,
+} from './surface-allocation';
+import {
   collectEmptySurfaces, collectDuplicateFills, duplicateFingerprint,
   type EmptySurface, type DuplicateFill,
 } from '@/lib/submit-guards';
@@ -1396,9 +1399,7 @@ export default function LayoutEditorPage() {
       ? Math.min(Math.ceil(surfaceFiles.length / frameCount), 12)
       : Math.ceil(surfaceFiles.length / frameCount);
     // Identity-based reuse (Phase 3 — never lose edits); see generateCanvases.
-    const plannedSlots: (File | null)[][] = Array.from({ length: canvasCount }, (_, c) =>
-      Array.from({ length: frameCount }, (_, f) => surfaceFiles[(c * frameCount + f) % surfaceFiles.length] || null)
-    );
+    const plannedSlots = planFrameSlots(surfaceFiles, frameCount, canvasCount);
     const reusePlan = planCanvasReuse(existingCanvases, plannedSlots);
 
     const newCanvases: CanvasItem[] = [];
@@ -2117,12 +2118,15 @@ export default function LayoutEditorPage() {
     if (isProcessing || heicConverting) return;
 
     const rawDroppedFiles = Array.from(e.dataTransfer.files);
-    // A PDF dropped onto one specific surface card can only ever contribute
-    // one photo — each surface holds exactly one by design — so constrain
-    // the picker to single-select there rather than letting the customer
-    // pick more pages and having the surfaceKey branch below silently keep
-    // only the first (see the plan's "single-select mode" note).
-    const droppedFiles = await expandPdfPages(rawDroppedFiles, { maxSelectable: surfaceKey ? 1 : null });
+    // A PDF dropped onto one specific surface card can only contribute as many
+    // photos as that surface has print areas, so constrain the page picker to
+    // that many rather than letting the customer pick more and having the
+    // surfaceKey branch below silently discard the surplus (see the plan's
+    // "single-select mode" note).
+    const dropSurface = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey) : null;
+    const droppedFiles = await expandPdfPages(rawDroppedFiles, {
+      maxSelectable: surfaceKey ? surfaceFrameCount(dropSurface?.def) : null,
+    });
 
     if (droppedFiles.length > 0) {
       // ── Handle external files ──────────────────────────────────────────────
@@ -2137,14 +2141,16 @@ export default function LayoutEditorPage() {
       if (heicPresent) setHeicConverting(false);
       setUnsupportedWarning(warning);
       if (okFiles.length === 0) return;
-      const firstFile = okFiles[0];
 
       if (surfaceKey) {
-        // Multi-surface: update that specific surface's file
+        // Multi-surface: update that specific surface's files — as many as the
+        // surface has print areas, so a two-page spread takes two of the
+        // dropped photos instead of repeating the first one across both.
         const sIdx = surfaceStates.findIndex(s => s.key === surfaceKey);
         if (sIdx === -1) return;
-        
+
         const s = surfaceStates[sIdx];
+        const surfaceFiles = okFiles.slice(0, surfaceFrameCount(s.def));
         const surfaceLayout = {
           ...normalizedLayoutState?._raw,
           canvas: s.def.canvas,
@@ -2153,13 +2159,13 @@ export default function LayoutEditorPage() {
           maskOnExport: s.def.maskOnExport,
         };
         
-        const newCanvases = await generateCanvasesForLayout(surfaceLayout, [firstFile], s.globalFitMode);
-        setSurfaceStates(prev => prev.map((ps, pi) => 
-          pi === sIdx ? { ...ps, files: [firstFile], canvases: newCanvases } : ps
+        const newCanvases = await generateCanvasesForLayout(surfaceLayout, surfaceFiles, s.globalFitMode);
+        setSurfaceStates(prev => prev.map((ps, pi) =>
+          pi === sIdx ? { ...ps, files: surfaceFiles, canvases: newCanvases } : ps
         ));
-        
+
         if (surfaceKey === activeSurfaceKey) {
-          setFiles([firstFile]);
+          setFiles(surfaceFiles);
           setCanvases(newCanvases);
         }
       } else {
@@ -2200,13 +2206,16 @@ export default function LayoutEditorPage() {
       const sourceSurfaceIdx = surfaceStates.findIndex(s => s.key === source.surfaceKey);
 
       if (targetSurfaceIdx !== -1 && sourceSurfaceIdx !== -1) {
-        const targetFiles = [...surfaceStates[targetSurfaceIdx].files];
-        const sourceFiles = [...surfaceStates[sourceSurfaceIdx].files];
-
-        // Swap files
-        const temp = targetFiles[0];
-        targetFiles[0] = sourceFiles[0];
-        sourceFiles[0] = temp;
+        // Swap the surfaces' whole photo sets, not just slot 0 — a spread
+        // holds one photo per print area, and swapping only the first left
+        // the second behind on the original card. Each side is clamped to its
+        // OWN capacity: dropping a 2-page spread onto a 1-frame cover must not
+        // hand that cover two photos, which would spill it into a second
+        // canvas the surface has no page for.
+        const targetCap = surfaceFrameCount(surfaceStates[targetSurfaceIdx].def);
+        const sourceCap = surfaceFrameCount(surfaceStates[sourceSurfaceIdx].def);
+        const targetFiles = surfaceStates[sourceSurfaceIdx].files.slice(0, targetCap);
+        const sourceFiles = surfaceStates[targetSurfaceIdx].files.slice(0, sourceCap);
 
         // Regenerate canvases for both surfaces
         const updatedSurfaces = [...surfaceStates];
@@ -2290,9 +2299,11 @@ export default function LayoutEditorPage() {
     // is meant to APPEND onto whatever's already on the canvas, filling the
     // next empty frame slots and spilling into new canvases once the current
     // one is full — not replace canvas 1's photo with whatever was just
-    // picked. Multi-surface layouts are excluded: each surface holds exactly
-    // one photo (a distinct physical side), so there's no "next canvas" for
-    // it to append to — picking there still replaces that surface's photo.
+    // picked. Multi-surface layouts are excluded: a pick there re-deals the
+    // whole selection across the surfaces (one photo per print area, see
+    // allocateFilesToSurfaces) rather than appending onto a "next canvas",
+    // because each surface is a fixed physical side, not an extendable page
+    // run. Picking again therefore still REPLACES the whole product's photos.
     const allFiles = surfaceStates.length > 1 ? newlyPicked : [...files, ...newlyPicked];
 
     // Catch truncated / incomplete photos up-front. A file cut off during
@@ -2363,16 +2374,20 @@ export default function LayoutEditorPage() {
     if (surfaceStates.length > 1 && normalizedLayoutState) {
       setIsProcessing(true);
       setError(null);
-      const maxFiles = surfaceStates.length;
+      // Capacity is the sum of each surface's OWN frame count, not the number
+      // of surfaces: a book spread is ONE surface with TWO print areas, and
+      // handing it a single photo made the generator's modulo top the second
+      // area up with the same photo — the customer's picture printed twice.
+      const maxFiles = totalSurfaceCapacity(surfaceStates);
       if (allFiles.length > maxFiles) {
         setUploadWarning(`Only ${maxFiles} image${maxFiles !== 1 ? 's' : ''} were selected.`);
         setTimeout(() => setUploadWarning(null), 5000);
       }
-      const cappedFiles = allFiles.slice(0, maxFiles);
+      const perSurfaceFiles = allocateFilesToSurfaces(surfaceStates, allFiles.slice(0, maxFiles));
       const updatedSurfaces: SurfaceState[] = [];
       for (let idx = 0; idx < surfaceStates.length; idx++) {
         const s = surfaceStates[idx];
-        const surfaceFiles = idx < cappedFiles.length ? [cappedFiles[idx]] : [];
+        const surfaceFiles = perSurfaceFiles[idx];
         const surfaceLayout = {
           ...normalizedLayoutState._raw,
           canvas: s.def.canvas,
@@ -3282,7 +3297,13 @@ export default function LayoutEditorPage() {
   );
   if (!layout) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="text-center"><p className="text-slate-600 font-medium">Layout not found.</p></div></div>;
 
-  const totalUploadedCount = files.length > 0 ? files.length : surfaceStates.reduce((acc, s) => acc + s.files.length, 0);
+  // `files` mirrors only the ACTIVE surface, so on a multi-surface product it
+  // under-reports the product-wide total (a 4-photo book read as "2"). Sum the
+  // surfaces there; single-surface keeps reading `files` as before.
+  const surfaceFileTotal = surfaceStates.reduce((acc, s) => acc + s.files.length, 0);
+  const totalUploadedCount = surfaceStates.length > 1
+    ? surfaceFileTotal
+    : (files.length > 0 ? files.length : surfaceFileTotal);
 
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col">
@@ -3641,7 +3662,7 @@ export default function LayoutEditorPage() {
                     {totalUploadedCount > 0
                       ? `Add Photos | Currently uploaded (${totalUploadedCount})`
                       : surfaceStates.length > 1
-                        ? `Add Files | Multi-Surface: Add ${surfaceStates.length} photos`
+                        ? `Add Files | Multi-Surface: Add ${totalSurfaceCapacity(surfaceStates)} photos`
                         : 'Add Files'}
                   </span>
                 </p>
