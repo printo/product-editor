@@ -104,6 +104,23 @@ describe('uploadCalendarCellImage', () => {
     expect(result.rotation).toBeUndefined(); // autoOrient defaults to false
   });
 
+  it('forwards orderId to uploadFn so the server can resolve the owning order', async () => {
+    // Regression: uploadFn used to be called without orderId at all, so the
+    // chunked-upload /complete step had no way to tell the backend which
+    // order the file belonged to and every upload landed in the shared
+    // _no_order bucket — undiscoverable by per-order DPDP erasure.
+    const { opts, uploadFn } = setup({ orderId: 'ORDER-42' });
+    const file = makeFile();
+    await uploadCalendarCellImage(file, opts);
+    expect(uploadFn).toHaveBeenCalledWith(
+      file,
+      opts.apiBase,
+      opts.getAuthHeaders,
+      opts.onProgress,
+      'ORDER-42',
+    );
+  });
+
   it('runs upload + IDB-save in parallel', async () => {
     // Both functions await a release token; if the orchestrator awaited them
     // sequentially the second wouldn't start until the first finished. We

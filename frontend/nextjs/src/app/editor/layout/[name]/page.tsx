@@ -2894,6 +2894,7 @@ export default function LayoutEditorPage() {
         (completed, total) => {
           setRenderProgress({ current: Math.round((completed / total) * 60), total: 100 });
         },
+        orderId,
       );
 
       // 4. Build render payload: canvases → frames → upload_id + per-frame transforms
