@@ -56,3 +56,39 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=2, minute=0),  # daily at 02:00 UTC
     },
 }
+
+# ── Database connections across task boundaries ──────────────────────────────
+# Recycle stale/dead DB connections before and after every task, the way Django
+# does around an HTTP request.
+#
+# Without this, CONN_MAX_AGE does nothing in a worker. Django enforces that
+# setting from its request_started/request_finished signals, and Celery has no
+# requests — so a connection opened by the first task in a process stays checked
+# out for the life of that process, no matter how long it goes unused. Postgres
+# (or Docker's NAT) eventually drops the idle socket, and the next query on it
+# raises InterfaceError: connection already closed.
+#
+# HARDENING, not a fix for a known incident. This has not been observed biting
+# in production, and it is worth being precise because a confident story about
+# it breaking the nightly GC on 2026-08-14 turned out to be wrong — that sweep
+# ran and succeeded in 0.19s. `worker_max_tasks_per_child = 50` recycles the
+# process periodically, which is probably why the risk has stayed latent.
+#
+# The risk is nonetheless real and was unguarded: kill connection.connection and
+# the next query raises without these hooks, and succeeds with them.
+#
+# task_postrun matters as much as task_prerun: releasing the connection after a
+# task means an idle worker is not sitting on one waiting to go stale.
+from celery.signals import task_postrun, task_prerun  # noqa: E402
+
+
+@task_prerun.connect
+def _close_stale_db_connections_before_task(**_kwargs):
+    from django.db import close_old_connections
+    close_old_connections()
+
+
+@task_postrun.connect
+def _close_stale_db_connections_after_task(**_kwargs):
+    from django.db import close_old_connections
+    close_old_connections()

@@ -94,6 +94,19 @@ DATABASES = {
         "HOST": os.getenv("POSTGRES_HOST", "localhost"),
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
         "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "600")),  # 10-min persistent connections — keep low only if PgBouncer is in front
+        # Verify a pooled connection is alive before reusing it, instead of
+        # discovering it is dead by having the query raise.
+        #
+        # CONN_MAX_AGE alone does not cover Celery. Django enforces it from its
+        # request_started/request_finished signals, and a worker has no
+        # requests — so a connection there lives for the whole process, however
+        # long it sits idle, and Postgres or Docker eventually drops it.
+        #
+        # Hardening rather than a fix for an observed failure — see the
+        # task_prerun/task_postrun hooks in product_editor/celery.py, which are
+        # the other half, and the note there about a wrong diagnosis this
+        # guarded code was once credited with fixing.
+        "CONN_HEALTH_CHECKS": True,
         "OPTIONS": {
             "connect_timeout": 10,
         },

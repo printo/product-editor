@@ -160,6 +160,83 @@ def test_stats_with_non_json_types_still_serialise():
         assert gc_status.read_gc_status(now=NOW)["stats"]["count"] == 3
 
 
+# ── Failure recording ────────────────────────────────────────────────────────
+# These are the tests whose absence cost a week: a sweep that raised left no
+# trace, so a broken task and an unscheduled one looked identical.
+
+def test_failure_is_recorded_with_type_and_message():
+    with _TempStorage():
+        err = RuntimeError("server closed the connection unexpectedly")
+        assert gc_status.record_gc_failure(err, now=NOW) is True
+        status = gc_status.read_gc_status(now=NOW)
+        assert status["failing"] is True
+        assert status["last_failure_at"] == NOW.isoformat()
+        assert "RuntimeError" in status["last_error"]
+        assert "server closed the connection" in status["last_error"]
+
+
+def test_failure_with_no_prior_success_is_stale_and_failing():
+    with _TempStorage():
+        gc_status.record_gc_failure(ValueError("boom"), now=NOW)
+        status = gc_status.read_gc_status(now=NOW)
+        assert status["stale"] is True, "never-succeeded must still read stale"
+        assert status["failing"] is True
+        assert status["last_run_at"] is None
+        assert "has ever completed" in status["detail"]
+
+
+def test_success_after_failure_keeps_the_error_but_clears_failing():
+    # The operator needs to see "it succeeded now, but it broke at 02:00 with
+    # this" — overwriting the error would hide the nightly pattern.
+    with _TempStorage():
+        gc_status.record_gc_failure(RuntimeError("nightly breakage"), now=NOW - timedelta(hours=6))
+        gc_status.record_gc_run(SAMPLE_STATS, now=NOW)
+        status = gc_status.read_gc_status(now=NOW)
+        assert status["failing"] is False, "latest event was a success"
+        assert status["stale"] is False
+        assert "nightly breakage" in status["last_error"], "error history must survive"
+        assert status["last_failure_at"] is not None
+
+
+def test_failure_after_success_sets_failing_even_while_not_yet_stale():
+    # The exact production shape: succeeded manually this morning, then tonight's
+    # scheduled run breaks. Still inside the staleness window, so `stale` alone
+    # would say everything is fine.
+    with _TempStorage():
+        gc_status.record_gc_run(SAMPLE_STATS, now=NOW - timedelta(hours=2))
+        gc_status.record_gc_failure(RuntimeError("OperationalError"), now=NOW)
+        status = gc_status.read_gc_status(now=NOW)
+        assert status["stale"] is False
+        assert status["failing"] is True, "alerting on stale alone would miss this"
+
+
+def test_a_string_error_is_accepted():
+    with _TempStorage():
+        assert gc_status.record_gc_failure("plain message", now=NOW) is True
+        assert gc_status.read_gc_status(now=NOW)["last_error"] == "plain message"
+
+
+def test_long_error_is_truncated():
+    with _TempStorage():
+        gc_status.record_gc_failure(RuntimeError("x" * 5000), now=NOW)
+        assert len(gc_status.read_gc_status(now=NOW)["last_error"]) <= gc_status.MAX_ERROR_CHARS
+
+
+def test_failure_write_failure_returns_false_and_never_raises():
+    with _TempStorage():
+        settings.STORAGE_ROOT = "/proc/cannot-create-here"
+        assert gc_status.record_gc_failure(RuntimeError("boom"), now=NOW) is False
+
+
+def test_healthy_record_reports_not_failing_and_no_error():
+    with _TempStorage():
+        gc_status.record_gc_run(SAMPLE_STATS, now=NOW)
+        status = gc_status.read_gc_status(now=NOW)
+        assert status["failing"] is False
+        assert status["last_error"] is None
+        assert status["last_failure_at"] is None
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

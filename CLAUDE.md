@@ -387,9 +387,33 @@ Retry strategy: `self.retry()` with exponential backoff (2s → 4s → 8s), max 
 
 `services/gc_status.py` records each completed sweep (timestamp + counters) to `storage/gc_last_run.json`, atomically, and `CeleryMonitoringView` reads it back. A file under `STORAGE_ROOT` rather than a DB row because `./storage` is bind-mounted and therefore survives container recreation — the exact thing that lost the log evidence during that incident — and because it needs no migration. It is runtime state, not config: gitignored, unlike the other JSON files in that directory.
 
-`stale` is the field to alert on. It is True when no sweep has been recorded, when the record is unreadable, and when the last one is older than `GC_STALE_AFTER_HOURS` (default 36). Only successful runs are recorded, so a crashed sweep shows up as growing staleness. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
+**Alert on `stale` OR `failing`** — they answer different questions. `stale` means no *successful* sweep recently (never recorded, unreadable record, or older than `GC_STALE_AFTER_HOURS`, default 36). `failing` means the most recent *attempt* raised, with `last_error` saying how; a sweep can be failing while not yet stale.
+
+That second field exists because its absence is genuinely expensive. The first version recorded only successes, on the reasoning that a crash would surface as staleness. It does — but staleness cannot say *why*, and it reads identically to "never scheduled". On 2026-08-14 that ambiguity let a wrong diagnosis run for two days: with no failure record, "the sweep broke" and "the sweep was never dispatched" look the same from outside. **The answer was in the worker log the whole time** — and worker logs survive container recreation in Loki, so query `{container=~".*celery-worker.*"}` for the window *before* theorising. `api/tasks.py` now hooks `task_failure` for the sweep, which leaves retry semantics untouched. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
 
 The same endpoint carries a **live `disk` block** (`used_percent`, `free_gb`, `pressure` at >80%), read at request time rather than lifted from the last sweep's stats. That distinction is the point: `garbage_collector.stats.disk_usage_percent` is only as fresh as the last sweep, so at the moment it matters most — nothing sweeping — it is absent or stale. Production hit 89% unnoticed twice for that reason.
+
+### The GC schedule lags the expiry curve
+
+`garbage_collector_task` runs at 02:00 UTC — **07:30 IST, immediately before the daily expiry wave rather than after it.** Retention is 3 days and Printo's orders arrive during Indian business hours, so each day's exports expire at roughly the clock time they were created. Measured on 2026-08-14: the 02:00 sweep found **2** expired exports; by 08:17 there were **1298**, and disk had gone 82.1% → 93.3%.
+
+The sweep is healthy — it just systematically misses the cohort expiring shortly after it runs, which then waits a further 24 hours. **That is the sawtooth, not a broken GC.** Worth remembering before diagnosing disk growth as a GC failure: on 2026-08-14 that misreading produced two wrong root causes (a non-firing beat, then a stale DB connection) before anyone read the 02:00 log.
+
+The fix is scheduling, not code: sweeping every 6 hours (`crontab(minute=0, hour='*/6')`) tracks the curve instead of lagging it, and a no-op sweep costs 0.19s. Not yet changed — it alters production behaviour.
+
+### Celery and stale database connections
+
+`CONN_MAX_AGE` does nothing in a worker on its own. Django enforces it from its `request_started`/`request_finished` signals, and Celery has no requests — so a connection opened by a worker's first task stays checked out for the life of that process, however long it idles, until Postgres or Docker drops the socket. The next query then raises `InterfaceError: connection already closed`.
+
+**This has not been observed biting in production** — treat the hooks below as hardening, not a fix for a known incident. The 2026-08-14 nightly sweep ran and succeeded in 0.19s; a plausible-sounding story about it dying on a stale connection turned out to be wrong when the Loki logs were finally read. `worker_max_tasks_per_child = 50` recycles the process periodically, which is probably why the risk has stayed latent.
+
+The risk is nonetheless real and was unguarded, verified both directions: kill `connection.connection`, and the next query raises `InterfaceError: connection already closed` without the hook and succeeds with it.
+
+Two halves, both required:
+- `product_editor/celery.py` connects `close_old_connections` to **`task_prerun` and `task_postrun`**. Postrun matters as much as prerun: it stops an idle worker sitting on a connection waiting to go stale.
+- `settings.py` sets **`CONN_HEALTH_CHECKS: True`** so Django validates a pooled connection before reuse rather than discovering it is dead via the query.
+
+Don't remove either when touching Celery config. The pinning test is `services/tests/test_gc_status.py`, plus a manual check that survives review: kill `connection.connection` and confirm the next query still works.
 
 ### Orphaned export directories
 
