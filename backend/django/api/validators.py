@@ -110,6 +110,45 @@ _BANNED_SURFACE_OVERRIDE_FIELDS = frozenset({
 })
 
 
+def _check_overlays(overlay_list, where: str) -> None:
+    """
+    Overlays (template + per-surface/per-page) use PERCENT coords (0-100),
+    not the 0..1 fractions frames/calendars use. An ops-authored overlay
+    written in fractions would silently render collapsed into the top-left
+    corner of every print — the exact silent-wrong-print class this
+    codebase guards against. Shared by the calendar and book validators.
+    """
+    if not isinstance(overlay_list, list):
+        return
+    for i, o in enumerate(overlay_list):
+        if not isinstance(o, dict):
+            continue
+        fields = {}
+        for k in ('x', 'y', 'width', 'height'):
+            if o.get(k) is None:
+                continue
+            try:
+                fields[k] = float(o[k])
+            except (ValueError, TypeError):
+                raise ValidationError(
+                    f"{where}[{i}].{k} = {o[k]!r} is not a number — overlay "
+                    f"coordinates must be numeric PERCENT of the canvas (0-100)."
+                )
+        for k, v in fields.items():
+            if not (0 <= v <= 100):
+                raise ValidationError(
+                    f"{where}[{i}].{k} = {v} is out of range — overlay "
+                    f"coordinates are PERCENT of the canvas (0-100)."
+                )
+        sized = {k: v for k, v in fields.items() if k in ('width', 'height')}
+        if sized and all(0 < v <= 1 for v in fields.values() if v):
+            raise ValidationError(
+                f"{where}[{i}] looks like it uses 0..1 fractions "
+                f"({fields}) — overlay coordinates are PERCENT of the "
+                f"canvas (0-100), unlike frames/calendars."
+            )
+
+
 def validate_calendar_layout(layout_data: dict) -> None:
     """
     Validate the calendar-specific fields on a layout JSON.
@@ -354,42 +393,7 @@ def validate_calendar_layout(layout_data: dict) -> None:
                         )
 
     # ── Overlays (template + per-month) use PERCENT coords, not fractions ──
-    # Unlike frames/calendars (0..1 fractions), overlays follow the editor's
-    # Overlay contract: x/y/width/height are percentages of the canvas
-    # (0-100). An ops-authored overlay written in fractions would silently
-    # render collapsed into the top-left corner of every print — the exact
-    # silent-wrong-print class this codebase guards against.
-    def _check_overlays(overlay_list, where: str) -> None:
-        if not isinstance(overlay_list, list):
-            return
-        for i, o in enumerate(overlay_list):
-            if not isinstance(o, dict):
-                continue
-            fields = {}
-            for k in ('x', 'y', 'width', 'height'):
-                if o.get(k) is None:
-                    continue
-                try:
-                    fields[k] = float(o[k])
-                except (ValueError, TypeError):
-                    raise ValidationError(
-                        f"{where}[{i}].{k} = {o[k]!r} is not a number — overlay "
-                        f"coordinates must be numeric PERCENT of the canvas (0-100)."
-                    )
-            for k, v in fields.items():
-                if not (0 <= v <= 100):
-                    raise ValidationError(
-                        f"{where}[{i}].{k} = {v} is out of range — overlay "
-                        f"coordinates are PERCENT of the canvas (0-100)."
-                    )
-            sized = {k: v for k, v in fields.items() if k in ('width', 'height')}
-            if sized and all(0 < v <= 1 for v in fields.values() if v):
-                raise ValidationError(
-                    f"{where}[{i}] looks like it uses 0..1 fractions "
-                    f"({fields}) — overlay coordinates are PERCENT of the "
-                    f"canvas (0-100), unlike frames/calendars."
-                )
-
+    # See the module-level _check_overlays() docstring above.
     _check_overlays(layout_data.get('overlays'), "overlays")
     if isinstance(overrides, dict):
         for surface_key, ovr in overrides.items():
@@ -397,3 +401,153 @@ def validate_calendar_layout(layout_data: dict) -> None:
                 _check_overlays(
                     ovr.get('overlays'), f"surfaceOverrides['{surface_key}'].overlays"
                 )
+
+
+# ─── Book product layout validator (BOOK_LAYOUT_PRD.md §5, D1/D2/D2a/D5/D7) ──
+
+_BOOK_ROLE_TEMPLATE_KEYS = ('cover', 'innerPage', 'backCover')
+
+
+def _validate_canvas_block(canvas, where: str) -> None:
+    if not isinstance(canvas, dict):
+        raise ValidationError(f"{where}.canvas must be an object")
+    for dim in ('width', 'height'):
+        v = canvas.get(dim)
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+            raise ValidationError(f"{where}.canvas.{dim} must be a positive number")
+
+
+def validate_book_layout(layout_data: dict) -> None:
+    """
+    Validate the book-specific fields on a layout JSON.
+
+    Invoked from LayoutManagementView.post when productType == 'book'.
+    Raises ValidationError with a specific message on first failure.
+    Returns None on success.
+
+    Enforces (BOOK_LAYOUT_PRD.md):
+      D2   book.pageCount is a well-formed {min, max, step, default} block,
+           min/max on the step grid, step ≥ 1.
+      D2a  Exactly the cover + innerPage authored templates are required;
+           backCover may be omitted (falls back to the cover's canvas at
+           materialize time) but if present must be well-formed.
+      D7   Every present role template carries its OWN canvas with a
+           positive width/height — the whole reason a role can differ in
+           size from the others.
+      D5   book.gutterMm, when present, is a non-negative number.
+      —    pageOverrides (the escape hatch) keys are page-index strings
+           whose int value is ≥ 1; frame/overlay shape inside an override
+           follows the same bounds checks as the calendar's surfaceOverrides.
+    """
+    if not isinstance(layout_data, dict):
+        raise ValidationError("layout_data must be a dict")
+
+    book = layout_data.get('book')
+    if not isinstance(book, dict):
+        raise ValidationError(
+            "book layouts must include a 'book' object with pageCount, cover "
+            "and innerPage templates"
+        )
+
+    # ── pageCount (D2) ──────────────────────────────────────────────────
+    page_count = book.get('pageCount')
+    if not isinstance(page_count, dict):
+        raise ValidationError("book.pageCount must be an object with min/max/step/default")
+    lo = page_count.get('min')
+    hi = page_count.get('max')
+    step = page_count.get('step')
+    default = page_count.get('default')
+    for name, v in (('min', lo), ('max', hi), ('step', step)):
+        if not isinstance(v, int) or isinstance(v, bool) or v < 1:
+            raise ValidationError(f"book.pageCount.{name} must be a positive integer")
+    if hi < lo:
+        raise ValidationError("book.pageCount.max must be ≥ book.pageCount.min")
+    if (hi - lo) % step:
+        raise ValidationError(
+            f"book.pageCount.max ({hi}) must be reachable from min ({lo}) in "
+            f"steps of {step} — books step in multiples of the signature size"
+        )
+    if default is not None:
+        if not isinstance(default, int) or isinstance(default, bool):
+            raise ValidationError("book.pageCount.default must be an integer")
+        if not (lo <= default <= hi) or (default - lo) % step:
+            raise ValidationError(
+                f"book.pageCount.default ({default}) must be within "
+                f"[{lo}, {hi}] and on the step-{step} grid"
+            )
+
+    # ── Role templates (D2a / D7) ───────────────────────────────────────
+    for key in ('cover', 'innerPage'):
+        template = book.get(key)
+        if not isinstance(template, dict):
+            raise ValidationError(f"book.{key} is required and must be an object")
+        _validate_canvas_block(template.get('canvas'), f"book.{key}")
+        frames = template.get('frames')
+        if frames is not None and not isinstance(frames, list):
+            raise ValidationError(f"book.{key}.frames must be an array")
+
+    back_cover = book.get('backCover')
+    if back_cover is not None:
+        if not isinstance(back_cover, dict):
+            raise ValidationError("book.backCover must be an object")
+        # backCover may omit `canvas` entirely to inherit the front cover's
+        # (materialize_pages falls back), but if present it must be valid —
+        # a half-specified canvas (e.g. width only) is worse than none.
+        if 'canvas' in back_cover:
+            _validate_canvas_block(back_cover.get('canvas'), "book.backCover")
+        frames = back_cover.get('frames')
+        if frames is not None and not isinstance(frames, list):
+            raise ValidationError("book.backCover.frames must be an array")
+
+    # ── gutterMm / bleedMm / paperThicknessMm (D5) ──────────────────────
+    for field in ('gutterMm', 'bleedMm', 'paperThicknessMm', 'coverThicknessMm'):
+        v = book.get(field)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0):
+            raise ValidationError(f"book.{field} must be a non-negative number")
+
+    # ── pageOverrides (ops escape hatch) ────────────────────────────────
+    overrides = layout_data.get('pageOverrides')
+    if overrides is not None:
+        if not isinstance(overrides, dict):
+            raise ValidationError("pageOverrides must be an object keyed by page index")
+        template_frame_count = len(book.get('innerPage', {}).get('frames') or [])
+        for page_key, ovr in overrides.items():
+            try:
+                idx = int(page_key)
+            except (TypeError, ValueError):
+                raise ValidationError(f"pageOverrides key '{page_key}' must be a page index (integer string)")
+            if idx < 1:
+                raise ValidationError(f"pageOverrides key '{page_key}' must be ≥ 1 (page indices are 1-based)")
+            if not isinstance(ovr, dict):
+                raise ValidationError(f"pageOverrides['{page_key}'] must be an object")
+            ovr_frames = ovr.get('frames')
+            if isinstance(ovr_frames, list):
+                if template_frame_count and len(ovr_frames) != template_frame_count:
+                    raise ValidationError(
+                        f"pageOverrides['{page_key}'].frames must contain exactly "
+                        f"{template_frame_count} frame(s) to match book.innerPage — "
+                        "per-page overrides may reposition frames but not change their count."
+                    )
+                for i, f in enumerate(ovr_frames):
+                    if not isinstance(f, dict):
+                        continue
+                    fx = float(f.get('x') or 0)
+                    fy = float(f.get('y') or 0)
+                    fw = float(f.get('width') or 0)
+                    fh = float(f.get('height') or 0)
+                    if fx < 0 or fy < 0 or fw <= 0 or fh <= 0:
+                        raise ValidationError(
+                            f"pageOverrides['{page_key}'].frames[{i}] must have "
+                            "positive dimensions and non-negative origin."
+                        )
+                    if fx + fw > 1.0 + 1e-6 or fy + fh > 1.0 + 1e-6:
+                        raise ValidationError(
+                            f"pageOverrides['{page_key}'].frames[{i}] extends past "
+                            "the canvas edge."
+                        )
+            _check_overlays(ovr.get('overlays'), f"pageOverrides['{page_key}'].overlays")
+
+    _check_overlays(book.get('innerPage', {}).get('overlays'), "book.innerPage.overlays")
+    _check_overlays(book.get('cover', {}).get('overlays'), "book.cover.overlays")
+    if isinstance(back_cover, dict):
+        _check_overlays(back_cover.get('overlays'), "book.backCover.overlays")

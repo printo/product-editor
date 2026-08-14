@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:parity": "jest --testPathPattern=calendar.parity"
+    "test:parity": "jest --testPathPattern=\"calendar.parity|book-layout.parity\""
   },
   "dependencies": {
     "@grafana/faro-react": "^1.11.0",

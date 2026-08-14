@@ -1318,9 +1318,16 @@ class LayoutManagementView(APIView):
             if isinstance(layout_data, str):
                 layout_data = json.loads(layout_data)
             
-            # Ensure required fields for LayoutEngine exist
+            # Ensure required fields for LayoutEngine exist. Book layouts (D2a)
+            # carry neither a root `canvas` nor a `surfaces[]` list — their
+            # per-role canvases live under `book.cover` / `book.innerPage` /
+            # `book.backCover` (D7) and are checked by validate_book_layout
+            # below instead.
+            is_book = layout_data.get('productType') == 'book'
             is_multi_surface = layout_data.get('type') == 'product' and isinstance(layout_data.get('surfaces'), list)
-            if is_multi_surface:
+            if is_book:
+                pass
+            elif is_multi_surface:
                 for idx, surface in enumerate(layout_data['surfaces']):
                     s_canvas = surface.get('canvas', {})
                     if 'width' not in s_canvas or 'height' not in s_canvas:
@@ -1342,6 +1349,18 @@ class LayoutManagementView(APIView):
                 except _DjangoValidationError as exc:
                     # Surface the first failure message exactly as the validator
                     # built it — already specific and actionable.
+                    msg = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
+                    return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Book product type — enforce the two-template contract (D2a),
+            # per-role canvas presence (D7), and pageCount/gutter shape.
+            # BOOK_LAYOUT_PRD.md §5.
+            if is_book:
+                from api.validators import validate_book_layout
+                from django.core.exceptions import ValidationError as _DjangoValidationError
+                try:
+                    validate_book_layout(layout_data)
+                except _DjangoValidationError as exc:
                     msg = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
                     return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
             
