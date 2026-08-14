@@ -13,14 +13,23 @@ export const LayoutSVG = ({ layout, className = "w-full h-full", surfaceKey, mas
   if (!layout) return null;
 
   // Handle multi-surface vs single surface layouts
-  const activeSurface = surfaceKey && layout.surfaces 
+  const activeSurface = surfaceKey && layout.surfaces
     ? layout.surfaces.find((s: any) => s.key === surfaceKey)
     : layout;
 
-  const canvas = activeSurface.canvas || layout.canvas || { width: 1200, height: 1800, widthMm: 101.6, heightMm: 152.4 };
-  const frames = activeSurface.frames || layout.frames || [];
-  const borderRadiusMm = layout.borderRadiusMm || 0; 
-  const maskUrl = maskUrlProp || activeSurface.maskUrl || layout.maskUrl;
+  // Book layouts (productType === 'book') carry no root-level canvas/frames —
+  // by design (BOOK_LAYOUT_PRD.md D7), each role authors its own canvas under
+  // `book.cover` / `book.innerPage` / `book.backCover`. Without this, every
+  // book fell through to the generic placeholder default below. The front
+  // cover is the representative thumbnail — same as the editor's card grid,
+  // which always shows the cover first.
+  const bookCover = layout.productType === 'book' ? layout.book?.cover : undefined;
+
+  const canvas = activeSurface?.canvas || layout.canvas || bookCover?.canvas
+    || { width: 1200, height: 1800, widthMm: 101.6, heightMm: 152.4 };
+  const frames = activeSurface?.frames || layout.frames || bookCover?.frames || [];
+  const borderRadiusMm = layout.borderRadiusMm || 0;
+  const maskUrl = maskUrlProp || activeSurface?.maskUrl || layout.maskUrl;
 
   const viewBox = `0 0 ${canvas.width} ${canvas.height}`;
   const dpi = canvas.dpi || 300;
