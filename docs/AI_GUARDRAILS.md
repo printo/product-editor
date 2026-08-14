@@ -2,13 +2,20 @@
 
 Development rules and safety guidelines for AI agents working on this project.
 
+**Last verified against the code: 2026-08-14** (`main` @ `79104d0`, migration
+`0014`). This file is the short list of things that have actually bitten us;
+[`../CLAUDE.md`](../CLAUDE.md) is the full architectural reference and wins on
+any disagreement. If you correct a rule here, check whether CLAUDE.md says the
+same thing in its own words.
+
 ---
 
 ## General Rules
 
-- **No AI Processing**: Do not re-introduce background removal, product detection, or other AI-based image processing features unless explicitly requested.
-- **Maintain multi-surface support**: Ensure changes do not break the ability to handle layouts with multiple surfaces (e.g., front/back).
-- **TypeScript Strictness**: Always fix linter errors and maintain type safety in the frontend. Unclosed template literals in JSX `className` strings cause cascade errors — check every `` className={`...`} `` for a matching closing backtick.
+- **No AI image *manipulation***: Do not re-introduce background removal, product detection, or generative editing unless explicitly requested. The one sanctioned ML feature is **auto-orientation** (v1.11) — MediaPipe Pose Landmarker at `POST /api/orientation/detect`, which only *reads* the photo to return a rotation and persists nothing. Inference that changes the customer's pixels is still out of scope.
+- **Maintain multi-surface support**: Ensure changes do not break the ability to handle layouts with multiple surfaces (e.g., front/back). This now includes *materialized* surfaces — a calendar layout is one authored template that `services/calendar_layout.py::materialize_surfaces` expands into 12 month-surfaces at render time — so a change to surface handling has to be checked against that path as well as plain front/back layouts.
+- **TypeScript Strictness**: `tsconfig.json` is in full strict mode (v1.9). Always fix linter errors and maintain type safety in the frontend. Unclosed template literals in JSX `className` strings cause cascade errors — check every `` className={`...`} `` for a matching closing backtick. Run `pnpm typecheck` before pushing.
+- **No direct DOM manipulation**: drive UI through React state/props/refs. No `innerHTML`, no `document.getElementById` to build or mutate UI. Exempt: off-screen canvases for image work, Fabric.js roots held via `useRef`, transient `<a>` for downloads, `window`/`document` listeners in an effect with cleanup.
 
 ---
 
@@ -16,7 +23,7 @@ Development rules and safety guidelines for AI agents working on this project.
 
 - **Path Safety**: Always use `_is_path_safe` or equivalent validation when handling file paths from requests to prevent path traversal.
 - **Authentication**: All new endpoints must require appropriate permissions (`IsAuthenticatedWithAPIKey`, `is_ops_team` for ops endpoints).
-- **Resource Management**: Large image processing tasks must run in Celery workers, never in a Gunicorn thread. Workers are memory-limited to 512 MB; concurrency is fixed at 2 per container (~256 MB per task slot). Do not raise concurrency without raising the memory limit proportionally.
+- **Resource Management**: Large image processing tasks must run in Celery workers, never in a Gunicorn thread. Workers are memory-limited to **2 GB per replica** and concurrency is **auto-detected from CPU count** (no `CELERY_CONCURRENCY` in compose) — 2 render slots on the current 2-core prod box. Scale out with `docker compose up -d --scale celery-worker-standard=4` rather than raising per-replica concurrency; if you do cap it via `CELERY_CONCURRENCY`, keep the memory-per-slot headroom in mind (Pillow compositing is the consumer). The one deliberate exception to "never in a Gunicorn thread" is orientation inference (~30–150 ms) — see the auto-orientation note above for why it is inline.
 
 ### Async Task Rules (Celery)
 
@@ -30,8 +37,12 @@ Development rules and safety guidelines for AI agents working on this project.
 - **Redis failure on dispatch must fail the job immediately** — the `on_commit` handler catches the dispatch exception, sets `RenderJob.status = 'failed'`, and records the error. The job must never be left silently in `queued`.
 - **`celery.py` must not hardcode broker or result-backend URLs** — they come exclusively from `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` Django settings.
 - **`celery-beat` must not run DB migrations** — the entrypoint branches for worker/beat exit before the migration block. Only the Gunicorn/backend container runs `migrate --noinput`.
-- **Task routing** — `render_canvas_task` routes to `standard`. `notify_caller_webhook_task` routes to `standard`. `garbage_collector_task` routes to `standard`. The `priority` queue exists in `celery.py` for future express workloads but is currently dormant. Never route tasks implicitly — keep explicit routes.
-- **GC skips manual-review orders** — `garbage_collector_task` must check `if any(oid in path_str for oid in manual_review_order_ids)` before deleting any file. Files tied to a `requires_manual_review=True` order must never be auto-deleted.
+- **Task routing** — all three tasks (`render_canvas_task`, `notify_caller_webhook_task`, `garbage_collector_task`) route to `standard`. Never route tasks implicitly — keep explicit routes.
+- **`priority` has no producer, and the worker drains it anyway.** There is exactly one worker service (`celery-worker-standard`), consuming `-Q priority,standard`. The second worker that once served the CMYK express path was removed in Aug 2026 — nothing had routed to `priority` since v1.8, so the container held a full Django + Pillow + MediaPipe process resident having never executed a task. The surviving worker listens to both queues **as a safety net**: `apply_async(queue='priority')` is still documented as an opt-in, and with no consumer such a task would sit in Redis forever — the render would silently never happen, with no error anywhere. **This is not a QoS tier.** Celery round-robins across `-Q` queues, so naming `priority` first buys no precedence. Genuine express handling needs a second worker *plus* a dispatch site that routes to it; do not assume the current config provides it.
+- **GC skips manual-review orders** — `garbage_collector_task` must call `_is_manual_review_path(path_str, manual_review_order_ids)` before deleting any file. Files tied to a `requires_manual_review=True` order must never be auto-deleted.
+- **The GC must stay time-limited** — `garbage_collector_task` carries `soft_time_limit=3300` / `time_limit=3600` so a hung sweep can never permanently occupy a worker slot. Don't remove them.
+- **Poison-pill guard counts only genuine broker redeliveries.** `render_canvas_task` aborts after 3 crash-redeliveries, detected via `delivery_info.redelivered` — a worker crash under `acks_late` redelivers the SAME message (`redelivered=True`, retries frozen), whereas `self.retry()` publishes a NEW one (`redelivered=False`, retries bumped). Never conflate the two, or normal retries will be mistaken for a poison pill and abort a healthy job.
+- **Never `requests.post` a customer `callback_url` directly** — always go through `services/url_safety.py::post_webhook_safely`, which pins the socket to the pre-validated IP (so DNS can't rebind between validation and send) and sets `allow_redirects=False`.
 
 ### Data Integrity
 
@@ -47,12 +58,17 @@ Development rules and safety guidelines for AI agents working on this project.
 - **`isExport` flag**: Frame outlines and preview-only overlays are gated by `!isExport`. Never render these elements in the download path. Verify both `FabricEditor.tsx` and `fabric-renderer.ts` respect this flag consistently.
 - **Responsive Design**: Ensure the editor remains functional on various screen sizes using the glassmorphism aesthetic established in the project.
 - **Qty enforcement**: The `?qty=N` URL param is the source of truth for required image count. Under-upload shows auto-fill / pick-to-fill prompts; over-upload shows a confirmation modal. Do not remove or weaken this gate.
-- **CMYK warning**: ICC profile detection warnings are shown before checkout, not after. Do not move them post-checkout.
+- **"Add Files" appends, never replaces**: a native `<input type=file>` selection is not cumulative — each pick contains only that pick's files. `handleFileChange` must merge onto the existing selection. Feeding the raw pick into `setFiles()` wipes every earlier canvas (a live bug until PR #24). Multi-surface layouts are excluded from the merge — each surface holds exactly one photo.
+- **Low-res warning must stay non-blocking**: `src/lib/dpi-utils.ts` estimates effective print DPI (`DPI_WARN=150` / `DPI_CRITICAL=100`, strict `<`). It mirrors the placement maths in `fabric-renderer.ts` and `engine.py` exactly — **if you change placement maths in either renderer, update `dpi-utils.ts` too**, or the warning lies. Card pills and the pre-submit modal notice warn and proceed; they never block submit.
+- **No CMYK / ICC soft-proof warnings**: the RGB→CMYK→RGB pipeline was removed entirely in v1.8 (`layout_engine/cmyk.py`, `icc_profiles/`, `_generate_soft_proof_for_surface`, and the `CanvasData.soft_proof` field all deleted). Output is PNG (default) or PDF. Do not re-add a colour-space warning to the checkout flow — colour is handled invisibly by `services/image_loader.py`, which colour-manages every source photo ICC→sRGB at load time and tags output PNGs with an explicit sRGB profile. **Never call `Image.open(...).convert("RGBA")` directly on a customer photo** — it silently discards the embedded profile and shifts colours in print.
 
 ---
 
 ## Data Consistency
 
 - Layout JSON files in `storage/layouts` must follow the established schema (canvas dimensions in mm/px, frame coordinates, DPI).
+- **A layout's identifier is its filename stem**, never the `name` field inside the JSON. `ListLayoutsView` and `LayoutManagementView` both overwrite `data["name"]` with the filename for exactly this reason. When the two diverged in case (`classic_A4.json` carrying `"name": "classic_a4"`), the layout became unopenable and undeletable **on production Linux only** — the dev Mac's filesystem is case-insensitive. Assume prod is stricter than your machine.
 - `metadata` in layouts must remain an object or array as expected by the management views.
-- Never add a new field to `CanvasData` without a corresponding migration. Current latest: `0007_canvasdata_callback_url`.
+- Never add a new field to `CanvasData` without a corresponding migration. Current latest: **`0014_audit_trail`**. Run migrations only from the `backend` (Gunicorn) container — never from a worker or beat container.
+- **Don't cross the `editor_state` / `render_state` streams** (post-`0008`): `editor_state` is frontend-owned, written ONLY by `CanvasStateView` (autosave). `render_state` is pipeline-owned, written ONLY by `EditorRenderView` at submit. They were one field, and the two writers clobbered each other — submit wiped the customer's autosaved design, and a post-submit autosave could strip a queued job's payload.
+- **`CanvasStateView.put` must keep `image_paths` out of `update_or_create`'s `defaults`.** Writing `image_paths or []` there blanked recorded paths every 2 s, which is what made DPDP erasure report `files_deleted: 0` while photos stayed on disk (migration `0011`). The column carries a model-level `default=list` (`0013`) so INSERT still works — a model default applies on INSERT only, never UPDATE.

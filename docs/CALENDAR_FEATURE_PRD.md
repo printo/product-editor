@@ -1,8 +1,33 @@
 # PRD — Calendar Feature for Product Editor
 
-**Status:** Proposal · **Date:** May 14, 2026 · **Owner:** Kanna · **Target:** v1.12 (foundation) → v1.13 (calendar) · **Estimated effort:** ~17.5 engineer-days end-to-end (after design-review additions)
+**Status:** ✅ **SHIPPED** — foundation in v1.12, calendar in v1.13 · **Written:** May 14, 2026 · **Owner:** Kanna · **Estimated effort:** ~17.5 engineer-days end-to-end (after design-review additions)
 
-> **Visual mockup:** [`mockups/calendar-feature.html`](mockups/calendar-feature.html) — interactive HTML mockup of all three theme presets, the cell-edit popover, and the holiday auto-populate flow for `en-IN`. Opens in any browser, no build step. Useful for visual review during PRD iteration.
+> **This is now a historical design document, retained for the *why*.** The
+> requirements below were implemented; where this PRD and the code disagree, the
+> code is right. For what actually shipped and how to work on it, read the
+> **"Calendar product type (v1.13)"** section of [`../CLAUDE.md`](../CLAUDE.md) —
+> it lists the live modules, the render path, the storage layout, and the
+> customer-facing fail-safes. Storage-migration notes:
+> [`../backend/django/services/CALENDAR_S3_READINESS.md`](../backend/django/services/CALENDAR_S3_READINESS.md).
+>
+> Two things shipped **differently** from the proposal below and the difference
+> matters:
+> - **Per-day entries are one flat product-wide `{ iso_date: [CellOverride] }`
+>   map**, not the 12-slot `cellsPerCanvas` array this document describes.
+>   Entries anchor to globally-unique ISO dates so photo-canvas count changes and
+>   English↔Financial flips can never lose or misplace them. Legacy 12-slot
+>   arrays are still *read* on restore for backward compatibility.
+> - **Photo → month mapping is capped at 12.** The frontend caps photo canvases
+>   at 12 and the engine renders exactly 12 outputs, month *i* compositing photo
+>   canvas *(i mod N)* — so 1 photo cycles to all 12 months and 12 photos map
+>   one-per-month. Upload order therefore matters. (An earlier build produced
+>   12·N files in the ZIP.)
+>
+> The interactive HTML mockup that used to sit beside this file was deleted on
+> 2026-08-14 — it existed for visual review during PRD iteration, and the real
+> UI (`CalendarProductPreview` / `CalendarEditPanel` / `CalendarLayoutEditor`)
+> has superseded it. Recover it from git history if you ever want it:
+> `git log --diff-filter=D -- docs/calendar-feature.html`.
 
 ---
 

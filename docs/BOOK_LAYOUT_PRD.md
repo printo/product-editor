@@ -1,6 +1,6 @@
 # PRD — Book / Photobook Layout Creator
 
-**Status:** Draft, not scheduled. Written 2026-07-26 so the design decisions are captured while the calendar precedent is fresh.
+**Status:** 🔵 **Draft, not scheduled — nothing built.** Written 2026-07-26 so the design decisions are captured while the calendar precedent is fresh. Re-verified 2026-08-14 against `main` @ `79104d0`: no `productType: "book"` exists anywhere in the frontend types or the backend services, and the §4 design decisions (D1–D6) are all still open. The `API_SURFACE_SEPARATION_PRD.md` cleanup this is meant to land on top of has also not started, so §5.4's touch list is unchanged.
 **Author:** Kanna Perumal (with Claude Code)
 **Related:** [`CALENDAR_FEATURE_PRD.md`](CALENDAR_FEATURE_PRD.md) — the calendar product is the closest precedent and this PRD deliberately mirrors its architecture. [`API_SURFACE_SEPARATION_PRD.md`](API_SURFACE_SEPARATION_PRD.md) — the render-submission cleanup this feature should land on top of, not around.
 

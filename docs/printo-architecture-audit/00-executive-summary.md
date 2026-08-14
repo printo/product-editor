@@ -1,6 +1,23 @@
 # Executive Summary
 
-**Audience:** Manish (final approver), CEO/Leadership · **Date:** May 6, 2026 · **Status:** Draft v1
+**Audience:** Manish (final approver), CEO/Leadership · **Date:** May 6, 2026 · **Status:** Draft v1 — **not revised since**
+
+> **Scope note (added 2026-08-14).** This 12-part audit covers the **wider Printo
+> estate** — the Flask storefront, Printose, the PHP Estimator at `cs.printo.in`,
+> PIA — and only touches Product Editor in passing. It lives in this repo for
+> convenience, not because it describes this codebase.
+>
+> It therefore **cannot be re-verified from this checkout**: those systems aren't
+> here. Treat every claim about them as a May 2026 observation, and re-confirm
+> against the actual system before acting. The Product Editor references are
+> pinned at v1.10 and are simply out of date — the product is at v1.13 and has
+> since gained a calendar product type, server-side overlay rendering, colour
+> management, an API audit trail, and split download URLs. None of that changes
+> the audit's conclusions, which are about the *other* four systems.
+>
+> The recommendation below (extract one bounded context behind a gateway, run it
+> dual-mode, migrate the storefront over 12–18 months) has **not** been actioned
+> as far as this repo can tell.
 
 ## TL;DR
 

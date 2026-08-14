@@ -2,7 +2,7 @@
 
 **Audience:** the team owning [printo.in](https://printo.in)'s backend / storefront. **Scope:** receive the signed webhook fired by the Product Editor when a customer's render completes, then fetch the rendered ZIP and attach it to the customer's order.
 
-**Status:** as of Aug 13, 2026 — adds `print_download_url` / `mock_download_url` / `uploads_download_url` to the webhook payload. `download_url` is unchanged and still supported. Source-of-truth: `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py). If the contract below disagrees with that task, the task wins.
+**Status:** as of Aug 13, 2026 — adds `print_download_url` / `mock_download_url` / `uploads_download_url` to the webhook payload. `download_url` is unchanged and still supported. Source-of-truth: `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](../backend/django/api/tasks.py). If the contract below disagrees with that task, the task wins.
 
 This document is a complete drop-in implementation. Pick the handler that matches your stack (Node/TypeScript or Python/Django shown), wire the route, set the env vars, and you're done.
 
@@ -83,7 +83,7 @@ over the same rendered files.
 }
 ```
 
-**Expected response from your handler:** `200 OK` (or any 2xx). Anything else is treated as a delivery failure — Product Editor retries up to **6 attempts total** (1 initial + 5 retries) with exponential backoff `2^n` seconds: 1, 2, 4, 8, 16 s. Per `notify_caller_webhook_task` `max_retries=5` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py).
+**Expected response from your handler:** `200 OK` (or any 2xx). Anything else is treated as a delivery failure — Product Editor retries up to **6 attempts total** (1 initial + 5 retries) with exponential backoff `2^n` seconds: 1, 2, 4, 8, 16 s. Per `notify_caller_webhook_task` `max_retries=5` in [`backend/django/api/tasks.py`](../backend/django/api/tasks.py).
 
 ### ZIP fetch — `GET <any of the four *_download_url values>`
 
@@ -478,7 +478,7 @@ This is purely for the storefront's **UX** ("your design is being prepared") —
 
 ## Reference
 
-- Webhook fired by `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](backend/django/api/tasks.py). Task config: `max_retries=5`, retry delay `2 ** retry_number` seconds.
+- Webhook fired by `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](../backend/django/api/tasks.py). Task config: `max_retries=5`, retry delay `2 ** retry_number` seconds.
 - Payload shape constructed in the same file (`webhook_payload = {...}`). Keep this doc in sync if the task changes.
 - Embed-session creation: see `EmbedSessionView` in `backend/django/api/views.py`.
 - ZIP download endpoint: `RenderJobDownloadView` in the same file. Streams via `StreamingHttpResponse`; safe for 500 MB+ payloads.
