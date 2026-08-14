@@ -40,23 +40,17 @@ graphify explain "render_canvas_task"
 graphify explain "CalendarState"
 ```
 
-The graph covers 247 code files plus the curated doc nodes — 2,215 nodes, 3,844 edges, 182 communities (rebuilt 2026-07-26 from commit `e584f6d`; includes the calendar product code, the caption-placement modules, the PR #24 header/brand components, and the `docs/printo-architecture-audit` set). Full stats and community listing: `graphify-out/GRAPH_REPORT.md`, whose "Graph Freshness" block records the commit it was built from — compare against `git rev-parse HEAD` to check staleness.
+The graph covers 321 source files (274 code + 36 docs + 11 images) — **5,282 nodes, 17,271 edges, 212 communities** (rebuilt 2026-08-14 from `main` @ `69f7a5a`; includes the book layout feature, calendar product, data lifecycle/DPDP docs, API surface separation PRD, and printo-architecture-audit). Full stats: `graphify-out/GRAPH_REPORT.md`. Key communities:
 
-**The graph is stale as of 2026-08-14** — built from `e584f6d`, and `main` has since moved through the API audit trail (`api/middleware.py`, migration `0014`), `services/orphan_exports.py`, `services/gc_status.py`, `services/heic.py`, `src/lib/ops-guard.ts`, and the split-download-URL work. Those files are either absent from the graph or described by their pre-change edges, so a query about audit logging, GC observability, HEIC decoding, or the ops privilege gate will under-report. Run `graphify update .` (AST-only, no API key, a few seconds) before relying on it for those areas. Two docs it indexes were also deleted on 2026-08-14 (`calendar-feature.html`, `Product_Editor_PRD_v1.10.docx`) and one added (`docs/README.md`). Key communities:
-- **Calendar Product Materialization** — materialize_surfaces, calendar_layout.py, per-surface overrides
-- **API Key & PIA Auth** — APIKeyUser, PIAAuthentication, RenderJob
-- **Canvas & Embed Models** — CanvasData, EmbedSession, EditorRenderView
-- **Engine Canvas Compositing / Engine Surface Generation** — engine.py, _composite_canvas, smart downscale
-- **Celery Render Task Extractors** — tasks.py, _extract_frame_transforms, _extract_calendar_state
-- **Calendar Cell Renderer / Month Grid & Pills** — calendar_renderer.py, draw_cell_image, pill merge
-- **Colour-Managed Image Loader** — services/image_loader.py, EXIF + ICC→sRGB
-- **Upload & Calendar Validators** — api/validators.py, validate_calendar_layout
-- **Bearer Auth & Ops Views** — BearerTokenAuthentication, fonts/holidays/calendar-styles views
-- **Editor Modal & Toolbars / Fabric Editor & Shapes** — FabricEditor, ColorPicker, shape catalog
-- **Chunked Upload Utils / Storage Backend Abstraction** — upload-utils.ts, services/storage.py
-- **Webhook SSRF Guard** — services/url_safety.py, post_webhook_safely
-- **Login & Rate Limiting** — actions/auth.ts, per-IP rate limit
-- **Printo architecture audit (docs)** — "Printo.in Monolith Audit", "Target Architecture & Saleor", "Estimator POS Audit", "PIA & Printose Audit"
+- **Render Pipeline Core** — render_canvas_task, layout_engine/engine.py, _composite_canvas
+- **Book Layout Engine** — services/book_layout.py, materialize_pages, gutter mirroring, pagesToSpreads
+- **Calendar Layout Engine** — materialize_surfaces, calendar_layout.py, per-surface overrides
+- **Auth & API Key System** — APIKeyUser, BearerTokenAuthentication, PIAAuthentication
+- **Validators & Parity Tests** — validate_book_layout, validate_calendar_layout, TS↔Python parity suites
+- **Canvas Editor UI** — FabricEditor, CanvasEditorModal, surface-allocation.ts
+- **Calendar Cell Upload** — lib/calendar-cell-upload.ts
+- **Data Lifecycle & DPDP** — EXPORT_RETENTION_DAYS, order data purge, UploadedFile.order_id, orphan exports
+- **Printo Architecture Audit** — cross-system analysis, target architecture, migration roadmap
 
 God nodes (highest connectivity): `editor/layout/[name]/page.tsx` (81 edges), `LayoutEngine` (75), `api/views.py` (61), `APIKey` (45), `APIKeyUser` (40), `UploadedFile` / `ExportedResult` / `EmbedSession` (37 each), `BearerTokenAuthentication` / `PIAAuthentication` (36 each). The top two are the files most likely to break something else when edited.
 
