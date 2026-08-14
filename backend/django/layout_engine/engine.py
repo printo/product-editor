@@ -947,6 +947,7 @@ class LayoutEngine:
         calendar_state: Optional[dict] = None,
         backgrounds_per_canvas: Optional[List[dict]] = None,
         canvases_meta: Optional[List[dict]] = None,
+        book_state: Optional[dict] = None,
     ) -> List[str]:
         """
         Generate layout images. Returns a list of output file paths.
@@ -966,6 +967,10 @@ class LayoutEngine:
           frames and before the mask.
         uploaded_files: optional { upload_id → server file path } map used to
           resolve `image`-type overlays.
+        book_state: optional {'page_count': int, 'page_overrides': dict} for
+          a productType='book' render — the customer's chosen page count
+          (D2) and any per-page ops overrides. None uses the template
+          default page count.
         """
         layout = self._load_layout(layout_name)
 
@@ -1146,6 +1151,126 @@ class LayoutEngine:
                     # Re-raise with a customer-facing message identifying the
                     # failing month so tasks.py can attach it to the
                     # RenderJob.error_message field for retry UX.
+                    raise RuntimeError(
+                        f"Render failed on {display_label} "
+                        f"(surface {surf_idx + 1} of {len(materialized)}): {exc}"
+                    ) from exc
+            return all_outputs
+
+        # Book product type (BOOK_LAYOUT_PRD.md §5.2 / §5.4). Mirrors the
+        # calendar branch above architecturally — materialize the template
+        # into N concrete surfaces, then render each through the existing
+        # per-surface path — but there is no book_renderer.py: a book page
+        # is just frames, so _composite_canvas draws it unmodified.
+        if layout.get("productType") == "book":
+            from services.book_layout import materialize_pages
+            all_outputs: List[str] = []
+
+            # A book has no legacy "whole list to every surface" fallback the
+            # way plain multi-surface products do — unlike a 2-surface
+            # front/back product, a 26-surface book fed the full photo list
+            # would try to batch-render EVERY page against every photo
+            # (silent wrong-print at a much larger scale than the bug the
+            # Phase 3 fix closed). Direct partner callers going through
+            # GenerateLayoutView never build canvases_meta, so refuse
+            # loudly rather than flood the exports directory.
+            if not canvases_meta:
+                raise ValueError(
+                    "Book layouts require per-page photo assignment "
+                    "(canvases_meta) and are not supported via the direct "
+                    "/api/layout/generate endpoint. Submit through "
+                    "POST /api/editor/render instead."
+                )
+
+            requested_count = None
+            page_overrides = None
+            if isinstance(book_state, dict):
+                requested_count = book_state.get("page_count")
+                page_overrides = book_state.get("page_overrides")
+
+            materialized = materialize_pages(
+                layout, page_count=requested_count, overrides=page_overrides,
+            )
+
+            # Payload canvases are tagged with surface_key by the frontend,
+            # matching materialize_pages' key convention ("cover", "page_01",
+            # "back_cover", …) exactly like any other multi-surface product —
+            # reuses the same canvases_meta grouping the Phase 3 wrong-print
+            # fix established, rather than a book-specific slicing scheme.
+            canvas_starts: List[int] = []
+            if canvases_meta:
+                pos = 0
+                for m in canvases_meta:
+                    canvas_starts.append(pos)
+                    pos += max(0, int(m.get("frame_count") or 0))
+
+            # P7.2-equivalent partial-failure handling: a 60-page book failing
+            # on page 40 must not leave 39 orphan PNGs for a retry to step
+            # over, and the error should name which page broke.
+            for surf_idx, surface in enumerate(materialized):
+                surface_key = surface.get("key", "unknown")
+                canvas_w = surface["canvas"]["width"]
+                canvas_h = surface["canvas"]["height"]
+                surface = {
+                    **surface,
+                    "frames": self._normalize_frames(surface.get("frames") or [], canvas_w, canvas_h),
+                }
+                display_label = surface.get("displayLabel") or surface_key
+
+                if canvases_meta:
+                    idxs = [
+                        i for i, m in enumerate(canvases_meta)
+                        if (m.get("surface_key") or "default") == surface_key
+                    ]
+                    surf_images: List[str] = []
+                    surf_transforms: List[dict] = []
+                    for i in idxs:
+                        lo = canvas_starts[i]
+                        hi = lo + max(0, int(canvases_meta[i].get("frame_count") or 0))
+                        surf_images.extend(image_paths[lo:hi])
+                        if frame_transforms:
+                            surf_transforms.extend(frame_transforms[lo:hi])
+                    if not idxs:
+                        # No canvas was submitted for this page — render it
+                        # BLANK rather than letting _iter_batches steal
+                        # another page's photos (the same wrong-print class
+                        # the Phase 3 fix closed for ordinary multi-surface
+                        # products).
+                        surf_images = [""] * max(1, len(surface.get("frames") or []))
+                    surf_overlays = (
+                        [overlays_per_canvas[i] if i < len(overlays_per_canvas) else [] for i in idxs]
+                        if overlays_per_canvas and idxs else None
+                    )
+                    surf_bgs = (
+                        [backgrounds_per_canvas[i] if i < len(backgrounds_per_canvas) else {} for i in idxs]
+                        if backgrounds_per_canvas and idxs else None
+                    )
+                else:
+                    surf_images = image_paths
+                    surf_transforms = frame_transforms or []
+                    surf_overlays = overlays_per_canvas
+                    surf_bgs = backgrounds_per_canvas
+
+                try:
+                    all_outputs.extend(
+                        self._generate_for_surface(
+                            surface, surf_images, layout_name, surface_key,
+                            fit_mode, export_format, surf_transforms or None,
+                            overlays_per_canvas=surf_overlays,
+                            uploaded_files=uploaded_files,
+                            display_label=display_label,
+                            backgrounds_per_canvas=surf_bgs,
+                        )
+                    )
+                except (MemoryError, SystemExit, KeyboardInterrupt):
+                    self._cleanup_partial_outputs(all_outputs)
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "Book surface %s/%d render failed (key=%s, label=%s)",
+                        surf_idx + 1, len(materialized), surface_key, display_label,
+                    )
+                    self._cleanup_partial_outputs(all_outputs)
                     raise RuntimeError(
                         f"Render failed on {display_label} "
                         f"(surface {surf_idx + 1} of {len(materialized)}): {exc}"

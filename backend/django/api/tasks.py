@@ -199,6 +199,48 @@ def _extract_canvases_meta(editor_state: dict | None) -> list | None:
     ]
 
 
+def _extract_book_state(editor_state: dict | None):
+    """
+    Pull the customer's page-count choice + ops per-page overrides out of
+    editor_state for a productType='book' render (BOOK_LAYOUT_PRD.md §5.4).
+
+    Page count is CUSTOMER state (D2) — the frontend echoes the count it
+    materialized the editor with on every canvas, product-wide like the
+    calendar's theme/type/palette. Returns None when editor_state carries
+    no book block, matching `_extract_calendar_state`'s contract; the
+    engine then falls back to the template default page count.
+
+    Returns a dict shaped:
+        {
+            'page_count':     int | None,
+            'page_overrides': { '<page index>': {...} } | None,
+        }
+    """
+    if not editor_state:
+        return None
+    canvases = editor_state.get('canvases') or []
+    if not canvases:
+        return None
+
+    page_count = None
+    page_overrides = None
+    any_book_state = False
+    for cv in canvases:
+        book = cv.get('book') if isinstance(cv, dict) else None
+        if not isinstance(book, dict):
+            continue
+        any_book_state = True
+        if page_count is None and book.get('pageCount') is not None:
+            page_count = book.get('pageCount')
+        if page_overrides is None and isinstance(book.get('pageOverrides'), dict):
+            page_overrides = book.get('pageOverrides')
+
+    if not any_book_state:
+        return None
+
+    return {'page_count': page_count, 'page_overrides': page_overrides}
+
+
 def _free_space_mb(path: str) -> float:
     """Free disk space at `path` in MB (used by the disk-full pre-flight)."""
     import shutil
@@ -432,6 +474,11 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         # materialize time; per-canvas cells override at render time.
         calendar_state = _extract_calendar_state(render_source)
 
+        # BOOK_LAYOUT_PRD.md §5.4 — extract the customer's page count + any
+        # ops per-page overrides. None for non-book products; engine then
+        # falls back to the template default page count.
+        book_state = _extract_book_state(render_source)
+
         # Phase 3 — per-surface grouping metadata so multi-surface products
         # render each surface with ITS OWN photos (previously every surface
         # rendered the whole flattened list).
@@ -455,6 +502,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                 calendar_state=calendar_state,
                 backgrounds_per_canvas=backgrounds_per_canvas,
                 canvases_meta=canvases_meta,
+                book_state=book_state,
             )
             output_paths = outputs
 

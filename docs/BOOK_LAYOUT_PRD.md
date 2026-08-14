@@ -2,9 +2,11 @@
 
 **Scope note:** "book" here means any **bound, page-ordered product** — photobook, booklet, brochure, notebook, catalogue. The page model below is deliberately product-agnostic; "photobook" is the first SKU family, not the boundary.
 
-**Status:** 🔵 **Draft, not scheduled — nothing built.** Written 2026-07-26 so the design decisions are captured while the calendar precedent is fresh. Re-verified 2026-08-14 against `main` @ `79104d0`: no `productType: "book"` exists anywhere in the frontend types or the backend services. The `API_SURFACE_SEPARATION_PRD.md` cleanup this is meant to land on top of has also not started, so §5.4's touch list is unchanged.
+**Status:** 🟡 **Phases 0–4 built (backend only): schema, validator, materializer, engine dispatch, TS↔Python parity tests.** No UI exists yet — ops authoring route, customer page editor/page-count control, and spread preview (Phases 5–7) are unstarted. Written 2026-07-26; re-verified 2026-08-14 against `main` @ `79104d0` before Phase 0 opened. The `API_SURFACE_SEPARATION_PRD.md` cleanup this is meant to land on top of has also not started, so §5.4's touch list is unchanged.
 
-**Updated 2026-08-14** with product direction from Kanna: **D2 and D4 are now answered** (customer-entered page count auto-populating inner pages; author only a cover template and a single inner-page template) and a new decision **D7 — per-role page size** is open, because cover and inner pages will not always share a trim size. D1, D3, D5, D6 remain open.
+**Updated 2026-08-14 (product direction):** D2 and D4 answered (customer-entered page count auto-populating inner pages; author only a cover template and a single inner-page template); D7 (per-role page size) added and answered same day.
+
+**Updated 2026-08-14 (D1/D3/D5/D6/D7 closed, Phase 0–4 built):** all remaining open decisions answered by Kanna — **D1 flat page list** (as recommended), **D3 flow-in-order / blanks stay blank / warn-and-offer-extend on overflow** (as recommended), **D5 one `gutterMm` figure mirrored by page parity** (as recommended), **D6 edit single pages, preview spreads** (as recommended), **D7(b) one ZIP with covers named to sort first**, no separate archive part. Implementation: `backend/django/services/book_layout.py` (materializer), `api/validators.py::validate_book_layout`, `layout_engine/engine.py` dispatch + `GenerateLayoutView` guard (books require `canvases_meta`, unsupported via the direct partner sync endpoint), `api/tasks.py::_extract_book_state`, TS twin `frontend/nextjs/src/lib/book-layout.ts`. See CLAUDE.md § "Book / booklet / photobook product type" for the full rundown, including one unresolved item: the spine-width formula implemented (`pageCount/2 leaves × paperThicknessMm`) differs from this PRD's §4 D4 sketch (`pageCount × paperThicknessMm`, which double-counts) — needs Catalog Ops sign-off on which convention their paper spec uses. R1 (customer-variable surface count) remains open on the frontend; nothing in `page.tsx`/`canvas-merge.ts`/autosave has been touched.
 **Author:** Kanna Perumal (with Claude Code)
 **Related:** [`CALENDAR_FEATURE_PRD.md`](CALENDAR_FEATURE_PRD.md) — the calendar product is the closest precedent and this PRD deliberately mirrors its architecture. [`API_SURFACE_SEPARATION_PRD.md`](API_SURFACE_SEPARATION_PRD.md) — the render-submission cleanup this feature should land on top of, not around.
 
@@ -73,7 +75,9 @@ Facts verified against the codebase at commit `4105f66`; re-verify before implem
 
 **These need answers before implementation. They are the reason this PRD exists rather than a ticket.**
 
-### D1 — Page model: leaves or sides? ← *highest impact*
+### D1 — Page model: leaves or sides? ← *highest impact* — ✅ **ANSWERED 2026-08-14**
+
+**Decision: (a) flat page list**, as recommended below. Implemented in `services/book_layout.py::materialize_pages()` — returns pages in physical print order (front cover, page 1 … page N, back cover), one entry per printed side.
 
 Two candidate models:
 
@@ -99,7 +103,9 @@ Template declares `pageCount: { min, max, step, default }`. Do not ship an unbou
 
 This is deliberately narrower than the `roles` map sketched in §5.1. Keep `pageOverrides` as the escape hatch for the occasional bespoke page, but the authoring UI's happy path is two canvases, not a page list.
 
-### D3 — Photo → page mapping
+### D3 — Photo → page mapping — ✅ **ANSWERED 2026-08-14**
+
+**Decision: the recommendation below, as stated.** Auto-flow in upload order, one photo per frame; short-fill leaves genuinely blank pages; overflow warns and offers to extend to the next valid page count. Warn-and-proceed, never block. **Not yet implemented** — this is customer-editor logic (Phase 6), not part of the Phase 0–4 backend build.
 
 The calendar settled on "12 outputs, month *i* gets photo-canvas *(i mod N)*". Books need an explicit answer for:
 - fewer photos than pages (blank pages? repeat? refuse to submit?)
@@ -115,7 +121,11 @@ They stay entries in the one ordered page list with `role: "cover" | "backCover"
 
 Spine width still depends on page count × paper thickness — a **computed** dimension needing a formula in the template (`spineWidthMm = pageCount * paperThicknessMm`), which is a genuinely new concept for this codebase. With D2 answered, the spine is now recomputed whenever the customer changes the page count, so it cannot be resolved once at author time.
 
-### D7 — Per-role page size (cover ≠ inner) — 🔴 **OPEN, new 2026-08-14**
+### D7 — Per-role page size (cover ≠ inner) — ✅ **ANSWERED 2026-08-14**
+
+**Decision: (a) `trim`/canvas per role**, as recommended. Each of `book.cover` / `book.innerPage` / `book.backCover` carries its own `canvas` block; `backCover` may omit it to inherit the cover's canvas. Implemented and validated (`validate_book_layout` requires a positive width/height on `cover` and `innerPage`; `backCover`'s canvas, if present, must be complete).
+
+The mixed-size delivery question below is also answered: **one ZIP, covers named so they sort first** (no separate archive part). See D1/D4 note above.
 
 **Sometimes the cover and the inner pages share a trim size; sometimes they do not.** A hardcover wrap is larger than the block it binds; a booklet cover is often identical to its inners. The §5.1 schema sketch assumes ONE book-level `trim`, which cannot express this.
 
@@ -126,13 +136,17 @@ Options:
 
 **Recommendation: (a).** It costs nothing at the engine — `_generate_for_surface` already reads `surface["canvas"]` per surface, so differing sizes fall out for free. (b) is a special case of (a) and can be sugar in the authoring UI rather than a schema concept.
 
-**What still needs answering:** whether a mixed-size book is one ZIP with differing page dimensions (fine for the contract, potentially confusing for print ops) or whether covers should be delivered as a separate archive part alongside `print`/`mock`.
+**Resolved 2026-08-14:** one ZIP with differing page dimensions, covers named so they sort first (option chosen over a separate archive part — no partner webhook payload change needed, and printo.in hasn't built the current contract yet).
 
-### D5 — Gutter / safe area on inner edges
+### D5 — Gutter / safe area on inner edges — ✅ **ANSWERED 2026-08-14**
+
+**Decision: one `book.gutterMm` figure per template, auto-mirrored by page parity** (odd pages bind left, even pages bind right) — necessary because a single authored inner-page template is stamped onto both sides of every spread. Implemented in `services/book_layout.py::gutter_side_for` / `gutter_shift_fraction` / `apply_gutter`, parity-tested against the TS twin. The shift is half the gutter figure, applied uniformly across a page's frames/overlays and capped by the tightest element's headroom, so a collage page's elements move together rather than distorting. Covers are never shifted.
 
 Bound edges lose content into the spine. Needs an inner-margin concept that flips per page parity (left page's gutter is on its right edge and vice versa). This has no equivalent in any existing product type.
 
-### D6 — Does the customer editor show single pages or spreads?
+### D6 — Does the customer editor show single pages or spreads? — ✅ **ANSWERED 2026-08-14**
+
+**Decision: edit single pages, preview spreads**, as recommended. `services/book_layout.py::pages_to_spreads()` / `lib/book-layout.ts::pagesToSpreads()` group the flat page list for a read-only spread preview — page 1 alone, then facing pairs, trailing verso alone, covers always alone. **The spread preview UI itself is not built** (Phase 7); only the grouping function exists so far.
 
 Spreads read like the real book but double the canvas width and complicate per-frame editing. Single pages are simpler and reuse the existing canvas-card grid almost unchanged.
 
@@ -271,10 +285,16 @@ Sized against the calendar build, which ran ~10 phases / ~25 days.
 
 ## 9. What to do next
 
-1. Answer the **still-open decisions: D1, D3, D5, D6, D7**. D1 gates everything else; D7 gates the schema. (D2, D2a and D4 were answered 2026-08-14 — see §4.)
+**All of D1–D7 are answered as of 2026-08-14 (see §4). Phases 0–4 are built** — schema, `services/book_layout.py` materializer, `api/validators.py::validate_book_layout`, `layout_engine/engine.py` dispatch, `api/tasks.py::_extract_book_state`, the TS twin `lib/book-layout.ts`, and parity/unit tests on both sides. See CLAUDE.md's book section for the full rundown.
+
+Still open:
+
+1. **Confirm the spine-width convention with Catalog Ops** before any cover ships — the implemented formula (`pageCount/2 leaves × paperThicknessMm`) differs from this PRD's §4 D4 sketch (`pageCount × paperThicknessMm`, which double-counts printed sides as sheets). A wrong answer here prints an unusable cover (R2).
 2. Confirm the real product spec with Catalog Ops: actual trim sizes for **both** cover and inner block, page ranges, paper thickness, cover types, and which SKUs are collage-style vs one-photo-per-page.
-3. Re-verify §3 against `HEAD` — this PRD was written against `4105f66`.
-4. Only then open Phase 1.
+3. **Open Phase 5** — the ops authoring UI (`/editor/layouts/book/[name]`). Nothing in the frontend has been touched yet.
+4. **Open Phase 6** — the customer page editor, page-count control, and D3's photo→page auto-flow logic. This is where R1 (customer-variable surface count) has to actually be solved in `page.tsx` / `canvas-merge.ts` / autosave — the backend materializer doesn't touch any of that.
+5. **Open Phase 7** — the read-only spread preview (`pagesToSpreads` already exists on both sides; only the UI is missing).
+6. **Open Phase 9** — `scripts/smoke-test-book.sh`, mirroring `smoke-test-calendar.sh`.
 
 ### Phasing impact of the 2026-08-14 answers
 

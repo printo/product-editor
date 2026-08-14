@@ -1,0 +1,73 @@
+{
+  "_meta": {
+    "purpose": "Shared ground truth for services/book_layout.py <-> lib/book-layout.ts. Loaded by both services/tests/test_book_layout_parity.py and src/lib/__tests__/book-layout.parity.test.ts. If either side drifts, exactly one suite fails and you know which.",
+    "source": "BOOK_LAYOUT_PRD.md D1/D2/D5/D6/D7, hand-computed 2026-08-14"
+  },
+  "pageCountCases": [
+    { "name": "on_grid_unchanged", "min": 20, "max": 60, "step": 4, "default": 24, "requested": 32, "expected": 32 },
+    { "name": "snaps_up_never_down", "min": 20, "max": 60, "step": 4, "default": 24, "requested": 26, "expected": 28 },
+    { "name": "null_uses_default", "min": 20, "max": 60, "step": 4, "default": 24, "requested": null, "expected": 24 },
+    { "name": "clamps_below_min", "min": 20, "max": 60, "step": 4, "default": 24, "requested": 4, "expected": 20 },
+    { "name": "clamps_above_max", "min": 20, "max": 60, "step": 4, "default": 24, "requested": 200, "expected": 60 },
+    { "name": "exact_min", "min": 20, "max": 60, "step": 4, "default": 24, "requested": 20, "expected": 20 },
+    { "name": "exact_max", "min": 20, "max": 60, "step": 4, "default": 24, "requested": 60, "expected": 60 }
+  ],
+  "gutterSideCases": [
+    { "pageIndex": 1, "expected": "left" },
+    { "pageIndex": 2, "expected": "right" },
+    { "pageIndex": 3, "expected": "left" },
+    { "pageIndex": 4, "expected": "right" },
+    { "pageIndex": 23, "expected": "left" },
+    { "pageIndex": 24, "expected": "right" }
+  ],
+  "gutterShiftCases": [
+    {
+      "name": "left_bound_shifts_right",
+      "frames": [{ "x": 0.05, "width": 0.9 }],
+      "overlays": [],
+      "gutterMm": 12.0,
+      "canvasWidthMm": 297.0,
+      "gutterSide": "left",
+      "expectedShift": 0.020202020202020204
+    },
+    {
+      "name": "right_bound_shifts_left",
+      "frames": [{ "x": 0.05, "width": 0.9 }],
+      "overlays": [],
+      "gutterMm": 12.0,
+      "canvasWidthMm": 297.0,
+      "gutterSide": "right",
+      "expectedShift": -0.020202020202020204
+    },
+    {
+      "name": "clamped_by_headroom_zero",
+      "frames": [{ "x": 0.0, "width": 1.0 }],
+      "overlays": [],
+      "gutterMm": 12.0,
+      "canvasWidthMm": 297.0,
+      "gutterSide": "left",
+      "expectedShift": 0.0
+    },
+    {
+      "name": "no_canvas_width_is_zero",
+      "frames": [{ "x": 0.05, "width": 0.9 }],
+      "overlays": [],
+      "gutterMm": 12.0,
+      "canvasWidthMm": null,
+      "gutterSide": "left",
+      "expectedShift": 0.0
+    }
+  ],
+  "spineWidthCases": [
+    { "name": "24_pages_no_cover_thickness", "pageCount": 24, "paperThicknessMm": 0.12, "coverThicknessMm": 0.0, "expected": 1.44 },
+    { "name": "24_pages_with_cover_thickness", "pageCount": 24, "paperThicknessMm": 0.12, "coverThicknessMm": 0.6, "expected": 2.64 },
+    { "name": "zero_pages", "pageCount": 0, "paperThicknessMm": 0.12, "coverThicknessMm": 0.0, "expected": 0.0 },
+    { "name": "60_pages", "pageCount": 60, "paperThicknessMm": 0.15, "coverThicknessMm": 0.0, "expected": 4.5 }
+  ],
+  "displayLabelCases": [
+    { "role": "cover", "pageIndex": null, "ordinal": 1, "total": 26, "expected": "01 Front Cover" },
+    { "role": "inner", "pageIndex": 1, "ordinal": 2, "total": 26, "expected": "02 Page 01" },
+    { "role": "inner", "pageIndex": 24, "ordinal": 25, "total": 26, "expected": "25 Page 24" },
+    { "role": "backCover", "pageIndex": null, "ordinal": 26, "total": 26, "expected": "26 Back Cover" }
+  ]
+}
