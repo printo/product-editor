@@ -151,7 +151,7 @@ export async function uploadCalendarCellImage(
   // the cell keeps working for this session.
   let persistDegraded = false;
   const [uploadResult, fileId]: [UploadResult, string | null] = await Promise.all([
-    uploadFn(file, opts.apiBase, opts.getAuthHeaders, opts.onProgress),
+    uploadFn(file, opts.apiBase, opts.getAuthHeaders, opts.onProgress, opts.orderId),
     saveFileFn(opts.orderId, file).catch(() => {
       persistDegraded = true;
       return null;

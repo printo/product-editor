@@ -139,3 +139,57 @@ describe('in-session resume', () => {
     await expect(uploadFiles([good, bad], '/api', () => ({}))).rejects.toThrow(/bad\.jpg/);
   });
 });
+
+// ─── order_id propagation on /complete ──────────────────────────────────────
+// Regression coverage for the dashboard-uploads-land-in-_no_order bug: the
+// dashboard/editor flow has no server-injected X-Order-ID header (only the
+// embed proxy adds one — see route.ts), so the /complete call must carry
+// order_id in its JSON body, which ChunkedUploadCompleteView falls back to.
+// See services/tests/test_erasure_contract.py for the backend half.
+describe('order_id propagation on complete', () => {
+  it('includes order_id in the complete request body when provided', async () => {
+    const file = makeFile('a.jpg', 100);
+    const completeBodies: unknown[] = [];
+    mockFetch((url, init) => {
+      const out = happyRoute('u1')(url, init);
+      if (url.endsWith('/complete')) {
+        completeBodies.push(JSON.parse(String((init as { body?: string }).body || '{}')));
+      }
+      return out;
+    });
+
+    await uploadFile(file, '/api', () => ({}), undefined, 'PE-ABC123');
+    expect(completeBodies).toEqual([{ order_id: 'PE-ABC123' }]);
+  });
+
+  it('uploadFiles forwards orderId to every complete call', async () => {
+    const files = [makeFile('a.jpg', 50), makeFile('b.jpg', 50)];
+    const completeBodies: unknown[] = [];
+    mockFetch((url, init) => {
+      const out = happyRoute('u2')(url, init);
+      if (url.endsWith('/complete')) {
+        completeBodies.push(JSON.parse(String((init as { body?: string }).body || '{}')));
+      }
+      return out;
+    });
+
+    await uploadFiles(files, '/api', () => ({}), undefined, 'PE-XYZ');
+    expect(completeBodies).toHaveLength(2);
+    completeBodies.forEach(b => expect(b).toEqual({ order_id: 'PE-XYZ' }));
+  });
+
+  it('omits order_id from the body when the caller does not supply one', async () => {
+    const file = makeFile('a.jpg', 50);
+    const completeBodies: unknown[] = [];
+    mockFetch((url, init) => {
+      const out = happyRoute('u3')(url, init);
+      if (url.endsWith('/complete')) {
+        completeBodies.push(JSON.parse(String((init as { body?: string }).body || '{}')));
+      }
+      return out;
+    });
+
+    await uploadFile(file, '/api', () => ({}));
+    expect(completeBodies).toEqual([{}]);
+  });
+});

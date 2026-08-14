@@ -211,6 +211,57 @@ def test_uploads_are_written_per_order():
     )
 
 
+# ── Chunked-upload order resolution: dashboard body vs embed header ──────────
+#
+# Regression this guards: the dashboard/editor frontend has no server-injected
+# X-Order-ID header — only the embed proxy adds one (it resolves order_id
+# server-side from the EmbedSession row via the session token). The dashboard
+# already knows its order_id client-side and sends it in the JSON body, same
+# as it does for /api/editor/render and /api/canvas-state/<order_id>/. If
+# ChunkedUploadCompleteView ever drops the body fallback, every dashboard
+# upload silently lands back in NO_ORDER_BUCKET, unreachable by
+# purge_order_data's per-order discovery pass. See upload-utils.test.ts
+# ("order_id propagation on complete") for the frontend half of this contract
+# — it pins that the body is actually sent.
+
+def _upload_complete_source() -> str:
+    from api.views import ChunkedUploadCompleteView
+    return inspect.getsource(ChunkedUploadCompleteView.post)
+
+
+def test_upload_complete_resolves_order_id_from_header_first():
+    src = _upload_complete_source()
+    assert re.search(r"request\.headers\.get\(\s*['\"]X-Order-ID['\"]", src), (
+        "the embed proxy's injected X-Order-ID header must still be read first"
+    )
+
+
+def test_upload_complete_falls_back_to_body_order_id():
+    src = _upload_complete_source()
+    assert re.search(r"request\.data\.get\(\s*['\"]order_id['\"]", src), (
+        "dashboard/direct callers have no X-Order-ID header — losing this "
+        "body fallback silently routes every non-embed upload to "
+        "NO_ORDER_BUCKET, the exact bug this test guards against"
+    )
+
+
+def test_upload_complete_writes_into_the_resolved_orders_directory():
+    src = _upload_complete_source()
+    assert "order_upload_dir(order_id)" in src, (
+        "the resolved order_id must actually be used to choose the write "
+        "directory, or resolving it above is pointless"
+    )
+
+
+def test_upload_complete_records_order_id_on_the_uploadedfile_row():
+    src = _upload_complete_source()
+    assert re.search(r"order_id\s*=\s*order_id", src), (
+        "UploadedFile must be created with the resolved order_id, or "
+        "purge_order_data's UploadedFile.objects.filter(order_id=...) pass "
+        "(the DB-based half of discovery) can't find this row either"
+    )
+
+
 if __name__ == "__main__":
     import os
     import django

@@ -156,20 +156,29 @@ class UploadSessionLostError extends Error {}
  * Upload a single file using the chunked upload API.
  * onProgress fires with a 0–1 fraction as chunks land.
  * Resumes a previous partially-uploaded session for the same File object.
+ *
+ * `orderId`, when known, is sent in the `/complete` body so the backend can
+ * write the file into that order's directory (`services/storage.py::
+ * order_upload_dir`). This is the dashboard/direct-caller equivalent of the
+ * embed proxy's X-Order-ID header — ChunkedUploadCompleteView resolves the
+ * header first, then falls back to this body field. Omitting it (as before)
+ * silently routes the file into the shared `_no_order` bucket, which is
+ * undiscoverable by per-order DPDP erasure.
  */
 export async function uploadFile(
   file: File,
   apiBase: string,
   getHeaders: () => Record<string, string>,
   onProgress?: (fraction: number) => void,
+  orderId?: string,
 ): Promise<UploadResult> {
   try {
-    return await uploadFileOnce(file, apiBase, getHeaders, onProgress);
+    return await uploadFileOnce(file, apiBase, getHeaders, onProgress, orderId);
   } catch (err) {
     if (err instanceof UploadSessionLostError) {
       // Stale session (server staging GC'd) — one clean restart from init.
       uploadSessions.delete(file);
-      return uploadFileOnce(file, apiBase, getHeaders, onProgress);
+      return uploadFileOnce(file, apiBase, getHeaders, onProgress, orderId);
     }
     throw err;
   }
@@ -180,6 +189,7 @@ async function uploadFileOnce(
   apiBase: string,
   getHeaders: () => Record<string, string>,
   onProgress?: (fraction: number) => void,
+  orderId?: string,
 ): Promise<UploadResult> {
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
@@ -246,6 +256,7 @@ async function uploadFileOnce(
   const completeRes = await fetchWithRetry(`${apiBase}/upload/${session.uploadId}/complete`, () => ({
     method: 'POST',
     headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_id: orderId }),
   }));
   if (completeRes.status === 404) {
     throw new UploadSessionLostError();
@@ -280,6 +291,7 @@ export async function uploadFiles(
   apiBase: string,
   getHeaders: () => Record<string, string>,
   onProgress?: (uploadedBytes: number, totalBytes: number) => void,
+  orderId?: string,
 ): Promise<Map<File, UploadResult>> {
   const results = new Map<File, UploadResult>();
   const totalBytes = files.reduce((s, f) => s + f.size, 0) || 1;
@@ -299,7 +311,7 @@ export async function uploadFiles(
         const result = await uploadFile(file, apiBase, getHeaders, (frac) => {
           fractions.set(file, frac);
           emit();
-        });
+        }, orderId);
         results.set(file, result);
       }),
     );
