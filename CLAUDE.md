@@ -393,13 +393,26 @@ That second field exists because its absence is genuinely expensive. The first v
 
 The same endpoint carries a **live `disk` block** (`used_percent`, `free_gb`, `pressure` at >80%), read at request time rather than lifted from the last sweep's stats. That distinction is the point: `garbage_collector.stats.disk_usage_percent` is only as fresh as the last sweep, so at the moment it matters most — nothing sweeping — it is absent or stale. Production hit 89% unnoticed twice for that reason.
 
-### The GC schedule lags the expiry curve
+### Why the GC runs every 6 hours, not nightly
 
-`garbage_collector_task` runs at 02:00 UTC — **07:30 IST, immediately before the daily expiry wave rather than after it.** Retention is 3 days and Printo's orders arrive during Indian business hours, so each day's exports expire at roughly the clock time they were created. Measured on 2026-08-14: the 02:00 sweep found **2** expired exports; by 08:17 there were **1298**, and disk had gone 82.1% → 93.3%.
+`garbage_collector_task` runs at **00:00 / 06:00 / 12:00 / 18:00 UTC**. It used to run once daily at 02:00, which was very nearly the worst possible hour.
 
-The sweep is healthy — it just systematically misses the cohort expiring shortly after it runs, which then waits a further 24 hours. **That is the sawtooth, not a broken GC.** Worth remembering before diagnosing disk growth as a GC failure: on 2026-08-14 that misreading produced two wrong root causes (a non-firing beat, then a stale DB connection) before anyone read the 02:00 log.
+Retention is 3 days and Printo's orders arrive in Indian business hours, so exports expire at roughly the clock time they were created — a wave spanning **03:00–12:00 UTC** and essentially nothing outside it. A 02:00 sweep sat in the trough immediately *before* that wave: of 7,647 rows pending on 2026-08-14 it collected the 151 expiring at 01:00–02:00 (**2%**), and the other 98% waited up to 23 hours for the next run.
 
-The fix is scheduling, not code: sweeping every 6 hours (`crontab(minute=0, hour='*/6')`) tracks the curve instead of lagging it, and a no-op sweep costs 0.19s. Not yet changed — it alters production behaviour.
+Effective retention was therefore ~4 days rather than 3, carrying a permanent extra day of exports and uploads. Disk sawtoothed 82% → 93% overnight **while the sweep itself was perfectly healthy** — it ran and succeeded in 0.19s every night. Diagnosing that as a broken GC produced two wrong root causes (a non-firing beat, then a stale DB connection) before anyone plotted expiries by hour. If disk grows again, plot that histogram before suspecting the sweep:
+
+```bash
+docker compose exec backend /opt/venv/bin/python manage.py shell -c "
+from api.models import ExportedResult
+from django.db.models import Count
+from django.db.models.functions import ExtractHour
+for r in (ExportedResult.objects.filter(is_deleted=False).annotate(h=ExtractHour('expires_at'))
+          .values('h').annotate(n=Count('id')).order_by('h')):
+    print('%02d:00 UTC %6d' % (r['h'], r['n']))
+"
+```
+
+Four sweeps a day caps the lag at ~6h. A no-op sweep costs 0.19s and a full one 2.3s, both far inside `soft_time_limit=3300`. **If retention or the customer timezone changes, re-plot before assuming the schedule still fits.**
 
 ### Celery and stale database connections
 
