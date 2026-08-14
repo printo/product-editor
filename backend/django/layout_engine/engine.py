@@ -849,8 +849,6 @@ class LayoutEngine:
           the legacy `{layout_name}_{surface_key}_{n}` format when blank.
         """
         frames = surface_def.get("frames", [])
-        if not frames:
-            raise ValueError(f"No frames defined for surface '{surface_key}'")
 
         mask_img = None
         if surface_def.get("maskUrl") and surface_def.get("maskOnExport", False):
@@ -873,8 +871,41 @@ class LayoutEngine:
         sanitized_label = _sanitize_for_filename(display_label or "")
         use_label = bool(sanitized_label)
         suffix = f"_{surface_key}" if surface_key != "default" else ""
-        outputs = []
 
+        # An empty frames list is normally a misconfigured layout (ops forgot
+        # to author a print area) and stays a hard error. The ONE documented
+        # exception is a book's unauthored back cover: services/book_layout.py
+        # deliberately falls back to the front cover's canvas with frames=[]
+        # rather than requiring ops to author one (BOOK_LAYOUT_PRD.md D4) —
+        # `role` is a book-only field (materialize_pages stamps it; no other
+        # product sets it), so checking it keeps this narrow rather than
+        # silently tolerating an empty-frames mistake on any other product.
+        is_unauthored_book_back_cover = surface_def.get("role") == "backCover"
+        if not frames and not is_unauthored_book_back_cover:
+            raise ValueError(f"No frames defined for surface '{surface_key}'")
+
+        if not frames:
+            # Every physical printed side still needs an output file — silently
+            # dropping it would leave the ZIP one file short of the book's
+            # actual page count (U6: collation must be mechanical) — so
+            # render exactly one blank canvas (background colour + mask if
+            # any, no frames to composite) rather than raising.
+            canvas = self._composite_canvas(
+                surface_def, [], fit_mode, mask_img,
+                overlays=surface_def.get("overlays") or None,
+            )
+            stem = sanitized_label if use_label else f"{layout_name}{suffix}_1"
+            ext = "pdf" if export_format == "pdf" else "png"
+            out_path = os.path.join(self.exports_dir, f"{stem}.{ext}")
+            self._write_output_atomic(canvas, out_path)
+            canvas.close()
+            del canvas
+            gc.collect()
+            if mask_img is not None:
+                mask_img.close()
+            return [out_path]
+
+        outputs = []
         frames_per_canvas = len(surface_def.get("frames", []))
         for batch_n, (batch, n) in enumerate(self._iter_batches(surface_def, image_paths)):
             # Slice the per-frame transform list to match this canvas's frames.

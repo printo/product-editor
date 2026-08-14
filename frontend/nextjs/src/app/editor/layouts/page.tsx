@@ -26,6 +26,7 @@ import {
   AlignLeft,
   AlignRight,
   CalendarDays,
+  BookOpen,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -926,11 +927,11 @@ export default function LayoutCreatorPage() {
               </span>
             </button>
 
-            {/* Right half — Calendar */}
+            {/* Middle — Calendar */}
             <Link
               href="/editor/layouts/calendar/new"
               data-testid="create-calendar-layout-link"
-              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-[#F17A26]/10 transition-all hover:border-[#F17A26]/40"
+              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-[#F17A26]/10 transition-all border-r-2 md:border-r-0 md:border-b-2 border-dashed border-slate-200 hover:border-[#F17A26]/40"
             >
               <div className="w-8 h-8 md:w-12 md:h-12 bg-[#F17A26]/10 rounded-lg md:rounded-xl flex items-center justify-center group-hover:bg-[#F17A26]/20 transition-colors">
                 <CalendarDays className="w-4 h-4 md:w-6 md:h-6 text-[#F17A26]" />
@@ -940,6 +941,24 @@ export default function LayoutCreatorPage() {
                 <p className="hidden md:block text-[10px] text-slate-400 mt-0.5">Month-grid with holidays</p>
               </div>
               <span className="flex items-center gap-1 px-2 py-0.5 md:px-2.5 md:py-1 bg-[#F17A26]/10 text-[#F17A26] text-[9px] md:text-[10px] font-bold uppercase rounded-full border border-[#F17A26]/30 group-hover:bg-[#F17A26]/20 transition-colors">
+                <Plus className="w-3 h-3" /> Create
+              </span>
+            </Link>
+
+            {/* Right — Book */}
+            <Link
+              href="/editor/layouts/book/new"
+              data-testid="create-book-layout-link"
+              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-sky-50 transition-all hover:border-sky-300"
+            >
+              <div className="w-8 h-8 md:w-12 md:h-12 bg-sky-50 rounded-lg md:rounded-xl flex items-center justify-center group-hover:bg-sky-100 transition-colors">
+                <BookOpen className="w-4 h-4 md:w-6 md:h-6 text-sky-700" />
+              </div>
+              <div className="text-center">
+                <p className="font-bold text-xs md:text-sm text-slate-800 group-hover:text-sky-700 transition-colors">Book Layout</p>
+                <p className="hidden md:block text-[10px] text-slate-400 mt-0.5">Photobooks, booklets</p>
+              </div>
+              <span className="flex items-center gap-1 px-2 py-0.5 md:px-2.5 md:py-1 bg-sky-50 text-sky-700 text-[9px] md:text-[10px] font-bold uppercase rounded-full border border-sky-200 group-hover:bg-sky-100 transition-colors">
                 <Plus className="w-3 h-3" /> Create
               </span>
             </Link>
@@ -963,11 +982,18 @@ export default function LayoutCreatorPage() {
               // to the dedicated CalendarLayoutEditor instead of the generic
               // edit modal (whose schema doesn't cover monthRange/calendars[]).
               const isCalendar = typeof layoutObj === 'object' && layoutObj.productType === 'calendar';
+              // Book layouts (BOOK_LAYOUT_PRD.md §6 Phase 5) carry no root
+              // canvas/frames at all (each role authors its own under
+              // book.cover/innerPage/backCover, D7) — openEditModal/
+              // openCopyModal both read `data.canvas.*` directly and would
+              // crash, so route Edit the same way calendar does and disable
+              // Duplicate rather than let either reach a book layout.
+              const isBook = typeof layoutObj === 'object' && layoutObj.productType === 'book';
               return (
                 <div
                   key={layoutStr}
                   data-testid={`layout-card-${layoutStr}`}
-                  data-product-type={isCalendar ? 'calendar' : 'standard'}
+                  data-product-type={isCalendar ? 'calendar' : isBook ? 'book' : 'standard'}
                   className="bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-lg hover:border-indigo-200 transition-all group relative"
                 >
                   <div className="flex items-start justify-between mb-4">
@@ -988,6 +1014,15 @@ export default function LayoutCreatorPage() {
                               Calendar
                             </span>
                           )}
+                          {isBook && (
+                            <span
+                              data-testid={`book-badge-${layoutStr}`}
+                              className="px-2 py-0.5 bg-sky-100 text-sky-800 text-[9px] rounded-full font-bold uppercase tracking-tight"
+                              title="Book product — opens in the book layout editor"
+                            >
+                              Book
+                            </span>
+                          )}
                         </div>
                         <p className="text-[10px] text-slate-400 font-mono mt-0.5 tracking-wider">{(layoutStr || '')}.json</p>
                         {layoutObj.tags && layoutObj.tags.length > 0 && (
@@ -1004,9 +1039,10 @@ export default function LayoutCreatorPage() {
                     </div>
                     <div className="flex items-center">
                       <button
-                        onClick={() => openCopyModal(layoutStr)}
-                        className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all"
-                        title="Duplicate Layout"
+                        onClick={() => { if (!isBook) openCopyModal(layoutStr); }}
+                        disabled={isBook}
+                        className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                        title={isBook ? 'Duplicating book layouts isn\'t supported yet' : 'Duplicate Layout'}
                       >
                         <Copy className="w-4 h-4" />
                       </button>
@@ -1016,6 +1052,15 @@ export default function LayoutCreatorPage() {
                           data-testid={`edit-calendar-${layoutStr}`}
                           className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
                           title="Edit Calendar Layout"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Link>
+                      ) : isBook ? (
+                        <Link
+                          href={`/editor/layouts/book/${layoutStr}`}
+                          data-testid={`edit-book-${layoutStr}`}
+                          className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
+                          title="Edit Book Layout"
                         >
                           <Edit2 className="w-4 h-4" />
                         </Link>

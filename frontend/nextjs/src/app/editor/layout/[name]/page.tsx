@@ -68,6 +68,8 @@ import {
   uploadCalendarCellImage,
   CalendarCellUploadError,
 } from '@/lib/calendar-cell-upload';
+import { reconcilePageCount, roleForSurfaceKey } from './book-pages';
+import { pageCountBounds, resolvePageCount, pagesToSpreads, spineWidthMm, type BookLayoutLike } from '@/lib/book-layout';
 
 // ─── Fabric-based imposition / export ─────────────────────────────────────
 
@@ -559,6 +561,15 @@ export default function LayoutEditorPage() {
   // Files flagged as truncated/incomplete by the client-side completeness check,
   // held pending the customer's Keep-anyway / Remove decision (see handleFileChange).
   const [pendingTruncated, setPendingTruncated] = useState<{ all: File[]; bad: File[] } | null>(null);
+  // Book D3 overflow: more uploaded photos than the current page count can
+  // hold. Held pending the customer's Extend / Keep-as-is decision, mirroring
+  // pendingTruncated's pause-and-re-enter pattern — see processSelectedFiles.
+  const [pendingBookOverflow, setPendingBookOverflow] = useState<{
+    files: File[]; currentCapacity: number; suggestedCount: number;
+  } | null>(null);
+  // Set right before a decided batch re-enters processSelectedFiles so the
+  // overflow check doesn't re-prompt for the same files a second time.
+  const bookOverflowDecidedRef = useRef(false);
   const [showAutoFillPicker, setShowAutoFillPicker] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
   const { expandPdfPages, pdfPickerElement } = usePdfPageImport();
@@ -633,6 +644,19 @@ export default function LayoutEditorPage() {
   const activeSurfaceKeyRef = useRef(activeSurfaceKey);
   useEffect(() => { activeSurfaceKeyRef.current = activeSurfaceKey; }, [activeSurfaceKey]);
   const [normalizedLayoutState, setNormalizedLayoutState] = useState<NormalizedLayout | null>(null);
+
+  // ── Book product state (BOOK_LAYOUT_PRD.md R1) ────────────────────────────
+  // These only matter when layout.productType === 'book'. Page count is
+  // CUSTOMER state (D2) — surfaceStates always holds exactly the currently
+  // VISIBLE pages (cover, page_01..page_N, back_cover); pages shrunk out of
+  // range are held in bookHiddenPages rather than discarded, and restored if
+  // the count goes back up. See book-pages.ts::reconcilePageCount, the one
+  // place this reconciliation happens (layout load / count change / restore).
+  const isBookProduct = layout?.productType === 'book';
+  const [bookPageCount, setBookPageCount] = useState<number>(0);
+  const [bookHiddenPages, setBookHiddenPages] = useState<Record<string, SurfaceState>>({});
+  const bookHiddenPagesRef = useRef(bookHiddenPages);
+  useEffect(() => { bookHiddenPagesRef.current = bookHiddenPages; }, [bookHiddenPages]);
 
   // ── Calendar product state (PRD §10.3 / audit fix #1) ────────────────────
   // These only matter when layout.productType === 'calendar'. Initialised
@@ -757,19 +781,45 @@ export default function LayoutEditorPage() {
         if (Array.isArray(payload.fonts) && payload.fonts.length) {
           setSelectedFonts(payload.fonts);
         }
-        let normalized = normalizeLayout(item);
-        if (surfacesParam) {
-          normalized = filterSurfaces(normalized, surfacesParam.split(',').map(s => s.trim()));
+        let normalized: NormalizedLayout;
+        let initSurfaces: SurfaceState[];
+        // A book's surfaces are the customer's chosen page count, not a
+        // fixed list — normalizeLayout() has no concept of that, so build
+        // surfaceStates via the same reconciliation used for every later
+        // page-count change (book-pages.ts::reconcilePageCount), starting
+        // from the template's default count (BOOK_LAYOUT_PRD.md D2/R1).
+        if (item.productType === 'book') {
+          const { visible, resolvedCount } = reconcilePageCount(item as BookLayoutLike, undefined, [], {});
+          initSurfaces = visible;
+          setBookPageCount(resolvedCount);
+          setBookHiddenPages({});
+          normalized = {
+            name: item.name || '',
+            type: 'product',
+            surfaces: visible.map(s => s.def),
+            tags: item.tags || [],
+            createdAt: item.createdAt ?? null,
+            updatedAt: item.updatedAt ?? null,
+            createdBy: item.createdBy || '',
+            updatedBy: item.updatedBy || '',
+            metadata: item.metadata || [],
+            _raw: item,
+          };
+        } else {
+          normalized = normalizeLayout(item);
+          if (surfacesParam) {
+            normalized = filterSurfaces(normalized, surfacesParam.split(',').map(s => s.trim()));
+          }
+          initSurfaces = normalized.surfaces.map(s => ({
+            key: s.key,
+            label: s.label,
+            def: s,
+            files: [],
+            canvases: [],
+            globalFitMode: 'contain' as FitMode,
+          }));
         }
         setNormalizedLayoutState(normalized);
-        const initSurfaces: SurfaceState[] = normalized.surfaces.map(s => ({
-          key: s.key,
-          label: s.label,
-          def: s,
-          files: [],
-          canvases: [],
-          globalFitMode: 'contain' as FitMode,
-        }));
         setSurfaceStates(initSurfaces);
         const firstKey = normalized.surfaces[0]?.key || 'default';
         setActiveSurfaceKey(firstKey);
@@ -948,6 +998,22 @@ export default function LayoutEditorPage() {
             cells: calendarCells,
           };
         }
+        // Book products persist the customer's page count AND the pages held
+        // out of range by a shrink (BOOK_LAYOUT_PRD.md R1) — a NEW top-level
+        // key, not appended into `surfaces`, so it can never be mistaken for
+        // an active page by `_extract_canvases_meta`/`_extract_book_state`
+        // (which only look at `canvases`) even though editor_state is never
+        // read by the render path anyway (render_state is submit-time only).
+        if (isBookProduct) {
+          editorState.bookState = {
+            pageCount: bookPageCount,
+            hiddenSurfaces: Object.entries(bookHiddenPages).map(([key, s]) => ({
+              key,
+              canvases: serializeCanvasState(s.canvases),
+              globalFitMode: s.globalFitMode,
+            })),
+          };
+        }
 
         const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
           method: 'PUT',
@@ -1056,6 +1122,50 @@ export default function LayoutEditorPage() {
               return { ...o, originalFile: file, src: getFileUrl(file) };
             }),
           }));
+
+        // Book products: `prev` (surfaceStates) was sized at the TEMPLATE
+        // DEFAULT page count when the layout loaded — the saved count isn't
+        // known until now. Resize it via the same reconciliation a live
+        // page-count change uses, BEFORE the generic per-key hydrate below
+        // runs (which only UPDATES entries already in `prev` — it can't add
+        // ones that aren't there). Skipping this would silently drop every
+        // page beyond the template default on restore (BOOK_LAYOUT_PRD.md
+        // R1). Two sequential `setSurfaceStates` calls in this effect is
+        // safe: React's updater form always sees the previous updater's
+        // committed result even within one batch.
+        if (isBookProduct) {
+          const rawBookLayout = normalizedLayoutState?._raw as BookLayoutLike | undefined;
+          const savedBookState = data.editor_state.bookState;
+          if (rawBookLayout) {
+            const { visible, resolvedCount } = reconcilePageCount(
+              rawBookLayout, savedBookState?.pageCount, [], {},
+            );
+            setSurfaceStates(visible);
+            setBookPageCount(resolvedCount);
+          }
+          if (Array.isArray(savedBookState?.hiddenSurfaces)) {
+            const archive: Record<string, SurfaceState> = {};
+            for (const h of savedBookState.hiddenSurfaces) {
+              if (!h?.key || !Array.isArray(h.canvases) || !h.canvases.length) continue;
+              // A held page carries no real `def` while archived — nothing
+              // reads it there, and reconcilePageCount always recomputes a
+              // fresh `def` the moment the page re-enters `visible`.
+              archive[h.key] = {
+                key: h.key,
+                label: h.key,
+                def: {
+                  key: h.key, label: h.key,
+                  canvas: { width: 0, height: 0 }, frames: [],
+                  maskUrl: null, maskOnExport: false,
+                },
+                files: [],
+                canvases: hydrate(h.canvases),
+                globalFitMode: h.globalFitMode ?? 'contain',
+              };
+            }
+            setBookHiddenPages(archive);
+          }
+        }
 
         // Merge saved canvas data into the surface states that were just
         // initialised from the layout definition.
@@ -1268,10 +1378,149 @@ export default function LayoutEditorPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calendarTheme, calendarType, genzPalette, calendarCells]);
 
+  // ── Book auto-save: trigger save when page count changes ─────────────────
+  // The main auto-save effect keys on `canvases` (the active surface only).
+  // Changing the page count alone doesn't touch `canvases`, so — same
+  // reasoning as the calendar effect above — it needs its own trigger, or a
+  // pure count change (no photo edits) would never survive a refresh.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isBookProduct || !orderId || !layout) return;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    setIsSaving('saving');
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const latestSurfaces = surfaceStatesRef.current;
+        const latestActiveKey = activeSurfaceKeyRef.current;
+        const editorState: Record<string, any> = {
+          surfaces: latestSurfaces.map(s => ({
+            key: s.key,
+            canvases: serializeCanvasState(s.canvases),
+            globalFitMode: s.globalFitMode,
+          })),
+          activeSurfaceKey: latestActiveKey,
+          layoutName,
+          bookState: {
+            pageCount: bookPageCount,
+            hiddenSurfaces: Object.entries(bookHiddenPagesRef.current).map(([key, s]) => ({
+              key,
+              canvases: serializeCanvasState(s.canvases),
+              globalFitMode: s.globalFitMode,
+            })),
+          },
+        };
+        const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
+          method: 'PUT',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ layout_name: layoutName, editor_state: editorState }),
+        });
+        if (res.ok) {
+          setIsSaving('saved');
+          if (saveIdleTimeoutRef.current) clearTimeout(saveIdleTimeoutRef.current);
+          saveIdleTimeoutRef.current = setTimeout(() => setIsSaving('idle'), 3000);
+        } else {
+          setIsSaving('idle');
+        }
+      } catch { setIsSaving('idle'); }
+    }, 2000);
+  // bookPageCount changes trigger this save; bookHiddenPages is read via ref
+  // (same rationale as surfaceStatesRef) since a shrink and its own autosave
+  // fire together and don't need to double-trigger.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookPageCount]);
+
+  // The template's {min,max,step,default} page-count grid, for the page-count
+  // control below. `null` until the (book) layout has loaded.
+  const bookPageBounds = useMemo(() => {
+    if (!isBookProduct) return null;
+    const raw = normalizedLayoutState?._raw as BookLayoutLike | undefined;
+    return raw ? pageCountBounds(raw) : null;
+  }, [isBookProduct, normalizedLayoutState]);
+
+  // The one place a customer-driven page-count change happens (the control
+  // below, and D3's overflow "extend to N pages?" offer) — always goes
+  // through reconcilePageCount so growing/shrinking/restoring stay
+  // consistent with the layout-load and restore call sites.
+  const handleBookPageCountChange = useCallback((requested: number) => {
+    const raw = normalizedLayoutState?._raw as BookLayoutLike | undefined;
+    if (!raw) return;
+    const { visible, archive, resolvedCount } = reconcilePageCount(
+      raw, requested, surfaceStatesRef.current, bookHiddenPagesRef.current,
+    );
+    setSurfaceStates(visible);
+    setBookHiddenPages(archive);
+    setBookPageCount(resolvedCount);
+  }, [normalizedLayoutState]);
+
+  // ── Book: read-only spread preview (D6 — edit single pages, preview
+  // spreads) ─────────────────────────────────────────────────────────────
+  // Groups the CURRENT VISIBLE pages only (never the held/archived ones —
+  // previewing a page the customer can't currently see would be confusing).
+  // Reuses each page's already-computed thumbnail (canvases[0].dataUrl, the
+  // same one the card grid renders) rather than a fourth frame-drawing path
+  // (CLAUDE.md "Three frame renderers") — this view only adds the spread
+  // *layout*, never re-renders a frame.
+  const [showSpreadPreview, setShowSpreadPreview] = useState(false);
+  const { bookSpreads, bookCoverPreview, bookBackCoverPreview } = useMemo(() => {
+    if (!isBookProduct) return { bookSpreads: [], bookCoverPreview: null, bookBackCoverPreview: null };
+    // mm is the common unit for sizing the cover-wrap panels proportionally
+    // against spineWidthMm below; px-only canvases fall back to treating
+    // their pixel width as a proportional unit (still correct for the ratio,
+    // just not a real mm figure).
+    const widthMmOf = (canvas: { width?: number; widthMm?: number; dpi?: number } | undefined): number => {
+      if (!canvas) return 0;
+      if (canvas.widthMm) return canvas.widthMm;
+      if (canvas.width && canvas.dpi) return (canvas.width / canvas.dpi) * 25.4;
+      return canvas.width || 0;
+    };
+    const pages = surfaceStates.map(s => {
+      const { role, pageIndex } = roleForSurfaceKey(s.key);
+      return {
+        key: s.key,
+        role,
+        pageIndex,
+        label: s.label,
+        dataUrl: s.canvases[0]?.dataUrl ?? null,
+        canvasWidth: s.def.canvas?.width || 1200,
+        canvasHeight: s.def.canvas?.height || 1800,
+        canvasWidthMm: widthMmOf(s.def.canvas),
+      };
+    });
+    // The standalone cover/back-cover spreads pagesToSpreads() produces are
+    // redundant with the cover-wrap panel rendered separately below — filter
+    // them out of the regular list rather than showing the cover twice.
+    const innerSpreads = pagesToSpreads(pages).filter(spread =>
+      !(spread.length === 1 && (spread[0].role === 'cover' || spread[0].role === 'backCover'))
+    );
+    return {
+      bookSpreads: innerSpreads,
+      bookCoverPreview: pages.find(p => p.role === 'cover') ?? null,
+      bookBackCoverPreview: pages.find(p => p.role === 'backCover') ?? null,
+    };
+  }, [isBookProduct, surfaceStates]);
+
+  // R2 (BOOK_LAYOUT_PRD.md) — recomputed from the CURRENT page count, same
+  // as the backend does at materialize time (D4: spine changes whenever the
+  // customer changes the page count, never resolved once at author time).
+  const bookSpineWidthMm = useMemo(() => {
+    if (!isBookProduct) return null;
+    const raw = normalizedLayoutState?._raw as BookLayoutLike | undefined;
+    if (!raw?.book) return null;
+    return spineWidthMm(bookPageCount, raw.book.paperThicknessMm || 0, raw.book.coverThicknessMm || 0);
+  }, [isBookProduct, normalizedLayoutState, bookPageCount]);
+
   // Pre-submit guards (Phase 3): surfaces that would print blank + photos
   // placed more than once (excluding deliberate qty auto-fill duplicates).
   const intentionalDupesRef = useRef(new Set<string>());
-  const emptySurfaces = useMemo(() => collectEmptySurfaces(surfaceStates), [surfaceStates]);
+  const emptySurfaces = useMemo(() => {
+    // Blank inner pages are an intentional, common outcome for books (D3 —
+    // "people leave pages for writing"), not a mistake, so exclude them from
+    // this warning; covers being empty should still warn.
+    const surfacesToCheck = isBookProduct
+      ? surfaceStates.filter(s => !s.key.startsWith('page_'))
+      : surfaceStates;
+    return collectEmptySurfaces(surfacesToCheck);
+  }, [surfaceStates, isBookProduct]);
   const duplicateFills = useMemo(() => {
     const groups = surfaceStates.length > 1
       ? surfaceStates.map(s => ({ label: s.label || s.key, canvases: s.canvases }))
@@ -2326,8 +2575,12 @@ export default function LayoutEditorPage() {
   // Process a vetted set of selected files: reset previews, run CMYK + quantity
   // checks, then build canvases (single- or multi-surface). Split out of
   // handleFileChange so the truncated-image prompt can re-enter it with the
-  // customer's chosen subset.
-  const processSelectedFiles = async (allFiles: File[]) => {
+  // customer's chosen subset. `extendToPageCount` is set only when a book
+  // overflow decision re-enters after the customer chose to extend (D3) —
+  // it must be applied and used SYNCHRONOUSLY within this call (not via a
+  // separate setBookPageCount + re-render) or this run would still see the
+  // pre-extend page count.
+  const processSelectedFiles = async (allFiles: File[], extendToPageCount?: number) => {
     // Revoke any URLs from the previous batch — start the new selection clean.
     createdObjectURLs.current.forEach(url => URL.revokeObjectURL(url));
     createdObjectURLs.current.clear();
@@ -2372,21 +2625,60 @@ export default function LayoutEditorPage() {
     }
 
     if (surfaceStates.length > 1 && normalizedLayoutState) {
-      setIsProcessing(true);
-      setError(null);
+      // A book overflow decision to extend applies the new page count HERE,
+      // synchronously, rather than via setBookPageCount + a second render —
+      // see the comment on `extendToPageCount` above.
+      let workingSurfaces = surfaceStates;
+      let workingHiddenPages = bookHiddenPages;
+      let workingPageCount = bookPageCount;
+      if (isBookProduct && extendToPageCount && extendToPageCount !== bookPageCount) {
+        const raw = normalizedLayoutState._raw as BookLayoutLike;
+        const reconciled = reconcilePageCount(
+          raw, extendToPageCount, surfaceStatesRef.current, bookHiddenPagesRef.current,
+        );
+        workingSurfaces = reconciled.visible;
+        workingHiddenPages = reconciled.archive;
+        workingPageCount = reconciled.resolvedCount;
+      }
+
       // Capacity is the sum of each surface's OWN frame count, not the number
       // of surfaces: a book spread is ONE surface with TWO print areas, and
       // handing it a single photo made the generator's modulo top the second
       // area up with the same photo — the customer's picture printed twice.
-      const maxFiles = totalSurfaceCapacity(surfaceStates);
+      const maxFiles = totalSurfaceCapacity(workingSurfaces);
       if (allFiles.length > maxFiles) {
+        // D3 (BOOK_LAYOUT_PRD.md): more photos than the book currently holds
+        // — offer to extend the page count instead of silently truncating.
+        // Skipped once the customer has already decided for this batch
+        // (bookOverflowDecidedRef), whether they chose to extend or not.
+        if (isBookProduct && !bookOverflowDecidedRef.current) {
+          const raw = normalizedLayoutState._raw as BookLayoutLike;
+          const innerDef = workingSurfaces.find(s => s.key.startsWith('page_'))?.def;
+          const perPageCapacity = surfaceFrameCount(innerDef);
+          const fixedCapacity = totalSurfaceCapacity(
+            workingSurfaces.filter(s => !s.key.startsWith('page_'))
+          );
+          const neededPages = Math.max(
+            workingPageCount,
+            Math.ceil(Math.max(0, allFiles.length - fixedCapacity) / perPageCapacity),
+          );
+          const suggestedCount = resolvePageCount(raw, neededPages);
+          if (suggestedCount > workingPageCount) {
+            setPendingBookOverflow({ files: allFiles, currentCapacity: maxFiles, suggestedCount });
+            return; // wait for the decision — re-enters via handleBookOverflowDecision
+          }
+        }
         setUploadWarning(`Only ${maxFiles} image${maxFiles !== 1 ? 's' : ''} were selected.`);
         setTimeout(() => setUploadWarning(null), 5000);
       }
-      const perSurfaceFiles = allocateFilesToSurfaces(surfaceStates, allFiles.slice(0, maxFiles));
+      bookOverflowDecidedRef.current = false; // consumed — reset for the next distinct batch
+
+      setIsProcessing(true);
+      setError(null);
+      const perSurfaceFiles = allocateFilesToSurfaces(workingSurfaces, allFiles.slice(0, maxFiles));
       const updatedSurfaces: SurfaceState[] = [];
-      for (let idx = 0; idx < surfaceStates.length; idx++) {
-        const s = surfaceStates[idx];
+      for (let idx = 0; idx < workingSurfaces.length; idx++) {
+        const s = workingSurfaces[idx];
         const surfaceFiles = perSurfaceFiles[idx];
         const surfaceLayout = {
           ...normalizedLayoutState._raw,
@@ -2402,6 +2694,10 @@ export default function LayoutEditorPage() {
         updatedSurfaces.push({ ...s, files: surfaceFiles, canvases });
       }
       setSurfaceStates(updatedSurfaces);
+      if (isBookProduct) {
+        setBookHiddenPages(workingHiddenPages);
+        setBookPageCount(workingPageCount);
+      }
       const activeIdx = updatedSurfaces.findIndex(s => s.key === activeSurfaceKey);
       const activeSurfaceState = updatedSurfaces[activeIdx >= 0 ? activeIdx : 0];
       setFiles(activeSurfaceState?.files || []);
@@ -2550,6 +2846,15 @@ export default function LayoutEditorPage() {
       return;
     }
     void processSelectedFiles(chosen);
+  };
+
+  // ── Book overflow (D3) — customer chose Extend or Keep-as-is ───────────────
+  const handleBookOverflowDecision = (decision: 'extend' | 'keep') => {
+    if (!pendingBookOverflow) return;
+    const { files: held, suggestedCount } = pendingBookOverflow;
+    setPendingBookOverflow(null);
+    bookOverflowDecidedRef.current = true;
+    void processSelectedFiles(held, decision === 'extend' ? suggestedCount : undefined);
   };
 
   /** The canvases destined for the sheet, in placement order. */
@@ -2956,6 +3261,18 @@ export default function LayoutEditorPage() {
             genzPalette,
             cells: calendarCells,
           };
+        });
+      }
+
+      // For book products, attach the customer's chosen page count (D2) so
+      // the engine's materialize_pages() produces the SAME page count the
+      // customer edited — `_extract_book_state` reads this the same way
+      // `_extract_calendar_state` reads the calendar block above. No
+      // pageOverrides here — that's the ops escape hatch (bespoke per-page
+      // content authored on the template), never customer-editable.
+      if (isBookProduct) {
+        canvasesPayload.forEach((c) => {
+          (c as any).book = { pageCount: bookPageCount };
         });
       }
 
@@ -3581,6 +3898,137 @@ export default function LayoutEditorPage() {
         </div>
       )}
 
+      {/* ── Book D3: more photos than pages — warn and offer to extend ───── */}
+      {pendingBookOverflow && (
+        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
+            <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">
+              {pendingBookOverflow.files.length} photos won&apos;t fit on {bookPageCount} pages
+            </p>
+            <p className="text-[10px] text-slate-500 leading-snug mb-4">
+              Only {pendingBookOverflow.currentCapacity} of {pendingBookOverflow.files.length} photos will be
+              used unless you add more pages. Extend to {pendingBookOverflow.suggestedCount} pages to fit them all?
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleBookOverflowDecision('extend')}
+                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+              >
+                Extend to {pendingBookOverflow.suggestedCount} pages
+              </button>
+              <button
+                onClick={() => handleBookOverflowDecision('keep')}
+                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+              >
+                Keep {bookPageCount} pages
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Book: read-only spread preview (D6) ─────────────────────────── */}
+      {showSpreadPreview && (
+        <div className="fixed inset-0 z-[200004] bg-black/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200">
+          <div className="flex items-center justify-between px-6 py-4 bg-white/95 border-b border-slate-200 shrink-0">
+            <div>
+              <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight">Spread preview</h2>
+              <p className="text-[10px] text-slate-400 font-medium">Read-only — edit individual pages in the grid</p>
+            </div>
+            <button
+              onClick={() => setShowSpreadPreview(false)}
+              aria-label="Close spread preview"
+              className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+            >
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-8">
+            {bookSpreads.length === 0 && !bookCoverPreview && !bookBackCoverPreview && (
+              <p className="text-sm text-slate-400 mt-10">No pages to preview yet.</p>
+            )}
+
+            {/* ── Cover wrap: back · spine · front, joined edge-to-edge as one
+                physical printed sheet (R2/D4) — placeholders make the spine's
+                real proportion to the covers visible before it's printed. ─ */}
+            {(bookCoverPreview || bookBackCoverPreview) && (() => {
+              const frontMm = bookCoverPreview?.canvasWidthMm || 1;
+              const backMm = bookBackCoverPreview?.canvasWidthMm || frontMm;
+              const spineMm = Math.max(bookSpineWidthMm || 0, 0);
+              const wrapHeight = bookCoverPreview?.canvasHeight || bookBackCoverPreview?.canvasHeight || 1800;
+              const wrapWidth = bookCoverPreview?.canvasWidth || bookBackCoverPreview?.canvasWidth || 1200;
+              return (
+                <div className="flex flex-col items-center gap-2">
+                  <div
+                    className="flex items-stretch shadow-xl rounded-lg overflow-hidden bg-white"
+                    style={{ aspectRatio: `${wrapWidth * ((backMm + spineMm + frontMm) / frontMm)} / ${wrapHeight}`, height: '38vh' }}
+                  >
+                    <div className="relative bg-slate-100 flex items-center justify-center" style={{ flex: `${backMm} 0 0px` }}>
+                      {bookBackCoverPreview?.dataUrl ? (
+                        <img src={bookBackCoverPreview.dataUrl} alt="Back cover" className="w-full h-full object-fill" />
+                      ) : (
+                        <Layout className="w-8 h-8 text-slate-300 opacity-40" />
+                      )}
+                    </div>
+                    <div
+                      className="relative bg-gradient-to-b from-amber-100 to-amber-200 border-x-2 border-amber-300 flex items-center justify-center shrink-0"
+                      style={{ flex: `${spineMm || 0.001} 0 0px`, minWidth: spineMm > 0 ? '6px' : '0px' }}
+                      title={bookSpineWidthMm != null ? `Spine: ${bookSpineWidthMm.toFixed(1)}mm` : undefined}
+                    >
+                      {spineMm > 3 && (
+                        <span
+                          className="text-[7px] font-black text-amber-700 uppercase tracking-widest whitespace-nowrap"
+                          style={{ writingMode: 'vertical-rl' }}
+                        >
+                          Spine
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative bg-slate-100 flex items-center justify-center" style={{ flex: `${frontMm} 0 0px` }}>
+                      {bookCoverPreview?.dataUrl ? (
+                        <img src={bookCoverPreview.dataUrl} alt="Front cover" className="w-full h-full object-fill" />
+                      ) : (
+                        <Layout className="w-8 h-8 text-slate-300 opacity-40" />
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">
+                    Cover wrap — back · spine
+                    {bookSpineWidthMm != null ? ` (~${bookSpineWidthMm.toFixed(1)}mm)` : ''} · front
+                  </p>
+                </div>
+              );
+            })()}
+
+            {bookSpreads.map((spread, i) => (
+              <div key={i} className="flex flex-col items-center gap-2">
+                <div className="flex items-stretch shadow-xl rounded-lg overflow-hidden bg-white">
+                  {spread.map((page, pi) => (
+                    <div
+                      key={page.key}
+                      className={clsx(
+                        'relative bg-slate-100 flex items-center justify-center',
+                        spread.length === 2 && pi === 0 && 'border-r-2 border-slate-300',
+                      )}
+                      style={{ aspectRatio: `${page.canvasWidth} / ${page.canvasHeight}`, height: '38vh' }}
+                    >
+                      {page.dataUrl ? (
+                        <img src={page.dataUrl} alt={page.label} className="w-full h-full object-fill" />
+                      ) : (
+                        <Layout className="w-8 h-8 text-slate-300 opacity-40" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">
+                  {spread.map(p => p.label).join(' · ')}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="fixed top-4 right-4 z-[200000] max-w-sm bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
           <span className="flex-1">{error}</span>
@@ -3784,6 +4232,51 @@ export default function LayoutEditorPage() {
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                   Preparing HEIC image for editing
                 </span>
+              </div>
+            </div>
+          )}
+
+          {/* ── Book: page-count control (BOOK_LAYOUT_PRD.md D2/R1) ─────────── */}
+          {/* Visible regardless of upload state — pages exist as blank cards
+              via the generic multi-surface grid below the moment the count
+              is set, same as any other multi-surface product. */}
+          {isBookProduct && bookPageBounds && (
+            <div className="flex items-center justify-between gap-4 bg-white rounded-2xl border-2 border-slate-100 px-4 py-3 mx-4">
+              <div>
+                <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Pages</p>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  {bookPageBounds[0]}–{bookPageBounds[1]} pages, in steps of {bookPageBounds[2]}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleBookPageCountChange(bookPageCount - bookPageBounds[2])}
+                  disabled={bookPageCount <= bookPageBounds[0]}
+                  aria-label="Fewer pages"
+                  className="w-8 h-8 rounded-full border-2 border-slate-200 text-slate-500 font-black text-lg flex items-center justify-center disabled:opacity-30 hover:border-indigo-400 hover:text-indigo-600 transition-colors"
+                >
+                  −
+                </button>
+                <span className="text-sm font-black text-slate-900 tabular-nums min-w-[6rem] text-center">
+                  {bookPageCount} pages
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleBookPageCountChange(bookPageCount + bookPageBounds[2])}
+                  disabled={bookPageCount >= bookPageBounds[1]}
+                  aria-label="More pages"
+                  className="w-8 h-8 rounded-full border-2 border-slate-200 text-slate-500 font-black text-lg flex items-center justify-center disabled:opacity-30 hover:border-indigo-400 hover:text-indigo-600 transition-colors"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSpreadPreview(true)}
+                  className="ml-2 text-[10px] font-black uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-2 rounded-full border-2 border-indigo-100/50 hover:bg-indigo-100 transition-colors"
+                >
+                  Preview spreads
+                </button>
               </div>
             </div>
           )}
