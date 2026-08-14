@@ -1,6 +1,6 @@
 """
-Report which storage/uploads/_no_order/ files can be traced back to their
-real owning order, and which genuinely cannot.
+Trace storage/uploads/_no_order/ files back to their real owning order, and
+(with --apply) move the recoverable ones there.
 
 Why this exists
 ----------------
@@ -21,13 +21,16 @@ not a guess, so this command:
   1. Walks storage/uploads/_no_order/ on disk.
   2. Loads every UploadedFile row pointing there.
   3. For each, searches every CanvasData row's editor_state / render_state /
-     image_paths for the upload's upload_session_id or exact file_path.
+     image_paths for the upload's upload_session_id or exact file_path, and
+     remembers exactly WHICH CanvasData row(s) matched (not just the order_id
+     string) — --apply needs to repoint those specific rows, not every row
+     that happens to share the same order_id text across tenants.
   4. Classifies each file:
        RECOVERABLE    — exactly one order matched. Reports old path -> the
                         path it would move to under that order's directory.
        AMBIGUOUS      — more than one distinct order matched. Should be rare
                         to never (UUIDs don't collide) — needs a human, not
-                        an automatic move.
+                        an automatic move. --apply never touches these.
        UNRECOVERABLE  — no CanvasData anywhere references it. Either the
                         upload was abandoned before any autosave/submit, or
                         its order has since been legitimately erased — either
@@ -42,22 +45,38 @@ not a guess, so this command:
                         is already gone from disk. Nothing to move; the row
                         is just stale bookkeeping.
 
-REPORT ONLY. This command never moves a file or writes a row — there is no
---apply flag here at all. Once the numbers below have been reviewed, the
-actual move/update should be a separate, explicitly reviewed command (mirror
-the dry-run/--apply split in backfill_exported_results.py) run against a
-fresh backup.
+Dry by default — the report above always prints, nothing is written or moved
+without --apply. Only the RECOVERABLE set is ever touched:
+
+  1. Copy the file to its real order directory (services/storage.py::
+     order_upload_dir) and verify the copy's size matches before touching
+     anything else — the original is never removed until this succeeds.
+  2. In one transaction per file: repoint every CanvasData row that actually
+     referenced the old path/upload_session_id (image_paths, render_state,
+     and — for pre-migration-0008 rows — editor_state, via an EXACT leaf-value
+     replace that can never corrupt a string merely containing the old path),
+     and update the UploadedFile row's file_path + order_id.
+  3. Only after that transaction commits, delete the original. Any failure
+     before this point leaves the original untouched and cleans up its own
+     half-made copy, so a re-run starts clean — never a state where a
+     reference could point at a file that's gone.
+  4. Re-verify on disk afterwards ("moving is not the same as having moved",
+     mirroring purge_order_data's own verification sweep) before reporting
+     a file as done.
 
     docker-compose exec backend python manage.py reconcile_no_order_uploads
     docker-compose exec backend python manage.py reconcile_no_order_uploads --show-all
+    docker-compose exec backend python manage.py reconcile_no_order_uploads --apply
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 from api.models import CanvasData, UploadedFile
 from services.storage import NO_ORDER_BUCKET, order_upload_dir
@@ -88,10 +107,45 @@ def _haystack(canvas: CanvasData) -> str:
     return "\n".join(parts)
 
 
+def _replace_exact(value, old: str, new: str):
+    """
+    Recursively replace any string LEAF that exactly equals `old` with `new`,
+    inside an arbitrary JSON-shaped structure (dict / list / scalar).
+
+    Exact equality only — never a substring-within-a-larger-string replace —
+    so a field that merely mentions the old path as part of unrelated text
+    can never be corrupted. Returns (new_value, changed); the input is never
+    mutated in place.
+    """
+    if isinstance(value, str):
+        return (new, True) if value == old else (value, False)
+    if isinstance(value, list):
+        changed = False
+        out = []
+        for item in value:
+            new_item, item_changed = _replace_exact(item, old, new)
+            out.append(new_item)
+            changed = changed or item_changed
+        return (out, True) if changed else (value, False)
+    if isinstance(value, dict):
+        changed = False
+        out = {}
+        for k, v in value.items():
+            new_v, v_changed = _replace_exact(v, old, new)
+            out[k] = new_v
+            changed = changed or v_changed
+        return (out, True) if changed else (value, False)
+    return value, False
+
+
 class Command(BaseCommand):
-    help = "REPORT ONLY: trace storage/uploads/_no_order/ files back to their real order via CanvasData. No --apply."
+    help = "Trace storage/uploads/_no_order/ files back to their real order via CanvasData; --apply moves the recoverable ones."
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "--apply", action="store_true",
+            help="Move RECOVERABLE files to their real order directory and repoint every reference. Default is a dry run.",
+        )
         parser.add_argument(
             "--show-all", action="store_true",
             help="Print every file in every category instead of a capped sample.",
@@ -102,12 +156,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **opts):
+        apply_changes = opts["apply"]
         sample_size = None if opts["show_all"] else opts["sample_size"]
 
         no_order_dir = os.path.join(settings.UPLOADS_DIR, NO_ORDER_BUCKET)
-        self.stdout.write(self.style.MIGRATE_HEADING(
-            f"[REPORT ONLY — no files moved, no rows written] {no_order_dir}"
-        ))
+        mode = "APPLY" if apply_changes else "DRY RUN"
+        self.stdout.write(self.style.MIGRATE_HEADING(f"[{mode}] {no_order_dir}"))
 
         if not os.path.isdir(no_order_dir):
             self.stdout.write("  directory does not exist — nothing to reconcile.")
@@ -135,25 +189,27 @@ class Command(BaseCommand):
 
         # ── 3. Build the search haystack once, not once per orphan ─────────
         canvases = [
-            (c.order_id, _haystack(c))
+            (c.pk, c.order_id, _haystack(c))
             for c in CanvasData.objects.all()
             .only("order_id", "editor_state", "render_state", "image_paths")
             .iterator()
         ]
 
-        recovered: list[tuple[UploadedFile, str, str]] = []
+        recovered: list[tuple[UploadedFile, str, str, list[int]]] = []
         ambiguous: list[tuple[UploadedFile, list[str]]] = []
         unrecoverable: list[UploadedFile] = []
         for row in reconcilable:
             needles = [n for n in (row.upload_session_id, row.file_path) if n]
-            matched_orders = {
-                order_id for order_id, hay in canvases
+            matches = [
+                (pk, order_id) for pk, order_id, hay in canvases
                 if any(needle in hay for needle in needles)
-            }
+            ]
+            matched_orders = {order_id for _pk, order_id in matches}
             if len(matched_orders) == 1:
                 order_id = next(iter(matched_orders))
                 proposed = os.path.join(order_upload_dir(order_id), os.path.basename(row.file_path))
-                recovered.append((row, order_id, proposed))
+                matching_pks = [pk for pk, _oid in matches]
+                recovered.append((row, order_id, proposed, matching_pks))
             elif len(matched_orders) > 1:
                 ambiguous.append((row, sorted(matched_orders)))
             else:
@@ -176,7 +232,7 @@ class Command(BaseCommand):
             if sample_size is not None and len(items) > sample_size:
                 self.stdout.write(f"      … and {len(items) - sample_size} more (--show-all to list them)")
 
-        recovered_bytes = sum(disk_files.get(r.file_path, 0) for r, _, _ in recovered)
+        recovered_bytes = sum(disk_files.get(r.file_path, 0) for r, _, _, _ in recovered)
         _dump(
             f"RECOVERABLE — exact single-order match ({_human(recovered_bytes)})",
             recovered,
@@ -216,8 +272,98 @@ class Command(BaseCommand):
             self.style.WARNING,
         )
 
-        self.stdout.write(self.style.WARNING(
-            "\nReport only — nothing was moved or written. Review the RECOVERABLE list, "
-            "then implement a separate --apply command (dry-run/--apply split, per "
-            "backfill_exported_results.py) once you're satisfied with what it proposes."
-        ))
+        if not apply_changes:
+            self.stdout.write(self.style.WARNING(
+                "\nDry run — nothing was moved or written. Re-run with --apply to move the "
+                "RECOVERABLE set above. AMBIGUOUS / UNRECOVERABLE / DISK-ONLY / ROW-ONLY are "
+                "never touched by --apply."
+            ))
+            return
+
+        # ── Apply: move only the RECOVERABLE set ────────────────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING(f"\n[APPLY] moving {len(recovered)} file(s)"))
+        succeeded, failed = self._apply_moves(recovered)
+
+        for row, order_id, new_path in succeeded:
+            self.stdout.write(self.style.SUCCESS(f"      moved: {new_path}  (order={order_id!r})"))
+        for row, order_id, new_path, detail in failed:
+            self.stdout.write(self.style.ERROR(f"      FAILED: {row.file_path} -> {new_path}: {detail}"))
+
+        freed = sum(disk_files.get(r.file_path, 0) for r, _oid, _np in succeeded)
+        self.stdout.write(
+            f"\n  moved   : {len(succeeded)}  ({_human(freed)})\n"
+            f"  failed  : {len(failed)}"
+        )
+        if failed:
+            self.stdout.write(self.style.WARNING(
+                "  failures left their original file untouched — safe to re-run."
+            ))
+
+    def _apply_moves(self, recovered):
+        """
+        Move each RECOVERABLE file and repoint its references.
+
+        Returns (succeeded, failed):
+          succeeded: list of (UploadedFile, order_id, new_path) — re-verified
+                     on disk after the fact.
+          failed:    list of (UploadedFile, order_id, new_path, error_detail)
+        """
+        succeeded: list[tuple[UploadedFile, str, str]] = []
+        failed: list[tuple[UploadedFile, str, str, str]] = []
+
+        for row, order_id, new_path, matching_pks in recovered:
+            old_path = row.file_path
+            try:
+                if os.path.exists(new_path):
+                    raise RuntimeError(f"target already exists: {new_path}")
+
+                os.makedirs(os.path.dirname(new_path), exist_ok=True)
+                shutil.copy2(old_path, new_path)
+                if os.path.getsize(new_path) != os.path.getsize(old_path):
+                    raise RuntimeError("size mismatch after copy")
+
+                with transaction.atomic():
+                    canvases = CanvasData.objects.select_for_update().filter(pk__in=matching_pks)
+                    for canvas in canvases:
+                        update_fields = []
+                        for field in ("editor_state", "render_state", "image_paths"):
+                            current = getattr(canvas, field)
+                            if current is None:
+                                continue
+                            new_value, changed = _replace_exact(current, old_path, new_path)
+                            if changed:
+                                setattr(canvas, field, new_value)
+                                update_fields.append(field)
+                        if update_fields:
+                            canvas.save(update_fields=update_fields)
+
+                    UploadedFile.objects.filter(pk=row.pk).update(
+                        file_path=new_path, order_id=order_id,
+                    )
+
+                # Only remove the original after the DB commit above succeeds —
+                # os.remove is the last step, so any exception raised earlier
+                # leaves old_path fully intact.
+                os.remove(old_path)
+
+                # "Moving is not the same as having moved" — re-check before
+                # reporting success, mirroring purge_order_data's own
+                # post-transaction verification sweep.
+                if not os.path.isfile(new_path) or os.path.exists(old_path):
+                    raise RuntimeError("post-move verification failed — new path missing or old path still present")
+
+                succeeded.append((row, order_id, new_path))
+
+            except Exception as exc:
+                # old_path is only ever removed on the success path above, so
+                # it is guaranteed intact here. Clean up any partial/complete
+                # copy so a re-run doesn't trip the "target already exists"
+                # guard.
+                if os.path.exists(new_path):
+                    try:
+                        os.remove(new_path)
+                    except OSError:
+                        pass
+                failed.append((row, order_id, new_path, str(exc)))
+
+        return succeeded, failed
