@@ -387,9 +387,46 @@ Retry strategy: `self.retry()` with exponential backoff (2s → 4s → 8s), max 
 
 `services/gc_status.py` records each completed sweep (timestamp + counters) to `storage/gc_last_run.json`, atomically, and `CeleryMonitoringView` reads it back. A file under `STORAGE_ROOT` rather than a DB row because `./storage` is bind-mounted and therefore survives container recreation — the exact thing that lost the log evidence during that incident — and because it needs no migration. It is runtime state, not config: gitignored, unlike the other JSON files in that directory.
 
-`stale` is the field to alert on. It is True when no sweep has been recorded, when the record is unreadable, and when the last one is older than `GC_STALE_AFTER_HOURS` (default 36). Only successful runs are recorded, so a crashed sweep shows up as growing staleness. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
+**Alert on `stale` OR `failing`** — they answer different questions. `stale` means no *successful* sweep recently (never recorded, unreadable record, or older than `GC_STALE_AFTER_HOURS`, default 36). `failing` means the most recent *attempt* raised, with `last_error` saying how; a sweep can be failing while not yet stale.
+
+That second field exists because its absence is genuinely expensive. The first version recorded only successes, on the reasoning that a crash would surface as staleness. It does — but staleness cannot say *why*, and it reads identically to "never scheduled". On 2026-08-14 that ambiguity let a wrong diagnosis run for two days: with no failure record, "the sweep broke" and "the sweep was never dispatched" look the same from outside. **The answer was in the worker log the whole time** — and worker logs survive container recreation in Loki, so query `{container=~".*celery-worker.*"}` for the window *before* theorising. `api/tasks.py` now hooks `task_failure` for the sweep, which leaves retry semantics untouched. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
 
 The same endpoint carries a **live `disk` block** (`used_percent`, `free_gb`, `pressure` at >80%), read at request time rather than lifted from the last sweep's stats. That distinction is the point: `garbage_collector.stats.disk_usage_percent` is only as fresh as the last sweep, so at the moment it matters most — nothing sweeping — it is absent or stale. Production hit 89% unnoticed twice for that reason.
+
+### Why the GC runs every 6 hours, not nightly
+
+`garbage_collector_task` runs at **00:00 / 06:00 / 12:00 / 18:00 UTC**. It used to run once daily at 02:00, which was very nearly the worst possible hour.
+
+Retention is 3 days and Printo's orders arrive in Indian business hours, so exports expire at roughly the clock time they were created — a wave spanning **03:00–12:00 UTC** and essentially nothing outside it. A 02:00 sweep sat in the trough immediately *before* that wave: of 7,647 rows pending on 2026-08-14 it collected the 151 expiring at 01:00–02:00 (**2%**), and the other 98% waited up to 23 hours for the next run.
+
+Effective retention was therefore ~4 days rather than 3, carrying a permanent extra day of exports and uploads. Disk sawtoothed 82% → 93% overnight **while the sweep itself was perfectly healthy** — it ran and succeeded in 0.19s every night. Diagnosing that as a broken GC produced two wrong root causes (a non-firing beat, then a stale DB connection) before anyone plotted expiries by hour. If disk grows again, plot that histogram before suspecting the sweep:
+
+```bash
+docker compose exec backend /opt/venv/bin/python manage.py shell -c "
+from api.models import ExportedResult
+from django.db.models import Count
+from django.db.models.functions import ExtractHour
+for r in (ExportedResult.objects.filter(is_deleted=False).annotate(h=ExtractHour('expires_at'))
+          .values('h').annotate(n=Count('id')).order_by('h')):
+    print('%02d:00 UTC %6d' % (r['h'], r['n']))
+"
+```
+
+Four sweeps a day caps the lag at ~6h. A no-op sweep costs 0.19s and a full one 2.3s, both far inside `soft_time_limit=3300`. **If retention or the customer timezone changes, re-plot before assuming the schedule still fits.**
+
+### Celery and stale database connections
+
+`CONN_MAX_AGE` does nothing in a worker on its own. Django enforces it from its `request_started`/`request_finished` signals, and Celery has no requests — so a connection opened by a worker's first task stays checked out for the life of that process, however long it idles, until Postgres or Docker drops the socket. The next query then raises `InterfaceError: connection already closed`.
+
+**This has not been observed biting in production** — treat the hooks below as hardening, not a fix for a known incident. The 2026-08-14 nightly sweep ran and succeeded in 0.19s; a plausible-sounding story about it dying on a stale connection turned out to be wrong when the Loki logs were finally read. `worker_max_tasks_per_child = 50` recycles the process periodically, which is probably why the risk has stayed latent.
+
+The risk is nonetheless real and was unguarded, verified both directions: kill `connection.connection`, and the next query raises `InterfaceError: connection already closed` without the hook and succeeds with it.
+
+Two halves, both required:
+- `product_editor/celery.py` connects `close_old_connections` to **`task_prerun` and `task_postrun`**. Postrun matters as much as prerun: it stops an idle worker sitting on a connection waiting to go stale.
+- `settings.py` sets **`CONN_HEALTH_CHECKS: True`** so Django validates a pooled connection before reuse rather than discovering it is dead via the query.
+
+Don't remove either when touching Celery config. The pinning test is `services/tests/test_gc_status.py`, plus a manual check that survives review: kill `connection.connection` and confirm the next query still works.
 
 ### Orphaned export directories
 

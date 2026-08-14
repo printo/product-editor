@@ -55,15 +55,21 @@ def _stale_after_hours() -> int:
     return int(getattr(settings, "GC_STALE_AFTER_HOURS", 36))
 
 
-def record_gc_run(stats: dict[str, Any], *, now: datetime | None = None) -> bool:
-    """Persist the timestamp + counters of a completed sweep. Returns True on write.
+MAX_ERROR_CHARS = 500
 
-    Never raises. An audit record that can fail the sweep it is describing would
-    be worse than no record at all — the same reasoning as the API audit
-    middleware (see `api/middleware.py`).
-    """
-    stamp = (now or datetime.now(timezone.utc)).isoformat()
-    payload = {"last_run_at": stamp, "stats": stats}
+
+def _read_payload() -> dict[str, Any]:
+    """Current record, or {} when absent/unreadable. Never raises."""
+    try:
+        with open(status_path(), "r") as fh:
+            payload = json.load(fh)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_payload(payload: dict[str, Any]) -> bool:
+    """Atomically replace the record. Never raises; returns True on write."""
     path = status_path()
     tmp_path = None
     try:
@@ -78,7 +84,7 @@ def record_gc_run(stats: dict[str, Any], *, now: datetime | None = None) -> bool
         os.replace(tmp_path, path)
         return True
     except Exception as exc:
-        logger.warning("Could not record GC run status at %s: %s", path, exc)
+        logger.warning("Could not write GC status at %s: %s", path, exc)
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
@@ -87,12 +93,76 @@ def record_gc_run(stats: dict[str, Any], *, now: datetime | None = None) -> bool
         return False
 
 
+def record_gc_run(stats: dict[str, Any], *, now: datetime | None = None) -> bool:
+    """Persist the timestamp + counters of a COMPLETED sweep. Returns True on write.
+
+    Merges rather than overwrites, so a previous failure's error survives a later
+    success. An operator wants to see "succeeded an hour ago, but failed at 02:00
+    with this error" — overwriting would hide the pattern that matters.
+
+    Never raises. An audit record that can fail the sweep it is describing would
+    be worse than no record at all — the same reasoning as the API audit
+    middleware (see `api/middleware.py`).
+    """
+    payload = _read_payload()
+    payload["last_run_at"] = (now or datetime.now(timezone.utc)).isoformat()
+    payload["stats"] = stats
+    return _write_payload(payload)
+
+
+def record_gc_failure(error: BaseException | str, *, now: datetime | None = None) -> bool:
+    """Persist that a sweep ATTEMPT failed, and why.
+
+    The first version of this module recorded only successful runs, on the
+    reasoning that a crash would surface as growing staleness. It does — but
+    staleness cannot tell you *why*, and it reads identically to "never ran".
+
+    That ambiguity is expensive. On 2026-08-14 it let two successive wrong root
+    causes stand for two days — first "beat is not firing", then "the task dies
+    on a stale DB connection" — when the sweep had in fact run and succeeded in
+    0.19s each night, and the real issue was that 02:00 UTC lands just *before*
+    the daily expiry wave. Every one of those wrong turns was a guess made
+    because the failure path recorded nothing to read.
+
+    Wired via the task_failure signal in api/tasks.py rather than a try/except
+    around the sweep body, so the task's own retry semantics are untouched.
+    """
+    if isinstance(error, BaseException):
+        detail = f"{type(error).__name__}: {error}"
+    else:
+        detail = str(error)
+    payload = _read_payload()
+    payload["last_failure_at"] = (now or datetime.now(timezone.utc)).isoformat()
+    payload["last_error"] = detail[:MAX_ERROR_CHARS]
+    return _write_payload(payload)
+
+
+def _parse_stamp(raw: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    # A naive stamp would blow up the subtractions below; treat it as UTC, which
+    # is what this module always writes.
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
 def read_gc_status(*, now: datetime | None = None) -> dict[str, Any]:
     """Report on the last recorded sweep, for the ops monitoring endpoint.
 
-    `stale` is the field to alert on. It is True when no sweep has ever been
-    recorded, when the record is unreadable, AND when the last one is older than
-    GC_STALE_AFTER_HOURS — an unreadable record is not evidence of health.
+    Two fields to alert on, and they answer different questions:
+
+      stale   — no SUCCESSFUL sweep recently. True when none has ever been
+                recorded, when the record is unreadable, and when the last one is
+                older than GC_STALE_AFTER_HOURS. An unreadable record is not
+                evidence of health.
+      failing — the most recent attempt FAILED, with `last_error` saying how.
+                Distinguishes "the sweep is broken" from "the sweep is not being
+                scheduled", which took hours to tell apart on 2026-08-14 because
+                only successes were recorded.
+
+    A sweep can be `failing` while not yet `stale` (it broke a few hours ago but
+    succeeded within the window), so alert on either.
     """
     threshold = _stale_after_hours()
     base: dict[str, Any] = {
@@ -101,6 +171,9 @@ def read_gc_status(*, now: datetime | None = None) -> dict[str, Any]:
         "stale": True,
         "stale_after_hours": threshold,
         "stats": None,
+        "last_failure_at": None,
+        "last_error": None,
+        "failing": False,
     }
 
     path = status_path()
@@ -114,25 +187,36 @@ def read_gc_status(*, now: datetime | None = None) -> dict[str, Any]:
         base["detail"] = f"Status file unreadable: {exc}"
         return base
 
-    raw = (payload or {}).get("last_run_at")
-    try:
-        last_run = datetime.fromisoformat(raw)
-    except (TypeError, ValueError):
-        base["detail"] = "Status file has no valid last_run_at."
-        return base
+    payload = payload if isinstance(payload, dict) else {}
+    last_run = _parse_stamp(payload.get("last_run_at"))
+    last_failure = _parse_stamp(payload.get("last_failure_at"))
 
-    # A naive stamp would blow up the subtraction below; treat it as UTC, which
-    # is what record_gc_run always writes.
-    if last_run.tzinfo is None:
-        last_run = last_run.replace(tzinfo=timezone.utc)
+    result = dict(base)
+    if last_failure is not None:
+        result["last_failure_at"] = last_failure.isoformat()
+        result["last_error"] = payload.get("last_error")
 
-    age_hours = ((now or datetime.now(timezone.utc)) - last_run).total_seconds() / 3600.0
-    return {
+    if last_run is None:
+        # A failure recorded with no successful run is the "broken from the
+        # start" case — report the error rather than the bare no-record message.
+        result["detail"] = (
+            "Sweeps are failing; none has ever completed." if last_failure is not None
+            else "Status file has no valid last_run_at."
+        )
+        result["failing"] = last_failure is not None
+        return result
+
+    reference = now or datetime.now(timezone.utc)
+    age_hours = (reference - last_run).total_seconds() / 3600.0
+    result.update({
         "last_run_at": last_run.isoformat(),
         # Clamp the floor at 0: a clock skew between writer and reader should not
         # surface as a negative age that reads like corruption.
         "age_hours": round(max(age_hours, 0.0), 2),
         "stale": age_hours > threshold,
-        "stale_after_hours": threshold,
-        "stats": (payload or {}).get("stats"),
-    }
+        "stats": payload.get("stats"),
+        # Most recent event was a failure — the sweep is broken right now even if
+        # an earlier success is still inside the staleness window.
+        "failing": last_failure is not None and last_failure > last_run,
+    })
+    return result

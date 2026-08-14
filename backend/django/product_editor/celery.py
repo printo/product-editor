@@ -50,9 +50,65 @@ app.conf.task_send_sent_event = True
 # ── Beat schedule ────────────────────────────────────────────────────────────
 from celery.schedules import crontab
 
+# Every 6 hours (00:00 / 06:00 / 12:00 / 18:00 UTC), not once daily at 02:00.
+#
+# Retention is 3 days and Printo's orders arrive in Indian business hours, so
+# exports expire at roughly the clock time they were created. Measured
+# 2026-08-14, expiries by hour of the 7,647 rows then pending:
+#
+#   01:00  15   02:00  136   03:00  943   04:00  794   05:00  910   06:00 1019
+#   07:00 610   08:00  841   09:00  490   10:00  887   11:00  484   12:00  486
+#   13:00  29   (essentially nothing outside 03:00-12:00)
+#
+# A 02:00 sweep sat in the trough immediately BEFORE that wave: it collected the
+# 151 rows expiring at 01:00-02:00 — 2% — and the other 98% then waited up to 23
+# hours for the next run. Effective retention was therefore ~4 days rather than
+# 3, carrying a permanent extra day of exports and uploads, and disk sawtoothed
+# (82% -> 93% overnight on 2026-08-14) while the sweep itself was perfectly
+# healthy. Diagnosing that as a broken GC produced two wrong root causes before
+# anyone plotted the histogram above.
+#
+# Four sweeps a day caps the lag at ~6h. Cost is negligible: a no-op sweep takes
+# 0.19s and a full one 2.3s, both far inside soft_time_limit=3300.
 app.conf.beat_schedule = {
     'garbage-collector': {
         'task': 'api.tasks.garbage_collector_task',
-        'schedule': crontab(hour=2, minute=0),  # daily at 02:00 UTC
+        'schedule': crontab(minute=0, hour='*/6'),  # 00/06/12/18 UTC
     },
 }
+
+# ── Database connections across task boundaries ──────────────────────────────
+# Recycle stale/dead DB connections before and after every task, the way Django
+# does around an HTTP request.
+#
+# Without this, CONN_MAX_AGE does nothing in a worker. Django enforces that
+# setting from its request_started/request_finished signals, and Celery has no
+# requests — so a connection opened by the first task in a process stays checked
+# out for the life of that process, no matter how long it goes unused. Postgres
+# (or Docker's NAT) eventually drops the idle socket, and the next query on it
+# raises InterfaceError: connection already closed.
+#
+# HARDENING, not a fix for a known incident. This has not been observed biting
+# in production, and it is worth being precise because a confident story about
+# it breaking the nightly GC on 2026-08-14 turned out to be wrong — that sweep
+# ran and succeeded in 0.19s. `worker_max_tasks_per_child = 50` recycles the
+# process periodically, which is probably why the risk has stayed latent.
+#
+# The risk is nonetheless real and was unguarded: kill connection.connection and
+# the next query raises without these hooks, and succeeds with them.
+#
+# task_postrun matters as much as task_prerun: releasing the connection after a
+# task means an idle worker is not sitting on one waiting to go stale.
+from celery.signals import task_postrun, task_prerun  # noqa: E402
+
+
+@task_prerun.connect
+def _close_stale_db_connections_before_task(**_kwargs):
+    from django.db import close_old_connections
+    close_old_connections()
+
+
+@task_postrun.connect
+def _close_stale_db_connections_after_task(**_kwargs):
+    from django.db import close_old_connections
+    close_old_connections()

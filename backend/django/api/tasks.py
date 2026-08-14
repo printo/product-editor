@@ -6,6 +6,7 @@ import time
 import logging
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from celery.signals import task_failure
 from django.db.models import Q
 from django.utils import timezone
 from django.conf import settings
@@ -1276,3 +1277,27 @@ def garbage_collector_task():
     record_gc_run(result)
 
     return result
+
+
+# ── Make a failed sweep visible ──────────────────────────────────────────────
+# record_gc_run above only fires on success, so until this hook existed a sweep
+# that raised left no trace at all: the status file kept the previous timestamp
+# (or none), and `stale` slowly drifted up looking exactly like "beat never
+# scheduled it".
+#
+# That ambiguity produced two days of wrong answers on 2026-08-14 — "beat isn't
+# firing", then "the task dies on a stale DB connection" — before the worker log
+# showed the sweep succeeding nightly in 0.19s. Worker logs survive container
+# recreation in Loki; query {container=~".*celery-worker.*"} for the window
+# before theorising about a silent task.
+#
+# Connected to the task_failure signal rather than wrapping the sweep body in
+# try/except so the task's retry and acknowledgement behaviour is untouched, and
+# so the ~250-line body needs no reindentation.
+@task_failure.connect(sender=garbage_collector_task)
+def _record_garbage_collector_failure(exception=None, **_kwargs):
+    try:
+        from services.gc_status import record_gc_failure
+        record_gc_failure(exception or "unknown error")
+    except Exception as exc:  # never let the reporter mask the real failure
+        logger.warning("Could not record GC failure status: %s", exc)
