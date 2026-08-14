@@ -12,7 +12,7 @@
  *     included in the JSON only when the checkbox is on
  *   - Save button gates on validation + fires onSave with serialized JSON
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   BookLayoutEditor,
@@ -171,5 +171,23 @@ describe('BookLayoutEditor component', () => {
       },
     });
     expect(screen.getByTestId('book-name-input')).toHaveValue('existing_book');
+  });
+
+  it('shows the resolved spine width computed from the default page count (R2)', () => {
+    // Default draft: 24 pages, 0.12mm paper, 0mm cover thickness →
+    // (24/2) * 0.12 + 2*0 = 1.44mm.
+    setup();
+    expect(screen.getByTestId('resolved-spine')).toHaveTextContent('1.44 mm');
+  });
+
+  it('recomputes the resolved spine live as the default page count changes', () => {
+    setup();
+    const defaultPagesInput = screen.getByRole('spinbutton', { name: /Default pages/i });
+    // type="number" inputs don't support selection APIs in real browsers or
+    // happy-dom, so simulating keystrokes (clear + type) can't reliably
+    // replace the value — fire the change directly instead.
+    fireEvent.change(defaultPagesInput, { target: { value: '40' } });
+    // (40/2) * 0.12 = 2.4mm
+    expect(screen.getByTestId('resolved-spine')).toHaveTextContent('2.40 mm');
   });
 });

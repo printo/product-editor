@@ -19,6 +19,7 @@
  */
 
 import { useState } from 'react';
+import { spineWidthMm } from '@/lib/book-layout';
 
 // ─── Draft types ─────────────────────────────────────────────────────────────
 
@@ -416,6 +417,24 @@ export function BookLayoutEditor({
             onChange={(n) => patch({ pageCountStep: n })} />
           <NumberField label="Default pages" value={draft.pageCountDefault} step={1} min={1}
             onChange={(n) => patch({ pageCountDefault: n })} />
+        </div>
+
+        {/* R2 — a wrong spine formula prints an unusable cover, and there was
+            no way for ops to see the resolved number before publishing a
+            template. Recomputes live as the fields above change. */}
+        <div className="mt-4 pt-4 border-t border-zinc-200">
+          <p className="text-xs font-semibold text-zinc-700" data-testid="resolved-spine">
+            Resolved spine (at default page count):{' '}
+            <span className="font-mono">
+              {spineWidthMm(draft.pageCountDefault, draft.paperThicknessMm, draft.coverThicknessMm).toFixed(2)} mm
+            </span>
+          </p>
+          <p className="text-[10px] text-zinc-400 mt-1">
+            (pages ÷ 2 leaves) × paper thickness + 2 × cover thickness. Whether
+            &quot;paper thickness&quot; means per-leaf or per-side is unconfirmed
+            with Catalog Ops — verify against a printed sample before publishing
+            this template (BOOK_LAYOUT_PRD.md R2).
+          </p>
         </div>
       </section>
 

@@ -69,7 +69,7 @@ import {
   CalendarCellUploadError,
 } from '@/lib/calendar-cell-upload';
 import { reconcilePageCount, roleForSurfaceKey } from './book-pages';
-import { pageCountBounds, resolvePageCount, pagesToSpreads, type BookLayoutLike } from '@/lib/book-layout';
+import { pageCountBounds, resolvePageCount, pagesToSpreads, spineWidthMm, type BookLayoutLike } from '@/lib/book-layout';
 
 // ─── Fabric-based imposition / export ─────────────────────────────────────
 
@@ -1461,8 +1461,18 @@ export default function LayoutEditorPage() {
   // (CLAUDE.md "Three frame renderers") — this view only adds the spread
   // *layout*, never re-renders a frame.
   const [showSpreadPreview, setShowSpreadPreview] = useState(false);
-  const bookSpreads = useMemo(() => {
-    if (!isBookProduct) return [];
+  const { bookSpreads, bookCoverPreview, bookBackCoverPreview } = useMemo(() => {
+    if (!isBookProduct) return { bookSpreads: [], bookCoverPreview: null, bookBackCoverPreview: null };
+    // mm is the common unit for sizing the cover-wrap panels proportionally
+    // against spineWidthMm below; px-only canvases fall back to treating
+    // their pixel width as a proportional unit (still correct for the ratio,
+    // just not a real mm figure).
+    const widthMmOf = (canvas: { width?: number; widthMm?: number; dpi?: number } | undefined): number => {
+      if (!canvas) return 0;
+      if (canvas.widthMm) return canvas.widthMm;
+      if (canvas.width && canvas.dpi) return (canvas.width / canvas.dpi) * 25.4;
+      return canvas.width || 0;
+    };
     const pages = surfaceStates.map(s => {
       const { role, pageIndex } = roleForSurfaceKey(s.key);
       return {
@@ -1473,10 +1483,31 @@ export default function LayoutEditorPage() {
         dataUrl: s.canvases[0]?.dataUrl ?? null,
         canvasWidth: s.def.canvas?.width || 1200,
         canvasHeight: s.def.canvas?.height || 1800,
+        canvasWidthMm: widthMmOf(s.def.canvas),
       };
     });
-    return pagesToSpreads(pages);
+    // The standalone cover/back-cover spreads pagesToSpreads() produces are
+    // redundant with the cover-wrap panel rendered separately below — filter
+    // them out of the regular list rather than showing the cover twice.
+    const innerSpreads = pagesToSpreads(pages).filter(spread =>
+      !(spread.length === 1 && (spread[0].role === 'cover' || spread[0].role === 'backCover'))
+    );
+    return {
+      bookSpreads: innerSpreads,
+      bookCoverPreview: pages.find(p => p.role === 'cover') ?? null,
+      bookBackCoverPreview: pages.find(p => p.role === 'backCover') ?? null,
+    };
   }, [isBookProduct, surfaceStates]);
+
+  // R2 (BOOK_LAYOUT_PRD.md) — recomputed from the CURRENT page count, same
+  // as the backend does at materialize time (D4: spine changes whenever the
+  // customer changes the page count, never resolved once at author time).
+  const bookSpineWidthMm = useMemo(() => {
+    if (!isBookProduct) return null;
+    const raw = normalizedLayoutState?._raw as BookLayoutLike | undefined;
+    if (!raw?.book) return null;
+    return spineWidthMm(bookPageCount, raw.book.paperThicknessMm || 0, raw.book.coverThicknessMm || 0);
+  }, [isBookProduct, normalizedLayoutState, bookPageCount]);
 
   // Pre-submit guards (Phase 3): surfaces that would print blank + photos
   // placed more than once (excluding deliberate qty auto-fill duplicates).
@@ -3913,9 +3944,62 @@ export default function LayoutEditorPage() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-8">
-            {bookSpreads.length === 0 && (
+            {bookSpreads.length === 0 && !bookCoverPreview && !bookBackCoverPreview && (
               <p className="text-sm text-slate-400 mt-10">No pages to preview yet.</p>
             )}
+
+            {/* ── Cover wrap: back · spine · front, joined edge-to-edge as one
+                physical printed sheet (R2/D4) — placeholders make the spine's
+                real proportion to the covers visible before it's printed. ─ */}
+            {(bookCoverPreview || bookBackCoverPreview) && (() => {
+              const frontMm = bookCoverPreview?.canvasWidthMm || 1;
+              const backMm = bookBackCoverPreview?.canvasWidthMm || frontMm;
+              const spineMm = Math.max(bookSpineWidthMm || 0, 0);
+              const wrapHeight = bookCoverPreview?.canvasHeight || bookBackCoverPreview?.canvasHeight || 1800;
+              const wrapWidth = bookCoverPreview?.canvasWidth || bookBackCoverPreview?.canvasWidth || 1200;
+              return (
+                <div className="flex flex-col items-center gap-2">
+                  <div
+                    className="flex items-stretch shadow-xl rounded-lg overflow-hidden bg-white"
+                    style={{ aspectRatio: `${wrapWidth * ((backMm + spineMm + frontMm) / frontMm)} / ${wrapHeight}`, height: '38vh' }}
+                  >
+                    <div className="relative bg-slate-100 flex items-center justify-center" style={{ flex: `${backMm} 0 0px` }}>
+                      {bookBackCoverPreview?.dataUrl ? (
+                        <img src={bookBackCoverPreview.dataUrl} alt="Back cover" className="w-full h-full object-fill" />
+                      ) : (
+                        <Layout className="w-8 h-8 text-slate-300 opacity-40" />
+                      )}
+                    </div>
+                    <div
+                      className="relative bg-gradient-to-b from-amber-100 to-amber-200 border-x-2 border-amber-300 flex items-center justify-center shrink-0"
+                      style={{ flex: `${spineMm || 0.001} 0 0px`, minWidth: spineMm > 0 ? '6px' : '0px' }}
+                      title={bookSpineWidthMm != null ? `Spine: ${bookSpineWidthMm.toFixed(1)}mm` : undefined}
+                    >
+                      {spineMm > 3 && (
+                        <span
+                          className="text-[7px] font-black text-amber-700 uppercase tracking-widest whitespace-nowrap"
+                          style={{ writingMode: 'vertical-rl' }}
+                        >
+                          Spine
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative bg-slate-100 flex items-center justify-center" style={{ flex: `${frontMm} 0 0px` }}>
+                      {bookCoverPreview?.dataUrl ? (
+                        <img src={bookCoverPreview.dataUrl} alt="Front cover" className="w-full h-full object-fill" />
+                      ) : (
+                        <Layout className="w-8 h-8 text-slate-300 opacity-40" />
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">
+                    Cover wrap — back · spine
+                    {bookSpineWidthMm != null ? ` (~${bookSpineWidthMm.toFixed(1)}mm)` : ''} · front
+                  </p>
+                </div>
+              );
+            })()}
+
             {bookSpreads.map((spread, i) => (
               <div key={i} className="flex flex-col items-center gap-2">
                 <div className="flex items-stretch shadow-xl rounded-lg overflow-hidden bg-white">
