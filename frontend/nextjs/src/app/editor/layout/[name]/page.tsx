@@ -68,8 +68,8 @@ import {
   uploadCalendarCellImage,
   CalendarCellUploadError,
 } from '@/lib/calendar-cell-upload';
-import { reconcilePageCount } from './book-pages';
-import { pageCountBounds, resolvePageCount, type BookLayoutLike } from '@/lib/book-layout';
+import { reconcilePageCount, roleForSurfaceKey } from './book-pages';
+import { pageCountBounds, resolvePageCount, pagesToSpreads, type BookLayoutLike } from '@/lib/book-layout';
 
 // ─── Fabric-based imposition / export ─────────────────────────────────────
 
@@ -1451,6 +1451,32 @@ export default function LayoutEditorPage() {
     setBookHiddenPages(archive);
     setBookPageCount(resolvedCount);
   }, [normalizedLayoutState]);
+
+  // ── Book: read-only spread preview (D6 — edit single pages, preview
+  // spreads) ─────────────────────────────────────────────────────────────
+  // Groups the CURRENT VISIBLE pages only (never the held/archived ones —
+  // previewing a page the customer can't currently see would be confusing).
+  // Reuses each page's already-computed thumbnail (canvases[0].dataUrl, the
+  // same one the card grid renders) rather than a fourth frame-drawing path
+  // (CLAUDE.md "Three frame renderers") — this view only adds the spread
+  // *layout*, never re-renders a frame.
+  const [showSpreadPreview, setShowSpreadPreview] = useState(false);
+  const bookSpreads = useMemo(() => {
+    if (!isBookProduct) return [];
+    const pages = surfaceStates.map(s => {
+      const { role, pageIndex } = roleForSurfaceKey(s.key);
+      return {
+        key: s.key,
+        role,
+        pageIndex,
+        label: s.label,
+        dataUrl: s.canvases[0]?.dataUrl ?? null,
+        canvasWidth: s.def.canvas?.width || 1200,
+        canvasHeight: s.def.canvas?.height || 1800,
+      };
+    });
+    return pagesToSpreads(pages);
+  }, [isBookProduct, surfaceStates]);
 
   // Pre-submit guards (Phase 3): surfaces that would print blank + photos
   // placed more than once (excluding deliberate qty auto-fill duplicates).
@@ -3870,6 +3896,55 @@ export default function LayoutEditorPage() {
         </div>
       )}
 
+      {/* ── Book: read-only spread preview (D6) ─────────────────────────── */}
+      {showSpreadPreview && (
+        <div className="fixed inset-0 z-[200004] bg-black/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200">
+          <div className="flex items-center justify-between px-6 py-4 bg-white/95 border-b border-slate-200 shrink-0">
+            <div>
+              <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight">Spread preview</h2>
+              <p className="text-[10px] text-slate-400 font-medium">Read-only — edit individual pages in the grid</p>
+            </div>
+            <button
+              onClick={() => setShowSpreadPreview(false)}
+              aria-label="Close spread preview"
+              className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+            >
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-8">
+            {bookSpreads.length === 0 && (
+              <p className="text-sm text-slate-400 mt-10">No pages to preview yet.</p>
+            )}
+            {bookSpreads.map((spread, i) => (
+              <div key={i} className="flex flex-col items-center gap-2">
+                <div className="flex items-stretch shadow-xl rounded-lg overflow-hidden bg-white">
+                  {spread.map((page, pi) => (
+                    <div
+                      key={page.key}
+                      className={clsx(
+                        'relative bg-slate-100 flex items-center justify-center',
+                        spread.length === 2 && pi === 0 && 'border-r-2 border-slate-300',
+                      )}
+                      style={{ aspectRatio: `${page.canvasWidth} / ${page.canvasHeight}`, height: '38vh' }}
+                    >
+                      {page.dataUrl ? (
+                        <img src={page.dataUrl} alt={page.label} className="w-full h-full object-fill" />
+                      ) : (
+                        <Layout className="w-8 h-8 text-slate-300 opacity-40" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">
+                  {spread.map(p => p.label).join(' · ')}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="fixed top-4 right-4 z-[200000] max-w-sm bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
           <span className="flex-1">{error}</span>
@@ -4110,6 +4185,13 @@ export default function LayoutEditorPage() {
                   className="w-8 h-8 rounded-full border-2 border-slate-200 text-slate-500 font-black text-lg flex items-center justify-center disabled:opacity-30 hover:border-indigo-400 hover:text-indigo-600 transition-colors"
                 >
                   +
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSpreadPreview(true)}
+                  className="ml-2 text-[10px] font-black uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-2 rounded-full border-2 border-indigo-100/50 hover:bg-indigo-100 transition-colors"
+                >
+                  Preview spreads
                 </button>
               </div>
             </div>

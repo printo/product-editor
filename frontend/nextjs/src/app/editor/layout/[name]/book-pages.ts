@@ -27,6 +27,7 @@ import {
   resolvePageCount,
   type BookLayoutLike,
   type MaterializedPage,
+  type BookRole,
 } from '@/lib/book-layout';
 import type { SurfaceState, FitMode } from './types';
 
@@ -128,4 +129,21 @@ export function reconcilePageCount(
   });
 
   return { visible, archive: nextArchive, resolvedCount };
+}
+
+/**
+ * Recover a page's role/pageIndex from its `key` — the same convention
+ * `materializePages`/`materialize_pages` (Python) produce: `"cover"`,
+ * `"page_01"..."page_NN"`, `"back_cover"`. Used by the read-only spread
+ * preview (D6), which needs {role, pageIndex} to call `pagesToSpreads()`
+ * but only has `surfaceStates` (SurfaceState[], keyed by string) to work
+ * from — SurfaceState deliberately carries no book-specific fields, to keep
+ * every other generic call site (drag/drop, submit guards, DPI collection)
+ * unaware books are special.
+ */
+export function roleForSurfaceKey(key: string): { role: BookRole; pageIndex: number | null } {
+  if (key === 'cover') return { role: 'cover', pageIndex: null };
+  if (key === 'back_cover') return { role: 'backCover', pageIndex: null };
+  const m = /^page_(\d+)$/.exec(key);
+  return { role: 'inner', pageIndex: m ? parseInt(m[1], 10) : null };
 }

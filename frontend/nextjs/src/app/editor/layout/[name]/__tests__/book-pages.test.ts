@@ -4,7 +4,7 @@
  * customer edits (photos, pans, overlays) must survive a page-count change
  * in either direction, and cover/backCover must never be touched by it.
  */
-import { reconcilePageCount } from '../book-pages';
+import { reconcilePageCount, roleForSurfaceKey } from '../book-pages';
 import type { SurfaceState, CanvasItem } from '../types';
 import type { BookLayoutLike } from '@/lib/book-layout';
 
@@ -128,5 +128,21 @@ describe('reconcilePageCount', () => {
     const page2 = same.visible.find(s => s.key === 'page_02')!;
     expect(page2.canvases[0].frames[0].fileName).toBe('x.jpg');
     expect(Object.keys(same.archive)).toHaveLength(0);
+  });
+});
+
+describe('roleForSurfaceKey', () => {
+  it('recognises the cover and back_cover keys', () => {
+    expect(roleForSurfaceKey('cover')).toEqual({ role: 'cover', pageIndex: null });
+    expect(roleForSurfaceKey('back_cover')).toEqual({ role: 'backCover', pageIndex: null });
+  });
+
+  it('extracts the 1-based page index from an inner page key', () => {
+    expect(roleForSurfaceKey('page_01')).toEqual({ role: 'inner', pageIndex: 1 });
+    expect(roleForSurfaceKey('page_12')).toEqual({ role: 'inner', pageIndex: 12 });
+  });
+
+  it('falls back to inner with a null index for an unrecognised key', () => {
+    expect(roleForSurfaceKey('something_else')).toEqual({ role: 'inner', pageIndex: null });
   });
 });
