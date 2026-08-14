@@ -1,5 +1,23 @@
 # PRD: Separate Direct Partner API and Iframe Embed API
 
+**Status:** 🟡 **OPEN — not started.** Written 2026-07-17; re-verified against
+`main` @ `79104d0` on 2026-08-14, and every problem described below is still
+present:
+
+- There is **no shared render-submission service** — `backend/django/services/`
+  holds no such module, and `CanvasData` upsert + `RenderJob` creation + queue
+  selection + Celery dispatch are still duplicated between `GenerateLayoutView`
+  and `EditorRenderView`.
+- The **unreachable synchronous helper is still in `GenerateLayoutView`**
+  (`backend/django/api/views.py:566`, `"""Handle synchronous generation request
+  - backward compatible."""`).
+
+The **Core Product Invariant** below is the part that is already load-bearing
+today, independent of whether this refactor ever ships — it is restated in
+`CLAUDE.md` as the "access-mode invariant" and must hold for every change to the
+editor or render path. Treat that section as current policy and the rest of this
+document as a plan.
+
 ## Summary
 
 Product Editor must support two external usage modes:

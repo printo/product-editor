@@ -123,7 +123,7 @@ All routes prefixed `/api/v1/`. Auth = simplejwt Bearer unless noted. Handler li
 
 ## C. Product Editor
 
-Already documented in detail in [CLAUDE.md](../CLAUDE.md). Key endpoints:
+Already documented in detail in [CLAUDE.md](../../CLAUDE.md). Key endpoints:
 
 ### Public
 

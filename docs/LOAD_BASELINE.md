@@ -1,3 +1,15 @@
+# Load Baselines
+
+Append-only log of web-tier load measurements. Each entry is a dated snapshot
+against a specific commit — **never edit an old row to "correct" it**, add a new
+run. Numbers are only comparable to other runs on the same machine.
+
+Re-measure with `scripts/load-baseline.sh`. The `RateLimitMiddleware` ceiling
+quoted below (200 req / 60 s per IP) is still current as of `main` @ `79104d0` —
+`RATE_LIMIT = 200` in `backend/django/api/middleware.py`. It is set that high
+because a 200-photo calendar legitimately fires ~600 API calls in under a minute.
+
+---
 
 ## 2026-07-11 — `c2babbe` (Darwin arm64, dev Docker stack)
 

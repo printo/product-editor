@@ -6,6 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Product Editor is a full-stack print-file generator for Printo.in. Customers upload and compose photos on an interactive canvas editor; the system asynchronously renders 300-DPI print files (PNG, with PDF as an alternate format) and delivers them either via direct download (dashboard users fetch the ZIP) or via a signed webhook to the embed caller's `callback_url` (printo.in's storefront then pulls the same download URL from its backend). The app does NOT push files to any internal OMS — it's a standalone generator.
 
+## Docs — and which of them to trust
+
+**This file is the current-state reference.** `docs/` is mostly *not*: of the ten files there, four describe present behaviour and the rest are shipped-feature design records, unstarted plans, or an audit of other systems. Index with per-file status: [docs/README.md](docs/README.md). Reading a shipped PRD as documentation is the main way to get a wrong answer from that folder — **where a doc and the code disagree, the code wins**, and where a doc and this file disagree, this file was more recently verified.
+
+The four to actually rely on:
+
+| Doc | Use it for |
+|---|---|
+| [docs/INTEGRATION.md](docs/INTEGRATION.md) | The only doc with an **external** audience — printo.in's storefront team. Webhook payload, HMAC verification, the four download URLs, drop-in Node/Python handlers. Changing `notify_caller_webhook_task` means updating this. |
+| [docs/DATA_LIFECYCLE.md](docs/DATA_LIFECYCLE.md) | Any retention or DPDP question. One clock (`EXPORT_RETENTION_DAYS`, default 7, **prod runs 3**), what the purge deletes, the two gaps still open. |
+| [docs/AI_GUARDRAILS.md](docs/AI_GUARDRAILS.md) | Condensed rules that exist because breaking them already cost something. Overlaps this file deliberately. |
+| [docs/LOAD_BASELINE.md](docs/LOAD_BASELINE.md) | Load numbers. Append runs, never edit old ones. |
+
+Nothing in `docs/` is checked by CI, so no claim there is self-verifying. If you correct a fact in one, check whether this file or `docs/AI_GUARDRAILS.md` states it too — they were out of sync on worker memory, migration numbers, and retention windows until 2026-08-14.
+
 ## Knowledge Graph
 
 A knowledge graph of this codebase lives in `graphify-out/`. Before investigating architecture questions, tracing data flows, or understanding how components interact, query it first — it's much faster than grepping.
@@ -25,7 +40,9 @@ graphify explain "render_canvas_task"
 graphify explain "CalendarState"
 ```
 
-The graph covers 247 code files plus the curated doc nodes — 2,215 nodes, 3,844 edges, 182 communities (rebuilt 2026-07-26 from commit `e584f6d`; includes the calendar product code, the caption-placement modules, the PR #24 header/brand components, and the `docs/printo-architecture-audit` set). Full stats and community listing: `graphify-out/GRAPH_REPORT.md`, whose "Graph Freshness" block records the commit it was built from — compare against `git rev-parse HEAD` to check staleness. Key communities:
+The graph covers 247 code files plus the curated doc nodes — 2,215 nodes, 3,844 edges, 182 communities (rebuilt 2026-07-26 from commit `e584f6d`; includes the calendar product code, the caption-placement modules, the PR #24 header/brand components, and the `docs/printo-architecture-audit` set). Full stats and community listing: `graphify-out/GRAPH_REPORT.md`, whose "Graph Freshness" block records the commit it was built from — compare against `git rev-parse HEAD` to check staleness.
+
+**The graph is stale as of 2026-08-14** — built from `e584f6d`, and `main` has since moved through the API audit trail (`api/middleware.py`, migration `0014`), `services/orphan_exports.py`, `services/gc_status.py`, `services/heic.py`, `src/lib/ops-guard.ts`, and the split-download-URL work. Those files are either absent from the graph or described by their pre-change edges, so a query about audit logging, GC observability, HEIC decoding, or the ops privilege gate will under-report. Run `graphify update .` (AST-only, no API key, a few seconds) before relying on it for those areas. Two docs it indexes were also deleted on 2026-08-14 (`calendar-feature.html`, `Product_Editor_PRD_v1.10.docx`) and one added (`docs/README.md`). Key communities:
 - **Calendar Product Materialization** — materialize_surfaces, calendar_layout.py, per-surface overrides
 - **API Key & PIA Auth** — APIKeyUser, PIAAuthentication, RenderJob
 - **Canvas & Embed Models** — CanvasData, EmbedSession, EditorRenderView
@@ -136,7 +153,7 @@ pnpm test -- -t "clamps the offset"              # one test by name
 pnpm test:parity                                 # calendar TS↔Python parity suites only
 ```
 
-**Backend — standalone modules, no pytest, no `manage.py test`.** Every file in `backend/django/services/tests/test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions and prints a pass count. There are 18 modules (CI globs them, so the count isn't pinned anywhere).
+**Backend — standalone modules, no pytest, no `manage.py test`.** Every file in `backend/django/services/tests/test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions and prints a pass count. CI globs them, so the count is pinned nowhere — get it with `ls backend/django/services/tests/test_*.py | wc -l` rather than trusting a number in a doc (this file claimed 18 and 19 in consecutive paragraphs while the real count was 24).
 
 Run one **through the container** — the dev Mac's system Python has no Pillow/Django, so this is the practical local route. Override the entrypoint: it ignores `$@` and would otherwise boot gunicorn and hang forever (see Deployment).
 
@@ -144,7 +161,7 @@ Run one **through the container** — the dev Mac's system Python has no Pillow/
 docker-compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
 ```
 
-All 19, the way CI does it:
+All of them, the way CI does it:
 
 ```bash
 docker-compose run --rm --entrypoint bash backend -c 'for f in services/tests/test_*.py; do /opt/venv/bin/python -m "services.tests.$(basename "$f" .py)" || echo "FAIL $f"; done'
@@ -1012,7 +1029,9 @@ No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped �
 
 ## What to Do Next
 
-The full prioritised list is in [docs/PRD.md](docs/PRD.md) §8 — these are the items that touch this codebase or its deploy.
+The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0** — §8.1/§8.2 below it are a historical audit trail, not open work. The items below are the subset that touches this codebase or its deploy.
+
+**The outcome this project exists for is currently blocked outside this repo.** Print files are generated, signed, and offered; printo.in's storefront does not yet consume the webhook, so nothing collects them and the manual preflight handoff is still in the loop. That, plus the empty SKU→layout mapping, is the whole remaining gap — see [docs/PRD.md](docs/PRD.md) §4.2 B7. Worth keeping in view before optimising anything internal.
 
 ### Before / during the next `./deploy.sh`
 
@@ -1029,7 +1048,7 @@ The full prioritised list is in [docs/PRD.md](docs/PRD.md) §8 — these are the
 Routing, TLS, and tunables live in [`proxy/nginx/nginx.conf`](proxy/nginx/nginx.conf) — single source, no per-service labels. The `certs/` workflow: paste a Cloudflare Origin Certificate (`SSL/TLS → Origin Server → Create Certificate`, RSA 2048, 15-year, hostnames `product-editor.printo.in` or `*.printo.in`) into `proxy/nginx/certs/origin.crt` and the matching key into `proxy/nginx/certs/origin.key` (`chmod 600`). Set Cloudflare SSL/TLS mode to **Full (strict)**. Skip → `deploy.sh` generates a self-signed bootstrap that requires CF "Full" (not strict). Notable behaviour:
 
 - `^~ /api/auth/`, `^~ /api/internal/proxy/`, `^~ /api/embed/proxy/` → frontend:3000
-- `^~ /django-admin/` → backend:8000, gated by nginx `auth_request` against `frontend:3000/api/internal/verify-django-admin` (checks the PIA/Google session for `is_super_user`; denied → `@django_admin_denied` → the `/django-admin-denied` page). Not basic-auth anymore — `proxy/nginx/.htpasswd` is unused as of this change.
+- `^~ /django-admin/` → backend:8000, gated by nginx `auth_request` against `frontend:3000/api/internal/verify-django-admin` (checks the PIA/Google session for `is_super_user`; denied → `@django_admin_denied` → the `/django-admin-denied` page). Not basic-auth anymore — `proxy/nginx/.htpasswd` is gone from the repo entirely, so don't go looking for it.
 - `^~ /api/` → backend:8000 (`proxy_buffering off`, `proxy_read_timeout 600s` for streaming ZIPs + sync renders)
 - `/` (catch-all) → frontend:3000
 - HTTP→HTTPS redirect on port 80
@@ -1037,8 +1056,13 @@ Routing, TLS, and tunables live in [`proxy/nginx/nginx.conf`](proxy/nginx/nginx.
 
 ### Open follow-ups (not blocking)
 
+Mirrors [docs/PRD.md](docs/PRD.md) §8.0 — if you close one, close it in both places. The first two rows are the ones that actually gate the product outcome; everything below them is hygiene.
+
 | # | Action | Owner |
 |---|---|---|
+| **Arm the orphan-export sweep** | `GC_ORPHAN_SWEEP` is still `dry_run`, so export directories no DB row accounts for are counted and reported but never deleted — customer photos in them outlive their retention window. Read a few nights of `garbage_collector.stats.orphan_exports` from `GET /api/celery/monitor/`, confirm the counts look sane, then set `delete`. Disarmed by default because it is the one sweep that deletes on the *absence* of evidence. | Kanna |
+| **Sweep expired `EmbedSession` rows** | Rows are never deleted after the 2 h token expiry, so order-linked data (`order_id` + caller `callback_url`) grows unbounded. Add a GC pass for sessions older than ~30 days. No customer photos involved, so it's hygiene rather than exposure. See `docs/DATA_LIFECYCLE.md`. | Kanna |
+| **API surface separation** | Remove the unreachable synchronous helper in `GenerateLayoutView` (`api/views.py:566`) and route direct-partner + editor/embed submissions through one shared render-submission service. Not started; `CanvasData` upsert / `RenderJob` creation / queue selection / dispatch are still duplicated across the two views. Plan in `docs/API_SURFACE_SEPARATION_PRD.md`. | Kanna |
 | Populate SKU mapping | `PUT /api/sku-layouts/` with real Printo SKU codes (top 5 SKUs from PRD: fridge magnets, photo prints, canvas prints, coasters, photo mugs). The endpoint exists; the data is empty. | Viji / Catalog Ops |
 | Monitor CSP violations | Watch DevTools / browser console / future report endpoint while CSP is in report-only. Flip `CSP_REPORT_ONLY=False` once the policy is validated against the editor (Fabric.js `'unsafe-eval'`) and embed iframe (`frame-ancestors`). | Kanna |
 | Clean up 56 lint warnings | `pnpm lint` lists them — all `no-unused-vars` (dead imports, unused state setters, unused destructured params). Easy local cleanups; non-blocking. | Kanna |
