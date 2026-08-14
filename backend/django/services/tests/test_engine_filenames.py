@@ -9,6 +9,11 @@ Covers:
   - P7.2 (PRD §11.5) — multi-surface partial-failure handling: a failure
     on surface N cleans up surfaces 1..N-1 from disk and re-raises with
     a customer-facing "Render failed on <displayLabel>" message.
+  - Blank-surface fallback: a book's unauthored back cover (frames=[],
+    role="backCover" — services/book_layout.py, BOOK_LAYOUT_PRD.md D4)
+    renders one blank output instead of raising; every other empty-frames
+    surface still raises (the safety net for a genuinely misconfigured
+    layout stays intact for every other product/role).
 
 Run stand-alone:
     cd backend/django && python -m services.tests.test_engine_filenames
@@ -114,6 +119,58 @@ def test_cleanup_continues_after_individual_failure():
 def test_cleanup_handles_empty_list():
     eng = LayoutEngine(layouts_dir="/tmp", exports_dir="/tmp")
     eng._cleanup_partial_outputs([])  # no-op; must not raise
+
+
+# ─── Blank-surface fallback (book unauthored back cover) ─────────────────────
+
+def _blank_back_cover_surface():
+    return {
+        "key": "back_cover",
+        "role": "backCover",
+        "canvas": {"width": 300, "height": 400, "widthMm": 25.4, "heightMm": 33.87},
+        "frames": [],
+        "displayLabel": "18 Back Cover",
+    }
+
+
+def test_unauthored_back_cover_renders_one_blank_output():
+    with tempfile.TemporaryDirectory() as d:
+        eng = LayoutEngine(layouts_dir="/tmp", exports_dir=d)
+        outputs = eng._generate_for_surface(
+            _blank_back_cover_surface(), [], "book_smoke_test", "back_cover",
+            display_label="18 Back Cover",
+        )
+        assert len(outputs) == 1, f"expected exactly one output, got {outputs!r}"
+        assert os.path.exists(outputs[0]), "blank back cover file was not written"
+        assert outputs[0].endswith("18 Back Cover.png")
+
+
+def test_a_non_book_surface_with_empty_frames_still_raises():
+    # The safety net for a genuinely misconfigured layout (ops forgot to
+    # author a frame) must stay intact for every role except backCover.
+    surface = _blank_back_cover_surface()
+    del surface["role"]  # no role at all — an ordinary multi-surface product
+    with tempfile.TemporaryDirectory() as d:
+        eng = LayoutEngine(layouts_dir="/tmp", exports_dir=d)
+        try:
+            eng._generate_for_surface(surface, [], "some_layout", "back")
+            assert False, "expected ValueError for a roleless empty-frames surface"
+        except ValueError as e:
+            assert "No frames defined" in str(e)
+
+
+def test_a_book_cover_role_with_empty_frames_still_raises():
+    # Only backCover gets the fallback — an empty-frames front cover or
+    # inner page is still a misconfigured layout, not a documented case.
+    surface = _blank_back_cover_surface()
+    surface["role"] = "cover"
+    with tempfile.TemporaryDirectory() as d:
+        eng = LayoutEngine(layouts_dir="/tmp", exports_dir=d)
+        try:
+            eng._generate_for_surface(surface, [], "some_book", "cover")
+            assert False, "expected ValueError for an empty-frames cover"
+        except ValueError as e:
+            assert "No frames defined" in str(e)
 
 
 # ─── Test runner ─────────────────────────────────────────────────────────────
