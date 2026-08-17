@@ -1,6 +1,8 @@
 import os
 import re
 import json
+import fcntl
+import contextlib
 import time
 import logging
 from functools import wraps
@@ -2347,6 +2349,77 @@ def _read_sku_layouts():
     return value
 
 
+_SKU_LAYOUTS_LOCK_PATH = SKU_LAYOUTS_JSON_PATH + '.lock'
+
+
+@contextlib.contextmanager
+def _sku_layouts_lock():
+    """
+    Serialise read-modify-write on the SKU map across processes.
+
+    The map is one JSON file rewritten whole by _write_sku_layouts, so a
+    single-key update is still read -> mutate -> write. Under gunicorn those
+    steps interleave across workers and one ops user's change silently
+    overwrites another's. An advisory flock on a sidecar file is enough: every
+    writer here takes it, the critical section is a few milliseconds, and it
+    needs no new dependency.
+
+    Readers are deliberately not locked. os.replace is atomic, so a reader
+    sees either the old file or the new one, never a partial write.
+    """
+    fd = os.open(_SKU_LAYOUTS_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _layout_missing(layout_name):
+    """True when the named layout has no file on disk."""
+    return not os.path.exists(
+        os.path.join(settings.LAYOUTS_DIR, f'{layout_name}.json'))
+
+
+def _require_ops_user(request):
+    """
+    Ops-team gate for the write endpoints.
+
+    permission_classes is AllowAny on this view because the GETs are public,
+    so every write method has to authenticate for itself. Shared rather than
+    copied per method - three inline copies would drift, and the one that
+    drifts is wide open.
+
+    Returns (user, None) on success or (None, Response) to return as-is.
+    """
+    from .authentication import PIAAuthentication, BearerTokenAuthentication
+    user = None
+    for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
+        try:
+            result = auth_cls.authenticate(request)
+            if result:
+                user = result[0]
+                break
+        except Exception:
+            continue
+
+    if not user:
+        return None, Response(
+            {'detail': 'Authentication required'},
+            status=status.HTTP_401_UNAUTHORIZED)
+
+    if not (getattr(user, 'is_ops_team', False) or
+            getattr(user, 'is_staff', False)):
+        return None, Response(
+            {'detail': 'Only ops team can modify SKU mappings'},
+            status=status.HTTP_403_FORBIDDEN)
+
+    return user, None
+
+
 def _write_sku_layouts(mappings):
     """Persist the SKU → layout mapping atomically and invalidate the cache."""
     from django.core.cache import cache
@@ -2369,9 +2442,17 @@ class SKULayoutView(APIView):
     SKU → layout resolution. Public read so printo.in can call it before
     creating the embed session; ops-team write to update the mapping.
 
-    GET  /api/sku-layouts/             → { "mappings": { sku: layout_name, ... } }
-    GET  /api/sku-layouts/<sku>/       → { "sku": ..., "layout_name": ... } or 404
-    PUT  /api/sku-layouts/             → { "mappings": {...} }, ops-team only
+    GET    /api/sku-layouts/         → { "mappings": { sku: layout_name, ... } }
+    GET    /api/sku-layouts/<sku>/   → { "sku": ..., "layout_name": ... } or 404
+    PUT    /api/sku-layouts/         → { "mappings": {...} }, ops-team only
+    PATCH  /api/sku-layouts/<sku>/   → set one mapping, ops-team only
+    DELETE /api/sku-layouts/<sku>/   → remove one mapping, ops-team only
+
+    PATCH and DELETE exist so a caller changing a single SKU does not have to
+    read the whole map, mutate it and send it back. That round trip was two
+    requests over the network with the whole map in flight each way, and two
+    callers doing it at once lost one of the two edits. Single-key writes are
+    one request and are serialised here under a file lock.
     """
     permission_classes = [AllowAny]
 
@@ -2415,23 +2496,9 @@ class SKULayoutView(APIView):
         summary="Replace SKU → layout mapping (ops only)",
     )
     def put(self, request):
-        from .authentication import PIAAuthentication, BearerTokenAuthentication
-        user = None
-        for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
-            try:
-                result = auth_cls.authenticate(request)
-                if result:
-                    user = result[0]
-                    break
-            except Exception:
-                continue
-
-        if not user:
-            return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
-
-        is_ops = getattr(user, 'is_ops_team', False) or getattr(user, 'is_staff', False)
-        if not is_ops:
-            return Response({'detail': 'Only ops team can modify SKU mappings'}, status=status.HTTP_403_FORBIDDEN)
+        _user, denied = _require_ops_user(request)
+        if denied:
+            return denied
 
         mappings = request.data.get('mappings')
         if not isinstance(mappings, dict):
@@ -2453,8 +2520,77 @@ class SKULayoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        _write_sku_layouts(mappings)
+        with _sku_layouts_lock():
+            _write_sku_layouts(mappings)
         return Response({'mappings': mappings})
+
+
+    @extend_schema(
+        tags=["sku-layouts"],
+        summary="Set one SKU -> layout mapping (ops only)",
+    )
+    def patch(self, request, sku=None):
+        """Point one SKU at one layout, leaving every other mapping alone."""
+        _user, denied = _require_ops_user(request)
+        if denied:
+            return denied
+
+        if not sku:
+            return Response(
+                {'detail': 'PATCH requires a SKU in the URL: /api/sku-layouts/<sku>/'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        layout_name = request.data.get('layout_name')
+        if not isinstance(layout_name, str) or not layout_name:
+            return Response(
+                {'detail': 'layout_name must be a non-empty string'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        # Same guard PUT applies: never persist a pointer to a layout that is
+        # not on disk, or the storefront resolves it and 410s at design time.
+        if _layout_missing(layout_name):
+            return Response(
+                {
+                    'detail': 'Mapping references a layout that does not exist',
+                    'missing': [{'sku': sku, 'layout_name': layout_name}],
+                },
+                status=status.HTTP_400_BAD_REQUEST)
+
+        with _sku_layouts_lock():
+            mappings = _read_sku_layouts()
+            mappings[sku] = layout_name
+            _write_sku_layouts(mappings)
+
+        return Response({'sku': sku, 'layout_name': layout_name})
+
+    @extend_schema(
+        tags=["sku-layouts"],
+        summary="Remove one SKU -> layout mapping (ops only)",
+    )
+    def delete(self, request, sku=None):
+        """
+        Unmap one SKU. Idempotent: removing a SKU that is not mapped is a
+        success, because the caller's intent - "this SKU has no layout" - is
+        already true, and a rename cleaning up its old key should not fail
+        just because someone already cleaned it up.
+        """
+        _user, denied = _require_ops_user(request)
+        if denied:
+            return denied
+
+        if not sku:
+            return Response(
+                {'detail': 'DELETE requires a SKU in the URL: /api/sku-layouts/<sku>/'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        with _sku_layouts_lock():
+            mappings = _read_sku_layouts()
+            existed = sku in mappings
+            if existed:
+                del mappings[sku]
+                _write_sku_layouts(mappings)
+
+        return Response({'sku': sku, 'layout_name': None, 'removed': existed})
 
 
 # ── Calendar style presets + Gen-Z palettes (PRD §10.3, §6.3) ───────────────
