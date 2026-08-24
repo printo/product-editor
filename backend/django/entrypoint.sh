@@ -147,6 +147,11 @@ WORKERS="${GUNICORN_WORKERS:-$(( $(nproc) * 2 + 1 ))}"
 # legacy sync request isn't killed by Gunicorn before the SIGALRM-based timeout
 # inside the view fires. Modern callers go through Celery and don't hit this.
 echo "Starting gunicorn: ${WORKERS} workers × ${GUNICORN_THREADS:-4} threads on port ${PORT:-8000}"
+# Gunicorn's own bind message reports the CONTAINER-internal port ($PORT).
+# Docker Compose can remap that on the host via BACKEND_HOST_PORT in .env
+# (loopback-only — see docker-compose.yml), so print the actual host-reachable
+# URL too rather than let readers assume the internal port is what's open.
+echo "Reachable from host at: http://localhost:${BACKEND_HOST_PORT:-8000} (loopback only — public traffic goes through https://localhost via nginx)"
 exec gunicorn product_editor.wsgi:application \
     --bind "0.0.0.0:${PORT:-8000}" \
     --worker-class gthread \
