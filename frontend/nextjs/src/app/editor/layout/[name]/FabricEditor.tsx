@@ -1082,9 +1082,29 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const idx = target.__frameIdx as number;
         const clip = target.__clipRect;
         if (!clip) return;
+        const frameState = current.frames[idx];
+        // target.scaleX is Fabric's ABSOLUTE scale on the native image; the
+        // in-place update effect (and the slider) instead store/apply a
+        // multiplier RELATIVE to the fit-mode base scale (baseScale *
+        // frameState.scale — see the mirrored formula a few dozen lines
+        // below). Corner-handle drags must invert the same formula or the
+        // saved scale is off by a factor of baseScale, which the next
+        // in-place update then reapplies — visually snapping the image back
+        // and shifting it, since the offset WAS captured at the dragged size.
+        const imgW = target.width ?? 1;
+        const imgH = target.height ?? 1;
+        const sX = clip.fw / imgW;
+        const sY = clip.fh / imgH;
+        const baseScale = frameState.fitMode === 'contain' ? Math.min(sX, sY) : Math.max(sX, sY);
+        const newScale = baseScale > 0 && target.scaleX != null ? target.scaleX / baseScale : frameState.scale;
         const newOffsetX = (target.left ?? 0) - (clip.fx + clip.fw / 2);
         const newOffsetY = (target.top ?? 0) - (clip.fy + clip.fh / 2);
-        const newFrames = current.frames.map((f, i) => i !== idx ? f : { ...f, offset: { x: Math.abs(newOffsetX) < 8 ? 0 : newOffsetX, y: Math.abs(newOffsetY) < 8 ? 0 : newOffsetY }, rotation: Math.round(target.angle ?? f.rotation) });
+        const newFrames = current.frames.map((f, i) => i !== idx ? f : {
+          ...f,
+          scale: newScale,
+          offset: { x: Math.abs(newOffsetX) < 8 ? 0 : newOffsetX, y: Math.abs(newOffsetY) < 8 ? 0 : newOffsetY },
+          rotation: Math.round(target.angle ?? f.rotation)
+        });
         onCanvasChangeRef.current({ ...current, frames: newFrames });
       } else {
         const idx = target.__overlayIdx as number;
