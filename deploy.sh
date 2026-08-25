@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 set -e
+# pipefail: without it a pipeline reports the exit status of its LAST command
+# only, so `git pull | tee | while read` looked successful even when the pull
+# failed — the script then rebuilt stale code and reported success. Every
+# pipeline whose failure is genuinely expected is explicitly guarded with
+# `|| true` or a trailing `|| { ... }` below.
+# NOTE: `-u` is deliberately NOT set — the script tests optional .env vars
+# (PUBLIC_HOST, DIRECT_API_KEY) with [ -n "$VAR" ], which -u would abort on.
+set -o pipefail
 
 # ============================================
 # Product Editor - Deployment Script
@@ -55,6 +63,25 @@ print_header() {
   echo -e "${BLUE}  $1${NC}"
   echo -e "${BLUE}═══════════════════════════════════════════${NC}"
   echo ""
+}
+
+# ── Deployment health gate ──────────────────────────────────────────────────
+# Health checks used to print a red ✗ and carry on, so the script ended with
+# "Deployment finished successfully" and exit 0 even when the backend was
+# returning 500s. A broken deploy was indistinguishable from a good one, both
+# on screen and to anything scripting around it.
+#
+# `fail` records a check that must hold for the deploy to be considered good;
+# the run continues (so you see EVERY failure, not just the first) but the
+# script exits non-zero at the end with the list. Use print_warning for things
+# that are merely worth knowing — a missing API key, an unset optional var.
+DEPLOY_FAILURES=0
+DEPLOY_FAILURE_LIST=()
+
+fail() {
+  DEPLOY_FAILURES=$((DEPLOY_FAILURES + 1))
+  DEPLOY_FAILURE_LIST+=("$1")
+  echo -e "${RED}✗${NC} $1"
 }
 
 # Validate mode
@@ -132,20 +159,55 @@ fi
 # every docker-compose call in this script ignores the override.
 export COMPOSE_FILE=docker-compose.yml
 
+# ── Include the monitoring stack ────────────────────────────────────────────
+# loki / promtail / grafana / alloy sit behind compose's `monitoring` profile.
+# `both` mode runs `down` (which stops all 12 containers) then `up -d` (which
+# starts only the 8 non-profile ones), so every full deploy silently left the
+# observability stack dead until someone restarted it by hand — exactly when
+# you most want logs. Exporting the profile makes `up -d` restore them too.
+# All four are image-only, so this adds nothing to the build step.
+# Set COMPOSE_PROFILES= (empty) in the environment to opt out.
+export COMPOSE_PROFILES="${COMPOSE_PROFILES-monitoring}"
+
 # ── Pull latest code from GitHub before deploying ───────────────────────────
 print_header "Pulling Latest Code"
 print_action "Running git pull..."
-if git pull 2>&1 | tee /tmp/git_pull_output.txt | while read line; do
+# The pull IS the deploy — deploy.sh git-pulls main on the server, so a failed
+# pull means rebuilding the code already on disk. The previous form piped git
+# through `tee | while read`, and an `if` on a pipeline sees only the LAST
+# command's status: the while loop always succeeded, so the failure branch was
+# unreachable and a broken pull printed "Code updated successfully".
+#
+# Now the status is captured directly, and a failed pull ABORTS rather than
+# shipping stale code under a green message. Set ALLOW_STALE_DEPLOY=1 to
+# redeploy the current checkout on purpose (e.g. GitHub unreachable, or
+# re-running after a mid-deploy hang).
+GIT_PULL_LOG=$(mktemp -t git_pull_output.XXXXXX)
+GIT_PULL_STATUS=0
+git pull >"$GIT_PULL_LOG" 2>&1 || GIT_PULL_STATUS=$?
+
+while IFS= read -r line; do
   echo -e "${CYAN}→${NC} $line"
-done; then
-  if grep -q "Already up to date" /tmp/git_pull_output.txt; then
+done <"$GIT_PULL_LOG"
+
+if [ "$GIT_PULL_STATUS" -eq 0 ]; then
+  if grep -q "Already up to date" "$GIT_PULL_LOG"; then
     print_info "Already up to date — no new changes"
   else
     print_status "Code updated successfully"
   fi
+  rm -f "$GIT_PULL_LOG"
 else
-  print_error "git pull failed — check your SSH key / remote connection"
-  print_warning "Continuing with existing code..."
+  print_error "git pull FAILED (exit ${GIT_PULL_STATUS}) — check SSH key / remote / local changes"
+  rm -f "$GIT_PULL_LOG"
+  if [ "${ALLOW_STALE_DEPLOY:-0}" = "1" ]; then
+    print_warning "ALLOW_STALE_DEPLOY=1 — continuing with the code already on disk."
+    print_warning "This deploys commit $(git rev-parse --short HEAD 2>/dev/null || echo unknown), NOT the latest main."
+  else
+    print_error "Refusing to deploy stale code. Fix the pull, or re-run with:"
+    print_info "  ALLOW_STALE_DEPLOY=1 ./deploy.sh ${MODE}"
+    exit 1
+  fi
 fi
 
 # Start deployment
@@ -185,14 +247,26 @@ fi
 print_header "Stopping Services"
 if [[ "$MODE" == "both" ]]; then
   print_action "Stopping all containers..."
-  docker-compose down --remove-orphans 2>&1 | while read line; do
+  # Status captured explicitly rather than read off the end of a pipeline —
+  # under pipefail a `down` failure would otherwise abort mid-teardown with no
+  # explanation, and without pipefail it was invisible.
+  DOWN_LOG=$(mktemp -t compose_down.XXXXXX)
+  DOWN_STATUS=0
+  docker-compose down --remove-orphans >"$DOWN_LOG" 2>&1 || DOWN_STATUS=$?
+  while IFS= read -r line; do
     if [[ "$line" =~ "Stopping" ]]; then
       echo -e "${CYAN}→${NC} $line"
     elif [[ "$line" =~ "Stopped" || "$line" =~ "Removed" ]]; then
       echo -e "${GREEN}✓${NC} $line"
     fi
-  done
-  print_status "All services stopped and removed"
+  done <"$DOWN_LOG"
+  if [ "$DOWN_STATUS" -eq 0 ]; then
+    print_status "All services stopped and removed"
+  else
+    print_warning "docker-compose down exited ${DOWN_STATUS} — continuing; the port sweep below usually clears the cause"
+    tail -5 "$DOWN_LOG"
+  fi
+  rm -f "$DOWN_LOG"
   
   # Kill any processes using ports 80, 443, 8000, 5004
   print_action "Freeing up ports..."
@@ -369,7 +443,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
       echo -e "${GREEN}✓${NC} $line"
     fi
   done || {
-    print_warning "Post-start migrate check failed — investigate before routing traffic"
+    fail "Post-start migrate check failed — schema may not match the running code"
   }
   print_status "Migrations completed"
 fi
@@ -405,10 +479,12 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
   print_action "Checking backend health..."
   
   # Get backend container name
-  BACKEND_CONTAINER=$(docker ps --filter "name=backend" --format "{{.Names}}" | grep backend | head -n 1)
+  # `|| true`: grep exits 1 when no backend container exists. Under pipefail
+  # that would abort the script here instead of reaching the check below.
+  BACKEND_CONTAINER=$(docker ps --filter "name=backend" --format "{{.Names}}" | grep backend | head -n 1) || true
   
   if [ -z "$BACKEND_CONTAINER" ]; then
-    print_error "Backend container not found"
+    fail "Backend container not found"
     docker ps -a | grep backend || print_warning "No backend container exists at all"
   else
     # Wait for backend to be ready
@@ -427,7 +503,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
     if [ "$HTTP_CODE" = "200" ]; then
       print_status "Backend health endpoint OK (HTTP $HTTP_CODE)"
     else
-      print_error "Backend health endpoint failed (HTTP $HTTP_CODE)"
+      fail "Backend health endpoint failed (HTTP $HTTP_CODE)"
       print_warning "Check logs: docker logs $BACKEND_CONTAINER"
     fi
     
@@ -437,7 +513,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
     if echo "$DB_CHECK" | grep -q "no issues"; then
       print_status "Database connection OK"
     else
-      print_error "Database connection issues"
+      fail "Database connection issues"
       echo "$DB_CHECK"
     fi
     
@@ -448,7 +524,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
       LAYOUT_COUNT=$(docker exec $BACKEND_CONTAINER find /app/storage/layouts -name "*.json" 2>/dev/null | wc -l || echo "0")
       print_info "Found $LAYOUT_COUNT layout(s)"
     else
-      print_error "Storage directory not accessible"
+      fail "Storage directory not accessible"
     fi
     
     # Check API keys
@@ -474,7 +550,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
           LAYOUT_COUNT=$(echo "$LAYOUTS_RESPONSE" | head -n -1 | grep -o '"name"' | wc -l || echo "0")
           print_info "API returned $LAYOUT_COUNT layout(s)"
         else
-          print_error "Layouts endpoint failed (HTTP $HTTP_CODE)"
+          fail "Layouts endpoint failed (HTTP $HTTP_CODE)"
           RESPONSE_BODY=$(echo "$LAYOUTS_RESPONSE" | head -n -1)
           echo "  Response: $RESPONSE_BODY"
         fi
@@ -486,7 +562,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
     if docker exec product-editor-redis-1 redis-cli ping 2>&1 | grep -q "PONG"; then
       print_status "Redis is responding"
     else
-      print_error "Redis is not responding"
+      fail "Redis is not responding"
     fi
   fi
 fi
@@ -496,10 +572,11 @@ if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
   print_action "Checking frontend health..."
   
   # Get frontend container name
-  FRONTEND_CONTAINER=$(docker ps --filter "name=frontend" --format "{{.Names}}" | grep frontend | head -n 1)
+  # `|| true`: see the BACKEND_CONTAINER note above.
+  FRONTEND_CONTAINER=$(docker ps --filter "name=frontend" --format "{{.Names}}" | grep frontend | head -n 1) || true
   
   if [ -z "$FRONTEND_CONTAINER" ]; then
-    print_error "Frontend container not found"
+    fail "Frontend container not found"
     docker ps -a | grep frontend || print_warning "No frontend container exists at all"
   else
     # Wait for frontend to be ready
@@ -518,7 +595,7 @@ if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
     if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "307" ] || [ "$HTTP_CODE" = "308" ]; then
       print_status "Frontend responding OK (HTTP $HTTP_CODE)"
     else
-      print_error "Frontend not responding (HTTP $HTTP_CODE)"
+      fail "Frontend not responding (HTTP $HTTP_CODE)"
       print_warning "Check logs: docker logs $FRONTEND_CONTAINER"
     fi
     
@@ -529,7 +606,7 @@ if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
       if echo "$BACKEND_CHECK" | grep -q "ok\|healthy\|status"; then
         print_status "Frontend can reach backend"
       else
-        print_error "Frontend cannot reach backend"
+        fail "Frontend cannot reach backend"
       fi
     fi
     
@@ -636,8 +713,19 @@ AFTER_AVAIL=$(df -h / | awk 'NR==2 {print $4}')
 print_status "Docker cleanup done — disk available: ${BEFORE_AVAIL} -> ${AFTER_AVAIL}"
 
 # Final summary
-print_header "Deployment Complete"
-print_status "Deployment finished successfully"
+if [ "$DEPLOY_FAILURES" -gt 0 ]; then
+  print_header "Deployment Completed WITH FAILURES"
+  print_error "${DEPLOY_FAILURES} health check(s) failed:"
+  for failure in "${DEPLOY_FAILURE_LIST[@]}"; do
+    echo -e "    ${RED}✗${NC} ${failure}"
+  done
+  echo ""
+  print_warning "The containers ARE running the new image — this is not a rollback."
+  print_warning "Investigate before sending customer traffic. Logs: docker-compose logs --tail=100"
+else
+  print_header "Deployment Complete"
+  print_status "Deployment finished successfully"
+fi
 print_info "Completed at: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
@@ -655,7 +743,8 @@ elif [ -n "$PUBLIC_HOST" ]; then
   BACKEND_URL="https://${PUBLIC_HOST}"
 else
   # Fallback to server IP or localhost
-  SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+  # `|| true`: `hostname -I` is Linux-only and exits non-zero elsewhere.
+  SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}') || true
   if [ -n "$SERVER_IP" ] && [ "$SERVER_IP" != "127.0.0.1" ]; then
     BASE_URL="http://${SERVER_IP}:5004"
     BACKEND_URL="http://${SERVER_IP}:8000"
@@ -677,5 +766,12 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
 fi
 
 echo ""
+# Non-zero exit on a failed check, so a human skimming the tail of the log —
+# and anything wrapping this script — can tell a good deploy from a bad one.
+if [ "$DEPLOY_FAILURES" -gt 0 ]; then
+  print_error "Exiting non-zero: ${DEPLOY_FAILURES} check(s) failed."
+  echo ""
+  exit 1
+fi
 print_status "Ready to use!"
 echo ""
