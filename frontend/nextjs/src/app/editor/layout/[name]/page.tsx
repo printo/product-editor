@@ -2333,6 +2333,38 @@ export default function LayoutEditorPage() {
     setDeleteConfirm(null);
   };
 
+  // Quick-download — the button that called this is commented out in the
+  // JSX (see the two card-grid blocks below) rather than deleted, so this
+  // stays too even though nothing currently calls it.
+  const handleQuickDownload = async (idx: number, surfaceKey: string | null = null) => {
+    const targetCanvases = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.canvases : canvases;
+    const c = targetCanvases?.[idx];
+    if (!c) return;
+
+    // Always re-render with isExport — c.dataUrl is a preview artifact
+    // (thumbnail renders carry frame outlines + "Frame N" labels at reduced
+    // resolution; the modal's toFullResDataURL dumps the live editor canvas
+    // with safe-zone dashes). Downloads must be chrome-free full resolution.
+    let dataUrl: string | null = null;
+    try {
+      const layoutDef = surfaceKey
+        ? surfaceStates.find(s => s.key === surfaceKey)?.def
+        : layout;
+      dataUrl = await renderCanvas(c, { isExport: true, includeMask: false, layoutOverride: layoutDef });
+    } catch (err) {
+      console.error('[quick-download] render failed:', err);
+      return;
+    }
+    if (!dataUrl) return;
+
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `${layout?.id || 'canvas'}-${surfaceKey || 'canvas'}-${idx + 1}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   useEffect(() => {
     if (canvases.length > 0 && activeCanvasIdx === null) {
       const idx = parseInt(new URLSearchParams(window.location.search).get('canvas') || '');
@@ -4407,6 +4439,9 @@ export default function LayoutEditorPage() {
                               <button onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(0, surface.key); }} className="p-2 bg-emerald-50/80 text-emerald-600 rounded-xl hover:bg-emerald-100 hover:scale-105 transition-all" title="Toggle Fit/Cover">
                                 <Maximize className="w-3.5 h-3.5" />
                               </button>
+                              {/* Set Background Color — hidden from the UI on request, kept in
+                                  source in case it needs to come back. handleQuickSetBg itself
+                                  is untouched.
                               <div className="relative">
                                 <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="p-2 bg-amber-50/80 text-amber-600 rounded-xl hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
                                   <Palette className="w-3.5 h-3.5" />
@@ -4419,6 +4454,7 @@ export default function LayoutEditorPage() {
                                   onClick={(e) => e.stopPropagation()}
                                 />
                               </div>
+                              */}
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(0, surface.key); }}
                                 className={clsx('p-2 rounded-xl hover:scale-105 transition-all',
@@ -4446,6 +4482,13 @@ export default function LayoutEditorPage() {
                               >
                                 <ArrowLeftRight className="w-3.5 h-3.5" />
                               </button>
+                              {/* Quick-download — hidden from the UI on request, kept in
+                                  source in case it needs to come back. handleQuickDownload
+                                  itself is untouched.
+                              <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                              */}
                               <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Delete">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -4543,6 +4586,9 @@ export default function LayoutEditorPage() {
                           <button onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(idx); }} className="p-2 bg-emerald-50/80 text-emerald-600 rounded-xl hover:bg-emerald-100 hover:scale-105 transition-all" title="Toggle Fit/Cover">
                             <Maximize className="w-3.5 h-3.5" />
                           </button>
+                          {/* Set Background Color — hidden from the UI on request, kept in
+                              source in case it needs to come back. handleQuickSetBg itself
+                              is untouched.
                           <div className="relative">
                             <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="p-2 bg-amber-50/80 text-amber-600 rounded-xl hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
                               <Palette className="w-3.5 h-3.5" />
@@ -4555,6 +4601,7 @@ export default function LayoutEditorPage() {
                               onClick={(e) => e.stopPropagation()}
                             />
                           </div>
+                          */}
                           {(layout.frames?.length || 1) === 1 && (
                             <button onClick={(e) => { e.stopPropagation(); requestReplacePhoto(idx, 0); }} className="p-2 bg-sky-50/80 text-sky-600 rounded-xl hover:bg-sky-100 hover:scale-105 transition-all" title="Replace photo">
                               <ImagePlus className="w-3.5 h-3.5" />
@@ -4587,6 +4634,13 @@ export default function LayoutEditorPage() {
                           >
                             <ArrowLeftRight className="w-3.5 h-3.5" />
                           </button>
+                          {/* Quick-download — hidden from the UI on request, kept in
+                              source in case it needs to come back. handleQuickDownload
+                              itself is untouched.
+                          <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(idx); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-xl hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                          */}
                           <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(idx); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Delete">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
