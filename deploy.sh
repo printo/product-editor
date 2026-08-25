@@ -40,7 +40,6 @@ usage() {
   echo ""
   echo -e "${BLUE}Environment overrides:${NC}"
   echo "  ALLOW_STALE_DEPLOY=1   deploy the current checkout even if git pull fails"
-  echo "  COMPOSE_PROFILES=      skip the monitoring stack (loki/grafana/promtail/alloy)"
   echo "  SKIP_SMOKE_TESTS=1     skip the post-deploy smoke tests"
   echo "  SMOKE_TESTS=\"embed calendar book\"  which smoke tests to run (default: embed)"
   echo "  ROLLBACK_YES=1         skip the rollback confirmation prompt"
@@ -312,15 +311,23 @@ fi
 # every docker-compose call in this script ignores the override.
 export COMPOSE_FILE=docker-compose.yml
 
-# ── Include the monitoring stack ────────────────────────────────────────────
+# ── The monitoring stack is deliberately NOT profile-activated here ─────────
 # loki / promtail / grafana / alloy sit behind compose's `monitoring` profile.
-# `both` mode runs `down` (which stops all 12 containers) then `up -d` (which
-# starts only the 8 non-profile ones), so every full deploy silently left the
-# observability stack dead until someone restarted it by hand — exactly when
-# you most want logs. Exporting the profile makes `up -d` restore them too.
-# All four are image-only, so this adds nothing to the build step.
-# Set COMPOSE_PROFILES= (empty) in the environment to opt out.
-export COMPOSE_PROFILES="${COMPOSE_PROFILES-monitoring}"
+# It is tempting to export COMPOSE_PROFILES=monitoring so `up -d` covers them —
+# don't. Verified on the prod host (2026-08-25): the grafana container had been
+# up continuously since 2026-08-10, across several `both` deploys, so
+# `down --remove-orphans` never touched it. Activating the profile would pull
+# all four INTO the down/up cycle and tear down observability on every deploy —
+# precisely during the window you most want logs.
+#
+# This is version-specific and worth re-checking if the binary changes.
+# `deploy.sh` invokes `docker-compose` (hyphenated), which on prod is 2.37.1 and
+# leaves profile-disabled services alone. The newer `docker compose` plugin
+# (verified at v5.4.0) DOES remove them on `down --remove-orphans`. If the two
+# are ever unified, re-test before assuming the stack survives a deploy.
+#
+# To (re)start the monitoring stack by hand after stopping it:
+#   COMPOSE_PROFILES=monitoring docker-compose up -d
 
 # ── Pull latest code from GitHub before deploying ───────────────────────────
 if [ "$MODE" = "rollback" ]; then
