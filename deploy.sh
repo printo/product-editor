@@ -43,6 +43,7 @@ usage() {
   echo "  SKIP_SMOKE_TESTS=1     skip the post-deploy smoke tests"
   echo "  SMOKE_TESTS=\"embed calendar book\"  which smoke tests to run (default: embed)"
   echo "  ROLLBACK_YES=1         skip the rollback confirmation prompt"
+  echo "  READY_TIMEOUT=240      seconds to wait for containers to report ready"
   exit 1
 }
 
@@ -110,6 +111,58 @@ if [[ "$MODE" == "rollback" ]] \
   usage
 fi
 
+# ── Readiness polling ───────────────────────────────────────────────────────
+# Replaces the fixed `sleep 5/8/10` that used to stand in for "containers are
+# up". A fixed sleep is wrong in both directions: too short when the box is
+# busy (health checks then fail a container that was merely still booting) and
+# needlessly slow when everything is already warm.
+#
+# Reports a service ready when its healthcheck says `healthy`, or — for
+# services that declare no healthcheck, e.g. celery-beat — when the container
+# is simply `running`. `starting` and `unhealthy` keep polling: an unhealthy
+# container can still recover within its retries.
+container_state() {
+  docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null || echo missing
+}
+
+wait_for_healthy() {
+  local timeout="$1"; shift
+  local deadline=$(( SECONDS + timeout ))
+  local svc cid state pending shown=""
+
+  while :; do
+    pending=""
+    for svc in "$@"; do
+      cid=$(docker-compose ps -q "$svc" 2>/dev/null | head -n 1) || true
+      if [ -z "$cid" ]; then
+        pending="${pending} ${svc}(no container)"
+        continue
+      fi
+      state=$(container_state "$cid")
+      case "$state" in
+        healthy|running) ;;
+        *) pending="${pending} ${svc}(${state})" ;;
+      esac
+    done
+
+    if [ -z "$pending" ]; then
+      print_status "All services ready ($*)"
+      return 0
+    fi
+    # Only reprint when the set of not-ready services actually changes, so a
+    # slow start is one or two lines rather than a wall of identical output.
+    if [ "$pending" != "$shown" ]; then
+      print_action "Waiting for:${pending}"
+      shown="$pending"
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      print_warning "Timed out after ${timeout}s still waiting for:${pending}"
+      return 1
+    fi
+    sleep 2
+  done
+}
+
 # ── Single-deploy lock ──────────────────────────────────────────────────────
 # Two deploys in the same checkout will interleave: one rebuilds an image while
 # the other is recreating containers from it, and the pre-swap migration
@@ -146,6 +199,18 @@ fi
 # `docker-compose build` with no args.
 WORKER_SERVICES="celery-worker-standard celery-beat"
 BACKEND_SERVICES="backend $WORKER_SERVICES"
+
+# Services rebuilt from this repo, i.e. the ones a deploy actually needs to
+# swap. Deliberately EXCLUDES proxy, db, redis and redis-cache:
+#   * db / redis / redis-cache run stock upstream images that a deploy never
+#     rebuilds. Restarting them drops every open DB connection and kills any
+#     in-flight Celery render for no benefit.
+#   * proxy runs stock nginx and resolves upstreams at REQUEST time —
+#     nginx.conf uses `resolver 127.0.0.11 valid=10s` with variables in
+#     proxy_pass precisely so a recreated backend's new IP is picked up
+#     without a reload. Leaving it up keeps TLS termination and the health
+#     probe alive across the whole swap.
+APP_SERVICES="backend frontend $WORKER_SERVICES"
 
 # ── Rollback ────────────────────────────────────────────────────────────────
 # Every deploy tags the outgoing image `<repo>:backup-YYYYmmdd-HHMMSS` and the
@@ -411,36 +476,24 @@ fi
 # Stop and remove containers
 print_header "Stopping Services"
 if [[ "$MODE" == "both" ]]; then
-  print_action "Stopping all containers..."
-  # Status captured explicitly rather than read off the end of a pipeline —
-  # under pipefail a `down` failure would otherwise abort mid-teardown with no
-  # explanation, and without pipefail it was invisible.
-  DOWN_LOG=$(mktemp -t compose_down.XXXXXX)
-  DOWN_STATUS=0
-  docker-compose down --remove-orphans >"$DOWN_LOG" 2>&1 || DOWN_STATUS=$?
-  while IFS= read -r line; do
-    if [[ "$line" =~ "Stopping" ]]; then
-      echo -e "${CYAN}→${NC} $line"
-    elif [[ "$line" =~ "Stopped" || "$line" =~ "Removed" ]]; then
-      echo -e "${GREEN}✓${NC} $line"
-    fi
-  done <"$DOWN_LOG"
-  if [ "$DOWN_STATUS" -eq 0 ]; then
-    print_status "All services stopped and removed"
-  else
-    print_warning "docker-compose down exited ${DOWN_STATUS} — continuing; the port sweep below usually clears the cause"
-    tail -5 "$DOWN_LOG"
-  fi
-  rm -f "$DOWN_LOG"
-  
-  # Kill any processes using ports 80, 443, 8000, 5004
-  print_action "Freeing up ports..."
-  for port in 80 443 8000 5004; do
-    pid=$(sudo lsof -ti:$port 2>/dev/null || true)
-    if [ ! -z "$pid" ]; then
-      sudo kill -9 $pid 2>/dev/null && print_status "Freed port $port" || print_info "Port $port already free"
-    fi
-  done
+  # Nothing is stopped here any more, and that is the point.
+  #
+  # This used to run `docker-compose down --remove-orphans` BEFORE the image
+  # build. Since the build is the slow part, the outage was not the container
+  # swap — it was the entire build, minutes of it, with the site down the whole
+  # time. It also took Postgres and Redis down (stock images a deploy never
+  # rebuilds) and killed any in-flight Celery render mid-job.
+  #
+  # The old containers now keep serving through the build and migrations, and
+  # the swap happens afterwards via `up -d --force-recreate` on APP_SERVICES
+  # only (see "Starting Services"). Downtime drops from the build duration to
+  # a few seconds per container.
+  #
+  # The port sweep that used to follow the `down` is gone with it: it killed
+  # whatever held 80/443/8000/5004, which — with the containers still running —
+  # is now OUR OWN proxy and backend. It existed to clear stragglers left by
+  # the teardown, and there is no teardown left to strand anything.
+  print_info "Leaving current containers serving; they are swapped after the build."
 elif [[ "$MODE" == "backend" ]]; then
   print_action "Stopping backend + celery worker containers..."
   docker-compose stop $BACKEND_SERVICES 2>&1 | grep -v "^$" || true
@@ -587,11 +640,30 @@ elif [[ "$MODE" == "frontend" ]]; then
     exit 1
   fi
 elif [[ "$MODE" == "both" ]]; then
-  print_action "Creating and starting all containers..."
-  if docker-compose up -d; then
-    print_status "All services started"
+  # Two steps on purpose:
+  #   1. --force-recreate ONLY the services built from this repo. Verified that
+  #      naming services keeps compose from recreating their dependencies, so
+  #      db / redis / redis-cache keep their connections and proxy keeps
+  #      serving. (Worst case, if a compose version ever did recreate deps, the
+  #      result is merely today's old behaviour — a restart — not something
+  #      worse.)
+  #   2. A plain `up -d` afterwards starts anything not currently running and
+  #      sweeps orphans. --remove-orphans is deliberately NOT on the scoped
+  #      call above, where the service list makes its blast radius harder to
+  #      reason about.
+  print_action "Swapping app containers onto the new images..."
+  if docker-compose up -d --force-recreate $APP_SERVICES; then
+    print_status "App containers swapped ($APP_SERVICES)"
   else
-    print_error "Failed to start services — showing logs"
+    print_error "Failed to swap app containers — showing logs"
+    docker-compose logs --tail=50 $APP_SERVICES
+    exit 1
+  fi
+  print_action "Ensuring supporting services are up..."
+  if docker-compose up -d --remove-orphans; then
+    print_status "All services running"
+  else
+    print_error "Failed to start supporting services — showing logs"
     docker-compose logs --tail=50
     exit 1
   fi
@@ -627,28 +699,39 @@ docker-compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
 # Health checks
 print_header "Health Checks"
 
-# Wait a bit for containers to fully start
-if [[ "$MODE" == "both" ]]; then
-  print_action "Waiting for services to initialize..."
-  sleep 10
-  print_status "Services initialized"
-elif [[ "$MODE" == "backend" ]]; then
-  print_action "Waiting for backend to initialize..."
-  sleep 8
-  print_status "Backend initialized"
-elif [[ "$MODE" == "workers" ]]; then
-  print_action "Waiting for workers to initialize..."
-  sleep 5
-  print_status "Workers initialized"
-elif [[ "$MODE" == "frontend" ]]; then
-  print_action "Waiting for frontend to initialize..."
-  sleep 5
-  print_status "Frontend initialized"
-elif [[ "$MODE" == "rollback" ]]; then
-  print_action "Waiting for restored containers to initialize..."
-  sleep 10
-  print_status "Restored containers initialized"
-fi
+# Wait for containers to report ready, rather than guessing with a fixed sleep.
+#
+# 240s because celery-worker's healthcheck has start_period=60s AND
+# interval=60s, so its first verdict cannot arrive before ~60s and a retry
+# pushes that further; anything tighter would fail a perfectly healthy worker.
+# A timeout is recorded via `fail` (deploy exits non-zero) rather than aborting,
+# so the checks below still run and you see the full picture.
+READY_TIMEOUT="${READY_TIMEOUT:-240}"
+case "$MODE" in
+  both)
+    wait_for_healthy "$READY_TIMEOUT" backend frontend proxy db redis redis-cache $WORKER_SERVICES \
+      || fail "Containers did not become ready within ${READY_TIMEOUT}s"
+    ;;
+  backend)
+    wait_for_healthy "$READY_TIMEOUT" $BACKEND_SERVICES \
+      || fail "Backend/workers did not become ready within ${READY_TIMEOUT}s"
+    ;;
+  workers)
+    wait_for_healthy "$READY_TIMEOUT" $WORKER_SERVICES \
+      || fail "Workers did not become ready within ${READY_TIMEOUT}s"
+    ;;
+  frontend)
+    wait_for_healthy "$READY_TIMEOUT" frontend \
+      || fail "Frontend did not become ready within ${READY_TIMEOUT}s"
+    ;;
+  rollback)
+    ROLLBACK_WAIT=""
+    [[ "$ROLLBACK_TARGET" != "frontend" ]] && ROLLBACK_WAIT="$ROLLBACK_WAIT backend $WORKER_SERVICES"
+    [[ "$ROLLBACK_TARGET" != "backend"  ]] && ROLLBACK_WAIT="$ROLLBACK_WAIT frontend"
+    wait_for_healthy "$READY_TIMEOUT" $ROLLBACK_WAIT \
+      || fail "Restored containers did not become ready within ${READY_TIMEOUT}s"
+    ;;
+esac
 
 # Backend health check
 #
