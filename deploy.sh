@@ -25,6 +25,7 @@ NC='\033[0m' # No Color
 usage() {
   echo -e "${BLUE}Usage:${NC}"
   echo "  $0 [frontend|backend|workers|both]"
+  echo "  $0 rollback [backend|frontend|both]"
   echo ""
   echo -e "${BLUE}Examples:${NC}"
   echo "  $0              # Deploy both frontend and backend (default)"
@@ -33,6 +34,16 @@ usage() {
   echo "                    (they share the same Dockerfile/source)"
   echo "  $0 workers      # Deploy ONLY celery workers + beat — useful when"
   echo "                    recovering from a worker memory leak / hang"
+  echo "  $0 rollback     # Restore the most recent backup image and restart."
+  echo "                    No git pull, no build, no migrations."
+  echo "                    Add backend|frontend to roll back one half."
+  echo ""
+  echo -e "${BLUE}Environment overrides:${NC}"
+  echo "  ALLOW_STALE_DEPLOY=1   deploy the current checkout even if git pull fails"
+  echo "  COMPOSE_PROFILES=      skip the monitoring stack (loki/grafana/promtail/alloy)"
+  echo "  SKIP_SMOKE_TESTS=1     skip the post-deploy smoke tests"
+  echo "  SMOKE_TESTS=\"embed calendar book\"  which smoke tests to run (default: embed)"
+  echo "  ROLLBACK_YES=1         skip the rollback confirmation prompt"
   exit 1
 }
 
@@ -86,9 +97,46 @@ fail() {
 
 # Validate mode
 MODE="${1:-both}"
-if [[ "$MODE" != "frontend" && "$MODE" != "backend" && "$MODE" != "workers" && "$MODE" != "both" ]]; then
+if [[ "$MODE" != "frontend" && "$MODE" != "backend" && "$MODE" != "workers" \
+   && "$MODE" != "both" && "$MODE" != "rollback" ]]; then
   print_error "Invalid mode: $MODE"
   usage
+fi
+
+# Which half to roll back. Only read in rollback mode.
+ROLLBACK_TARGET="${2:-both}"
+if [[ "$MODE" == "rollback" ]] \
+   && [[ "$ROLLBACK_TARGET" != "backend" && "$ROLLBACK_TARGET" != "frontend" && "$ROLLBACK_TARGET" != "both" ]]; then
+  print_error "Invalid rollback target: $ROLLBACK_TARGET (expected backend, frontend, or both)"
+  usage
+fi
+
+# ── Single-deploy lock ──────────────────────────────────────────────────────
+# Two deploys in the same checkout will interleave: one rebuilds an image while
+# the other is recreating containers from it, and the pre-swap migration
+# ordering stops meaning anything. It happens in practice — re-running after a
+# mid-deploy hang, or a second person deploying while the first is mid-build.
+#
+# The lock is held on fd 9 for the lifetime of the process, so it releases on
+# exit however the script ends — including a `set -e` abort or a Ctrl-C.
+# flock is util-linux (present on the Ubuntu prod host); if it is missing we
+# warn rather than block, since an unlocked deploy still beats no deploy.
+DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/product-editor-deploy.lock}"
+if command -v flock >/dev/null 2>&1; then
+  # `9>>` (append), not `9>`: the truncating form empties the file at open time,
+  # i.e. BEFORE flock runs, so it wipes the holder's PID and the "another deploy
+  # is running" message can never name the process you need to look at.
+  exec 9>>"$DEPLOY_LOCK_FILE"
+  if flock -n 9; then
+    printf '%s\n' "$$" > "$DEPLOY_LOCK_FILE" || true
+  else
+    print_error "Another deploy is already running (lock: ${DEPLOY_LOCK_FILE})"
+    print_info "Holder PID: $(cat "$DEPLOY_LOCK_FILE" 2>/dev/null || echo unknown)"
+    print_info "If that process is dead, remove the file and re-run."
+    exit 1
+  fi
+else
+  print_warning "flock not found — running without the concurrent-deploy lock."
 fi
 
 # Worker services share backend/django/Dockerfile with the `backend` service
@@ -100,57 +148,162 @@ fi
 WORKER_SERVICES="celery-worker-standard celery-beat"
 BACKEND_SERVICES="backend $WORKER_SERVICES"
 
-# ── Prepare nginx config ────────────────────────────────────────────────────
-print_header "Preparing Proxy Configuration"
-mkdir -p proxy/nginx/certs
+# ── Rollback ────────────────────────────────────────────────────────────────
+# Every deploy tags the outgoing image `<repo>:backup-YYYYmmdd-HHMMSS` and the
+# cleanup step keeps the last 3 — but until now nothing could restore one, so
+# the only way back from a bad deploy was a forward fix under pressure.
+#
+# Deliberately does NOT touch the database. Migrations here are additive and
+# backward-compatible by policy (nullable columns, new indexes), which is what
+# makes rolling code back over a migrated schema safe: the old code simply does
+# not use the new columns. A migration that ever breaks that policy makes this
+# command unsafe — say so in its docstring if you write one.
+#
+# Workers are restored from the BACKEND backup image, not their own. They build
+# from the same Dockerfile and context, so the backend image carries the same
+# source; the differing entrypoint comes from compose's `command:`, at runtime.
+# This is why worker images are not backed up separately (3.2 GB each).
+latest_backup_tag() {
+  local repo="$1"
+  docker images --format '{{.Repository}}:{{.Tag}}' "$repo" 2>/dev/null \
+    | grep -E ':backup-[0-9]{8}-[0-9]{6}$' \
+    | sort -r \
+    | head -n 1 || true
+}
 
-# ── Origin TLS cert ─────────────────────────────────────────────────────────
-# Production: paste a Cloudflare Origin Certificate (CF dashboard → SSL/TLS →
-# Origin Server → Create Certificate) into proxy/nginx/certs/origin.crt and
-# origin.key. CF accepts it under "Full (strict)".
-# Bootstrap / dev: if no cert exists, generate a self-signed one. With CF in
-# "Full" mode (not strict) this works; CF won't validate against a public CA.
-if [ -d proxy/nginx/certs/origin.crt ]; then
-  print_warning "Removing proxy/nginx/certs/origin.crt directory (Docker bind-mount auto-create)."
-  rm -rf proxy/nginx/certs/origin.crt
-fi
-if [ -d proxy/nginx/certs/origin.key ]; then
-  print_warning "Removing proxy/nginx/certs/origin.key directory (Docker bind-mount auto-create)."
-  rm -rf proxy/nginx/certs/origin.key
-fi
-if [ ! -f proxy/nginx/certs/origin.crt ] || [ ! -f proxy/nginx/certs/origin.key ]; then
-  print_warning "No origin TLS cert found. Generating a self-signed cert for bootstrap."
-  print_warning "For production: paste the Cloudflare Origin Certificate into:"
-  print_warning "  proxy/nginx/certs/origin.crt   (the certificate body)"
-  print_warning "  proxy/nginx/certs/origin.key   (the private key)"
-  print_warning "Then set Cloudflare SSL/TLS mode to 'Full (strict)'."
-  CN_HOST="${PUBLIC_HOST:-product-editor.local}"
-  openssl req -x509 -nodes -days 3650 \
-    -newkey rsa:2048 \
-    -keyout proxy/nginx/certs/origin.key \
-    -out proxy/nginx/certs/origin.crt \
-    -subj "/CN=${CN_HOST}/O=product-editor self-signed" \
-    -addext "subjectAltName=DNS:${CN_HOST},DNS:*.${CN_HOST#*.}" 2>/dev/null
-  chmod 600 proxy/nginx/certs/origin.key
-  chmod 644 proxy/nginx/certs/origin.crt
-  print_status "Self-signed origin cert generated for ${CN_HOST}"
-fi
+do_rollback() {
+  print_header "Rollback"
+  print_info "Target: ${ROLLBACK_TARGET}"
 
-# ── nginx config syntax check ───────────────────────────────────────────────
-# Catches typos before we restart the proxy and 502 the world.
-print_action "Validating proxy/nginx/nginx.conf syntax..."
-if docker run --rm \
-  -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
-  nginx:1.27-alpine nginx -t >/dev/null 2>&1; then
-  print_status "nginx.conf is valid"
+  local backend_backup="" frontend_backup=""
+  if [[ "$ROLLBACK_TARGET" == "backend" || "$ROLLBACK_TARGET" == "both" ]]; then
+    backend_backup=$(latest_backup_tag product-editor-backend)
+    if [ -z "$backend_backup" ]; then
+      print_error "No backend backup image found — nothing to roll back to."
+      print_info "Backups are created by a normal deploy; a first-ever deploy has none."
+      exit 1
+    fi
+    print_info "Backend  → ${backend_backup}"
+  fi
+  if [[ "$ROLLBACK_TARGET" == "frontend" || "$ROLLBACK_TARGET" == "both" ]]; then
+    frontend_backup=$(latest_backup_tag product-editor-frontend)
+    if [ -z "$frontend_backup" ]; then
+      print_error "No frontend backup image found — nothing to roll back to."
+      exit 1
+    fi
+    print_info "Frontend → ${frontend_backup}"
+  fi
+
+  echo ""
+  print_warning "This restarts containers on the OLD image. The database is NOT reverted."
+  print_warning "Any migration applied by the bad deploy stays applied (additive by policy)."
+  echo ""
+
+  if [ "${ROLLBACK_YES:-0}" != "1" ]; then
+    read -r -p "Proceed with rollback? [y/N] " reply
+    case "$reply" in
+      [yY]|[yY][eE][sS]) ;;
+      *) print_info "Rollback cancelled."; exit 0 ;;
+    esac
+  fi
+
+  # Preserve what we are rolling back FROM, as a backup tag of its own. Without
+  # this the outgoing image loses its only tag and the `docker image prune -f`
+  # in the cleanup step reclaims it — so you could roll back but never forward,
+  # and the fix would need a full rebuild.
+  local stamp
+  stamp=$(date +%Y%m%d-%H%M%S)
+  local svc services=()
+
+  if [ -n "$backend_backup" ]; then
+    docker tag product-editor-backend:latest "product-editor-backend:backup-${stamp}" 2>/dev/null || true
+    print_action "Restoring backend image..."
+    docker tag "$backend_backup" product-editor-backend:latest
+    # Same source, different runtime command — see the note above.
+    for svc in $WORKER_SERVICES; do
+      docker tag "$backend_backup" "product-editor-${svc}:latest"
+    done
+    print_status "Backend + workers pointed at ${backend_backup}"
+    services+=(backend $WORKER_SERVICES)
+  fi
+
+  if [ -n "$frontend_backup" ]; then
+    docker tag product-editor-frontend:latest "product-editor-frontend:backup-${stamp}" 2>/dev/null || true
+    print_action "Restoring frontend image..."
+    docker tag "$frontend_backup" product-editor-frontend:latest
+    print_status "Frontend pointed at ${frontend_backup}"
+    services+=(frontend)
+  fi
+
+  print_action "Recreating containers on the restored image(s)..."
+  if docker-compose up -d --force-recreate "${services[@]}"; then
+    print_status "Containers recreated"
+  else
+    fail "Failed to recreate containers during rollback"
+    docker-compose logs --tail=30 "${services[@]}" || true
+  fi
+}
+
+# Skipped on rollback. nginx.conf is bind-mounted from the repo, not baked into
+# an image, so rolling images back cannot fix a bad proxy config — but the
+# `nginx -t` gate below exits 1, which would BLOCK the rollback of a broken
+# deploy over a problem the rollback was never going to solve.
+if [ "$MODE" = "rollback" ]; then
+  print_header "Rollback — Skipping Proxy Preparation"
+  print_info "nginx.conf and certs come from the repo, not the images being restored."
 else
-  print_error "nginx.conf failed validation — running nginx -t for details:"
-  docker run --rm \
+  # ── Prepare nginx config ────────────────────────────────────────────────────
+  print_header "Preparing Proxy Configuration"
+  mkdir -p proxy/nginx/certs
+
+  # ── Origin TLS cert ─────────────────────────────────────────────────────────
+  # Production: paste a Cloudflare Origin Certificate (CF dashboard → SSL/TLS →
+  # Origin Server → Create Certificate) into proxy/nginx/certs/origin.crt and
+  # origin.key. CF accepts it under "Full (strict)".
+  # Bootstrap / dev: if no cert exists, generate a self-signed one. With CF in
+  # "Full" mode (not strict) this works; CF won't validate against a public CA.
+  if [ -d proxy/nginx/certs/origin.crt ]; then
+    print_warning "Removing proxy/nginx/certs/origin.crt directory (Docker bind-mount auto-create)."
+    rm -rf proxy/nginx/certs/origin.crt
+  fi
+  if [ -d proxy/nginx/certs/origin.key ]; then
+    print_warning "Removing proxy/nginx/certs/origin.key directory (Docker bind-mount auto-create)."
+    rm -rf proxy/nginx/certs/origin.key
+  fi
+  if [ ! -f proxy/nginx/certs/origin.crt ] || [ ! -f proxy/nginx/certs/origin.key ]; then
+    print_warning "No origin TLS cert found. Generating a self-signed cert for bootstrap."
+    print_warning "For production: paste the Cloudflare Origin Certificate into:"
+    print_warning "  proxy/nginx/certs/origin.crt   (the certificate body)"
+    print_warning "  proxy/nginx/certs/origin.key   (the private key)"
+    print_warning "Then set Cloudflare SSL/TLS mode to 'Full (strict)'."
+    CN_HOST="${PUBLIC_HOST:-product-editor.local}"
+    openssl req -x509 -nodes -days 3650 \
+      -newkey rsa:2048 \
+      -keyout proxy/nginx/certs/origin.key \
+      -out proxy/nginx/certs/origin.crt \
+      -subj "/CN=${CN_HOST}/O=product-editor self-signed" \
+      -addext "subjectAltName=DNS:${CN_HOST},DNS:*.${CN_HOST#*.}" 2>/dev/null
+    chmod 600 proxy/nginx/certs/origin.key
+    chmod 644 proxy/nginx/certs/origin.crt
+    print_status "Self-signed origin cert generated for ${CN_HOST}"
+  fi
+
+  # ── nginx config syntax check ───────────────────────────────────────────────
+  # Catches typos before we restart the proxy and 502 the world.
+  print_action "Validating proxy/nginx/nginx.conf syntax..."
+  if docker run --rm \
     -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
     -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
-    nginx:1.27-alpine nginx -t || true
-  exit 1
+    nginx:1.27-alpine nginx -t >/dev/null 2>&1; then
+    print_status "nginx.conf is valid"
+  else
+    print_error "nginx.conf failed validation — running nginx -t for details:"
+    docker run --rm \
+      -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+      -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
+      nginx:1.27-alpine nginx -t || true
+    exit 1
+  fi
 fi
 
 # ── Use ONLY docker-compose.yml (never merge the dev override) ──────────────
@@ -170,43 +323,48 @@ export COMPOSE_FILE=docker-compose.yml
 export COMPOSE_PROFILES="${COMPOSE_PROFILES-monitoring}"
 
 # ── Pull latest code from GitHub before deploying ───────────────────────────
-print_header "Pulling Latest Code"
-print_action "Running git pull..."
-# The pull IS the deploy — deploy.sh git-pulls main on the server, so a failed
-# pull means rebuilding the code already on disk. The previous form piped git
-# through `tee | while read`, and an `if` on a pipeline sees only the LAST
-# command's status: the while loop always succeeded, so the failure branch was
-# unreachable and a broken pull printed "Code updated successfully".
-#
-# Now the status is captured directly, and a failed pull ABORTS rather than
-# shipping stale code under a green message. Set ALLOW_STALE_DEPLOY=1 to
-# redeploy the current checkout on purpose (e.g. GitHub unreachable, or
-# re-running after a mid-deploy hang).
-GIT_PULL_LOG=$(mktemp -t git_pull_output.XXXXXX)
-GIT_PULL_STATUS=0
-git pull >"$GIT_PULL_LOG" 2>&1 || GIT_PULL_STATUS=$?
-
-while IFS= read -r line; do
-  echo -e "${CYAN}→${NC} $line"
-done <"$GIT_PULL_LOG"
-
-if [ "$GIT_PULL_STATUS" -eq 0 ]; then
-  if grep -q "Already up to date" "$GIT_PULL_LOG"; then
-    print_info "Already up to date — no new changes"
-  else
-    print_status "Code updated successfully"
-  fi
-  rm -f "$GIT_PULL_LOG"
+if [ "$MODE" = "rollback" ]; then
+  print_header "Rollback — Skipping Code Pull"
+  print_info "Rolling back IMAGES, not source. The checkout is left untouched."
 else
-  print_error "git pull FAILED (exit ${GIT_PULL_STATUS}) — check SSH key / remote / local changes"
-  rm -f "$GIT_PULL_LOG"
-  if [ "${ALLOW_STALE_DEPLOY:-0}" = "1" ]; then
-    print_warning "ALLOW_STALE_DEPLOY=1 — continuing with the code already on disk."
-    print_warning "This deploys commit $(git rev-parse --short HEAD 2>/dev/null || echo unknown), NOT the latest main."
+  print_header "Pulling Latest Code"
+  print_action "Running git pull..."
+  # The pull IS the deploy — deploy.sh git-pulls main on the server, so a failed
+  # pull means rebuilding the code already on disk. The previous form piped git
+  # through `tee | while read`, and an `if` on a pipeline sees only the LAST
+  # command's status: the while loop always succeeded, so the failure branch was
+  # unreachable and a broken pull printed "Code updated successfully".
+  #
+  # Now the status is captured directly, and a failed pull ABORTS rather than
+  # shipping stale code under a green message. Set ALLOW_STALE_DEPLOY=1 to
+  # redeploy the current checkout on purpose (e.g. GitHub unreachable, or
+  # re-running after a mid-deploy hang).
+  GIT_PULL_LOG=$(mktemp -t git_pull_output.XXXXXX)
+  GIT_PULL_STATUS=0
+  git pull >"$GIT_PULL_LOG" 2>&1 || GIT_PULL_STATUS=$?
+
+  while IFS= read -r line; do
+    echo -e "${CYAN}→${NC} $line"
+  done <"$GIT_PULL_LOG"
+
+  if [ "$GIT_PULL_STATUS" -eq 0 ]; then
+    if grep -q "Already up to date" "$GIT_PULL_LOG"; then
+      print_info "Already up to date — no new changes"
+    else
+      print_status "Code updated successfully"
+    fi
+    rm -f "$GIT_PULL_LOG"
   else
-    print_error "Refusing to deploy stale code. Fix the pull, or re-run with:"
-    print_info "  ALLOW_STALE_DEPLOY=1 ./deploy.sh ${MODE}"
-    exit 1
+    print_error "git pull FAILED (exit ${GIT_PULL_STATUS}) — check SSH key / remote / local changes"
+    rm -f "$GIT_PULL_LOG"
+    if [ "${ALLOW_STALE_DEPLOY:-0}" = "1" ]; then
+      print_warning "ALLOW_STALE_DEPLOY=1 — continuing with the code already on disk."
+      print_warning "This deploys commit $(git rev-parse --short HEAD 2>/dev/null || echo unknown), NOT the latest main."
+    else
+      print_error "Refusing to deploy stale code. Fix the pull, or re-run with:"
+      print_info "  ALLOW_STALE_DEPLOY=1 ./deploy.sh ${MODE}"
+      exit 1
+    fi
   fi
 fi
 
@@ -354,7 +512,7 @@ elif [[ "$MODE" == "frontend" ]]; then
     print_error "Frontend build FAILED — aborting deployment"
     exit 1
   fi
-else
+elif [[ "$MODE" == "both" ]]; then
   print_action "Building all images (output below)..."
   if docker-compose build; then
     print_status "All images built successfully"
@@ -421,7 +579,7 @@ elif [[ "$MODE" == "frontend" ]]; then
     docker-compose logs --tail=30 frontend
     exit 1
   fi
-else
+elif [[ "$MODE" == "both" ]]; then
   print_action "Creating and starting all containers..."
   if docker-compose up -d; then
     print_status "All services started"
@@ -430,6 +588,13 @@ else
     docker-compose logs --tail=50
     exit 1
   fi
+fi
+
+# Rollback does its image restore + container recreate here — after the deploy
+# paths above have all declined to match, and before the shared status/health
+# reporting below, which it reuses unchanged.
+if [[ "$MODE" == "rollback" ]]; then
+  do_rollback
 fi
 
 # Migrations already ran before the container swap (see above). A no-op
@@ -472,10 +637,18 @@ elif [[ "$MODE" == "frontend" ]]; then
   print_action "Waiting for frontend to initialize..."
   sleep 5
   print_status "Frontend initialized"
+elif [[ "$MODE" == "rollback" ]]; then
+  print_action "Waiting for restored containers to initialize..."
+  sleep 10
+  print_status "Restored containers initialized"
 fi
 
 # Backend health check
-if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
+#
+# Extracted into a function so `./deploy.sh rollback` verifies the restored
+# image with exactly the same checks a forward deploy runs — a rollback that
+# is not health-checked is just a second untested deploy.
+run_backend_health_checks() {
   print_action "Checking backend health..."
   
   # Get backend container name
@@ -565,10 +738,17 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
       fail "Redis is not responding"
     fi
   fi
+}
+
+# Rollback verifies through exactly the same checks as a forward deploy —
+# an unverified rollback is just a second untested deploy.
+if [[ "$MODE" == "backend" || "$MODE" == "both" ]] \
+   || [[ "$MODE" == "rollback" && "$ROLLBACK_TARGET" != "frontend" ]]; then
+  run_backend_health_checks
 fi
 
-# Frontend health check
-if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
+# Frontend health check — see the note on run_backend_health_checks above.
+run_frontend_health_checks() {
   print_action "Checking frontend health..."
   
   # Get frontend container name
@@ -619,6 +799,74 @@ if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
       print_warning "NEXT_PUBLIC_API_BASE_URL not set"
     fi
   fi
+}
+
+if [[ "$MODE" == "frontend" || "$MODE" == "both" ]] \
+   || [[ "$MODE" == "rollback" && "$ROLLBACK_TARGET" != "backend" ]]; then
+  run_frontend_health_checks
+fi
+
+# ── Post-deploy smoke tests ─────────────────────────────────────────────────
+# The health checks above prove the containers are UP; they do not prove the
+# customer flow still works. The repo already carries end-to-end scripts for
+# that and the deploy ran none of them, so a deploy that broke embed-session
+# creation still reported success.
+#
+# Defaults chosen to be safe to run on every deploy:
+#   * BASE=https://localhost + CURL_INSECURE=1 — exercises the real nginx edge
+#     (the path prod actually serves) rather than the container ports. The
+#     origin cert is a Cloudflare Origin cert, not publicly trusted, so without
+#     CURL_INSECURE every check returns 000 and reads as a total outage.
+#   * embed only. It is the core customer path. calendar/book are read-only
+#     too and can be added via SMOKE_TESTS, but each extra script is another
+#     ~3 s on every deploy.
+#   * SMOKE_RENDER is deliberately NOT set: a real render occupies a Celery
+#     worker slot and writes 300-DPI output, competing with live customer jobs
+#     on the 2-core prod box.
+#
+# A failed smoke test records a deploy failure (see `fail`) but does not abort —
+# you still get the remaining checks and the summary.
+run_smoke_tests() {
+  local base="${SMOKE_BASE:-https://localhost}"
+  local tests="${SMOKE_TESTS:-embed}"
+  local key="${SMOKE_API_KEY:-${DIRECT_API_KEY:-}}"
+  local name script
+
+  if [ -z "$key" ]; then
+    print_warning "No DIRECT_API_KEY in .env — skipping smoke tests"
+    print_info "Set SMOKE_API_KEY=<key> to run them explicitly."
+    return 0
+  fi
+
+  for name in $tests; do
+    script="scripts/smoke-test-${name}.sh"
+    if [ ! -x "$script" ]; then
+      print_warning "Smoke test not found or not executable: ${script} — skipping"
+      continue
+    fi
+    print_action "Running ${script} against ${base}..."
+    if API_KEY="$key" BASE="$base" CURL_INSECURE=1 "$script"; then
+      print_status "Smoke test '${name}' passed"
+    else
+      fail "Smoke test '${name}' failed (${script} against ${base})"
+    fi
+  done
+}
+
+if [ "${SKIP_SMOKE_TESTS:-0}" = "1" ]; then
+  print_header "Smoke Tests"
+  print_info "SKIP_SMOKE_TESTS=1 — skipped"
+elif [[ "$MODE" == "workers" ]]; then
+  : # workers mode restarts neither the API nor the frontend — nothing to smoke
+else
+  print_header "Smoke Tests"
+  # .env is sourced inside the backend health check above, but not on every
+  # path (frontend-only deploys, rollback), so read it here too before
+  # reaching for DIRECT_API_KEY.
+  if [ -f .env ]; then
+    source .env 2>/dev/null || true
+  fi
+  run_smoke_tests
 fi
 
 # Show API keys
@@ -712,66 +960,73 @@ docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
 AFTER_AVAIL=$(df -h / | awk 'NR==2 {print $4}')
 print_status "Docker cleanup done — disk available: ${BEFORE_AVAIL} -> ${AFTER_AVAIL}"
 
-# Final summary
-if [ "$DEPLOY_FAILURES" -gt 0 ]; then
-  print_header "Deployment Completed WITH FAILURES"
-  print_error "${DEPLOY_FAILURES} health check(s) failed:"
-  for failure in "${DEPLOY_FAILURE_LIST[@]}"; do
-    echo -e "    ${RED}✗${NC} ${failure}"
-  done
-  echo ""
-  print_warning "The containers ARE running the new image — this is not a rollback."
-  print_warning "Investigate before sending customer traffic. Logs: docker-compose logs --tail=100"
-else
-  print_header "Deployment Complete"
-  print_status "Deployment finished successfully"
-fi
-print_info "Completed at: $(date '+%Y-%m-%d %H:%M:%S')"
-echo ""
-
-# Detect server hostname/IP
-if [ -f .env ]; then
-  source .env 2>/dev/null || true
-fi
-
-# Determine the base URL
-if [ -n "$PUBLIC_HOST" ] && [ "$PUBLIC_HOST" != "product-editor.printo.in" ]; then
-  BASE_URL="https://${PUBLIC_HOST}"
-  BACKEND_URL="https://${PUBLIC_HOST}"
-elif [ -n "$PUBLIC_HOST" ]; then
-  BASE_URL="https://${PUBLIC_HOST}"
-  BACKEND_URL="https://${PUBLIC_HOST}"
-else
-  # Fallback to server IP or localhost
-  # `|| true`: `hostname -I` is Linux-only and exits non-zero elsewhere.
-  SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}') || true
-  if [ -n "$SERVER_IP" ] && [ "$SERVER_IP" != "127.0.0.1" ]; then
-    BASE_URL="http://${SERVER_IP}:5004"
-    BACKEND_URL="http://${SERVER_IP}:8000"
+# ── Final summary ───────────────────────────────────────────────────────────
+# A function so the rollback path reports through the same gate as a deploy.
+# Exits the script: non-zero when any check failed, 0 otherwise.
+print_final_summary() {
+  # Final summary
+  if [ "$DEPLOY_FAILURES" -gt 0 ]; then
+    print_header "Deployment Completed WITH FAILURES"
+    print_error "${DEPLOY_FAILURES} health check(s) failed:"
+    for failure in "${DEPLOY_FAILURE_LIST[@]}"; do
+      echo -e "    ${RED}✗${NC} ${failure}"
+    done
+    echo ""
+    print_warning "The containers ARE running the new image — this is not a rollback."
+    print_warning "Investigate before sending customer traffic. Logs: docker-compose logs --tail=100"
   else
-    BASE_URL="http://localhost:5004"
-    BACKEND_URL="http://localhost:8000"
+    print_header "Deployment Complete"
+    print_status "Deployment finished successfully"
   fi
-fi
-
-# Show access URLs
-if [[ "$MODE" == "frontend" || "$MODE" == "both" ]]; then
-  print_info "Frontend: ${GREEN}${BASE_URL}${NC}"
-fi
-
-if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
-  print_info "Backend API: ${GREEN}${BACKEND_URL}/api${NC}"
-  print_info "Health Check: ${GREEN}${BACKEND_URL}/api/health${NC}"
-  print_info "Admin Panel: ${GREEN}${BACKEND_URL}/django-admin/${NC}"
-fi
-
-echo ""
-# Non-zero exit on a failed check, so a human skimming the tail of the log —
-# and anything wrapping this script — can tell a good deploy from a bad one.
-if [ "$DEPLOY_FAILURES" -gt 0 ]; then
-  print_error "Exiting non-zero: ${DEPLOY_FAILURES} check(s) failed."
+  print_info "Completed at: $(date '+%Y-%m-%d %H:%M:%S')"
   echo ""
-  exit 1
-fi
-print_status "Ready to use!"
-echo ""
+
+  # Detect server hostname/IP
+  if [ -f .env ]; then
+    source .env 2>/dev/null || true
+  fi
+
+  # Determine the base URL
+  if [ -n "$PUBLIC_HOST" ] && [ "$PUBLIC_HOST" != "product-editor.printo.in" ]; then
+    BASE_URL="https://${PUBLIC_HOST}"
+    BACKEND_URL="https://${PUBLIC_HOST}"
+  elif [ -n "$PUBLIC_HOST" ]; then
+    BASE_URL="https://${PUBLIC_HOST}"
+    BACKEND_URL="https://${PUBLIC_HOST}"
+  else
+    # Fallback to server IP or localhost
+    # `|| true`: `hostname -I` is Linux-only and exits non-zero elsewhere.
+    SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}') || true
+    if [ -n "$SERVER_IP" ] && [ "$SERVER_IP" != "127.0.0.1" ]; then
+      BASE_URL="http://${SERVER_IP}:5004"
+      BACKEND_URL="http://${SERVER_IP}:8000"
+    else
+      BASE_URL="http://localhost:5004"
+      BACKEND_URL="http://localhost:8000"
+    fi
+  fi
+
+  # Show access URLs
+  if [[ "$MODE" == "frontend" || "$MODE" == "both" || "$MODE" == "rollback" ]]; then
+    print_info "Frontend: ${GREEN}${BASE_URL}${NC}"
+  fi
+
+  if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "rollback" ]]; then
+    print_info "Backend API: ${GREEN}${BACKEND_URL}/api${NC}"
+    print_info "Health Check: ${GREEN}${BACKEND_URL}/api/health${NC}"
+    print_info "Admin Panel: ${GREEN}${BACKEND_URL}/django-admin/${NC}"
+  fi
+
+  echo ""
+  # Non-zero exit on a failed check, so a human skimming the tail of the log —
+  # and anything wrapping this script — can tell a good deploy from a bad one.
+  if [ "$DEPLOY_FAILURES" -gt 0 ]; then
+    print_error "Exiting non-zero: ${DEPLOY_FAILURES} check(s) failed."
+    echo ""
+    exit 1
+  fi
+  print_status "Ready to use!"
+  echo ""
+}
+
+print_final_summary
