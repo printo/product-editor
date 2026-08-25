@@ -44,6 +44,7 @@ usage() {
   echo "  SMOKE_TESTS=\"embed calendar book\"  which smoke tests to run (default: embed)"
   echo "  ROLLBACK_YES=1         skip the rollback confirmation prompt"
   echo "  READY_TIMEOUT=240      seconds to wait for containers to report ready"
+  echo "  DEPLOY_BRANCH=main     branch the server is expected to be on"
   exit 1
 }
 
@@ -161,6 +162,47 @@ wait_for_healthy() {
     fi
     sleep 2
   done
+}
+
+# ── Port reclamation ────────────────────────────────────────────────────────
+# This used to be `sudo lsof -ti:<port> | xargs kill -9` — kill whatever holds
+# the port, no questions asked. On a box shared with anything else that is a
+# loaded gun: the deploy would SIGKILL an unrelated service and report it as
+# "Freed port 8000".
+#
+# The only legitimate case is one of OUR OWN containers still holding the
+# binding after `docker rm -f`, so that is the only case handled automatically.
+# Anything else is reported as a deploy failure and left alone — a port held by
+# something unexpected is a situation for a human, not for `kill -9`.
+#
+# Note it no longer needs sudo to act, only (optionally) to see processes owned
+# by other users during identification.
+ensure_port_free() {
+  local port="$1"
+  local holder pids first cmd
+
+  holder=$(docker ps --filter "publish=${port}" --format '{{.Names}}' 2>/dev/null | head -n 1) || true
+  if [ -n "$holder" ]; then
+    if [[ "$holder" == product-editor-* ]]; then
+      print_action "Port ${port} still held by our own container ${holder} — removing it"
+      docker rm -f "$holder" >/dev/null 2>&1 || true
+      print_status "Port ${port} released"
+      return 0
+    fi
+    fail "Port ${port} is published by container '${holder}', which is not part of product-editor — refusing to touch it"
+    return 1
+  fi
+
+  pids=$(lsof -ti:"${port}" -sTCP:LISTEN 2>/dev/null || sudo lsof -ti:"${port}" -sTCP:LISTEN 2>/dev/null || true)
+  if [ -z "$pids" ]; then
+    print_info "Port ${port} is free"
+    return 0
+  fi
+
+  first=$(echo "$pids" | head -n 1)
+  cmd=$(ps -o comm= -p "$first" 2>/dev/null || echo "unknown")
+  fail "Port ${port} held by PID(s) $(echo $pids | tr '\n' ' ')(${cmd}) with no matching container — not killing it; investigate and re-run"
+  return 1
 }
 
 # ── Single-deploy lock ──────────────────────────────────────────────────────
@@ -400,6 +442,40 @@ if [ "$MODE" = "rollback" ]; then
   print_info "Rolling back IMAGES, not source. The checkout is left untouched."
 else
   print_header "Pulling Latest Code"
+
+  # ── Which branch are we about to ship? ───────────────────────────────────
+  # deploy.sh pulls and builds whatever branch the server happens to be sitting
+  # on, and never said which. A checkout left on a feature branch after some
+  # debugging session would deploy that branch to customers, reporting nothing
+  # unusual. `main` IS production here, so anything else is a mistake until an
+  # operator says otherwise: set DEPLOY_BRANCH to deploy something else on
+  # purpose. Detached HEAD reports as "HEAD" and is caught by the same test.
+  DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+  if [ "$CURRENT_BRANCH" != "$DEPLOY_BRANCH" ]; then
+    print_error "Checkout is on '${CURRENT_BRANCH}', expected '${DEPLOY_BRANCH}'."
+    print_info "Deploying a non-production branch is almost always a mistake."
+    print_info "  git checkout ${DEPLOY_BRANCH}        # the usual fix"
+    print_info "  DEPLOY_BRANCH=${CURRENT_BRANCH} ./deploy.sh ${MODE}   # if you really mean it"
+    exit 1
+  fi
+  print_status "On branch ${CURRENT_BRANCH}"
+
+  # ── Locally-modified tracked files ───────────────────────────────────────
+  # Reported, NOT treated as an error. Prod legitimately carries modified
+  # storage/layouts/*.json because ops edits layouts at runtime and they are
+  # written to disk. Aborting on a dirty tree would block every deploy on that
+  # box. A modification that genuinely conflicts with incoming changes makes
+  # the pull itself fail, and a failed pull already aborts, so the dangerous
+  # case is covered — this is here so the operator can SEE what is local.
+  DIRTY=$(git status --porcelain --untracked-files=no 2>/dev/null || true)
+  if [ -n "$DIRTY" ]; then
+    print_warning "Locally-modified tracked files in the checkout:"
+    echo "$DIRTY" | sed 's/^/      /'
+    print_info "storage/ edits are expected here (ops edits layouts at runtime)."
+    print_info "The pull below fails, and aborts the deploy, if any of these conflict."
+  fi
+
   print_action "Running git pull..."
   # The pull IS the deploy — deploy.sh git-pulls main on the server, so a failed
   # pull means rebuilding the code already on disk. The previous form piped git
@@ -503,11 +579,8 @@ elif [[ "$MODE" == "backend" ]]; then
     docker rm -f "product-editor-${svc}-1" 2>/dev/null && print_status "Removed product-editor-${svc}-1" || print_info "No product-editor-${svc}-1 to remove"
   done
 
-  # Free port 8000 (only backend exposes a host port; workers are internal)
-  pid=$(sudo lsof -ti:8000 2>/dev/null || true)
-  if [ ! -z "$pid" ]; then
-    sudo kill -9 $pid 2>/dev/null && print_status "Freed port 8000" || print_info "Port 8000 already free"
-  fi
+  # Only backend publishes a host port; workers are internal.
+  ensure_port_free "${BACKEND_HOST_PORT:-8000}" || true
 elif [[ "$MODE" == "workers" ]]; then
   print_action "Stopping celery worker containers..."
   docker-compose stop $WORKER_SERVICES 2>&1 | grep -v "^$" || true
@@ -523,11 +596,7 @@ elif [[ "$MODE" == "frontend" ]]; then
   print_action "Removing frontend container..."
   docker rm -f product-editor-frontend-1 2>/dev/null && print_status "Frontend container removed" || print_info "No container to remove"
   
-  # Free port 5004
-  pid=$(sudo lsof -ti:5004 2>/dev/null || true)
-  if [ ! -z "$pid" ]; then
-    sudo kill -9 $pid 2>/dev/null && print_status "Freed port 5004" || print_info "Port 5004 already free"
-  fi
+  ensure_port_free "${FRONTEND_HOST_PORT:-5004}" || true
 fi
 
 # Remove old images
