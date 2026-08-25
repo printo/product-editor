@@ -60,5 +60,11 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
+# Prints the actual host-reachable URL before handing off to Next's server —
+# see the script for why (Next's own banner reports the container-internal
+# port, which is misleading once Docker Compose remaps it on the host).
+COPY frontend/nextjs/docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 EXPOSE 3000
-CMD ["node", "server.js"]
+ENTRYPOINT ["./docker-entrypoint.sh"]
