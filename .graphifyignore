@@ -1,0 +1,19 @@
+# Files graphify should not index. Same syntax as .gitignore.
+#
+# Vendored, minified third-party bundles. These are checked in because they are
+# served as static assets, but they are machine-generated: thousands of
+# single-letter function names carrying no design intent.
+#
+# Indexing standalone.js put 3,180 nodes and 13,039 edges into the graph —
+# 58% of all nodes and 77% of all edges — which:
+#   * buried the real god nodes (LayoutEngine, api/views.py, APIKey) under
+#     minifier output, so GRAPH_REPORT.md's "most connected" list read
+#     `_()` 3179 edges, `push()` 337, `I()` 264;
+#   * manufactured phantom cross-language edges by NAME COLLISION, e.g.
+#     caption-layout.ts appearing to call `mm()` and dpi-utils.ts appearing to
+#     call `getSize()` — both actually minified symbols in this bundle, in a
+#     different language, reachable from nothing.
+#
+# If a vendored bundle is ever added elsewhere, add it here too rather than
+# letting it swamp the graph again.
+backend/django/api/static/scalar/standalone.js
