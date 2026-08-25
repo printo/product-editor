@@ -1,0 +1,15 @@
+# ── Generated knowledge-graph artifacts (graphify) ──────────────────────────
+# graph.json is ~237k lines of generated JSON and graph.html is a single-file
+# bundle. Git would happily attempt a LINE merge on both when two people
+# rebuild the graph on different branches — writing conflict markers INSIDE
+# the JSON, which leaves the file unparseable until someone rebuilds it. There
+# is no meaningful hand-resolution of a merge conflict in generated output.
+#
+#   -merge  a conflict resolves as "take one side" instead of corrupt markers.
+#           The correct fix after either choice is `graphify update .`.
+#   -diff   PRs show "Binary files differ" instead of ~97k unreviewable lines.
+#
+# GRAPH_REPORT.md and .graphify_labels.json are deliberately NOT listed: they
+# are small, human-readable, and worth actually reading in review.
+graphify-out/graph.json  -diff -merge
+graphify-out/graph.html  -diff -merge
