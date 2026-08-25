@@ -432,6 +432,15 @@ They formed because the async-render cleanup used to filter on `status='complete
 
 Five independent conditions must all hold before a directory is touched (`_classify`): the name parses as a UUID, no `RenderJob` has that id, no `ExportedResult` path references it, no `CanvasData.order_id` matches it (a partner order id can legitimately be UUID-shaped), and its mtime is older than retention + 1 day. **Any new export-directory naming convention must be added there**, or those directories will look like orphans. A DB failure keeps everything rather than treating an empty result set as "all orphans".
 
+### Abandoned chunk-upload staging
+
+`POST /upload/init` creates `UPLOADS_DIR/.chunks/<upload_id>/` and each chunk `PUT` drops a `<n>.part` file in it. `assemble_chunks` removes the directory once `/complete` succeeds, so a **normal upload cleans up after itself**. An upload that never completes — tab closed mid-upload, connection lost, embed token expired — does not, and no sweep looked at those: every other sweep starts from a DB row, and a half-finished upload has no `UploadedFile` row to start from. Production held **93 such directories** (384 KB) when this was found on 2026-08-25.
+
+`services/chunk_staging.py::sweep_stale_chunk_staging` reclaims them, and **deletes by default** — deliberately unlike `orphan_exports`. That module infers garbage from the *absence* of a DB row, so a wrong query would destroy live print files; a stale staging dir needs no inference, because `.part` fragments are unusable without the `/complete` call that would have consumed them. Three conditions must still hold: the entry is a directory directly under `.chunks/`, its name parses as a UUID (the same guard the chunk endpoints apply to request-derived paths), and nothing inside has changed for `CHUNK_STAGING_MAX_AGE_HOURS` (default 24).
+
+That last check takes the **newest** mtime of the directory *and its contents*, which is what makes it safe beside live traffic — a slow client still uploading is never a candidate. Counters land under `garbage_collector.stats.chunk_staging` on `GET /api/celery/monitor/`. Pinned by `services/tests/test_chunk_staging.py`.
+
+
 Always call `transaction.on_commit(lambda: task.apply_async(...))` **inside** the `atomic()` block so the callback fires only after the DB commit. Calling it outside an open transaction executes immediately (which works but is non-standard and fragile).
 
 ## Server-Side Render Flow
@@ -1032,6 +1041,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 | `CELERY_CONCURRENCY` | unset | Celery auto-detects from CPU count; set to cap on shared servers |
 | `GC_STALE_AFTER_HOURS` | `36` | Age at which the last GC sweep reports `stale: true` on `/api/celery/monitor/`. 36 rather than 24 so a merely-late run doesn't cry wolf while a single missed night still trips it |
 | `GC_ORPHAN_SWEEP` | `dry_run` | Reclamation of export dirs no DB row accounts for: `off` / `dry_run` / `delete`. Reports only by default — it is the one sweep that deletes on absence of evidence. See "Orphaned export directories" |
+| `CHUNK_STAGING_MAX_AGE_HOURS` | `24` | Age at which an abandoned `UPLOADS_DIR/.chunks/<uuid>/` staging dir is reclaimed by the GC. Unlike the orphan sweep this one deletes by default — a stale staging dir holds only `.part` fragments unusable without the `/complete` call. See "Abandoned chunk-upload staging" |
 | `API_AUDIT_RETENTION_DAYS` | `90` | How long `APIRequest` audit rows are kept. Deliberately much longer than `EXPORT_RETENTION_DAYS` — the trail has to outlive the data it describes to answer "who touched this order". Swept by `garbage_collector_task` |
 | `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | Set to `False` if nginx already redirects HTTP→HTTPS (which it does by default; this var is redundant in the current setup) |
 | `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | Only honored when `DEBUG=1` |
