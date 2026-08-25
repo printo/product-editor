@@ -38,6 +38,7 @@ import { Dropdown } from '@/components/ui/Dropdown';
 import { Toast, ToastStack } from '@/components/ui/Toast';
 import { useHeader } from '@/context/HeaderContext';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
+import { hasTransparentPixels } from '@/lib/image-utils';
 
 // LayoutFabricPreview pulls in Fabric.js (~400 KB gz). Defer its load until
 // the layouts list itself has rendered so the chooser UI paints fast and
@@ -224,12 +225,18 @@ export default function LayoutCreatorPage() {
   const [maskUrl, setMaskUrl] = useState<string | null>(null);
   const [maskOnExport, setMaskOnExport] = useState(false);
   const maskInputRef = useRef<HTMLInputElement>(null);
+  // Set after scanning a freshly-picked mask File for transparency (see
+  // hasTransparentPixels) — warns before save, not enforced server-side.
+  const [maskWarning, setMaskWarning] = useState<string | null>(null);
   const [originalLayoutName, setOriginalLayoutName] = useState<string | null>(null);
 
   // Multi-surface state
   const [layoutType, setLayoutType] = useState<'single' | 'product'>('single');
   const [surfaces, setSurfaces] = useState<SurfaceEditorState[]>([]);
   const [activeSurfaceIdx, setActiveSurfaceIdx] = useState(0);
+  // Each surface has its own mask — a stale warning from surface A must not
+  // linger over surface B's card after switching tabs.
+  useEffect(() => { setMaskWarning(null); }, [activeSurfaceIdx]);
 
   // Use a debounced layout for the preview to avoid crashes during typing
   const [debouncedLayout, setDebouncedLayout] = useState<any>(null);
@@ -683,6 +690,7 @@ export default function LayoutCreatorPage() {
       setTags(data.tags?.join(', ') || '');
       setOriginalLayoutName(layoutId);
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
+      setMaskWarning(null);
 
       // Multi-surface product layout
       if (data.type === 'product' && Array.isArray(data.surfaces)) {
@@ -760,6 +768,7 @@ export default function LayoutCreatorPage() {
   const openCopyModal = async (layoutId: string) => {
     const data = await fetchLayoutDetail(layoutId);
     if (data) {
+      setMaskWarning(null);
       const displayDpi = data.canvas.dpi || 300;
       setDpi(displayDpi);
       setWidthMm(round2(data.canvas.widthMm || pxToMm(data.canvas.width, displayDpi)));
@@ -801,6 +810,7 @@ export default function LayoutCreatorPage() {
     setMaskUrl(null);
     setMaskFile(null);
     setMaskOnExport(false);
+    setMaskWarning(null);
     setLayoutType('single');
     setSurfaces([]);
     setActiveSurfaceIdx(0);
@@ -808,6 +818,17 @@ export default function LayoutCreatorPage() {
     setOriginalLayoutName(null);
     setIsModalOpen(true);
   };
+  // Warn (never block) if a freshly-picked mask PNG has no transparent
+  // window — see hasTransparentPixels for why this matters.
+  const checkMaskTransparency = (file: File) => {
+    setMaskWarning(null);
+    hasTransparentPixels(file).then(transparent => {
+      if (!transparent) {
+        setMaskWarning('This mask has no transparent pixels — the photo will be fully covered instead of showing through a window. Add a transparent cutout before saving.');
+      }
+    });
+  };
+
   const updateFrame = (id: string, field: string, value: string) => {
     const cW = activeWidthMm;
     const cH = activeHeightMm;
@@ -1430,12 +1451,14 @@ export default function LayoutCreatorPage() {
                           className="hidden"
                           accept="image/png"
                           onChange={(e) => {
-                            if (e.target.files?.[0]) {
+                            const file = e.target.files?.[0];
+                            if (file) {
                               if (layoutType === 'product') {
-                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: e.target.files![0] } : s));
+                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: file } : s));
                               } else {
-                                setMaskFile(e.target.files[0]);
+                                setMaskFile(file);
                               }
+                              checkMaskTransparency(file);
                             }
                           }}
                         />
@@ -1457,6 +1480,7 @@ export default function LayoutCreatorPage() {
                             } else {
                               setMaskFile(null); setMaskUrl(null);
                             }
+                            setMaskWarning(null);
                           }}
                           className="px-3 py-2.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold hover:bg-rose-100"
                         >
@@ -1464,6 +1488,12 @@ export default function LayoutCreatorPage() {
                         </button>
                       )}
                     </div>
+                    {maskWarning && (
+                      <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        {maskWarning}
+                      </div>
+                    )}
                     {(activeMaskFile || activeMaskUrl) && (
                       <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                         <div className="flex flex-col">
