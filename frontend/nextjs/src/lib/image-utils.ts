@@ -62,6 +62,38 @@ export async function getImageMetadata(file: File): Promise<{ width: number; hei
 }
 
 /**
+ * True if the image has at least one non-fully-opaque pixel. Used to warn
+ * ops when a layout "mask" PNG (a decorative overlay meant to sit on top of
+ * the photo — see engine.py's alpha_composite) has no transparent window cut
+ * into it: without one, the mask silently blankets the entire photo instead
+ * of framing it, and nothing else in the upload path would ever catch that.
+ * Downsamples to a max side of 256px purely for scan speed — transparency is
+ * a binary presence check, not a precision one, so the resampling quality
+ * loss here is irrelevant. Fails OPEN (returns true / "assume fine") on any
+ * decode or canvas error so a browser quirk can never block an upload.
+ */
+export async function hasTransparentPixels(file: File): Promise<boolean> {
+  try {
+    const { element } = await getImageMetadata(file);
+    const maxSide = 256;
+    const scale = Math.min(1, maxSide / Math.max(element.naturalWidth, element.naturalHeight, 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(element.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(element.naturalHeight * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return true;
+    ctx.drawImage(element, 0, 0, canvas.width, canvas.height);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] < 250) return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Reads the ICC profile embedded in JPEG APP2 markers and returns the
  * data color space signature ('CMYK', 'RGB ', etc.) or null if undetectable.
  */
