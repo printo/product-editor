@@ -245,9 +245,9 @@
     "semantic_hash": "49f1d0646aceb9cf01512a5c17399882"
   },
   "deploy.sh": {
-    "mtime": 1786618902.6810062,
-    "ast_hash": "671790161b482cb718256901067ad377",
-    "semantic_hash": "671790161b482cb718256901067ad377"
+    "mtime": 1787656727.444563,
+    "ast_hash": "70264dee8f25c564fb399b4a3efc00bb",
+    "semantic_hash": "70264dee8f25c564fb399b4a3efc00bb"
   },
   "fresh-install.sh": {
     "mtime": 1786615176.162695,
