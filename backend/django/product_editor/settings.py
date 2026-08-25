@@ -275,6 +275,12 @@ GC_STALE_AFTER_HOURS = int(os.getenv("GC_STALE_AFTER_HOURS", "36"))
 # night of dry_run counts before setting it to 'delete'.
 GC_ORPHAN_SWEEP = os.getenv("GC_ORPHAN_SWEEP", "dry_run")
 
+# How long an abandoned chunked-upload staging directory may sit in
+# UPLOADS_DIR/.chunks/ before the GC reclaims it. An upload realistically
+# completes in minutes and an embed token lives 2 hours, so a full day cannot
+# catch anything in flight. See services/chunk_staging.py.
+CHUNK_STAGING_MAX_AGE_HOURS = int(os.getenv("CHUNK_STAGING_MAX_AGE_HOURS", "24"))
+
 # How long API audit rows are kept, independent of file retention.
 #
 # Deliberately much longer than EXPORT_RETENTION_DAYS: the point of the audit

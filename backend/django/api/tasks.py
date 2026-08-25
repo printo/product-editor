@@ -1299,7 +1299,20 @@ def garbage_collector_task():
     except Exception as exc:
         logger.error("GC: orphan export sweep failed: %s", exc)
 
+    # Abandoned chunked-upload staging dirs. Unlike the orphan sweep above this
+    # one deletes by default: a stale `.chunks/<uuid>/` holds only `.part`
+    # fragments that are unusable without the `/complete` call that would have
+    # consumed them, so no inference about "is this still wanted" is involved.
+    # See services/chunk_staging.py for the three conditions it requires.
+    chunk_staging_result: dict = {}
+    try:
+        from services.chunk_staging import sweep_stale_chunk_staging
+        chunk_staging_result = sweep_stale_chunk_staging(now=now)
+    except Exception as exc:
+        logger.error("GC: chunk staging sweep failed: %s", exc)
+
     result = {
+        'chunk_staging': chunk_staging_result,
         'orphan_exports': orphan_result,
         'deleted_count': deleted_count,
         'deleted_bytes': deleted_bytes,
