@@ -7,10 +7,16 @@ rmtree's the directory once `/complete` succeeds, so a NORMAL upload cleans up
 after itself and never reaches this module.
 
 An upload that never completes does not. Close the tab mid-upload, lose the
-connection, let the embed token expire — the parts stay on disk forever. No
-sweep in `garbage_collector_task` looked at them, because every other sweep
-starts from a database row and a half-finished upload has no `UploadedFile`
-row to start from. Production held 93 such directories on 2026-08-25.
+connection, let the embed token expire — the parts stay on disk forever.
+Every OTHER sweep in `garbage_collector_task` starts from a database row, and
+a half-finished upload has no `UploadedFile` row to start from — but this one
+briefly duplicated an existing inline sweep (added 2026-04-08) that already
+handled it on the same 24h threshold, just without the UUID-name guard or the
+newest-mtime-of-contents check below. That inline block ran earlier in the
+same task and always emptied `.chunks/` first, so this module's stats read
+`scanned: 0` in production from the day it shipped (2026-08-25) — the inline
+block has since been removed so this is the one sweep doing the job. Production
+held 93 such directories on 2026-08-25, before either sweep's next run.
 
 Two reasons this is worth reclaiming despite being small (384 KB at discovery):
 it grows without bound, and `.part` files are fragments of customer photos, so

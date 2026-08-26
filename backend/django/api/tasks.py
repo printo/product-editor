@@ -1140,25 +1140,6 @@ def garbage_collector_task():
     if deleted_upload_ids:
         UploadedFile.objects.filter(id__in=deleted_upload_ids).update(is_deleted=True)
 
-    # ── Stale chunked-upload staging cleanup ──────────────────────────────
-    # Abandon sessions older than 24 hours — the user gave up or the network
-    # dropped permanently.
-    chunks_dir = os.path.join(settings.UPLOADS_DIR, '.chunks')
-    stale_sessions = 0
-    if os.path.isdir(chunks_dir):
-        import time as _time
-        stale_threshold = _time.time() - 86400  # 24 hours
-        for session_id in os.listdir(chunks_dir):
-            session_path = os.path.join(chunks_dir, session_id)
-            if os.path.isdir(session_path):
-                try:
-                    mtime = os.path.getmtime(session_path)
-                    if mtime < stale_threshold:
-                        shutil.rmtree(session_path, ignore_errors=True)
-                        stale_sessions += 1
-                except Exception as exc:
-                    logger.error("GC: failed to clean chunk session %s: %s", session_id, exc)
-
     # ── Async render output file cleanup ─────────────────────────────────
     # Async renders (via render_canvas_task) write output paths to
     # RenderJob.output_paths but do NOT create ExportedResult records, so
@@ -1278,12 +1259,12 @@ def garbage_collector_task():
     logger.info(
         "GC complete: exports deleted=%d (%.2f MB), skipped=%d manual-review, "
         "uploads deleted=%d (%.2f MB), async render files deleted=%d (%.2f MB), "
-        "stale chunk sessions=%d, canvas_data deleted=%d, tombstones=%d, "
+        "canvas_data deleted=%d, tombstones=%d, "
         "audit rows=%d, disk=%.1f%%",
         deleted_count, deleted_bytes / 1024 / 1024, skipped_count,
         upload_deleted, upload_deleted_bytes / 1024 / 1024,
         async_files_deleted, async_bytes_deleted / 1024 / 1024,
-        stale_sessions, canvas_deleted, tombstones_deleted, audit_deleted,
+        canvas_deleted, tombstones_deleted, audit_deleted,
         usage_percent,
     )
 
@@ -1321,7 +1302,6 @@ def garbage_collector_task():
         'upload_deleted_bytes': upload_deleted_bytes,
         'async_render_files_deleted': async_files_deleted,
         'async_render_bytes_deleted': async_bytes_deleted,
-        'stale_chunk_sessions_cleaned': stale_sessions,
         'canvas_data_deleted': canvas_deleted,
         'tombstones_deleted': tombstones_deleted,
         'audit_rows_deleted': audit_deleted,
