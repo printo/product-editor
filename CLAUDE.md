@@ -149,7 +149,7 @@ pnpm test:parity                                 # calendar TS↔Python parity s
 
 **Backend — standalone modules, no pytest, no `manage.py test`.** Every file in `backend/django/services/tests/test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions and prints a pass count. CI globs them, so the count is pinned nowhere — get it with `ls backend/django/services/tests/test_*.py | wc -l` rather than trusting a number in a doc (this file claimed 18 and 19 in consecutive paragraphs while the real count was 24).
 
-Run one **through the container** — the dev Mac's system Python has no Pillow/Django, so this is the practical local route. Override the entrypoint: it ignores `$@` and would otherwise boot gunicorn and hang forever (see Deployment).
+Run one **through the container** — the dev Mac's system Python has no Pillow/Django, so this is the practical local route. Override the entrypoint: it ignores `$@` and would otherwise boot gunicorn and hang forever (see Deployment). **The backend image bakes in source via `COPY`, same as frontend — only `./storage` is bind-mounted (see `docker-compose.yml`).** `docker-compose run backend` after editing backend source tests whatever the image was last built with, not your working tree, and fails silently: no error, just a stale result (a freshly-added test module reads as "not found" rather than "not rebuilt"). `docker-compose build backend` first.
 
 ```bash
 docker-compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
