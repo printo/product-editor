@@ -178,21 +178,6 @@ export function CanvasEditorSidebar({
       <div className="absolute -top-32 -right-32 w-80 h-80 bg-indigo-50/50 blur-[100px] -z-10 rounded-full" />
       <div className="absolute top-1/2 -left-32 w-64 h-64 bg-fuchsia-50/30 blur-[80px] -z-10 rounded-full" />
       
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div className="px-4 py-3 border-b border-slate-100 bg-white/80 sticky top-0 z-20 flex items-center justify-between backdrop-blur-xl">
-        <div className="flex items-center gap-4">
-          <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
-            <Sparkles className="w-4.5 h-4.5 text-white" />
-          </div>
-          <div className="flex flex-col">
-            <h3 className="text-sm font-medium text-slate-900 uppercase">
-              Editor
-            </h3>
-            <span className="text-[10px] text-slate-400 uppercase">Canvas Workspace</span>
-          </div>
-        </div>
-      </div>
-
       {/* ── Scrollable body ────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6 custom-scrollbar">
 
@@ -247,42 +232,6 @@ export function CanvasEditorSidebar({
                 onChange={v => handleUpdateTransform(fIdx, { rotation: v })}
               />
 
-              {/* Fill sides — only meaningful in contain mode, where a photo
-                  whose aspect ratio differs from the frame leaves whitespace.
-                  In cover mode the photo always fills the frame, so it's hidden. */}
-              {frame.fitMode === 'contain' && (() => {
-                const fillOn = frame.fillStyle === 'blur';
-                return (
-                  <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-50">
-                    <div className="min-w-0">
-                      <label className="text-[11px] font-medium text-slate-500 uppercase">Blur Effect</label>
-                      <p className="text-[10px] leading-4 text-slate-400 mt-0.5">Blur the photo behind it to fill empty space</p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={fillOn}
-                      aria-label="Blur Effect — fill empty space with a blurred copy of the photo"
-                      onClick={() => {
-                        pushUndo(editingCanvas, true);
-                        const fillStyle = fillOn ? undefined : ('blur' as const);
-                        const updatedFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, fillStyle } : f);
-                        debouncedRender({ ...editingCanvas, frames: updatedFrames });
-                      }}
-                      className={clsx(
-                        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-300',
-                        fillOn ? 'bg-indigo-600' : 'bg-slate-200',
-                      )}
-                    >
-                      <span className={clsx(
-                        'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                        fillOn ? 'translate-x-[18px]' : 'translate-x-0.5',
-                      )} />
-                    </button>
-                  </div>
-                );
-              })()}
-
               {/* Caption — per-template opt-in (layout.frameCaptionsEnabled); OFF by
                   default so it never appears on a product it wasn't designed for. */}
               {Boolean((layout as any)?.frameCaptionsEnabled) && (
@@ -313,13 +262,52 @@ export function CanvasEditorSidebar({
               </div>
               )}
 
-              {/* Position / Alignment */}
-              <div className="space-y-3 pt-4 border-t border-slate-50">
-                <label className="text-[11px] font-medium text-slate-500 uppercase">Photo Alignment</label>
-                <AlignmentToolbar 
-                  onHAlign={v => handleAlign(fIdx, v as any)}
-                  onVAlign={v => handleAlign(fIdx, v as any)}
-                />
+              {/* Blur Effect + Photo Alignment share one row. Blur only applies in
+                  contain mode, where a photo whose aspect ratio differs from the
+                  frame leaves whitespace; in cover mode it's hidden and alignment
+                  takes the whole row. */}
+              <div className="flex items-start gap-4 pt-4 border-t border-slate-50">
+                {frame.fitMode === 'contain' && (() => {
+                  const fillOn = frame.fillStyle === 'blur';
+                  return (
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[11px] font-medium text-slate-500 uppercase">Blur Effect</label>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={fillOn}
+                          aria-label="Blur Effect — fill empty space with a blurred copy of the photo"
+                          onClick={() => {
+                            pushUndo(editingCanvas, true);
+                            const fillStyle = fillOn ? undefined : ('blur' as const);
+                            const updatedFrames = editingCanvas.frames.map((f, i) => i === fIdx ? { ...f, fillStyle } : f);
+                            debouncedRender({ ...editingCanvas, frames: updatedFrames });
+                          }}
+                          className={clsx(
+                            'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-300',
+                            fillOn ? 'bg-indigo-600' : 'bg-slate-200',
+                          )}
+                        >
+                          <span className={clsx(
+                            'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                            fillOn ? 'translate-x-[18px]' : 'translate-x-0.5',
+                          )} />
+                        </button>
+                      </div>
+                      <p className="text-[10px] leading-4 text-slate-400">Blur the photo behind it to fill empty space</p>
+                    </div>
+                  );
+                })()}
+
+                {/* Position / Alignment */}
+                <div className="shrink-0 space-y-2">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase">Photo Alignment</label>
+                  <AlignmentToolbar 
+                    onHAlign={v => handleAlign(fIdx, v as any)}
+                    onVAlign={v => handleAlign(fIdx, v as any)}
+                  />
+                </div>
               </div>
 
               {/* Zoom */}
