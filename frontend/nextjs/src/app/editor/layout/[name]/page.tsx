@@ -4089,32 +4089,12 @@ export default function LayoutEditorPage() {
                 wrapper from the desktop layout so heading/box/toolbar go back to
                 being three independent flex-row siblings, unchanged from before. */}
             <div className="flex items-center justify-between gap-3 md:contents">
-            <div className="flex flex-col min-w-0 flex-1 md:flex-none">
-              <h1 className="text-base font-black text-slate-900 tracking-tighter truncate">
+            <div className="flex items-center gap-3 min-w-0 md:flex-none">
+              <img src="/printo-logo.webp" alt="Printo" className="h-10 md:h-12 w-auto shrink-0" />
+              <div className="w-px h-8 md:h-10 bg-slate-200 shrink-0" />
+              <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter truncate">
                 {formatLayoutDisplayName(layout?.name || layoutName)}
               </h1>
-              <div className="flex items-center gap-2">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight truncate">
-                  {layout?.dimensions ? `${layout.dimensions} | ` : ''}
-                  {(files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'Generated Canvases' : 'Upload File'}
-                </p>
-                {/* Auto-save status indicator */}
-                {isSaving === 'saving' && (
-                  <span className="flex items-center gap-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0">
-                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> Saving…
-                  </span>
-                )}
-                {isSaving === 'saved' && (
-                  <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-500 uppercase tracking-widest shrink-0">
-                    <CheckCircle2 className="w-2.5 h-2.5" /> Saved
-                  </span>
-                )}
-                {orderId && (
-                  <span className="text-[9px] font-mono text-slate-300 shrink-0 hidden sm:inline">
-                    {orderId}
-                  </span>
-                )}
-              </div>
             </div>
             <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink relative group">
               <div className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all", (files.length > 0 || surfaceStates.some(s => s.files.length > 0)) ? 'border-emerald-200 bg-emerald-50/30' : 'border-indigo-200 bg-indigo-50/30 hover:border-indigo-400')}>
@@ -4516,40 +4496,55 @@ export default function LayoutEditorPage() {
                 // 86vw and is meant to sit centred.
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7 gap-3 sm:gap-3.5 justify-items-center sm:justify-items-stretch">
                   {canvases.map((canvas, idx) => (
-                    <div
-                      key={idx}
-                      className={clsx(
-                        // Mobile: one card per row, capped so ~1.5 cards show per
-                        // viewport (portrait prints) — a full-width 2-col card was
-                        // too short and clipped the quick-action rail.
-                        "bg-white rounded-2xl border-2 transition-all cursor-pointer group/card relative w-[86vw] max-w-sm sm:w-auto sm:max-w-none",
-                        dragOverIdx?.idx === idx && dragOverIdx?.surfaceKey === null
-                          ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100"
-                          : "border-slate-200 hover:border-indigo-400"
-                      )}
-                      onClick={() => handleCardClick(idx)}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Edit canvas ${idx + 1}`}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(idx); } }}
-                      draggable={!repositionMode}
-                      onDragStart={(e) => handleDragStart(e, idx)}
-                      onDragOver={(e) => handleDragOver(e, idx)}
-                      onDragLeave={() => setDragOverIdx(null)}
-                      onDrop={(e) => handleDrop(e, idx)}
-                    >
+                    <div key={idx} className="w-[86vw] max-w-sm sm:w-auto sm:max-w-none">
+                      {/* Deliberately outside the bordered card below — this is a UI
+                          label, not part of the printed design, and boxing it together
+                          with the photo made it read as if it were. Dimensions/frame
+                          count are shown once already, in the page header above — not
+                          repeated per card. */}
+                      <div className="px-1 py-1.5">
+                        <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">
+                          Image {idx + 1}
+                        </h3>
+                      </div>
                       <div
                         className={clsx(
-                          'relative rounded-t-2xl overflow-hidden bg-slate-100',
-                          repositionMode && 'cursor-grab active:cursor-grabbing touch-none',
+                          // Mobile: one card per row, capped so ~1.5 cards show per
+                          // viewport (portrait prints) — a full-width 2-col card was
+                          // too short and clipped the quick-action rail.
+                          // Square corners throughout, no exceptions — this card is a
+                          // preview of the actual print shape (e.g. retro polaroid
+                          // layouts are square-cornered), and rounding any part of it,
+                          // even just the frame around the photo, reads as if the
+                          // print itself had rounded corners.
+                          "bg-white border-2 transition-all cursor-pointer group/card relative",
+                          dragOverIdx?.idx === idx && dragOverIdx?.surfaceKey === null
+                            ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100"
+                            : "border-slate-200 hover:border-indigo-400"
                         )}
-                        style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}
-                        onPointerDown={(e) => handlePanStart(e, idx)}
-                        onPointerMove={handlePanMove}
-                        onPointerUp={handlePanEnd}
-                        onPointerCancel={handlePanEnd}
+                        onClick={() => handleCardClick(idx)}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Edit canvas ${idx + 1}`}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(idx); } }}
+                        draggable={!repositionMode}
+                        onDragStart={(e) => handleDragStart(e, idx)}
+                        onDragOver={(e) => handleDragOver(e, idx)}
+                        onDragLeave={() => setDragOverIdx(null)}
+                        onDrop={(e) => handleDrop(e, idx)}
                       >
-                        {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+                        <div
+                          className={clsx(
+                            'relative overflow-hidden bg-slate-100',
+                            repositionMode && 'cursor-grab active:cursor-grabbing touch-none',
+                          )}
+                          style={{ aspectRatio: `${layout.canvas?.width || 1200} / ${layout.canvas?.height || 1800}` }}
+                          onPointerDown={(e) => handlePanStart(e, idx)}
+                          onPointerMove={handlePanMove}
+                          onPointerUp={handlePanEnd}
+                          onPointerCancel={handlePanEnd}
+                        >
+                          {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
 
                         {canvas.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
                           <button
@@ -4646,19 +4641,8 @@ export default function LayoutEditorPage() {
                           </button>
                         </div>
                       </div>
-                      <div className="px-3 py-2">
-                        <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate group-hover:text-indigo-600 transition-colors">
-                          Image {idx + 1}
-                        </h3>
-                        {layout.dimensions && (
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide mt-0.5 flex items-center gap-1.5 truncate">
-                            <span>{layout.dimensions}</span>
-                            <span>•</span>
-                            <span>{layout.frames?.length || 0} Frames</span>
-                          </p>
-                        )}
-                      </div>
                     </div>
+                  </div>
                   ))}
                 </div>
               )}
