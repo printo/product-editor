@@ -53,6 +53,9 @@ same thing in its own words.
 
 - **The embed proxy allowlist is path AND method.** `ALLOWED_PATH_METHODS` in `src/app/api/embed/proxy/[...path]/route.ts` names the verbs each prefix accepts. It was prefix-only until 2026-09-03, which meant `fonts`, `holidays` and `calendar-styles` — all of which accept ops writes upstream — were reachable for `PUT`/`DELETE` with an embed token, because **the proxy injects the session's real api_key** and `DIRECT` is ops-flagged. Never add a prefix without naming its methods, and never widen one to cover a write that the ops UI already performs through the *internal* proxy.
 
+- **Never `git reset --hard` or `git checkout -- storage/` on the prod box.** `storage/layouts/`, `storage/masks/` and `storage/fonts.json` are git-tracked *and* rewritten by the ops UI, and prod has diverged: 20 tracked layouts show as deleted with 11 untracked replacements under new names. Either command resurrects the obsolete catalogue alongside the live one, so a customer can open the wrong product. Scope any checkout to a single explicit file path.
+- **Don't raise `DATA_UPLOAD_MAX_MEMORY_SIZE` to make canvas autosave succeed.** 37% of autosaves currently 400 because `editor_state` embeds base64 previews averaging 16 MB. Raising the limit makes gunicorn buffer those per concurrent request on a 2-core box with a 2 GB worker cap — silent save failures become OOM. Shrink the payload; the limit is correct.
+
 ### API reference schema (drf-spectacular → Scalar at `/docs/api/`)
 
 - **A handler with no `@extend_schema` is dropped from the reference, not just left thin.** drf-spectacular logs `unable to guess serializer … Ignoring view for now` and the operation renders with no request or response body. The decorator also needs an explicit `request=` on any body-carrying method and an explicit `responses=` — without them the same error fires with the decorator present.
