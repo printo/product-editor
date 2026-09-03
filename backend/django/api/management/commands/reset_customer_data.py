@@ -15,7 +15,7 @@ DELETED
 KEPT — this is configuration, not customer data
     storage/layouts/**        ops-authored templates
     storage/masks/**          layout masks
-    storage/fonts.json, storage/sku_layouts.json
+    storage/fonts.json
     storage/holidays/**, storage/calendar_styles/**, storage/calendar_palettes/**
     APIKey rows
 
@@ -136,7 +136,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  distinct orders : {len(order_ids)}")
 
         self.stdout.write(self.style.WARNING(
-            "\n  KEPT: layouts, masks, fonts.json, sku_layouts.json, holidays, "
+            "\n  KEPT: layouts, masks, fonts.json, holidays, "
             "calendar styles/palettes, API keys"
         ))
 

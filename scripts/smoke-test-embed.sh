@@ -175,10 +175,13 @@ status=$(curl -s -L -o /tmp/se.body -w '%{http_code}' \
   "$BASE/api/embed/proxy/canvas-state/$ORDER_ID/")
 [ "$status" = "200" ] && ok "GET canvas-state → 200" || bad "GET canvas-state → $status"
 
-# ── 10. SKU-layouts public read -----------------------------------------------
-step "10. SKU-layouts endpoint public read"
+# ── 10. SKU-layouts endpoint is gone ------------------------------------------
+# Removed 2026-09-04: printo.in resolves SKU → layout on its own side, so this
+# service no longer carries the mapping. Asserted rather than deleted, so a
+# stray re-introduction is caught.
+step "10. SKU-layouts endpoint no longer exists"
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/sku-layouts/")
-[ "$status" = "200" ] && ok "/api/sku-layouts/ → 200" || bad "Got $status"
+[ "$status" = "404" ] && ok "/api/sku-layouts/ → 404 (removed)" || bad "Expected 404, got $status"
 
 # ── 11. Chunked upload round-trip (raw-body PUT) ------------------------------
 # The chunk PUT endpoint must accept arbitrary Content-Type (browsers send the

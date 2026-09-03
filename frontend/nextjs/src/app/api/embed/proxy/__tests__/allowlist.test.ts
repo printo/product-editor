@@ -28,7 +28,6 @@ describe('isPathAllowed — customer flows keep working', () => {
     ['fonts', 'GET'],
     ['holidays/en-IN/2026', 'GET'],
     ['calendar-styles/modern-genz', 'GET'],
-    ['sku-layouts/', 'GET'],
   ])('allows %s %s', (path, method) => {
     expect(isPathAllowed(path, method)).toBe(true);
   });
@@ -40,16 +39,15 @@ describe('isPathAllowed — ops writes are not reachable with an embed token', (
     ['holidays/en-IN/2026', 'DELETE'],
     ['calendar-styles/modern-genz', 'PUT'],
     ['fonts', 'PUT'],
-    ['sku-layouts/', 'PUT'],
-    ['sku-layouts/SKU-1/', 'PATCH'],
-    ['sku-layouts/SKU-1/', 'DELETE'],
     ['layouts/classic_4x6', 'DELETE'],
   ])('rejects %s %s', (path, method) => {
     expect(isPathAllowed(path, method)).toBe(false);
   });
 
   it('still rejects ops and admin paths outright', () => {
-    for (const p of ['ops/layouts', 'ops/orders/X/purge', 'django-admin', 'celery/monitor/']) {
+    for (const p of ['ops/layouts', 'ops/orders/X/purge', 'django-admin', 'celery/monitor/',
+                     // removed entirely — printo.in owns SKU → layout mapping now
+                     'sku-layouts/', 'sku-layouts/ANY-SKU/']) {
       for (const m of ['GET', 'POST', 'PUT', 'DELETE']) {
         expect(isPathAllowed(p, m)).toBe(false);
       }

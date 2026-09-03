@@ -341,7 +341,7 @@ flowchart TD
 - `src/types/` — TypeScript interfaces for layouts, surfaces, frames
 
 ### Backend Structure
-- `api/views.py` — `GenerateLayoutView`, `RenderStatusView`, `EditorRenderView` (chunked-upload render submission), `ChunkedUploadInitView/ChunkView/CompleteView`, `EmbedSessionView/ValidateView`, `RenderJobDownloadView`, `HealthView` (`GET /api/health`, public, used by Docker healthchecks), `SKULayoutView` (`GET/PUT/PATCH/DELETE /api/sku-layouts/[<sku>/]` — see Storage Files below)
+- `api/views.py` — `GenerateLayoutView`, `RenderStatusView`, `EditorRenderView` (chunked-upload render submission), `ChunkedUploadInitView/ChunkView/CompleteView`, `EmbedSessionView/ValidateView`, `RenderJobDownloadView`, `HealthView` (`GET /api/health`, public, used by Docker healthchecks)
 - `api/tasks.py` — `render_canvas_task` (calls `_extract_frame_transforms` + `_extract_overlays_per_canvas` + `_build_uploaded_files_map` → `LayoutEngine`), `notify_caller_webhook_task` (only dispatched when `canvas.callback_url` is set; signs payload with HMAC-SHA256 of api_key), `garbage_collector_task` (has `soft_time_limit=3300` / `time_limit=3600`)
 - `api/models.py` — `APIKey`, `EmbedSession` (+ `order_id` + `callback_url` fields), `CanvasData` (+ `editor_state` JSON, + `callback_url` propagated from EmbedSession), `RenderJob`, `UploadedFile` (+ `upload_session_id`), `ExportedResult`
 - `api/validators.py` — `MAX_FILE_SIZE_MB` reads from `settings.MAX_UPLOAD_FILE_SIZE_MB` (single source via env)
@@ -349,7 +349,7 @@ flowchart TD
 - `services/overlay_renderer.py` — `render_overlays(canvas, overlays, canvas_w_px, canvas_h_px, uploaded_files)` draws text / shape / image overlays via Pillow `ImageDraw`. Single bundled font (Inter Variable) per PRD §11.7 — no font picker. Phase 1 deliverable; foundation for Phase 4 (calendar renderer).
 - `services/image_loader.py` — **the single choke point for opening customer photos server-side** (`open_source_rgba(path)`): EXIF orientation + ICC→sRGB colour management (Display-P3 iPhone photos, AdobeRGB, CMYK-tagged JPEGs) via lcms2, fail-open on malformed profiles. All three render paths (frames in `engine.py`, image overlays, calendar cell images) load through it; output PNGs are tagged with an explicit sRGB profile (`srgb_profile_bytes()`). Never call `Image.open(...).convert("RGBA")` directly on customer photos — it silently discards the embedded profile and shifts colours in print.
 - `services/fonts.py` — `get_font(size_px, weight)` returns a cached `PIL.ImageFont` for the bundled `services/fonts_assets/Inter-Variable.ttf`. Uses the variable axis to serve any weight from a single 859 KB .ttf. Falls back to PIL default on missing-font (logged once). Boot-time `startup_check()` warns if the font is absent.
-- `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. README in the same dir documents the install convention.
+- `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. Install convention: [docs/BUNDLED_FONTS.md](docs/BUNDLED_FONTS.md).
 - `product_editor/celery.py` — Queue routing (all three tasks → `standard`; the `priority` queue has no producer — see Async Queue below), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
 - `product_editor/settings.py` — `csp.middleware.CSPMiddleware` is wired in after `SecurityMiddleware`; CSP starts in report-only mode via `CSP_REPORT_ONLY`
 - **Backend Dockerfile** is multi-stage — builder installs `build-essential` + `libpq-dev` to compile wheels; runner ships only `libpq5` + the venv. Drops ~250 MB from the final image. The `collectstatic` `RUN` supplies an **inline build-only `DJANGO_SECRET_KEY`** (build-time only, not baked into the image ENV) so the settings.py fail-fast guard doesn't abort the build — see `## Deployment` for the full rationale.
@@ -620,7 +620,7 @@ The split is served by `?content=` on the one endpoint (`all` — the default �
 
 | Prefix | Methods |
 |---|---|
-| `layouts`, `editor/init`, `render-status`, `jobs`, `fonts`, `sku-layouts`, `holidays`, `calendar-styles`, `config`, `embed/session` | **GET** only |
+| `layouts`, `editor/init`, `render-status`, `jobs`, `fonts`, `holidays`, `calendar-styles`, `config`, `embed/session` | **GET** only |
 | `canvas-state` | GET, PUT (autosave) |
 | `upload` | POST (init/complete), PUT (chunk) |
 | `editor/render`, `orientation`, `heic` | POST |
@@ -854,10 +854,9 @@ Some configuration lives as JSON on disk (under `STORAGE_ROOT`, default `./stora
 | File | Schema | Endpoint | Editable by |
 |---|---|---|---|
 | `storage/fonts.json` | `["sans-serif", ...]` | `GET/PUT /api/fonts` | ops team |
-| `storage/sku_layouts.json` | `{ "_meta": {...}, "mappings": {sku: layout_name} }` | `GET/PUT/PATCH/DELETE /api/sku-layouts/[<sku>/]` | ops team for writes, public read |
 | `storage/layouts/*.json` | per-layout layout def | `GET /api/layouts`, `GET/PUT/DELETE /api/ops/layouts/<name>` | ops team |
 
-For SKU mapping: PUT validates that every `layout_name` exists on disk before persisting, so the file never holds a broken pointer. GET resolution returns 410 Gone if the disk file has since been deleted.
+**There is no SKU→layout mapping here.** It existed until 2026-09-04 (`storage/sku_layouts.json` plus `SKULayoutView`) and was removed: printo.in resolves an ordered SKU to a layout on its own side and passes the resolved layout name when it creates the embed session. Don't re-add it without checking that decision still holds — `scripts/smoke-test-embed.sh` and `scripts/smoke-test-calendar.sh` both assert `/api/sku-layouts/` returns 404.
 
 ## Calendar product type (v1.13)
 
@@ -873,7 +872,7 @@ A calendar layout is a regular multi-surface layout PLUS `productType: "calendar
 
 ### Calendar-specific storage
 
-All under `STORAGE_ROOT` (env-driven). See [`services/CALENDAR_S3_READINESS.md`](backend/django/services/CALENDAR_S3_READINESS.md) for the full audit.
+All under `STORAGE_ROOT` (env-driven). See [docs/CALENDAR_S3_READINESS.md](docs/CALENDAR_S3_READINESS.md) for the full audit.
 
 | Path | Owner | Purpose |
 |---|---|---|
@@ -922,7 +921,7 @@ holidays
 calendar-styles
 ```
 
-(In addition to `layouts`, `editor/init`, `editor/render`, `upload`, `render-status`, `jobs`, `canvas-state`, `fonts`, `sku-layouts`, `embed/session`, `orientation` — the universal set.)
+(In addition to `layouts`, `editor/init`, `editor/render`, `upload`, `render-status`, `jobs`, `canvas-state`, `fonts`, `embed/session`, `orientation` — the universal set.)
 
 ### Smoke test
 
@@ -1152,7 +1151,7 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 
 ## Known Issues
 
-No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped — see "Fixed" below for what each does and how to extend.
+No open P0/P1 issues. Previously tracked items B1, B4 and B5 have all shipped — see "Fixed" below for what each does and how to extend. B3 shipped and was later removed.
 
 **Watch list (not blocking):**
 - NextAuth 5 is still in beta. The `(session as any)` casts have been removed, but if you bump the version, recheck `next-auth.d.ts` against the upstream `Session` / `JWT` shapes.
@@ -1173,24 +1172,7 @@ No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped �
 - **v1.10 — Ops layouts list cache.** `LayoutManagementView.get` ([api/views.py](backend/django/api/views.py)) now mirrors `ListLayoutsView` — Django cache key `ops_layouts_list_all` (2-min TTL) + `Cache-Control: private, max-age=60, stale-while-revalidate=120`. Invalidated on PUT/POST via `cache.delete_many([...])`.
 - **v1.10 — Service Worker.** Minimal SW at [`public/sw.js`](frontend/nextjs/public/sw.js) registered from `<ServiceWorkerRegistration />` in root layout. Cache-first for `/_next/static/*` and `/static/*` (both content-hashed, safe to keep forever); same-origin GETs only; non-static paths fall through. `skipWaiting` + `clients.claim` so updates take effect without a hard refresh. Activate handler sweeps prior `pe-static-*` caches. Production-only registration. To bust caches: bump `CACHE_VERSION` in `public/sw.js`.
 - **B1 — Canvas state file persistence.** `src/lib/file-store.ts` is an IndexedDB store keyed by `(orderId, fileId)`. Each frame and image overlay carries an optional `fileId` (UUID) on `FrameState` / `ImageOverlay`. A self-stabilising effect in `editor/layout/[name]/page.tsx` walks `surfaceStates` after every change, persists any `originalFile` that lacks a `fileId`, and patches the new id back into state. The auto-restore effect calls `getFilesForOrder(orderId)` and rehydrates `originalFile` for any frame/overlay whose `fileId` is in the IndexedDB map. **For image overlays**, restore also re-creates `src` via `getFileUrl(file)` because the previous session's blob URL is revoked — without this fix overlays appear broken in the modal. Net effect: refreshing the page restores not just dataUrl previews but the original Files (and live blob URLs) needed to re-render.
-- **B3 — SKU → layout resolution.** `storage/sku_layouts.json` holds a `{ sku → layout_name }` mapping. `GET /api/sku-layouts/` returns the full mapping; `GET /api/sku-layouts/<sku>/` returns a single resolution (404 if unmapped, 410 if mapped to a deleted layout). `PUT /api/sku-layouts/` replaces the whole mapping (ops-team only).
-
-  **Single-key writes:** `PATCH /api/sku-layouts/<sku>/` with
-  `{"layout_name": ...}` sets one mapping and `DELETE /api/sku-layouts/<sku>/`
-  removes one, both ops-team only. They exist because callers changing one SKU
-  were otherwise forced to GET the whole map, mutate it and PUT it back - two
-  network round trips with the entire map in flight each way, and two callers
-  doing it concurrently lost one of the two edits. DELETE is idempotent:
-  removing an unmapped SKU is a success, so a rename cleaning up its old key
-  does not fail if something already cleaned it up. PATCH applies the same
-  layout-exists check PUT does, so no door persists a pointer to a deleted
-  layout.
-
-  All writes (`PUT`, `PATCH`, `DELETE`) hold an advisory `flock` on
-  `sku_layouts.json.lock` across their read-mutate-write, so concurrent
-  single-key edits from different gunicorn workers serialise instead of
-  overwriting each other. Reads are not locked - `os.replace` is atomic, so a
-  reader sees the old file or the new one, never a partial write. Public-read so printo.in can resolve the layout before creating an embed session. Cache headers: `public, max-age=300, stale-while-revalidate=600`.
+- **B3 — SKU → layout resolution. REMOVED 2026-09-04.** Shipped Apr 2026 as `storage/sku_layouts.json` plus `SKULayoutView`, then deleted whole: printo.in owns SKU→layout resolution and passes the resolved layout name into `POST /api/embed/session`, so a second mapping here was one more place to drift. The mapping never carried real data. Kept in this list because the endpoints were public for four months and something may still call them — both smoke tests now assert 404.
 - **B4 — ESLint flat config.** Replaced `.eslintrc.json` with `eslint.config.mjs`. `pnpm lint` now runs `eslint src` directly (Next.js 16 removed the `next lint` subcommand). The strict TypeScript preset is intentionally not loaded — see watch list above.
 - **B5 — Stale `.next/` cache.** Added `pnpm clean` (deletes `.next/`) and `pnpm dev:clean` (clean + start dev). If you ever see Next.js routes 404 in local dev, run `pnpm dev:clean` instead of `pnpm dev`.
 
@@ -1198,7 +1180,7 @@ No open P0/P1 issues. Previously tracked items B1, B3, B4, B5 have all shipped �
 
 The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0** — §8.1/§8.2 below it are a historical audit trail, not open work. The items below are the subset that touches this codebase or its deploy.
 
-**The outcome this project exists for is currently blocked outside this repo.** Print files are generated, signed, and offered; printo.in's storefront does not yet consume the webhook, so nothing collects them and the manual preflight handoff is still in the loop. That, plus the empty SKU→layout mapping, is the whole remaining gap — see [docs/PRD.md](docs/PRD.md) §4.2 B7. Worth keeping in view before optimising anything internal.
+**The outcome this project exists for is currently blocked outside this repo.** Print files are generated, signed, and offered; printo.in's storefront does not yet consume the webhook, so nothing collects them and the manual preflight handoff is still in the loop. That is the whole remaining gap — see [docs/PRD.md](docs/PRD.md) §4.2 B7. (The SKU→layout mapping was the other half until 2026-09-04, when it was removed and handed to printo.in.) Worth keeping in view before optimising anything internal.
 
 ### Before / during the next `./deploy.sh`
 
@@ -1230,7 +1212,6 @@ Mirrors [docs/PRD.md](docs/PRD.md) §8.0 — if you close one, close it in both 
 | **Arm the orphan-export sweep** | `GC_ORPHAN_SWEEP` is still `dry_run`, so export directories no DB row accounts for are counted and reported but never deleted — customer photos in them outlive their retention window. Read a few nights of `garbage_collector.stats.orphan_exports` from `GET /api/celery/monitor/`, confirm the counts look sane, then set `delete`. Disarmed by default because it is the one sweep that deletes on the *absence* of evidence. | Kanna |
 | **Sweep expired `EmbedSession` rows** | Rows are never deleted after the 2 h token expiry, so order-linked data (`order_id` + caller `callback_url`) grows unbounded. Add a GC pass for sessions older than ~30 days. No customer photos involved, so it's hygiene rather than exposure. See `docs/DATA_LIFECYCLE.md`. | Kanna |
 | **API surface separation** | Remove the unreachable synchronous helper in `GenerateLayoutView` (`api/views.py:566`) and route direct-partner + editor/embed submissions through one shared render-submission service. Not started; `CanvasData` upsert / `RenderJob` creation / queue selection / dispatch are still duplicated across the two views. Plan in `docs/API_SURFACE_SEPARATION_PRD.md`. | Kanna |
-| Populate SKU mapping | `PUT /api/sku-layouts/` with real Printo SKU codes (top 5 SKUs from PRD: fridge magnets, photo prints, canvas prints, coasters, photo mugs). The endpoint exists; the data is empty. | Viji / Catalog Ops |
 | Monitor CSP violations | Watch DevTools / browser console / future report endpoint while CSP is in report-only. Flip `CSP_REPORT_ONLY=False` once the policy is validated against the editor (Fabric.js `'unsafe-eval'`) and embed iframe (`frame-ancestors`). | Kanna |
 | Clean up 56 lint warnings | `pnpm lint` lists them — all `no-unused-vars` (dead imports, unused state setters, unused destructured params). Easy local cleanups; non-blocking. | Kanna |
 | printo.in webhook endpoint | Their backend needs to: (1) accept `POST /api/internal/pe-callback` with the v1.8 webhook payload, (2) verify `X-Signature` HMAC against the api_key, (3) fetch `mock_download_url` and `print_download_url` with the api_key as Bearer auth into their separate mock/print fields (or `download_url` for the combined archive), (4) attach them to the order. Their frontend can also listen for `pe:render_job` postMessage for "preparing your design" UX. | printo.in backend + frontend |

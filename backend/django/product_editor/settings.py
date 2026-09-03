@@ -199,7 +199,6 @@ SPECTACULAR_SETTINGS = {
         {"name": "config", "description": "Public runtime feature flags the editor reads on mount."},
         {"name": "embed", "description": "Short-lived iframe tokens. Start here for a storefront integration — a real API key must never reach a browser."},
         {"name": "layouts", "description": "Layout discovery and JSON retrieval. A layout's identifier is its filename stem."},
-        {"name": "sku-layouts", "description": "SKU → layout resolution, so a caller can pick the right layout before creating an embed session."},
         {"name": "editor", "description": "The editor's own surface: mount payload and render submission. Handles every product type, including books."},
         {"name": "upload", "description": "Chunked, resumable photo upload. Every render references files by upload_id."},
         {"name": "canvas-state", "description": "Autosaved editor state, so a customer's refresh does not lose their design."},

@@ -8,7 +8,7 @@
 > **"Calendar product type (v1.13)"** section of [`../CLAUDE.md`](../CLAUDE.md) —
 > it lists the live modules, the render path, the storage layout, and the
 > customer-facing fail-safes. Storage-migration notes:
-> [`../backend/django/services/CALENDAR_S3_READINESS.md`](../backend/django/services/CALENDAR_S3_READINESS.md).
+> [`CALENDAR_S3_READINESS.md`](CALENDAR_S3_READINESS.md).
 >
 > Two things shipped **differently** from the proposal below and the difference
 > matters:

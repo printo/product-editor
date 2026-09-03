@@ -24,7 +24,6 @@ describe('isDestructiveOpsPath — template management stays open', () => {
     'ops/holidays/en-IN/2026',
     'layouts',
     'fonts',
-    'sku-layouts',
     'editor/render',
   ])('does not gate %s', path => {
     expect(isDestructiveOpsPath(path)).toBe(false);
