@@ -38,7 +38,7 @@ import {
   allocateFilesToSurfaces, planFrameSlots, surfaceFrameCount, totalSurfaceCapacity,
 } from './surface-allocation';
 import {
-  collectEmptySurfaces, collectDuplicateFills, duplicateFingerprint,
+  collectEmptySurfaces, collectDuplicateFills, duplicateFingerprint, checkOrderQty,
   type EmptySurface, type DuplicateFill,
 } from '@/lib/submit-guards';
 import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SurfaceState, Overlay } from './types';
@@ -390,6 +390,29 @@ function LowDpiWarning({ frames }: { frames: LowDpiFrame[] }) {
         ))}
         {rest > 0 && <li>…and {rest} more</li>}
       </ul>
+    </div>
+  );
+}
+
+/** Amber pre-submit notice when fewer photos are placed than the ordered
+ *  quantity (`?qty=N`). Warn-and-proceed like the other guards: going UNDER is
+ *  allowed, because qty comes from a caller-controlled URL and a wrong one must
+ *  never block a checkout. Going OVER is capped at pick time instead — see the
+ *  qty block in processSelectedFiles. */
+function QtyShortfallWarning({ uploaded, needed }: { uploaded: number; needed: number }) {
+  if (needed <= 0 || uploaded >= needed) return null;
+  const short = needed - uploaded;
+  return (
+    <div className="mx-7 mb-5 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        Fewer photos than your order quantity
+      </div>
+      <p className="text-xs mt-1 leading-relaxed">
+        Your order is for {needed}, but only {uploaded} {uploaded === 1 ? 'photo is' : 'photos are'} placed &mdash; {short} still
+        missing. You can continue, but only {uploaded} will be printed. Go back to add more photos, or use
+        Auto-fill to repeat the ones you have.
+      </p>
     </div>
   );
 }
@@ -2629,18 +2652,20 @@ export default function LayoutEditorPage() {
     }
 
     // ── Qty enforcement (single-surface only) ──────────────────────────────
-    if (orderQty !== null && surfaceStates.length <= 1) {
-      setQtyUnder(null);
-      setPendingOverFiles(null);
-      if (allFiles.length < orderQty) {
-        // Under: generate with what we have, show persistent banner
-        setQtyUnder({ uploaded: allFiles.length, needed: orderQty });
-      } else if (allFiles.length > orderQty) {
-        // Over: hold files, show confirm modal
-        setPendingOverFiles(allFiles);
-        return; // don't process yet — wait for user confirm
-      }
-      // Exact match or under (proceed with current files)
+    // Over-qty is a HARD cap: the customer keeps the first `allowed` photos or
+    // discards the pick and chooses again. There is deliberately no
+    // proceed-with-all path, so a submit can never carry more photos than were
+    // ordered. Under-qty stays warn-and-proceed — this banner plus a notice in
+    // the pre-submit modal — because qty arrives in a caller-controlled URL and
+    // a wrong one must never hard-block a customer's checkout.
+    setQtyUnder(null);
+    setPendingOverFiles(null);
+    const qtyVerdict = checkOrderQty(allFiles.length, orderQty, surfaceStates.length);
+    if (qtyVerdict.status === 'under') {
+      setQtyUnder({ uploaded: qtyVerdict.uploaded, needed: qtyVerdict.needed });
+    } else if (qtyVerdict.status === 'over') {
+      setPendingOverFiles(allFiles);
+      return; // held for the Keep-first-N / Choose-again decision
     }
 
     if (surfaceStates.length > 1 && normalizedLayoutState) {
@@ -2843,12 +2868,14 @@ export default function LayoutEditorPage() {
     setFiles(filled);
   };
 
-  // ── Qty: over-upload — user confirmed, process all pending files ───────────
-  const handleOverConfirm = (proceed: boolean) => {
-    if (!pendingOverFiles) return;
-    if (proceed) {
-      setFiles(pendingOverFiles);
-    }
+  // ── Qty: over-upload — hard cap, keep-first-N or discard ──────────────────
+  // `keepFirst` trims the selection down to the ordered quantity; otherwise the
+  // whole pick is dropped and the existing photos are left untouched so the
+  // customer can choose a different set. Neither branch can produce a selection
+  // larger than orderQty — that is the point of the cap.
+  const handleOverConfirm = (keepFirst: boolean) => {
+    if (!pendingOverFiles || orderQty === null) return;
+    if (keepFirst) setFiles(pendingOverFiles.slice(0, orderQty));
     setPendingOverFiles(null);
   };
 
@@ -3642,6 +3669,12 @@ export default function LayoutEditorPage() {
     ? surfaceFileTotal
     : (files.length > 0 ? files.length : surfaceFileTotal);
 
+  // Ordered quantity as the upload box and pre-submit modals see it. They
+  // compare against the LIVE placed count rather than the pick-time `qtyUnder`
+  // banner state, which the customer can dismiss. 0 disables the notice: no qty
+  // in the URL, or a multi-surface product — the same gate as checkOrderQty.
+  const qtyNeeded = orderQty !== null && surfaceStates.length <= 1 ? orderQty : 0;
+
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col">
       <GoogleFontLinks fonts={fontsLoaded} />
@@ -3867,20 +3900,20 @@ export default function LayoutEditorPage() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
             <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">More images than ordered</p>
             <p className="text-[10px] text-slate-500 leading-snug mb-4">
-              You uploaded <span className="font-black text-slate-800">{pendingOverFiles.length} images</span> but your order quantity is <span className="font-black text-slate-800">{orderQty}</span>. Do you want to proceed with all {pendingOverFiles.length}, or go back and remove some?
+              Your order is for <span className="font-black text-slate-800">{orderQty} {orderQty === 1 ? 'image' : 'images'}</span> but you selected <span className="font-black text-slate-800">{pendingOverFiles.length}</span>. Only {orderQty} can be printed on this order — keep the first {orderQty}, or choose again to pick exactly the ones you want.
             </p>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleOverConfirm(true)}
                 className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
               >
-                Proceed with all {pendingOverFiles.length}
+                Keep first {orderQty}
               </button>
               <button
                 onClick={() => handleOverConfirm(false)}
                 className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
               >
-                Go back
+                Choose again
               </button>
             </div>
           </div>
@@ -4104,14 +4137,18 @@ export default function LayoutEditorPage() {
                 </div>
                 <p className="flex-1 min-w-0 truncate text-[10px] md:text-[11px] font-black text-slate-800/70 uppercase tracking-tight">
                   <span className="md:hidden">
-                    {totalUploadedCount > 0 ? `Add Files (${totalUploadedCount})` : 'Add Files'}
+                    {totalUploadedCount > 0
+                      ? `Add Files (${totalUploadedCount}${qtyNeeded ? `/${qtyNeeded}` : ''})`
+                      : qtyNeeded ? `Add Files (0/${qtyNeeded})` : 'Add Files'}
                   </span>
                   <span className="hidden md:inline">
                     {totalUploadedCount > 0
-                      ? `Add Photos | Currently uploaded (${totalUploadedCount})`
-                      : surfaceStates.length > 1
-                        ? `Add Files | Multi-Surface: Add ${totalSurfaceCapacity(surfaceStates)} photos`
-                        : 'Add Files'}
+                      ? `Add Photos | Currently uploaded (${totalUploadedCount}${qtyNeeded ? ` of ${qtyNeeded}` : ''})`
+                      : qtyNeeded
+                        ? `Add Files | Your order is for ${qtyNeeded} ${qtyNeeded === 1 ? 'photo' : 'photos'}`
+                        : surfaceStates.length > 1
+                          ? `Add Files | Multi-Surface: Add ${totalSurfaceCapacity(surfaceStates)} photos`
+                          : 'Add Files'}
                   </span>
                 </p>
               </div>
@@ -4800,6 +4837,7 @@ export default function LayoutEditorPage() {
                 <LowDpiWarning frames={lowDpiFrames} />
                 <EmptySurfaceWarning surfaces={emptySurfaces} />
                 <DuplicateFillWarning duplicates={duplicateFills} />
+                <QtyShortfallWarning uploaded={totalUploadedCount} needed={qtyNeeded} />
 
                 {/* Download options */}
                 <div className="px-7 pb-7 flex gap-3">
@@ -4876,6 +4914,7 @@ export default function LayoutEditorPage() {
                 <LowDpiWarning frames={lowDpiFrames} />
                 <EmptySurfaceWarning surfaces={emptySurfaces} />
                 <DuplicateFillWarning duplicates={duplicateFills} />
+                <QtyShortfallWarning uploaded={totalUploadedCount} needed={qtyNeeded} />
                 {/* Actions */}
                 <div className="px-7 pb-7 flex gap-3">
                   <button
