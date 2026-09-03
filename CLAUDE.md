@@ -616,15 +616,18 @@ Headers: `Content-Type: application/json`, `X-Signature: sha256=<hex>`. Caller v
 
 The split is served by `?content=` on the one endpoint (`all` — the default — `print`, `mock`, `uploads`); nothing is duplicated on disk. Requesting `content=mock` on a job whose previews could not be built returns 404 rather than a valid-looking empty ZIP.
 
-**Embed proxy path allowlist** ([route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts:124)) — only these prefixes pass through:
+**Embed proxy allowlist — path AND method** ([route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts)). `ALLOWED_PATH_METHODS` maps each prefix to the verbs an embed session may use on it; a listed prefix rejects every method it does not name:
 
-```
-layouts, canvas-state, editor/render, editor/init, render-status, jobs,
-upload, fonts, sku-layouts, embed/session, orientation, config,
-holidays, calendar-styles, heic
-```
+| Prefix | Methods |
+|---|---|
+| `layouts`, `editor/init`, `render-status`, `jobs`, `fonts`, `sku-layouts`, `holidays`, `calendar-styles`, `config`, `embed/session` | **GET** only |
+| `canvas-state` | GET, PUT (autosave) |
+| `upload` | POST (init/complete), PUT (chunk) |
+| `editor/render`, `orientation`, `heic` | POST |
 
 Anything else returns 403 *before* token resolution, so an attacker can't probe Django auth surfaces with a stolen embed token.
+
+**The method half is load-bearing, not tidiness.** This list was prefix-only until 2026-09-03, with "GET only" written in a comment rather than enforced. `fonts`, `holidays` and `calendar-styles` all accept ops writes upstream, and **the proxy injects the session's real api_key** — so with an ops-flagged key behind the session, an embed token (which lives in a URL in the customer's browser) could `PUT` holiday data. `DIRECT` is ops-flagged and is exactly what the local embed recipe above uses. Django's `_gate_ops` was the only thing in the way, and it *passes* for an ops key. Ops writes reach these same endpoints through the **internal** proxy with a PIA session, so restricting the embed side costs the ops UI nothing. Pinned by `src/app/api/embed/proxy/__tests__/allowlist.test.ts` — **add a method there when you add a prefix**, or the prefix is unreachable.
 
 `orientation` covers `POST /api/orientation/detect` (v1.11 auto-orient). Stateless inference — reads the posted image, returns `{rotation, confidence, source}`, persists nothing. Returns 503 when `AUTO_ORIENTATION_MODE=off`. `config` is the public `AllowAny` flags endpoint the editor reads on mount to decide whether to call `orientation/detect` at all — keep secrets out of it.
 
