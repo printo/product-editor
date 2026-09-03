@@ -114,46 +114,71 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
 // Embed sessions are scoped to customer-facing endpoints only. This guards
 // against a stolen / replayed embed token being used to call ops or admin
 // surfaces with the upstream API key.
-const ALLOWED_PATH_PREFIXES = [
-  'layouts',           // GET layout details (no list/manage)
-  'canvas-state',      // editor auto-save / restore
-  'editor/render',     // server-side render submission
-  'editor/init',       // batched layout + fonts on editor mount (C6)
-  'render-status',     // poll render status
-  'jobs',              // download completed render
-  'upload',            // chunked file upload
-  'fonts',             // GET only — list fonts (PUT requires ops auth at backend)
-  'sku-layouts',       // GET only — resolve SKU → layout
-  'embed/session',     // self-validate (rare; mostly internal)
-  // P7.4 (PRD §5 Phase 7) — calendar customer-facing endpoints. Required
-  // for the calendar product preview to load holiday badges + Gen-Z
-  // palette swatches when running inside the embed iframe. Read-only;
-  // backend separately enforces ops auth for PUT/DELETE.
-  'holidays',          // GET holidays for locale + year
-  'calendar-styles',   // GET style presets + Gen-Z palettes
-  // v1.11 auto-orientation. Customer-facing; POST-only stateless inference
-  // that reads the uploaded image and returns {rotation, confidence, source}.
-  // Persists nothing and exposes no auth surface beyond the api_key the proxy
-  // already injects. Returns 503 when AUTO_ORIENTATION_MODE=off.
-  'orientation',       // POST orientation/detect — auto-orient uploaded photos
+type ProxyMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+const GET_ONLY: readonly ProxyMethod[] = ['GET'];
+
+// Prefix → the methods an embed session may use on it. Anything not listed is
+// rejected, and a listed prefix rejects every method it does not name.
+//
+// The methods matter as much as the paths. This list used to be prefix-only,
+// so "GET only" was a comment rather than a rule: `holidays`, `calendar-styles`
+// and `fonts` all accept ops writes upstream, and the proxy injects the
+// SESSION'S REAL API KEY. With an ops-flagged key behind the session (DIRECT is
+// one, and it is what the documented local embed recipe uses) an embed token —
+// which lives in a URL in the customer's browser — could PUT holiday data.
+// Backend `_gate_ops` was the only thing standing in the way, and it passes for
+// an ops key. Ops writes reach these same endpoints through the INTERNAL proxy
+// with a PIA session, so restricting the embed side costs the ops UI nothing.
+const ALLOWED_PATH_METHODS: Record<string, readonly ProxyMethod[]> = {
+  'layouts': GET_ONLY,              // layout details (no list/manage)
+  'canvas-state': ['GET', 'PUT'],   // editor auto-save / restore
+  'editor/render': ['POST'],        // server-side render submission
+  'editor/init': GET_ONLY,          // batched layout + fonts on editor mount (C6)
+  'render-status': GET_ONLY,        // poll render status
+  'jobs': GET_ONLY,                 // download completed render
+  'upload': ['POST', 'PUT'],        // init + complete are POST, chunk is PUT
+  'fonts': GET_ONLY,                // list fonts — PUT is ops-only, not via embed
+  'sku-layouts': GET_ONLY,          // resolve SKU → layout
+  'embed/session': GET_ONLY,        // self-validate (rare; mostly internal)
+  // P7.4 (PRD §5 Phase 7) — calendar customer-facing reads. Required for the
+  // product preview to load holiday badges + Gen-Z palette swatches inside the
+  // iframe. Reads only; the ops mutation routes live under /api/ops/*.
+  'holidays': GET_ONLY,             // holidays for locale + year
+  'calendar-styles': GET_ONLY,      // style presets + Gen-Z palettes
+  // v1.11 auto-orientation. Customer-facing; POST-only stateless inference that
+  // reads the uploaded image and returns {rotation, confidence, source}.
+  // Persists nothing. Returns 503 when AUTO_ORIENTATION_MODE=off.
+  'orientation': ['POST'],
   // Public (AllowAny) read-only flags the editor reads on mount to decide
   // whether to call orientation/detect at all. Carries no secrets by contract
   // — see ConfigView's docstring before adding fields to it.
-  'config',            // GET runtime feature flags (autoOrientationMode)
+  'config': GET_ONLY,
   // iPhone HEIC fallback. The in-browser decoder (heic2any, a 2021 libheif)
   // cannot read the tmap gain-map HDR format current iPhones write, and
   // Chrome/Firefox have no HEIC codec of their own — without this the
-  // customer's photo is unusable inside the iframe. POST-only, stateless:
-  // decodes the posted bytes to JPEG and returns them, persisting nothing.
-  'heic',              // POST heic/convert — HEIC/HEIF → JPEG
-] as const;
+  // customer's photo is unusable inside the iframe. POST-only, stateless.
+  'heic': ['POST'],
+};
 
-function isPathAllowed(p: string): boolean {
+export const ALLOWED_PATH_PREFIXES = Object.keys(ALLOWED_PATH_METHODS) as readonly string[];
+
+export function isPathAllowed(p: string, method: string): boolean {
   if (!p) return false;
-  // Exact match or prefix match with a `/` boundary
-  return ALLOWED_PATH_PREFIXES.some(allowed =>
-    p === allowed || p.startsWith(`${allowed}/`)
-  );
+  // Longest match wins, so a more specific prefix ("editor/render") is not
+  // shadowed by a broader one that happens to be checked first.
+  let matched: readonly ProxyMethod[] | undefined;
+  let matchedLen = -1;
+  for (const [allowed, methods] of Object.entries(ALLOWED_PATH_METHODS)) {
+    if ((p === allowed || p.startsWith(`${allowed}/`)) && allowed.length > matchedLen) {
+      matched = methods;
+      matchedLen = allowed.length;
+    }
+  }
+  if (!matched) return false;
+  // HEAD rides along with GET, the way the upstream treats it.
+  const m = method.toUpperCase();
+  return matched.includes((m === 'HEAD' ? 'GET' : m) as ProxyMethod);
 }
 
 async function handler(
@@ -178,9 +203,9 @@ async function handler(
 
   // Path allowlist — reject ops/admin/anything not customer-facing BEFORE
   // we even validate the token, so attackers can't probe Django auth surfaces.
-  if (!isPathAllowed(upstreamPath)) {
+  if (!isPathAllowed(upstreamPath, req.method)) {
     return NextResponse.json(
-      { detail: 'Path not permitted via embed proxy' },
+      { detail: 'Path or method not permitted via embed proxy' },
       { status: 403 },
     );
   }

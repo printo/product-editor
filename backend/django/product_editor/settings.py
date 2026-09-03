@@ -214,6 +214,27 @@ SPECTACULAR_SETTINGS = {
         "persistAuthorization": True,
         "displayOperationId": False,
     },
+    # EmbedSessionValidateView is gated by a shared X-Internal-Secret header
+    # rather than by any DRF authenticator, so no extension can describe it.
+    # Without this the operation advertised the three normal schemes plus "no
+    # auth required" — three lies and an open padlock on the endpoint that
+    # hands out real API keys.
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "InternalSecret": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-Internal-Secret",
+                "description": (
+                    "Shared secret known only to the Next.js server-side proxy and "
+                    "the backend, both reading `EMBED_INTERNAL_SECRET` from the "
+                    "environment. Never reaches a browser. Not for external "
+                    "callers — this endpoint resolves an embed token back to a "
+                    "real API key."
+                ),
+            },
+        },
+    },
     # Auth schemes come from the OpenApiAuthenticationExtension subclasses in
     # api/schema.py, which drf-spectacular resolves per view from its
     # authentication_classes. Do NOT reintroduce a blanket "SECURITY" list here:

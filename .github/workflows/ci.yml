@@ -57,6 +57,18 @@ jobs:
           done
           exit $FAIL
 
+      # The API reference at /docs/api/ is generated from the @extend_schema
+      # decorators, so a schema defect never fails a test — it just quietly
+      # ships a wrong or invalid document. This is the only thing that catches
+      # it. --fail-on-warn is deliberate: a "warning" here means a view was
+      # dropped from the schema or an operationId collided, both of which make
+      # the reference wrong rather than merely untidy.
+      - name: Validate OpenAPI schema
+        env:
+          DJANGO_SETTINGS_MODULE: product_editor.settings
+          DEBUG: "1"
+        run: python manage.py spectacular --validate --fail-on-warn --file /dev/null
+
   frontend:
     name: Frontend typecheck / lint / test
     runs-on: ubuntu-latest
