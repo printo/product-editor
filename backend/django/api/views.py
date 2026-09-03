@@ -236,7 +236,8 @@ class ListLayoutsView(APIView):
             200: inline_serializer(
                 name="LayoutListResponse",
                 fields={"layouts": drf_serializers.ListField(child=drf_serializers.DictField())},
-            )
+            ),
+            500: OpenApiResponse(description="The layout store could not be read."),
         },
     )
     def get(self, request):
@@ -332,15 +333,22 @@ class GenerateLayoutView(APIView):
             },
         ),
         responses={
-            200: inline_serializer(
-                name="GenerateLayoutResponse",
+            # 202, never 200: post() unconditionally delegates to _handle_async.
+            # The synchronous helper this endpoint once had is unreachable, and
+            # documenting its response body sent partners looking for `canvases`
+            # in a payload that only ever carries a job id.
+            202: inline_serializer(
+                name="GenerateLayoutAccepted",
                 fields={
-                    "canvases": drf_serializers.ListField(child=drf_serializers.CharField()),
-                    "layout_name": drf_serializers.CharField(),
-                    "export_format": drf_serializers.CharField(),
-                    "generation_time_ms": drf_serializers.IntegerField(),
+                    "job_id": drf_serializers.UUIDField(),
+                    "status_url": drf_serializers.CharField(
+                        help_text="Poll until status is completed or failed, then fetch the archive.",
+                    ),
+                    "queue": drf_serializers.CharField(),
+                    "estimated_wait_seconds": drf_serializers.IntegerField(required=False),
                 },
             ),
+            500: OpenApiResponse(description="The render job could not be enqueued."),
             400: OpenApiResponse(description="Invalid request — missing images or bad layout"),
             408: OpenApiResponse(description="Timeout — generation exceeded 5 minutes"),
         },
@@ -753,7 +761,8 @@ class RenderStatusView(APIView):
             "cheap. A 4-second interval with backoff is what the editor uses.\n\n"
             "**Ownership:** an API key may only read its own jobs. Someone else's "
             "job id returns **404, not 403** — deliberately, so the endpoint can't "
-            "be used to probe which job ids exist."
+            "be used to probe which job ids exist. Internal dashboard users "
+            "(PIA session) are exempt and may read any job."
         ),
         responses={
             200: inline_serializer(
@@ -1844,13 +1853,23 @@ class LayoutManagementView(APIView):
                     "detail": drf_serializers.CharField(),
                 },
             ),
-            400: OpenApiResponse(description="Layout name contains characters outside `A-Za-z0-9_.-`."),
+            400: OpenApiResponse(description="No layout name in the URL, or a name containing characters outside `A-Za-z0-9_.-`."),
             403: OpenApiResponse(description="Caller is not on the ops team, or the name resolved outside the layouts directory."),
             404: OpenApiResponse(description="No such layout."),
         },
     )
-    def delete(self, request, name):
+    def delete(self, request, name=None):
         """Delete a layout JSON file."""
+        # Both /api/ops/layouts and /api/ops/layouts/<name> route here, so the
+        # collection form arrives with no name at all. Without this guard that
+        # was a TypeError — a 500 on a route the API reference advertised as
+        # valid. Deleting "every layout" is not a thing we want to offer, so the
+        # collection form is simply a bad request.
+        if not name:
+            return Response(
+                {"detail": "layout name is required in the URL: /api/ops/layouts/<name>"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if not self._is_valid_layout_name(name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -2091,6 +2110,13 @@ class EmbedSessionView(APIView):
                     ),
                 },
             ),
+            400: OpenApiResponse(
+                description=(
+                    "`order_id` outside `^[A-Za-z0-9_.\\-]{1,64}$`, `callback_url` over "
+                    "2000 chars, or `callback_url` failing the https-only + "
+                    "public-address SSRF check."
+                ),
+            ),
             401: OpenApiResponse(description="Invalid or missing API key"),
         },
         examples=[
@@ -2210,7 +2236,13 @@ class EmbedSessionValidateView(APIView):
             400: OpenApiResponse(description="`token` query param is missing"),
             401: OpenApiResponse(description="Token not found or expired"),
             403: OpenApiResponse(description="Missing or invalid `X-Internal-Secret` header"),
+            503: OpenApiResponse(
+                description="`EMBED_INTERNAL_SECRET` is not configured. Fails closed in production rather than serving an api_key unprotected.",
+            ),
         },
+        # Uses none of the three normal schemes — the gate is the shared header
+        # declared in SPECTACULAR_SETTINGS["APPEND_COMPONENTS"].
+        auth=[{"InternalSecret": []}],
     )
     def get(self, request):
         import os
@@ -2991,6 +3023,7 @@ class SKULayoutView(APIView):
             400: OpenApiResponse(description="`mappings` missing, not an object, not all strings, or naming a layout that does not exist."),
             **_OPS_GATE_RESPONSES,
         },
+        auth=OPS_WRITE_AUTH,
     )
     def put(self, request):
         _user, denied = _require_ops_user(request)
@@ -3044,6 +3077,7 @@ class SKULayoutView(APIView):
             400: OpenApiResponse(description="SKU missing from the URL, `layout_name` missing, or that layout does not exist."),
             **_OPS_GATE_RESPONSES,
         },
+        auth=OPS_WRITE_AUTH,
     )
     def patch(self, request, sku=None):
         """Point one SKU at one layout, leaving every other mapping alone."""
@@ -3094,6 +3128,7 @@ class SKULayoutView(APIView):
             400: OpenApiResponse(description="No SKU in the URL."),
             **_OPS_GATE_RESPONSES,
         },
+        auth=OPS_WRITE_AUTH,
     )
     def delete(self, request, sku=None):
         """
@@ -3237,7 +3272,7 @@ class CalendarStylesView(APIView):
                 response=OpenApiTypes.OBJECT,
                 description="`{styles: [{name, label, description}]}` for the list form, or the full preset object.",
             ),
-            404: OpenApiResponse(description="No such style preset."),
+            404: OpenApiResponse(description="No such style preset. Detail form only — the list never 404s."),
         },
         auth=[],
     )
@@ -3994,7 +4029,9 @@ class CanvasStateView(APIView):
                 "editor_state": drf_serializers.JSONField(
                     help_text="Opaque editor snapshot — surfaces, frames, transforms, overlays, calendar/book state.",
                 ),
-                "layout_name": drf_serializers.CharField(required=False),
+                "layout_name": drf_serializers.CharField(
+                    help_text="Required — the handler rejects a blank value with 400.",
+                ),
                 "image_paths": drf_serializers.ListField(
                     required=False, child=drf_serializers.CharField(),
                     help_text="Set on create. Not overwritten on update — see description.",
@@ -4005,7 +4042,8 @@ class CanvasStateView(APIView):
         responses={
             200: OpenApiResponse(description="State updated."),
             201: OpenApiResponse(description="State created."),
-            400: OpenApiResponse(description="No order_id resolved from header or path."),
+            400: OpenApiResponse(description="No order_id resolved from header or path, or `layout_name` missing."),
+            403: OpenApiResponse(description="Caller presented no API key — PIA sessions cannot own canvas state."),
         },
     )
     def put(self, request, order_id: str):
@@ -4296,8 +4334,9 @@ class ChunkedUploadChunkView(APIView):
                     "total": drf_serializers.IntegerField(),
                 },
             ),
-            400: OpenApiResponse(description="Malformed upload_id, missing/invalid index, or an oversized body."),
+            400: OpenApiResponse(description="Malformed upload_id, or a missing/invalid index."),
             404: OpenApiResponse(description="Unknown or already-reclaimed upload session."),
+            413: OpenApiResponse(description="Chunk body exceeds twice the negotiated chunk size."),
         },
     )
     def put(self, request, upload_id: str):
@@ -4389,16 +4428,28 @@ class ChunkedUploadCompleteView(APIView):
             "behind — there is no database row to sweep from — so a separate "
             "garbage-collector pass reclaims abandoned staging after "
             "`CHUNK_STAGING_MAX_AGE_HOURS` (default 24). A slow client still "
-            "uploading is never a candidate.\n\n" + UUID_GUARD
+            "uploading is never a candidate.\n\n"
+            "The stored file is linked to an order here, which is what makes a "
+            "later DPDP erasure able to find it. The `X-Order-ID` header (injected "
+            "by the embed proxy) wins over a body `order_id`.\n\n" + UUID_GUARD
         ),
-        request=None,
+        request=inline_serializer(
+            name="ChunkedUploadCompleteRequest",
+            fields={
+                "order_id": drf_serializers.CharField(
+                    required=False,
+                    help_text="Ignored when the `X-Order-ID` header is present. Records order linkage for erasure.",
+                ),
+            },
+        ),
         responses={
-            200: inline_serializer(
+            201: inline_serializer(
                 name="ChunkedUploadComplete",
                 fields={
                     "file_path": drf_serializers.CharField(help_text="Server-side path. Reference the upload by upload_id, not this."),
                     "filename": drf_serializers.CharField(),
                     "file_size": drf_serializers.IntegerField(),
+                    "upload_id": drf_serializers.UUIDField(help_text="Echoed back — this is what a render payload references."),
                 },
             ),
             400: OpenApiResponse(description="Malformed upload_id, missing chunks, size mismatch, or the assembled bytes are not a decodable image."),
@@ -4560,9 +4611,11 @@ class OrientationDetectView(APIView):
             "persisted.**\n\n"
             "This catches photos whose subject is sideways *in the bytes* — camera "
             "held wrong, scanned prints, messaging apps that strip EXIF — which no "
-            "aspect-ratio heuristic can detect. When no pose is found (food, "
-            "landscape, an occluded subject) it returns rotation `0` and the client "
-            "falls back to its own heuristic.\n\n"
+            "aspect-ratio heuristic can detect.\n\n"
+            "**When no pose is found** (food, landscape, an occluded subject) the "
+            "response is **204 with no body** — not a rotation of 0. Callers must "
+            "branch on the status code and fall back to their own heuristic; "
+            "parsing the body unconditionally will fail here.\n\n"
             "Returns **503** when `AUTO_ORIENTATION_MODE=off`. Clients should read "
             "`/api/config` first and skip the upload entirely in that case; a 503 "
             "here produces the same outcome either way."
@@ -4581,6 +4634,7 @@ class OrientationDetectView(APIView):
                     "source": drf_serializers.CharField(help_text="Which detector produced the answer."),
                 },
             ),
+            204: OpenApiResponse(description="No pose detected — no body. Apply your own heuristic."),
             400: OpenApiResponse(description="No `file` field, or the image could not be read."),
             503: OpenApiResponse(description="Auto-orientation is switched off for this deployment."),
         },
