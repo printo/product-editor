@@ -354,6 +354,56 @@ flowchart TD
 - `product_editor/settings.py` — `csp.middleware.CSPMiddleware` is wired in after `SecurityMiddleware`; CSP starts in report-only mode via `CSP_REPORT_ONLY`
 - **Backend Dockerfile** is multi-stage — builder installs `build-essential` + `libpq-dev` to compile wheels; runner ships only `libpq5` + the venv. Drops ~250 MB from the final image. The `collectstatic` `RUN` supplies an **inline build-only `DJANGO_SECRET_KEY`** (build-time only, not baked into the image ENV) so the settings.py fail-fast guard doesn't abort the build — see `## Deployment` for the full rationale.
 
+### API reference (Scalar) — `GET /docs/api/`
+
+The public API reference is [Scalar](https://scalar.com) rendering the OpenAPI
+document that drf-spectacular generates from the `@extend_schema` decorators in
+`api/views.py`. Schema JSON is at `/api/schema/`; the page itself is
+`api/templates/scalar.html`, served outside `/api/` because it is a docs page.
+
+**The schema is generated, so it can only be as good as the decorators.** Two
+things make that easy to get wrong, and both were wrong until 2026-09-03:
+
+- **A view with no `@extend_schema` is not merely undocumented — it is
+  *dropped*.** drf-spectacular emits `unable to guess serializer … Ignoring view
+  for now` and the operation appears with no request or response body at all.
+  15 handlers were in that state. A decorator also needs an explicit `request=`
+  on any body-carrying method and an explicit `responses=`; without them the
+  same error fires even though the decorator is present.
+- **`SECURITY_DEFINITIONS` is a drf-yasg setting name.** It sat in
+  `SPECTACULAR_SETTINGS` being silently ignored, so every operation referenced a
+  `BearerAuth` scheme that `components.securitySchemes` never defined — an
+  invalid document, and an empty Authorize dropdown in Scalar. Auth schemes come
+  from `OpenApiAuthenticationExtension` subclasses instead; ours are in
+  **`api/schema.py`**, registered from `ApiConfig.ready()` because an extension
+  only takes effect when its module is imported.
+
+`api/schema.py` also holds **`ProductEditorAutoSchema`** (wired via
+`DEFAULT_SCHEMA_CLASS`). drf-spectacular strips every path variable when
+building an operationId, so a view mounted at both a collection and a detail
+route produces one id twice and the duplicate gets a `_2` suffix assigned by
+traversal order. The subclass names the detail variant after its trailing
+parameter — `ops_layouts_by_name_retrieve` — which is stable and self-describing.
+
+**Three views declare `permission_classes = [AllowAny]` and then gate writes on
+the ops team inside the handler** (`FontsView`, `CalendarStylesView`,
+`HolidaysView`). drf-spectacular reads `permission_classes`, so it advertised
+those destructive methods as needing no credentials. They now carry an explicit
+per-operation `auth=` — `auth=[]` on the public reads, `OPS_WRITE_AUTH` on the
+writes. **If you add a method to one of these views, set `auth=` explicitly** or
+it will inherit the same lie.
+
+Verify after touching any decorator — this is fast and catches all of the above:
+
+```bash
+docker-compose run --rm --entrypoint /opt/venv/bin/python backend \
+  manage.py spectacular --validate --fail-on-warn --file /dev/null
+```
+
+It must exit 0 silently. Anything printed is a real defect in the reference.
+Not covered by CI, and the backend image bakes source in via `COPY`, so
+`docker-compose build backend` first or you are validating the last build.
+
 ### Async Queue
 
 **One** Celery worker service: `celery-worker-standard`, consuming `-Q priority,standard`.
@@ -601,6 +651,38 @@ It does NOT `register_heif_opener()`: that patches Pillow globally for the whole
 **Sliding session TTL** — sessions are created with a 2-hour expiry, but `EmbedSessionValidateView` extends by 1 hour whenever the remaining lifetime drops below 30 min. Active editing sessions stay alive without a hard cutoff; idle sessions still expire on schedule. One DB write per hour of activity in the worst case.
 
 **iframe `frame-ancestors`** ([next.config.mjs](frontend/nextjs/next.config.mjs)) — `/layout/*` and `/editor/layout/*` get a CSP `frame-ancestors` header allowing `'self'`, `https://printo.in`, and `https://*.printo.in`. Override per-environment via `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS`. (The legacy `/embed/layout/*` SVG-preview route was removed — it read the raw `?apiKey=` from the URL, violating the "API keys must never appear in URLs" rule.)
+
+### Order quantity (`?qty=N`)
+
+The number of items the customer ordered, passed **on the iframe URL** next to
+the token (`/editor/layout/<name>?token=<uuid>&qty=12`). It is **not** a field
+on `POST /api/embed/session` — sending it in that body does nothing. Read once
+on mount in [page.tsx](frontend/nextjs/src/app/editor/layout/[name]/page.tsx);
+the comparison lives in `checkOrderQty` ([src/lib/submit-guards.ts](frontend/nextjs/src/lib/submit-guards.ts)).
+
+**The rule is deliberately asymmetric, and the asymmetry is the point:**
+
+| Photos placed | Behaviour |
+|---|---|
+| **Over** `qty` | **Hard cap.** `processSelectedFiles` holds the pick and the modal offers *Keep first N* / *Choose again*. No proceed-with-all path exists, so a submit can never carry more photos than were ordered. |
+| **Under** `qty` | **Warn and proceed.** Auto-fill / pick-to-fill banner, plus a `QtyShortfallWarning` notice in both pre-submit modals. Submit still works. |
+
+Under-upload must **not** become blocking. `qty` reaches the editor through a
+URL the customer's browser can edit, so a wrong value from the caller would
+strand a real order at checkout — the cost of a customer who can't buy exceeds
+the cost of one who orders 12 and submits 8. Over-upload has no such downside:
+the customer just removes photos.
+
+Single-surface products only (`surfaceCount > 1` returns `ok`). A two-sided
+product, calendar or book has a surface count fixed by its layout, which `qty`
+does not describe.
+
+**Enforcement is client-side only.** Nothing in `EditorRenderView` or
+`render_canvas_task` validates the count against a stored quantity — there is
+no stored quantity. Moving `qty` onto `EmbedSession` (injected as a header like
+`X-Order-ID`, checked at submit) is the planned follow-up; see
+[docs/PRD.md](docs/PRD.md) §8.0. Until then, a caller that needs a guaranteed
+count should re-check `file_count` on the completion webhook.
 
 ### postMessage Contract
 

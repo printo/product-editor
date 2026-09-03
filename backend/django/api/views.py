@@ -734,6 +734,70 @@ class RenderStatusView(APIView):
     """Query status of async render job."""
     permission_classes = [IsAuthenticatedWithAPIKey]
     
+    @extend_schema(
+        tags=["generate"],
+        summary="Poll an async render job",
+        description=(
+            "Returns the current state of a render job. Poll this after "
+            "`POST /api/editor/render` or `POST /api/layout/generate` until "
+            "`status` is `completed` or `failed`, then fetch the archive from "
+            "`GET /api/jobs/{job_id}/download/`.\n\n"
+            "**Which fields are present depends on `status`:**\n\n"
+            "| status | extra fields |\n"
+            "|---|---|\n"
+            "| `queued` | `estimated_wait_seconds` |\n"
+            "| `processing` | `started_at` |\n"
+            "| `completed` | `completed_at`, `generation_time_ms`, `output_files[]` |\n"
+            "| `failed` | `error`, `retry_count` |\n\n"
+            "Responses are cached briefly per status, so a tight polling loop is "
+            "cheap. A 4-second interval with backoff is what the editor uses.\n\n"
+            "**Ownership:** an API key may only read its own jobs. Someone else's "
+            "job id returns **404, not 403** — deliberately, so the endpoint can't "
+            "be used to probe which job ids exist."
+        ),
+        responses={
+            200: inline_serializer(
+                name="RenderJobStatus",
+                fields={
+                    "job_id": drf_serializers.UUIDField(),
+                    "status": drf_serializers.ChoiceField(
+                        choices=["queued", "processing", "completed", "failed"],
+                    ),
+                    "queue": drf_serializers.CharField(help_text="Celery queue the job was routed to."),
+                    "created_at": drf_serializers.DateTimeField(),
+                    "estimated_wait_seconds": drf_serializers.IntegerField(
+                        required=False, help_text="`queued` only — accounts for worker concurrency.",
+                    ),
+                    "started_at": drf_serializers.DateTimeField(required=False, allow_null=True),
+                    "completed_at": drf_serializers.DateTimeField(required=False, allow_null=True),
+                    "generation_time_ms": drf_serializers.IntegerField(required=False, allow_null=True),
+                    "output_files": drf_serializers.ListField(
+                        required=False, child=drf_serializers.CharField(),
+                        help_text="Paths relative to the exports root. Fetch via the download endpoint, not directly.",
+                    ),
+                    "error": drf_serializers.CharField(required=False, help_text="`failed` only."),
+                    "retry_count": drf_serializers.IntegerField(required=False, help_text="`failed` only."),
+                },
+            ),
+            404: OpenApiResponse(description="No such job, or the job belongs to a different API key."),
+        },
+        examples=[
+            OpenApiExample(
+                "Still queued",
+                value={"job_id": "6f1c…", "status": "queued", "queue": "standard",
+                       "created_at": "2026-09-03T10:00:00Z", "estimated_wait_seconds": 45},
+                response_only=True, status_codes=["200"],
+            ),
+            OpenApiExample(
+                "Completed",
+                value={"job_id": "6f1c…", "status": "completed", "queue": "standard",
+                       "created_at": "2026-09-03T10:00:00Z", "completed_at": "2026-09-03T10:01:12Z",
+                       "generation_time_ms": 8420,
+                       "output_files": ["6f1c…/print/January 2026.png"]},
+                response_only=True, status_codes=["200"],
+            ),
+        ],
+    )
     def get(self, request, job_id):
         """Get render job status by job_id."""
         from api.models import RenderJob
@@ -848,6 +912,50 @@ class CeleryMonitoringView(APIView):
     """Monitoring endpoint for ops team to check Celery worker status."""
     permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
     
+    @extend_schema(
+        tags=["ops"],
+        summary="Worker, queue, GC and disk health (ops only)",
+        description=(
+            "Operational snapshot of the render pipeline. **Ops team only.**\n\n"
+            "Two fields here are the supported way to answer questions you cannot "
+            "answer from the database:\n\n"
+            "- **`garbage_collector.stale`** — no *successful* sweep within "
+            "`GC_STALE_AFTER_HOURS` (default 36). Do **not** try to infer this by "
+            "counting soft-deleted rows: the sweep hard-deletes its own tombstones "
+            "in the same pass, so that count reads `0` whether the GC ran an hour "
+            "ago or has never run at all.\n"
+            "- **`garbage_collector.failing`** — the most recent *attempt* raised, "
+            "with `last_error` saying how. A sweep can be failing without yet being "
+            "stale, and \"broke\" and \"was never scheduled\" look identical without "
+            "this field. **Alert on both.**\n\n"
+            "`disk` is read live at request time, not lifted from the last sweep's "
+            "stats — at the moment it matters most (nothing sweeping) those stats "
+            "are absent or stale. `pressure` trips at the same 80% line the GC uses."
+        ),
+        responses={
+            200: inline_serializer(
+                name="CeleryMonitor",
+                fields={
+                    "workers": inline_serializer(name="MonitorWorkers", fields={
+                        "total": drf_serializers.IntegerField(),
+                        "active": drf_serializers.IntegerField(),
+                    }),
+                    "queues": inline_serializer(name="MonitorQueues", fields={
+                        "priority": drf_serializers.DictField(help_text="{depth, alert} — alert above 50."),
+                        "standard": drf_serializers.DictField(help_text="{depth, alert} — alert above 200."),
+                    }),
+                    "jobs": drf_serializers.DictField(help_text="RenderJob counts by state."),
+                    "garbage_collector": drf_serializers.DictField(
+                        help_text="{last_run_at, stale, failing, last_error, stats{…}} — see description.",
+                    ),
+                    "disk": drf_serializers.DictField(
+                        help_text="{total_gb, used_gb, free_gb, used_percent, pressure} for the exports volume.",
+                    ),
+                },
+            ),
+            403: OpenApiResponse(description="Caller is not on the ops team."),
+        },
+    )
     def get(self, request):
         """Get Celery worker and queue statistics."""
         from celery import current_app
@@ -1181,6 +1289,59 @@ class OrderDataPurgeView(APIView):
 
     _ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
 
+    @extend_schema(
+        tags=["ops"],
+        summary="DPDP erasure — hard-delete one order (ops only)",
+        description=(
+            "**Irreversible.** Hard-deletes an order's uploads, exports, "
+            "`CanvasData` and `EmbedSession` rows *and* the corresponding files on "
+            "disk. There is no soft-delete stage and no undo — this exists to serve "
+            "a DPDP right-to-erasure request.\n\n"
+            "Upload files still referenced by a surviving order are kept.\n\n"
+            "**Scoping is mandatory.** `order_id` is only unique per API key "
+            "(`unique_together = (order_id, api_key)`), so the same id can belong to "
+            "several tenants. The endpoint refuses to guess: pass `api_key` to scope "
+            "the erasure to one tenant, or `all_tenants=true` to purge every tenant "
+            "sharing the id. Omitting both is a **400**, not a default.\n\n"
+            "Not reachable through the embed proxy, and re-gated to the ops team in "
+            "the Next.js internal proxy as well — a Django-side `IsOpsTeam` check "
+            "alone would not restrict it, because everything arriving through that "
+            "proxy presents one shared ops-flagged service account."
+        ),
+        parameters=[
+            OpenApiParameter("api_key", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
+                             description="APIKey **name** to scope the erasure to one tenant."),
+            OpenApiParameter("all_tenants", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False,
+                             description="Purge every tenant sharing this order_id. Required when `api_key` is omitted."),
+            OpenApiParameter("force", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False,
+                             description="Purge even while a render is queued or processing (otherwise 409)."),
+        ],
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="OrderPurgeResult",
+                fields={
+                    "matched": drf_serializers.IntegerField(help_text="Orders matched. 0 → 404."),
+                    "erasure_complete": drf_serializers.BooleanField(),
+                    "files_deleted": drf_serializers.IntegerField(),
+                    "bytes_freed": drf_serializers.IntegerField(),
+                    "canvas_rows_deleted": drf_serializers.IntegerField(),
+                    "embed_rows_deleted": drf_serializers.IntegerField(),
+                    "api_keys_touched": drf_serializers.ListField(child=drf_serializers.CharField()),
+                    "unlocated_upload_rows": drf_serializers.IntegerField(
+                        help_text="Rows whose file could not be located on disk.",
+                    ),
+                    "residual_files": drf_serializers.ListField(child=drf_serializers.CharField()),
+                    "residual_dirs": drf_serializers.ListField(child=drf_serializers.CharField()),
+                    "errors": drf_serializers.ListField(child=drf_serializers.CharField()),
+                },
+            ),
+            400: OpenApiResponse(description="Malformed order_id, or neither api_key nor all_tenants given."),
+            403: OpenApiResponse(description="Caller is not on the ops team."),
+            404: OpenApiResponse(description="No data matched this order_id (nothing was deleted)."),
+            409: OpenApiResponse(description="A render is in flight for this order. Re-send with force=true to override."),
+        },
+    )
     def delete(self, request, order_id: str):
         from api.purge import purge_order_data
         from api.models import APIKey
@@ -1218,6 +1379,18 @@ class OrderDataPurgeView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
+# Shared by the layout read/write/delete schema descriptions below. Stated once
+# because it is the single most expensive thing to get wrong about layouts.
+LAYOUT_ID_NOTE = (
+    "**A layout's identifier is its filename stem**, never the `name` field "
+    "inside the JSON — both this endpoint and the public list overwrite the "
+    "stored `name` with the filename for exactly that reason. When the two "
+    "diverged in case, the layout became unopenable and undeletable on the "
+    "case-sensitive production filesystem while working fine on a developer's "
+    "case-insensitive Mac."
+)
+
+
 class LayoutManagementView(APIView):
     """View to manage layout JSON files - requires Ops Team permissions."""
     permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
@@ -1233,6 +1406,31 @@ class LayoutManagementView(APIView):
         """Ensure path is within the intended directory."""
         return os.path.abspath(path).startswith(os.path.abspath(base_dir))
 
+    @extend_schema(
+        tags=["ops"],
+        summary="List layouts, or fetch one layout's full JSON",
+        description=(
+            "Ops view of the layout library. Without `name`, returns every layout's "
+            "full definition plus a `hasCalendar` convenience flag; with `name`, "
+            "returns that one layout.\n\n"
+            + LAYOUT_ID_NOTE +
+            "\n\nThe list is cached server-side for 2 minutes and invalidated on "
+            "write, so an edit shows up immediately rather than after the TTL."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "`{layouts: [...]}` for the list form, or the raw layout object "
+                    "for the detail form. Layout JSON is free-form by design — the "
+                    "schema differs per productType (photo / calendar / book)."
+                ),
+            ),
+            400: OpenApiResponse(description="Layout name contains characters outside `A-Za-z0-9_.-`."),
+            403: OpenApiResponse(description="Caller is not on the ops team, or the name resolved outside the layouts directory."),
+            404: OpenApiResponse(description="No such layout."),
+        },
+    )
     def get(self, request, name=None):
         """List layouts or get a specific layout's JSON."""
         from django.core.cache import cache as django_cache
@@ -1292,6 +1490,44 @@ class LayoutManagementView(APIView):
             response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
             return response
 
+    @extend_schema(
+        tags=["ops"],
+        summary="Create, update or rename a layout",
+        description=(
+            "Writes a layout JSON file. Ops team only.\n\n"
+            + LAYOUT_ID_NOTE +
+            "\n\n**Rename:** send `old_name` (or `originalName`) alongside the new "
+            "`name`; the old file is removed only after the new one is written.\n\n"
+            "**Validation depends on `productType`.** A calendar or book layout is "
+            "checked against its own validator; a multi-surface product must give "
+            "every surface a canvas width and height; a plain layout must carry a "
+            "root `canvas`. Book layouts carry neither a root canvas nor a surfaces "
+            "list — their per-role canvases live under `book.cover` / "
+            "`book.innerPage` / `book.backCover` — so they are exempt from the "
+            "canvas check and validated separately."
+        ),
+        request=inline_serializer(
+            name="LayoutWrite",
+            fields={
+                "name": drf_serializers.CharField(
+                    required=False,
+                    help_text="Layout identifier. Optional when supplied in the URL path. `A-Za-z0-9_.-` only.",
+                ),
+                "layout_data": drf_serializers.JSONField(
+                    help_text="The layout definition. Also accepted under the key `layout`. A JSON string is parsed.",
+                ),
+                "old_name": drf_serializers.CharField(
+                    required=False,
+                    help_text="Previous identifier, to rename. Also accepted as `originalName`. Ignored if equal to `name`.",
+                ),
+            },
+        ),
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The layout as stored."),
+            400: OpenApiResponse(description="Missing name/layout_data, invalid name, malformed JSON, or failed product validation."),
+            403: OpenApiResponse(description="Caller is not on the ops team, or the path resolved outside the layouts directory."),
+        },
+    )
     def post(self, request, name=None):
         """Create or update a layout JSON file."""
         layout_name = name or request.data.get("name")
@@ -1587,6 +1823,32 @@ class LayoutManagementView(APIView):
             logger.error(f"Error saving layout {layout_name}: {str(e)}")
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @extend_schema(
+        tags=["ops"],
+        summary="Delete a layout",
+        description=(
+            "Removes the layout JSON and any `<name>_mask.*` file beside it, then "
+            "invalidates both the list cache and this layout's detail cache "
+            "entries. Dropping only the list cache used to leave the deleted "
+            "template visible on the Templates page — and still openable in the "
+            "editor — for the remainder of the TTL.\n\n"
+            "Renders already queued against this layout are unaffected; they read "
+            "the definition snapshotted at submit time."
+        ),
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="LayoutDeleteResult",
+                fields={
+                    "status": drf_serializers.CharField(),
+                    "detail": drf_serializers.CharField(),
+                },
+            ),
+            400: OpenApiResponse(description="Layout name contains characters outside `A-Za-z0-9_.-`."),
+            403: OpenApiResponse(description="Caller is not on the ops team, or the name resolved outside the layouts directory."),
+            404: OpenApiResponse(description="No such layout."),
+        },
+    )
     def delete(self, request, name):
         """Delete a layout JSON file."""
         if not self._is_valid_layout_name(name):
@@ -1699,6 +1961,23 @@ class MaskDownloadView(APIView):
     """View to download/serve layout mask images."""
     permission_classes = [AllowAny] # Publicly accessible if URL is known
 
+    @extend_schema(
+        tags=["layouts"],
+        summary="Fetch a layout mask image",
+        description=(
+            "Serves the mask bitmap a layout clips its frames against. Public if "
+            "you know the filename — masks are shape stencils, not customer data.\n\n"
+            "The resolved path is checked to be inside the masks directory before "
+            "anything is opened, so a traversal filename gets a 403 rather than a "
+            "file read."
+        ),
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.BINARY, description="The mask image (usually image/png)."),
+            403: OpenApiResponse(description="Filename resolved outside the masks directory."),
+            404: OpenApiResponse(description="No such mask."),
+        },
+        auth=[],
+    )
     def get(self, request, filename):
         storage = get_storage()
         path = os.path.join(storage.masks_dir(), filename)
@@ -1743,13 +2022,27 @@ class EmbedSessionView(APIView):
             "Your server  →  POST /api/embed/session\n"
             "                (optionally include callback_url for the completion webhook)\n"
             "             ←  { token: '<uuid>' }\n\n"
-            "Your page    →  <iframe src=\"https://product-editor.printo.in/editor/layout/<name>?token=<uuid>\" />\n\n"
+            "Your page    →  <iframe src=\"https://product-editor.printo.in/editor/layout/<name>?token=<uuid>&qty=<N>\" />\n\n"
             "Customer edits canvas and clicks Save & Continue\n\n"
             "Your page    ←  window.postMessage({ type: 'pe:render_job', jobId, orderID })\n"
             "                (UX ping only — the rendered ZIP is delivered out-of-band\n"
             "                 via a signed webhook to your callback_url; see\n"
             "                 docs/INTEGRATION.md for the full contract)\n"
             "```\n\n"
+            "### Ordered quantity (`qty`)\n\n"
+            "`qty` is **not a field on this endpoint** — append it to the iframe URL "
+            "as shown above, or it has no effect. It caps how many photos the customer "
+            "can submit:\n\n"
+            "- **More than `qty`** — blocked. The editor offers *Keep first N* or "
+            "*Choose again*; there is no way to proceed with more.\n"
+            "- **Fewer than `qty`** — allowed, with an auto-fill prompt and a "
+            "pre-submit warning. Deliberate: `qty` travels in a URL the customer's "
+            "browser can edit, so a wrong value must not strand a real order at "
+            "checkout. Re-check `file_count` on the completion webhook if you need a "
+            "guaranteed count.\n"
+            "- Applies to **single-surface products only**. Two-sided products, "
+            "calendars and books have a surface count fixed by the layout.\n\n"
+            "Enforced in the browser only — nothing server-side validates it today.\n\n"
             "### Security guarantees\n\n"
             "- Token is a disposable UUID — never the real API key\n"
             "- All subsequent calls from the embed page go through the Next.js server-side proxy "
@@ -1757,7 +2050,36 @@ class EmbedSessionView(APIView):
             "- Token expires after 2 hours; generate a fresh one per customer session\n\n"
             "**Auth:** `Authorization: Bearer <real-api-key>` (server-to-server only)"
         ),
-        request=None,
+        request=inline_serializer(
+            name="EmbedSession",
+            fields={
+                "order_id": drf_serializers.CharField(
+                    required=False,
+                    help_text=(
+                        "Your job/order identifier. 1-64 chars, `A-Z a-z 0-9 _ . -` only. "
+                        "Stored server-side and injected as the `X-Order-ID` header on every "
+                        "upstream call — it never appears in the iframe URL."
+                    ),
+                ),
+                "callback_url": drf_serializers.CharField(
+                    required=False,
+                    help_text=(
+                        "HTTPS URL to POST the signed completion webhook to (max 2000 chars). "
+                        "Omit it and no webhook fires — poll `/api/render-status/<job_id>/` instead. "
+                        "See docs/INTEGRATION.md for the payload and HMAC verification."
+                    ),
+                ),
+                "include_uploads": drf_serializers.BooleanField(
+                    required=False,
+                    default=True,
+                    help_text=(
+                        "Include the customer's original photos (`1_customer_uploads/`) in the "
+                        "delivered ZIP. Set false for a smaller, faster download of just the "
+                        "mock + print files; `uploads_download_url` is then null."
+                    ),
+                ),
+            },
+        ),
         responses={
             201: inline_serializer(
                 name="EmbedSessionResponse",
@@ -2100,6 +2422,82 @@ class EditorRenderView(APIView):
     """
     permission_classes = [IsAuthenticatedWithAPIKey, CanGenerateLayouts]
 
+    @extend_schema(
+        tags=["editor"],
+        summary="Submit a composed design for rendering",
+        description=(
+            "The render entry point for both the embed iframe and the dashboard "
+            "editor. Photos must already be uploaded via the chunked upload API; "
+            "this call references them by `upload_id` and carries only the "
+            "per-frame transforms. Returns **202** immediately with a job to poll — "
+            "rendering happens on a Celery worker.\n\n"
+            "**`order_id` resolution order:** the `X-Order-ID` header (injected by "
+            "the embed proxy from the session, never trusted from the browser) "
+            "wins over a body `order_id`.\n\n"
+            "**Send the real `surface_key`.** For a single-surface product it is "
+            "still that surface's own key — a literal `\"canvas\"` matches no "
+            "surface and prints blank. Multi-surface products rely on this to give "
+            "each physical side its own photos; get it wrong and one side prints "
+            "the other side's picture.\n\n"
+            "Book products must be submitted here rather than via "
+            "`/api/layout/generate`, which cannot assign photos per page.\n\n"
+            "There is **no duplicate-submit guard**: the same `order_id` posted "
+            "twice creates a second job."
+        ),
+        request=inline_serializer(
+            name="EditorRender",
+            fields={
+                "layout_name": drf_serializers.CharField(help_text="Layout identifier — the filename stem."),
+                "order_id": drf_serializers.CharField(
+                    required=False,
+                    help_text="Ignored when the `X-Order-ID` header is present. `^[A-Za-z0-9_.\\-]{1,64}$`.",
+                ),
+                "export_format": drf_serializers.ChoiceField(
+                    choices=["png", "pdf"], required=False, default="png",
+                ),
+                "canvases": drf_serializers.ListField(
+                    help_text=(
+                        "One entry per printed canvas: `{canvas_index, surface_key, "
+                        "bg_color?, frames[]}`. Each frame is `{frame_index, "
+                        "upload_id, offset_x, offset_y, scale, rotation, fit_mode}` "
+                        "— offsets in canvas-space pixels at layout scale, `scale` a "
+                        "multiplier on top of the cover/contain base, `fit_mode` "
+                        "`cover` or `contain`."
+                    ),
+                    child=drf_serializers.DictField(),
+                ),
+            },
+        ),
+        responses={
+            202: inline_serializer(
+                name="EditorRenderAccepted",
+                fields={
+                    "job_id": drf_serializers.UUIDField(),
+                    "order_id": drf_serializers.CharField(),
+                    "status_url": drf_serializers.CharField(help_text="Poll this until status is completed or failed."),
+                    "queue": drf_serializers.CharField(),
+                },
+            ),
+            400: OpenApiResponse(description="Missing order_id, unknown layout, empty canvases, or an upload_id that resolves to no stored file."),
+            403: OpenApiResponse(description="This API key may not generate layouts."),
+            507: OpenApiResponse(description="Insufficient disk space to accept the job."),
+        },
+        examples=[
+            OpenApiExample(
+                "Single 4x6 print",
+                value={
+                    "layout_name": "classic_4x6", "order_id": "EXT-JOB-123", "export_format": "png",
+                    "canvases": [{
+                        "canvas_index": 0, "surface_key": "front",
+                        "frames": [{"frame_index": 0, "upload_id": "a3f1c2d4-e5b6-7890-abcd-ef1234567890",
+                                    "offset_x": -12.5, "offset_y": 3.0, "scale": 1.2,
+                                    "rotation": 0, "fit_mode": "cover"}],
+                    }],
+                },
+                request_only=True,
+            ),
+        ],
+    )
     def post(self, request):
         from datetime import timedelta
         from django.db import transaction as db_transaction
@@ -2288,6 +2686,19 @@ def _write_fonts(fonts):
     cache.delete(_FONTS_CACHE_KEY)
 
 
+# These three views are declared AllowAny because their GET is public, then gate
+# their writes on the ops team *inside* the handler. drf-spectacular reads
+# permission_classes, so without an explicit `auth=` it would advertise the
+# destructive methods as requiring no credentials at all. State the truth
+# per-operation instead: public reads carry `auth=[]`, ops writes carry this.
+OPS_WRITE_AUTH = [{"BearerAuth": []}, {"PIAAuth": []}, {"PIASessionCookie": []}]
+
+_OPS_GATE_RESPONSES = {
+    401: OpenApiResponse(description="No API key or PIA session presented."),
+    403: OpenApiResponse(description="Authenticated, but not on the ops team."),
+}
+
+
 class FontsView(APIView):
     """
     GET  /api/fonts  — returns the list of enabled fonts (open to any authenticated user).
@@ -2295,11 +2706,54 @@ class FontsView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        tags=["fonts"],
+        summary="List enabled fonts",
+        description=(
+            "Font families offered in the editor's text-overlay picker. Public and "
+            "cached (`max-age=300`, `stale-while-revalidate=600`) so the editor can "
+            "fetch it on mount without an auth round-trip.\n\n"
+            "This is the *editor* font list. It is unrelated to print rendering, "
+            "which uses a single bundled Inter Variable face server-side — there is "
+            "deliberately no font picker in the 300-DPI output path."
+        ),
+        responses={200: inline_serializer(
+            name="FontList",
+            fields={"fonts": drf_serializers.ListField(child=drf_serializers.CharField())},
+        )},
+        auth=[],
+    )
     def get(self, request):
         response = Response({'fonts': _read_fonts()})
         response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
         return response
 
+    @extend_schema(
+        tags=["fonts"],
+        summary="Replace the enabled font list (ops only)",
+        description=(
+            "Replaces the whole list — this is not a merge. Written atomically "
+            "(temp file + rename) and the read cache is dropped immediately.\n\n"
+            "Ops team only, enforced inside the handler rather than by "
+            "`permission_classes`, because the GET on this same view is public."
+        ),
+        request=inline_serializer(
+            name="FontListWrite",
+            fields={"fonts": drf_serializers.ListField(
+                child=drf_serializers.CharField(),
+                help_text="Font family names. Must be a list of strings.",
+            )},
+        ),
+        responses={
+            200: inline_serializer(
+                name="FontListWritten",
+                fields={"fonts": drf_serializers.ListField(child=drf_serializers.CharField())},
+            ),
+            400: OpenApiResponse(description="`fonts` missing, or not a list of strings."),
+            **_OPS_GATE_RESPONSES,
+        },
+        auth=OPS_WRITE_AUTH,
+    )
     def put(self, request):
         # Only ops team can modify fonts
         from .authentication import PIAAuthentication, BearerTokenAuthentication
@@ -2459,7 +2913,26 @@ class SKULayoutView(APIView):
     @extend_schema(
         tags=["sku-layouts"],
         summary="Get SKU → layout mapping",
-        description="Returns the full mapping (no `sku` arg) or a single resolution.",
+        description=(
+            "Resolve a storefront SKU to the layout that should be opened for it. "
+            "Without `sku`, returns the whole mapping.\n\n"
+            "**Public read**, so printo.in can resolve the layout *before* creating "
+            "an embed session. Cached 5 minutes with a 10-minute "
+            "stale-while-revalidate window.\n\n"
+            "A SKU mapped to a layout that has since been deleted returns **410 "
+            "Gone**, not 404 — the distinction tells a caller that the mapping "
+            "exists but its target is missing, which is an ops problem rather than "
+            "a bad SKU."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="`{mappings: {sku: layout_name}}` for the list form, or `{sku, layout_name}` for one SKU.",
+            ),
+            404: OpenApiResponse(description="This SKU has no mapping."),
+            410: OpenApiResponse(description="Mapped, but the target layout no longer exists on disk."),
+        },
+        auth=[],
     )
     def get(self, request, sku=None):
         mappings = _read_sku_layouts()
@@ -2494,6 +2967,30 @@ class SKULayoutView(APIView):
     @extend_schema(
         tags=["sku-layouts"],
         summary="Replace SKU → layout mapping (ops only)",
+        description=(
+            "Replaces the **entire** mapping. To change one SKU, use `PATCH "
+            "/api/sku-layouts/<sku>/` instead — it is a single round trip and two "
+            "concurrent editors cannot lose each other's edit, which a "
+            "read-mutate-PUT cycle can.\n\n"
+            "Every `layout_name` is checked to exist on disk before anything is "
+            "persisted, so the file can never hold a broken pointer.\n\n"
+            "Writes take an advisory lock across the read-modify-write, so "
+            "concurrent edits from different workers serialise. Reads are "
+            "deliberately unlocked — the file is replaced atomically, so a reader "
+            "sees the old map or the new one, never a partial write."
+        ),
+        request=inline_serializer(
+            name="SKULayoutMapWrite",
+            fields={"mappings": drf_serializers.DictField(
+                child=drf_serializers.CharField(),
+                help_text="`{sku: layout_name}`. Both keys and values must be strings.",
+            )},
+        ),
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The mapping as stored."),
+            400: OpenApiResponse(description="`mappings` missing, not an object, not all strings, or naming a layout that does not exist."),
+            **_OPS_GATE_RESPONSES,
+        },
     )
     def put(self, request):
         _user, denied = _require_ops_user(request)
@@ -2527,7 +3024,26 @@ class SKULayoutView(APIView):
 
     @extend_schema(
         tags=["sku-layouts"],
-        summary="Set one SKU -> layout mapping (ops only)",
+        summary="Set one SKU → layout mapping (ops only)",
+        description=(
+            "Points one SKU at one layout, leaving every other mapping untouched. "
+            "Preferred over `PUT` for single-key edits: one round trip instead of "
+            "two, and no lost update when two people edit different SKUs at the "
+            "same time.\n\n"
+            "Applies the same layout-exists check `PUT` does, so neither door can "
+            "persist a pointer to a deleted layout."
+        ),
+        request=inline_serializer(
+            name="SKULayoutEntryWrite",
+            fields={"layout_name": drf_serializers.CharField(
+                help_text="Layout identifier (filename stem). Must already exist on disk.",
+            )},
+        ),
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The updated mapping."),
+            400: OpenApiResponse(description="SKU missing from the URL, `layout_name` missing, or that layout does not exist."),
+            **_OPS_GATE_RESPONSES,
+        },
     )
     def patch(self, request, sku=None):
         """Point one SKU at one layout, leaving every other mapping alone."""
@@ -2565,7 +3081,19 @@ class SKULayoutView(APIView):
 
     @extend_schema(
         tags=["sku-layouts"],
-        summary="Remove one SKU -> layout mapping (ops only)",
+        summary="Remove one SKU → layout mapping (ops only)",
+        description=(
+            "Removes a single mapping, leaving the rest untouched.\n\n"
+            "**Idempotent** — removing a SKU that is not mapped is a success, so a "
+            "rename cleaning up its old key does not fail when something already "
+            "cleaned it up."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The mapping after removal."),
+            400: OpenApiResponse(description="No SKU in the URL."),
+            **_OPS_GATE_RESPONSES,
+        },
     )
     def delete(self, request, sku=None):
         """
@@ -2690,6 +3218,29 @@ class CalendarStylesView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        tags=["calendar"],
+        summary="List calendar theme presets, or fetch one",
+        description=(
+            "Without `name`, a summary list of `{name, label, description}`. With "
+            "`name`, the full preset — including its palette swatches for the "
+            "Gen-Z theme, of which the customer picks exactly one per render.\n\n"
+            "Public so the customer-facing preview can load themes straight through "
+            "the embed proxy. Cached 5 minutes with a 10-minute "
+            "stale-while-revalidate window.\n\n"
+            "Theme colours are resolved server-side at render time from these same "
+            "files, so the printed calendar matches the preview; ops colours set on "
+            "the layout win over the preset."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="`{styles: [{name, label, description}]}` for the list form, or the full preset object.",
+            ),
+            404: OpenApiResponse(description="No such style preset."),
+        },
+        auth=[],
+    )
     def get(self, request, name=None):
         if name is None:
             response = Response({'styles': _list_calendar_styles()})
@@ -2706,6 +3257,26 @@ class CalendarStylesView(APIView):
         response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
         return response
 
+    @extend_schema(
+        tags=["calendar"],
+        summary="Replace a calendar theme preset (ops only)",
+        description=(
+            "Replaces one preset wholesale. Ops team only — mutations are routed "
+            "through `/api/ops/calendar-styles/<name>` rather than the public read "
+            "path, so the embed proxy (which allows `calendar-styles` for reads) "
+            "can never forward a write.\n\n"
+            "The stored `name` is forced to match the URL, so a client cannot "
+            "smuggle a different identifier in the body and overwrite another "
+            "preset."
+        ),
+        request=OpenApiTypes.OBJECT,
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The preset as stored."),
+            400: OpenApiResponse(description="Name missing from the URL, body not a JSON object, or preset rejected by validation."),
+            **_OPS_GATE_RESPONSES,
+        },
+        auth=OPS_WRITE_AUTH,
+    )
     def put(self, request, name=None):
         if name is None:
             return Response(
@@ -2828,6 +3399,29 @@ class HolidaysView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        tags=["calendar"],
+        summary="Fetch holiday data for a locale and year",
+        description=(
+            "Holidays auto-injected into calendar layouts that opt into a locale. "
+            "Seeded locales are `en-IN` and `generic`; seeded years are 2026-2030.\n\n"
+            "A year with no file is **404, not an error condition** — calendars for "
+            "that year simply render with no auto-injected holidays, and customers "
+            "can still add their own entries. Refreshing the data annually is an "
+            "ops task (`scripts/refresh-holidays.py`).\n\n"
+            "Cached hard (1 day, 7-day stale-while-revalidate); the data changes at "
+            "most once a year."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="`{events: [...]}` plus any locale metadata stored with it.",
+            ),
+            400: OpenApiResponse(description="Malformed locale or a year outside the supported range."),
+            404: OpenApiResponse(description="No holiday file for this locale/year."),
+        },
+        auth=[],
+    )
     def get(self, request, locale: str, year: str):
         try:
             locale, year_int = _safe_locale_year(locale, year)
@@ -2871,6 +3465,29 @@ class HolidaysView(APIView):
             )
         return user, None
 
+    @extend_schema(
+        tags=["calendar"],
+        summary="Replace a locale-year holiday file (ops only)",
+        description=(
+            "Replaces one year's holidays for one locale. Ops team only, via "
+            "`/api/ops/holidays/<locale>/<year>`.\n\n"
+            "Takes effect on the next render — already-queued jobs read the data "
+            "snapshotted when they were submitted."
+        ),
+        request=inline_serializer(
+            name="HolidayFileWrite",
+            fields={"events": drf_serializers.ListField(
+                child=drf_serializers.DictField(),
+                help_text="Holiday entries. Required, and must be an array.",
+            )},
+        ),
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The holiday file as stored."),
+            400: OpenApiResponse(description="Malformed locale/year, body not a JSON object, or no `events` array."),
+            **_OPS_GATE_RESPONSES,
+        },
+        auth=OPS_WRITE_AUTH,
+    )
     def put(self, request, locale: str, year: str):
         try:
             locale, year_int = _safe_locale_year(locale, year)
@@ -2941,6 +3558,23 @@ class HolidaysView(APIView):
         _write_holidays(locale, year_int, payload)
         return Response(payload)
 
+    @extend_schema(
+        tags=["calendar"],
+        summary="Delete a locale-year holiday file (ops only)",
+        description=(
+            "Removes the file and drops its cache entry. Idempotent — deleting a "
+            "locale/year that has no file still returns 204.\n\n"
+            "Calendars for that year then render with no auto-injected holidays "
+            "rather than failing."
+        ),
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Deleted, or there was nothing to delete."),
+            400: OpenApiResponse(description="Malformed locale or year."),
+            **_OPS_GATE_RESPONSES,
+        },
+        auth=OPS_WRITE_AUTH,
+    )
     def delete(self, request, locale: str, year: str):
         try:
             locale, year_int = _safe_locale_year(locale, year)
@@ -3341,10 +3975,37 @@ class CanvasStateView(APIView):
     @extend_schema(
         tags=["canvas-state"],
         summary="Save editor state (upsert)",
+        description=(
+            "Autosave for the editor, called on a short debounce while the customer "
+            "works. Keyed by `(order_id, api_key)`.\n\n"
+            "The `X-Order-ID` header wins over the path parameter, so autosave and "
+            "submit can never key different rows for one session.\n\n"
+            "**This writes `editor_state` only.** The submit-time render payload "
+            "lives in a separate column owned by the render endpoint. The two were "
+            "one field once, and autosave firing after a submit could strip a "
+            "queued job's payload. Do not merge them again.\n\n"
+            "`image_paths` is deliberately not overwritten on update: blanking it "
+            "every couple of seconds once made a customer's uploads unfindable for "
+            "erasure, since that column was how a purge located their files."
+        ),
+        request=inline_serializer(
+            name="CanvasStateWrite",
+            fields={
+                "editor_state": drf_serializers.JSONField(
+                    help_text="Opaque editor snapshot — surfaces, frames, transforms, overlays, calendar/book state.",
+                ),
+                "layout_name": drf_serializers.CharField(required=False),
+                "image_paths": drf_serializers.ListField(
+                    required=False, child=drf_serializers.CharField(),
+                    help_text="Set on create. Not overwritten on update — see description.",
+                ),
+                "fit_mode": drf_serializers.ChoiceField(choices=["cover", "contain"], required=False, default="cover"),
+            },
+        ),
         responses={
-            200: OpenApiResponse(description="State saved / updated"),
-            201: OpenApiResponse(description="State created"),
-            400: OpenApiResponse(description="Invalid payload"),
+            200: OpenApiResponse(description="State updated."),
+            201: OpenApiResponse(description="State created."),
+            400: OpenApiResponse(description="No order_id resolved from header or path."),
         },
     )
     def put(self, request, order_id: str):
@@ -3432,6 +4093,16 @@ class CanvasStateView(APIView):
 #  Chunked / Resumable Upload
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Shared by the chunk/complete schema descriptions. Both endpoints build a
+# filesystem path out of a request-supplied id, so the guard is worth stating
+# on each of them rather than once somewhere a reader may not reach.
+UUID_GUARD = (
+    "`upload_id` is matched against a canonical UUID v4 pattern before any path "
+    "is built from it, so a traversal value is rejected outright rather than "
+    "reaching the filesystem."
+)
+
+
 class ChunkedUploadInitView(APIView):
     """
     POST /api/upload/init  — start a resumable upload session.
@@ -3447,7 +4118,40 @@ class ChunkedUploadInitView(APIView):
 
     CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB recommended chunk size
 
-    @extend_schema(tags=["upload"], summary="Initialise a chunked upload session")
+    @extend_schema(
+        tags=["upload"],
+        summary="Initialise a chunked upload session",
+        description=(
+            "Step 1 of 3. Reserves an `upload_id` and returns the chunk size to "
+            "cut the file into. Follow with one `PUT .../chunk?index=N` per chunk "
+            "(the editor runs four files in parallel), then `POST .../complete`.\n\n"
+            "Chunk uploads are idempotent — re-sending an index overwrites it — so "
+            "a failed submit can resume by re-sending only the chunks that were "
+            "never acknowledged.\n\n"
+            "Per-file ceiling is `MAX_UPLOAD_FILE_SIZE_MB` (default 50 MB). Disk "
+            "headroom is checked here, so a full volume fails at init with **507** "
+            "rather than part-way through a long upload."
+        ),
+        request=inline_serializer(
+            name="ChunkedUploadInit",
+            fields={
+                "filename": drf_serializers.CharField(),
+                "file_size": drf_serializers.IntegerField(help_text="Total bytes."),
+                "total_chunks": drf_serializers.IntegerField(help_text="Bounded server-side."),
+            },
+        ),
+        responses={
+            201: inline_serializer(
+                name="ChunkedUploadSession",
+                fields={
+                    "upload_id": drf_serializers.UUIDField(help_text="Use in the chunk and complete calls, and as the frame's upload_id at render."),
+                    "chunk_size": drf_serializers.IntegerField(help_text="Bytes per chunk. Cut the file to exactly this."),
+                },
+            ),
+            400: OpenApiResponse(description="Missing field, file over the size limit, or an implausible total_chunks."),
+            507: OpenApiResponse(description="Not enough disk space to accept this upload."),
+        },
+    )
     def post(self, request):
         import uuid as _uuid
 
@@ -3565,7 +4269,37 @@ class ChunkedUploadChunkView(APIView):
     permission_classes = [IsAuthenticatedWithAPIKey]
     parser_classes = [_AnyContentTypeParser]
 
-    @extend_schema(tags=["upload"], summary="Upload a single chunk")
+    @extend_schema(
+        tags=["upload"],
+        summary="Upload a single chunk",
+        description=(
+            "Step 2 of 3. Body is the **raw chunk bytes** — not multipart, not "
+            "JSON. The zero-based `index` goes in the query string.\n\n"
+            "Idempotent: re-sending an index overwrites that chunk, which is what "
+            "makes resume possible. Each body is capped at twice the negotiated "
+            "chunk size.\n\n" + UUID_GUARD + "\n\n"
+            "Deliberately excluded from the API audit trail — a single large job "
+            "would otherwise write thousands of rows. The `complete` call that "
+            "finalises the stored file *is* recorded."
+        ),
+        parameters=[
+            OpenApiParameter("index", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True,
+                             description="Zero-based chunk index."),
+        ],
+        request={"application/octet-stream": OpenApiTypes.BINARY},
+        responses={
+            200: inline_serializer(
+                name="ChunkAck",
+                fields={
+                    "chunk_index": drf_serializers.IntegerField(),
+                    "received": drf_serializers.IntegerField(help_text="Chunks stored so far."),
+                    "total": drf_serializers.IntegerField(),
+                },
+            ),
+            400: OpenApiResponse(description="Malformed upload_id, missing/invalid index, or an oversized body."),
+            404: OpenApiResponse(description="Unknown or already-reclaimed upload session."),
+        },
+    )
     def put(self, request, upload_id: str):
         # Reject anything that isn't a canonical UUID v4 string to prevent
         # path traversal attacks (e.g. upload_id='../../etc/passwd').
@@ -3644,7 +4378,33 @@ class ChunkedUploadCompleteView(APIView):
     """
     permission_classes = [IsAuthenticatedWithAPIKey]
 
-    @extend_schema(tags=["upload"], summary="Assemble chunks and finalise upload")
+    @extend_schema(
+        tags=["upload"],
+        summary="Assemble chunks and finalise upload",
+        description=(
+            "Step 3 of 3. Concatenates the staged chunks in index order, verifies "
+            "the assembled size and that the result actually decodes as an image, "
+            "then records it and removes the staging directory.\n\n"
+            "An upload that never reaches this call leaves its staging directory "
+            "behind — there is no database row to sweep from — so a separate "
+            "garbage-collector pass reclaims abandoned staging after "
+            "`CHUNK_STAGING_MAX_AGE_HOURS` (default 24). A slow client still "
+            "uploading is never a candidate.\n\n" + UUID_GUARD
+        ),
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="ChunkedUploadComplete",
+                fields={
+                    "file_path": drf_serializers.CharField(help_text="Server-side path. Reference the upload by upload_id, not this."),
+                    "filename": drf_serializers.CharField(),
+                    "file_size": drf_serializers.IntegerField(),
+                },
+            ),
+            400: OpenApiResponse(description="Malformed upload_id, missing chunks, size mismatch, or the assembled bytes are not a decodable image."),
+            404: OpenApiResponse(description="Unknown or already-reclaimed upload session."),
+        },
+    )
     def post(self, request, upload_id: str):
         import shutil
 
@@ -3791,7 +4551,40 @@ class OrientationDetectView(APIView):
     # Default DRF parsers (incl. MultiPartParser) are enough — frontend
     # sends a single 'file' field as multipart/form-data.
 
-    @extend_schema(tags=["upload"], summary="Detect rotation for a single file")
+    @extend_schema(
+        tags=["upload"],
+        summary="Detect rotation for a single photo",
+        description=(
+            "Runs pose detection on one photo and returns the cardinal rotation "
+            "needed to stand its subject upright. **Stateless — nothing is "
+            "persisted.**\n\n"
+            "This catches photos whose subject is sideways *in the bytes* — camera "
+            "held wrong, scanned prints, messaging apps that strip EXIF — which no "
+            "aspect-ratio heuristic can detect. When no pose is found (food, "
+            "landscape, an occluded subject) it returns rotation `0` and the client "
+            "falls back to its own heuristic.\n\n"
+            "Returns **503** when `AUTO_ORIENTATION_MODE=off`. Clients should read "
+            "`/api/config` first and skip the upload entirely in that case; a 503 "
+            "here produces the same outcome either way."
+        ),
+        request={"multipart/form-data": inline_serializer(
+            name="OrientationDetect",
+            fields={"file": drf_serializers.FileField(help_text="The image to analyse.")},
+        )},
+        responses={
+            200: inline_serializer(
+                name="OrientationResult",
+                fields={
+                    "rotation": drf_serializers.ChoiceField(choices=[0, 90, 180, 270],
+                                                            help_text="Degrees to rotate for an upright subject."),
+                    "confidence": drf_serializers.FloatField(),
+                    "source": drf_serializers.CharField(help_text="Which detector produced the answer."),
+                },
+            ),
+            400: OpenApiResponse(description="No `file` field, or the image could not be read."),
+            503: OpenApiResponse(description="Auto-orientation is switched off for this deployment."),
+        },
+    )
     def post(self, request):
         if getattr(settings, "AUTO_ORIENTATION_MODE", "mediapipe") == "off":
             return Response(
@@ -3887,10 +4680,14 @@ class HeicConvertView(APIView):
             "and returns the decoded image as `image/jpeg`. Used as the fallback "
             "when in-browser HEIC conversion fails."
         ),
+        request={"multipart/form-data": inline_serializer(
+            name="HeicConvert",
+            fields={"file": drf_serializers.FileField(help_text="HEIC/HEIF bytes, up to the normal upload size limit.")},
+        )},
         responses={
-            200: OpenApiResponse(description="image/jpeg binary"),
-            400: OpenApiResponse(description="Missing file, too large, or not decodable"),
-            503: OpenApiResponse(description="HEIC decoder unavailable in this build"),
+            200: OpenApiResponse(response=OpenApiTypes.BINARY, description="The decoded photo as image/jpeg."),
+            400: OpenApiResponse(description="No `file` field, over the size limit, or not decodable as HEIC."),
+            503: OpenApiResponse(description="No HEIC decoder available in this build."),
         },
     )
     def post(self, request):

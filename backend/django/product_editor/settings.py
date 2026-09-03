@@ -155,7 +155,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 100,
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Subclass, not the stock AutoSchema — see api/schema.py for why the
+    # collection/detail operationId collision needs handling.
+    "DEFAULT_SCHEMA_CLASS": "api.schema.ProductEditorAutoSchema",
 }
 
 SPECTACULAR_SETTINGS = {
@@ -187,27 +189,38 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    # Scalar renders sidebar groups in this order, so it doubles as the reading
+    # order for the reference: what a partner integrates with first, then the
+    # editor's own surface, then internal-only tooling. Every tag used by an
+    # @extend_schema must appear here — an undeclared one still renders, but
+    # without a description and in arbitrary position.
     "TAGS": [
-        {"name": "health", "description": "Service liveness check"},
-        {"name": "layouts", "description": "Layout discovery and JSON retrieval"},
-        {"name": "generate", "description": "Canvas generation from uploaded images"},
-        {"name": "embed", "description": "Short-lived iframe embed tokens — external site integration"},
-        {"name": "exports", "description": "Secure download of exported files"},
-        {"name": "ops", "description": "Ops team layout management (internal only)"},
+        {"name": "health", "description": "Liveness probe. Public, and the endpoint the Docker healthcheck hits."},
+        {"name": "config", "description": "Public runtime feature flags the editor reads on mount."},
+        {"name": "embed", "description": "Short-lived iframe tokens. Start here for a storefront integration — a real API key must never reach a browser."},
+        {"name": "layouts", "description": "Layout discovery and JSON retrieval. A layout's identifier is its filename stem."},
+        {"name": "sku-layouts", "description": "SKU → layout resolution, so a caller can pick the right layout before creating an embed session."},
+        {"name": "editor", "description": "The editor's own surface: mount payload and render submission. Handles every product type, including books."},
+        {"name": "upload", "description": "Chunked, resumable photo upload. Every render references files by upload_id."},
+        {"name": "canvas-state", "description": "Autosaved editor state, so a customer's refresh does not lose their design."},
+        {"name": "generate", "description": "Direct partner render submission and job status polling."},
+        {"name": "exports", "description": "Download of rendered print files, as one combined archive or split by part."},
+        {"name": "fonts", "description": "Editor font list. Public read, ops write. Unrelated to print rendering, which uses one bundled face."},
+        {"name": "calendar", "description": "Calendar theme presets and holiday data. Public reads for the preview, ops-only writes."},
+        {"name": "ops", "description": "Internal tooling: template management, pipeline health, and DPDP erasure. Ops team only."},
     ],
     "SWAGGER_UI_SETTINGS": {
         "deepLinking": True,
         "persistAuthorization": True,
         "displayOperationId": False,
     },
-    "SECURITY": [{"BearerAuth": []}],
-    "SECURITY_DEFINITIONS": {
-        "BearerAuth": {
-            "type": "http",
-            "scheme": "bearer",
-            "bearerFormat": "API key or PIA token",
-        }
-    },
+    # Auth schemes come from the OpenApiAuthenticationExtension subclasses in
+    # api/schema.py, which drf-spectacular resolves per view from its
+    # authentication_classes. Do NOT reintroduce a blanket "SECURITY" list here:
+    # it would stamp the same requirement onto the public endpoints too, and the
+    # "SECURITY_DEFINITIONS" key that used to sit beside it is a drf-yasg
+    # setting name that drf-spectacular ignores silently — which is how the
+    # schema ended up referencing an undefined BearerAuth scheme.
 }
 
 # CORS Configuration - Restrict to specific origins

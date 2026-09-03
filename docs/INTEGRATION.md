@@ -403,7 +403,41 @@ curl -X POST https://product-editor.printo.in/api/embed/session \
 
 The `callback_url` flows through the embed proxy to the backend, gets stamped onto `CanvasData`, and is the exact URL the webhook task POSTs to when render completes. No domain allowlist on Product Editor's side — auth is enforced by the api_key + HMAC. `callback_url` must be `https://` and ≤ 2000 chars.
 
-### 4. Firewall
+### 4. Restrict uploads to the ordered quantity
+
+Append `qty=<N>` to the iframe URL, alongside the session token:
+
+```html
+<iframe src="https://product-editor.printo.in/editor/layout/circle_48mm?token=<uuid>&qty=12"></iframe>
+```
+
+`qty` is the number of items the customer ordered. It is **not** a field on
+`POST /api/embed/session` — send it on the iframe URL or it has no effect.
+
+What the editor does with it:
+
+| Photos placed | Behaviour |
+|---|---|
+| More than `qty` | **Blocked.** A modal offers *Keep first N* (trims the selection) or *Choose again* (discards it). There is no way to proceed with more than `qty`. |
+| Fewer than `qty` | **Allowed, with warnings.** A banner offers Auto-fill / pick-to-fill, and the pre-submit modal repeats the shortfall. The customer can still submit — they will receive fewer prints than ordered. |
+| Exactly `qty` | Nothing shown. |
+
+Under-upload is deliberately not blocked: `qty` reaches us through a URL the
+customer's browser can edit, so treating it as a hard gate in both directions
+would let a wrong value strand a real order at checkout. If your storefront
+needs a guaranteed count, re-check `file_count` on the completion webhook
+before accepting the order.
+
+Applies to **single-surface products only** (photo prints, magnets, coasters).
+Two-sided products, calendars and books have a surface count fixed by the
+layout, which `qty` does not describe — the param is ignored there.
+
+> **Known limitation:** `qty` is enforced in the browser only; nothing
+> server-side validates it today. A customer who edits the URL can change it.
+> Moving `qty` into the embed session so it is stored server-side and checked
+> at render time is planned — see `docs/PRD.md` §8.0.
+
+### 5. Firewall
 
 Allow inbound HTTPS from Product Editor's egress IP range to your `/api/internal/pe-callback` endpoint. Confirm the IP set with infra; add to allowlist.
 

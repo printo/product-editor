@@ -79,3 +79,33 @@ export function collectDuplicateFills(
   });
   return Array.from(seen.values()).filter(e => e.placements.length > 1);
 }
+
+/** Verdict from comparing the placed photo count against the order quantity. */
+export type QtyVerdict =
+  | { status: 'ok' }
+  | { status: 'under'; uploaded: number; needed: number }
+  | { status: 'over'; uploaded: number; allowed: number };
+
+/**
+ * Compare the photo count against the order quantity (the `?qty=N` param on
+ * the editor URL).
+ *
+ * Single-surface products only: a two-sided product, calendar or book has a
+ * fixed physical surface count that qty does not describe, so those always
+ * come back 'ok'.
+ *
+ * 'over' is a HARD cap — the caller trims to `allowed` or discards the pick;
+ * there is deliberately no proceed-with-all path, so a submit can never carry
+ * more photos than were ordered. 'under' stays warn-and-proceed: qty arrives
+ * in a URL the caller controls, and a wrong one must never block a checkout.
+ */
+export function checkOrderQty(
+  uploaded: number,
+  orderQty: number | null,
+  surfaceCount: number,
+): QtyVerdict {
+  if (orderQty === null || orderQty <= 0 || surfaceCount > 1) return { status: 'ok' };
+  if (uploaded < orderQty) return { status: 'under', uploaded, needed: orderQty };
+  if (uploaded > orderQty) return { status: 'over', uploaded, allowed: orderQty };
+  return { status: 'ok' };
+}

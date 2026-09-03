@@ -3,6 +3,7 @@
  * duplicate-fill detection). Warn-and-proceed only — nothing here blocks.
  */
 import {
+  checkOrderQty,
   collectDuplicateFills,
   collectEmptySurfaces,
   duplicateFingerprint,
@@ -100,5 +101,43 @@ describe('collectDuplicateFills', () => {
       new Set(),
     );
     expect(out).toEqual([]);
+  });
+});
+
+describe('checkOrderQty', () => {
+  it('exact match passes', () => {
+    expect(checkOrderQty(12, 12, 1)).toEqual({ status: 'ok' });
+  });
+
+  it('fewer photos than ordered reports the shortfall', () => {
+    expect(checkOrderQty(8, 12, 1)).toEqual({ status: 'under', uploaded: 8, needed: 12 });
+  });
+
+  it('more photos than ordered reports the cap, not a pass', () => {
+    expect(checkOrderQty(20, 12, 1)).toEqual({ status: 'over', uploaded: 20, allowed: 12 });
+  });
+
+  it('no qty in the URL disables the check entirely', () => {
+    expect(checkOrderQty(20, null, 1)).toEqual({ status: 'ok' });
+  });
+
+  it('a non-positive qty is ignored rather than capping everything to zero', () => {
+    expect(checkOrderQty(5, 0, 1)).toEqual({ status: 'ok' });
+    expect(checkOrderQty(5, -3, 1)).toEqual({ status: 'ok' });
+  });
+
+  it('multi-surface products opt out — qty does not describe their surface count', () => {
+    expect(checkOrderQty(20, 12, 2)).toEqual({ status: 'ok' });
+    expect(checkOrderQty(2, 12, 12)).toEqual({ status: 'ok' });
+  });
+
+  it('over is capped to exactly the ordered quantity when trimmed', () => {
+    const verdict = checkOrderQty(20, 12, 1);
+    expect(verdict.status).toBe('over');
+    // Mirrors handleOverConfirm's "Keep first N" branch.
+    const trimmed = Array.from({ length: 20 }, (_, i) => i)
+      .slice(0, verdict.status === 'over' ? verdict.allowed : 0);
+    expect(trimmed).toHaveLength(12);
+    expect(checkOrderQty(trimmed.length, 12, 1)).toEqual({ status: 'ok' });
   });
 });
