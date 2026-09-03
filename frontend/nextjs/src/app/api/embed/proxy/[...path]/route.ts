@@ -139,7 +139,6 @@ const ALLOWED_PATH_METHODS: Record<string, readonly ProxyMethod[]> = {
   'jobs': GET_ONLY,                 // download completed render
   'upload': ['POST', 'PUT'],        // init + complete are POST, chunk is PUT
   'fonts': GET_ONLY,                // list fonts — PUT is ops-only, not via embed
-  'sku-layouts': GET_ONLY,          // resolve SKU → layout
   'embed/session': GET_ONLY,        // self-validate (rare; mostly internal)
   // P7.4 (PRD §5 Phase 7) — calendar customer-facing reads. Required for the
   // product preview to load holiday badges + Gen-Z palette swatches inside the

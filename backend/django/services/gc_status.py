@@ -22,7 +22,7 @@ Deliberately a file under STORAGE_ROOT rather than a DB row:
   * `./storage` is bind-mounted, so it survives container recreation — the exact
     failure mode that lost the log evidence.
   * No migration, so this can ship to a production box with no schema risk.
-  * Matches the existing on-disk-config convention (see `sku_layouts.json` in
+  * Matches the existing on-disk-config convention (see `fonts.json` in
     api/views.py): write `*.tmp`, then `os.replace` for an atomic swap.
 
 Only *successful* runs are recorded. A crashed sweep writes nothing, so its

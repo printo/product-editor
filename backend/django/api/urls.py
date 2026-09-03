@@ -4,7 +4,7 @@ from .views import (
     LayoutManagementView, OrderDataPurgeView, ExternalLayoutDetailView, MaskDownloadView,
     EmbedSessionView, EmbedSessionValidateView, FontsView,
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
-    CanvasStateView, SKULayoutView, CalendarStylesView, HolidaysView,
+    CanvasStateView, CalendarStylesView, HolidaysView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
     OrientationDetectView, HeicConvertView,
     EditorRenderView, EditorInitView,
@@ -57,10 +57,6 @@ urlpatterns = [
 
     # Fonts management
     path("fonts", FontsView.as_view(), name="fonts"),
-
-    # SKU → layout resolution (B3 — auto-mapping for embed callers)
-    path("sku-layouts/", SKULayoutView.as_view(), name="sku-layouts-list"),
-    path("sku-layouts/<str:sku>/", SKULayoutView.as_view(), name="sku-layouts-detail"),
 
     # Calendar style presets (PRD §10.3 + §6.3 + Phase 3)
     # Public GETs — customer preview page fetches these through the embed proxy.

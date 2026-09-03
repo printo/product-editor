@@ -12,6 +12,14 @@ documentation is the main way to get a wrong answer here.
 this folder.** It is the maintained architectural reference and wins over
 anything below on any disagreement.
 
+**Every project doc lives here** (consolidated 2026-09-04). Four markdown files
+remain outside on purpose, and none of them are project documentation:
+`../CLAUDE.md`, `../AGENTS.md` and `../README.md` must sit at the repo root for
+the tooling and for GitHub to find them, and
+`../backend/django/api/static/scalar/README.md` is provenance for a vendored
+third-party bundle — it belongs beside the bundle it describes. If you add a
+doc, add it here and give it a row below.
+
 ## Current — safe to act on
 
 | Doc | What it is |
@@ -20,6 +28,8 @@ anything below on any disagreement.
 | [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) | What personal data is stored, where, and how it is deleted. The DPDP answer sheet — retention clock, the erasure endpoint, audit-trail retention, and the two gaps still open. |
 | [`AI_GUARDRAILS.md`](AI_GUARDRAILS.md) | Short list of rules that exist because breaking them has already cost us something. Companion to CLAUDE.md, not a replacement. |
 | [`LOAD_BASELINE.md`](LOAD_BASELINE.md) | Append-only log of web-tier load measurements. Add runs, never edit old ones. |
+| [`BUNDLED_FONTS.md`](BUNDLED_FONTS.md) | What the server-side renderer's bundled `.ttf` files are and how to add one. Moved here 2026-09-04 from `backend/django/services/fonts_assets/README.md`; the fonts themselves still live there. |
+| [`CALENDAR_S3_READINESS.md`](CALENDAR_S3_READINESS.md) | Audit of calendar storage paths for a future move off local disk — all env-driven, no hardcoded local paths. Moved here 2026-09-04 from `backend/django/services/`. |
 
 ## Shipped — historical design records
 
@@ -44,7 +54,6 @@ code, **the code is right**.
 | Doc | Notes |
 |---|---|
 | [`printo-architecture-audit/`](printo-architecture-audit/) | 12-part May 2026 audit of the **wider Printo estate** — the Flask storefront, Printose, the PHP Estimator, PIA — not this repo. Start at [`00-executive-summary.md`](printo-architecture-audit/00-executive-summary.md). Ages independently of this codebase and cannot be verified from here, since those repos aren't in this checkout; its Product Editor references are pinned at v1.10. |
-| [`../backend/django/services/CALENDAR_S3_READINESS.md`](../backend/django/services/CALENDAR_S3_READINESS.md) | Audit of calendar storage paths for a future move off local disk. Lives next to the code it describes. |
 
 ## Conventions
 

@@ -242,13 +242,13 @@ sequenceDiagram
 | Upload proxy JSON parse crash | `res.json()` threw on non-JSON gateway errors (502 HTML, 504 empty) | Switched to `res.text()` + guarded JSON parse with envelope fallback |
 | Dead imports | `SecureExportDownloadView` in `urls.py`, `User` in `create_api_key.py` | Removed |
 
-#### B3 — SKU-to-Layout Mapping ✅ Implemented
+#### B3 — SKU-to-Layout Mapping ✅ Implemented → ❌ **REMOVED 2026-09-04**
 
 - **Status: Infrastructure complete as of April 27, 2026. Mapping data still needs to be populated by Catalog/Ops team.**
 - **What was built:** A JSON-on-disk mapping at `storage/sku_layouts.json` plus three endpoints. Public read (so printo.in can resolve SKU before creating an embed session); ops-team-only write.
 - Cache headers: `public, max-age=300, stale-while-revalidate=600` so the storefront can hammer the resolution endpoint without backend load.
 - Validation: PUT rejects mappings to non-existent layouts before persisting, so the file never holds a broken pointer. GET returns 410 Gone if a previously-mapped layout has been deleted from disk.
-- Remaining work: Viji / Ops team to fill in real Printo SKU codes via `PUT /api/sku-layouts/`. The file ships empty (`{ "mappings": {} }`).
+- **Superseded 2026-09-04.** The endpoints and `storage/sku_layouts.json` were deleted without ever being populated. printo.in resolves an ordered SKU to a layout on its own side and passes the resolved layout name into `POST /api/embed/session`, so a second mapping in this service was one more thing to keep in sync. The table below records what existed; none of it is live. Both smoke tests now assert `/api/sku-layouts/` returns 404.
 - Priority: P1 — **resolved (infra); awaiting data population.**
 
 **Endpoints:**
@@ -409,7 +409,7 @@ trail). **The remaining gap is not in this codebase.**
 | Gap | Where it lives | Consequence while open |
 |---|---|---|
 | **Webhook consumer** | printo.in storefront backend | Print files are generated, signed, and offered — and nothing collects them. The manual handoff this PRD exists to delete is still in the loop. Implementation guide: [`INTEGRATION.md`](INTEGRATION.md). |
-| **SKU → layout data** | `storage/sku_layouts.json`, via `PUT /api/sku-layouts/` | The storefront cannot map an ordered SKU to a layout, so it cannot open the right editor. Endpoint live since Apr 27; mapping still empty. |
+| ~~**SKU → layout data**~~ | ~~`storage/sku_layouts.json`~~ | **No longer a blocker (2026-09-04).** Resolution moved to printo.in, which passes the resolved layout name when creating the embed session. Endpoint removed. |
 | **Production sign-off** | Mohan / production | Rollout can't be scheduled without a fallback path for a print-quality issue that preflight would have caught. |
 
 The honest read: the engineering side of Track B is done and the automation
@@ -485,7 +485,7 @@ find it. Ordered by what blocks the product outcome.
 | Priority | Action | Owner | Blocks |
 |---|---|---|---|
 | **1** | **printo.in storefront must consume the webhook** — accept `POST /api/internal/pe-callback`, verify the `X-Signature` HMAC against the api_key, fetch `mock_download_url` + `print_download_url` (or the combined `download_url`) with the api_key as Bearer auth, attach to the order. Guide: [`INTEGRATION.md`](INTEGRATION.md). | printo.in backend | **The entire automation outcome.** The Product Editor side has been done since May 5; until this lands, files are generated and never collected, so the manual preflight step this PRD exists to remove is still in the loop. |
-| **2** | **Populate `storage/sku_layouts.json`** with real SKU codes via `PUT /api/sku-layouts/` — top 5 SKUs (fridge magnets, photo prints, canvas prints, coasters, mugs). Endpoint has been live since Apr 27; the data is still empty. | Viji / Catalog Ops | Storefront can't resolve a layout from a SKU, so it can't open the right editor. |
+| ~~**2**~~ | ~~Populate `storage/sku_layouts.json`~~ — **dropped 2026-09-04.** printo.in resolves SKU → layout itself and passes the layout name into the embed session; the endpoint and file were removed. | ~~Viji / Catalog Ops~~ | Closed — no longer needed. |
 | **3** | **Production readiness sign-off** — can production accept automated output without preflight review, and what is the fallback if a print-quality issue slips through? | Mohan | Rollout decision (§7). |
 | 4 | **Arm the orphan-export sweep** — read a few nights of `garbage_collector.stats.orphan_exports` from `GET /api/celery/monitor/`, then set `GC_ORPHAN_SWEEP=delete`. Currently `dry_run`, so stranded customer photos outlive their retention window. | Kanna | DPDP hygiene, disk. |
 | 5 | **Flip CSP to enforcing** — `CSP_REPORT_ONLY=False` once the policy is validated against the editor (Fabric.js needs `'unsafe-eval'`) and the embed iframe (`frame-ancestors`). | Kanna | Security posture. |
@@ -504,7 +504,7 @@ committed to and when.
 | # | Action | Owner | Due By | Status |
 |---|---|---|---|---|
 | 1 | Validate embed integration on printo.in staging for top 5 SKUs | Kanna | Apr 11, 2026 | Open |
-| 2 | Confirm SKU-to-layout mapping for fridge magnets, photo prints, canvas prints, coasters, mugs (data — endpoint is live) | Viji / Kanna | May 5, 2026 | Open |
+| 2 | Confirm SKU-to-layout mapping for fridge magnets, photo prints, canvas prints, coasters, mugs | Viji / Kanna | May 5, 2026 | **Closed 2026-09-04** — mapping now lives in printo.in |
 | 3 | Production team readiness assessment — can they accept automated output without preflight? | Mohan | Apr 14, 2026 | Open |
 | 4 | Implement canvas state persistence (backend JSON save + IndexedDB file persistence) | Kanna | Apr 18, 2026 | **✅ Done (Apr 27)** |
 | 5 | Build post-checkout → printo.in storefront webhook (HMAC-signed) | Kanna (✅ Product Editor side) / printo.in storefront team (pending — see [INTEGRATION.md](INTEGRATION.md)) | Apr 25, 2026 | Product Editor side **✅ Done (May 5)**; storefront side **pending** |
@@ -518,8 +518,8 @@ committed to and when.
 | 13 | Update parent site (printo.in) to listen for `pe:render_job` postMessage type and poll render-status | Frontend (printo.in) | May 5, 2026 | Open — **but note the scope narrowed:** `pe:render_job` is for "your design is being prepared" UX only. File delivery is the webhook's job (see §8.0 item 1), not postMessage. The storefront frontend does not need to poll. |
 | 14 | Operations & reliability hardening (B5) — healthchecks, multi-stage Dockerfile, Pillow GC, CSP, ESLint flat config, `.next` clean scripts, single-source upload size, DEBUG default | Kanna | Apr 27, 2026 | **✅ Done** |
 | 15 | Login flow hardening (B6) — PIA outage detection, fetch timeouts, server-side auth gate, rate limiter, explicit redirect callback, type-cast cleanup | Kanna | Apr 27, 2026 | **✅ Done** |
-| 16 | SKU-to-layout mapping endpoint + `storage/sku_layouts.json` (B3 infra) | Kanna | Apr 27, 2026 | **✅ Done** |
-| 17 | Populate `storage/sku_layouts.json` with real Printo SKU codes via `PUT /api/sku-layouts/` | Viji / Catalog Ops | May 12, 2026 | Open |
+| 16 | SKU-to-layout mapping endpoint + `storage/sku_layouts.json` (B3 infra) | Kanna | Apr 27, 2026 | **✅ Done — then removed 2026-09-04** (resolution moved to printo.in) |
+| 17 | Populate `storage/sku_layouts.json` with real Printo SKU codes | Viji / Catalog Ops | May 12, 2026 | **Closed 2026-09-04 — not needed** (endpoint removed) |
 | 18 | Monitor CSP report-only violations in DevTools / logs, then flip `CSP_REPORT_ONLY=False` to enforce | Kanna | May 15, 2026 | Open |
 | 19 | Triage 18 react-hooks v7 lint warnings (`react-hooks/{exhaustive-deps,purity,set-state-in-effect,refs,immutability}`); promote rules to `error` once clean | Kanna | May 5, 2026 | **✅ Done (May 5)** |
 | 20 | Replace per-IP login rate limiter (in-memory) with Redis-backed limiter if frontend scales horizontally | Kanna / DevOps | Before HA scale-out | Open |
@@ -568,7 +568,7 @@ Required steps when running `./deploy.sh` for the v1.7 release. None require cod
 - For products with variable quantity (e.g., customer orders 50 business cards but uploads 1 design), how should the editor handle the 1-to-many mapping?
 - ~~Is the production estimator API ready to accept the postMessage payload format that the Product Editor emits, or does an adapter need to be built?~~ — **Resolved (v1.9):** Product Editor no longer pushes to OMS directly. It POSTs an HMAC-signed webhook to the printo.in storefront's `callback_url`; the storefront then talks to OMS via its own existing integration. Implementation guide for the storefront in [`INTEGRATION.md`](INTEGRATION.md).
 - What SLA does production commit to for orders received via the automated pipeline vs the manual pipeline? Should they be identical?
-- Can the Catalog Manager be extended to store the SKU-to-layout mapping, or does this need a new system?
+- ~~Can the Catalog Manager be extended to store the SKU-to-layout mapping, or does this need a new system?~~ **Answered 2026-09-04:** neither — printo.in holds the mapping.
 
 ---
 

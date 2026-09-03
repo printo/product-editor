@@ -17,7 +17,7 @@
 #
 # Note: PUT /api/ops/layouts/<name> requires an ops-team session cookie, not
 # just an API key. That part of the test is skipped when ENABLE_OPS_WRITE is
-# unset — read-only checks (health, list, GET ops layout, GET sku-layouts)
+# unset — read-only checks (health, list, GET ops layout, style presets)
 # still run and form the bulk of the coverage.
 
 set -u
@@ -136,21 +136,13 @@ else
   bad "GET /api/holidays/en-IN/2026 → $status"
 fi
 
-# ── 6. SKU mapping endpoint reachable ---------------------------------------
-step "6. GET /api/sku-layouts/ returns mapping object"
-status=$(curl -s -o /tmp/sc.body -w '%{http_code}' "$BASE/api/sku-layouts/")
-if [ "$status" = "200" ]; then
-  ok "GET /api/sku-layouts/ → 200 (public read)"
-  has_mappings=$(python3 -c '
-import json
-data = json.load(open("/tmp/sc.body"))
-print("yes" if "mappings" in data else "no")
-')
-  [ "$has_mappings" = "yes" ] && ok "Response contains mappings field" \
-    || bad "Response missing mappings field"
-else
-  bad "GET /api/sku-layouts/ → $status"
-fi
+# ── 6. SKU mapping endpoint is gone ------------------------------------------
+# Removed 2026-09-04: printo.in resolves SKU → layout on its own side. Asserted
+# rather than deleted, so a stray re-introduction is caught.
+step "6. GET /api/sku-layouts/ no longer exists"
+status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/sku-layouts/")
+[ "$status" = "404" ] && ok "GET /api/sku-layouts/ → 404 (removed)" \
+  || bad "Expected 404, got $status" 
 
 # ── 7. Validator rejects a malformed calendar layout (via direct POST) -----
 # A POST to /api/ops/layouts requires the ops cookie, but the layout

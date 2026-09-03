@@ -407,7 +407,7 @@ def _resolve_genz_palette(style: dict) -> Optional[dict]:
     # (unset → /app), so the palette file was NEVER found at render time and
     # Gen-Z prints silently fell back to default colours. Resolve under
     # settings.STORAGE_ROOT like api/views.py GENZ_PALETTES_DIR does. The S3
-    # migration (CALENDAR_S3_READINESS.md) should swap this to a storage
+    # migration (docs/CALENDAR_S3_READINESS.md) should swap this to a storage
     # instance explicitly rooted at STORAGE_ROOT.
     from django.conf import settings
     path = os.path.join(settings.STORAGE_ROOT, "calendar_palettes", "genz", f"{name}.json")

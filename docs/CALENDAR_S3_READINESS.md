@@ -1,7 +1,7 @@
 # Calendar feature — S3-readiness audit (Phase 9, PRD §11.17)
 
 Status: **READY** — no hardcoded local paths outside `settings.STORAGE_ROOT`.
-Date: 2026-05-24
+Date: 2026-05-24 · *Amended 2026-09-04: the `storage/sku_layouts.json` row was dropped — that mapping and its endpoints were removed, and SKU → layout resolution now happens in printo.in. The audit's conclusion is unchanged.*
 
 ## Storage roots (all env-driven)
 
@@ -24,7 +24,6 @@ All under `$STORAGE_ROOT` and assembled via `os.path.join(settings.STORAGE_ROOT,
 | `storage/calendar_palettes/genz/<name>.json` | `services/calendar_layout.py` | Gen-Z palette swatches |
 | `storage/calendar_styles/<name>.json` | `api/views.py::CALENDAR_STYLES_DIR` | Style preset metadata |
 | `storage/holidays/<locale>/<year>.json` | `services/calendar_holidays.py::_HOLIDAYS_ROOT` | Auto-loaded holidays |
-| `storage/sku_layouts.json` | `api/views.py::SKU_LAYOUTS_JSON_PATH` | SKU → layout mapping |
 | `storage/fonts.json` | `api/views.py::FONTS_JSON_PATH` | Bundled font list (NB: font *.ttf files ship with the image under `services/fonts_assets/`, not under STORAGE_ROOT — correct, fonts are immutable assets) |
 | `storage/parity-fixtures/calendar-grid.json` | `services/tests/test_calendar_renderer.py` | Test fixture, dev-only |
 

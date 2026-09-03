@@ -4,7 +4,7 @@
 # What it captures:
 #   - pe-db-<ts>.dump      : pg_dump custom format (pg_restore --clean ready)
 #   - pe-storage-<ts>.tgz  : ONLY the config ops mutates at runtime and that is
-#                            NOT recoverable from git (layouts, sku map, fonts,
+#                            NOT recoverable from git (layouts, fonts,
 #                            calendar palettes/styles, holidays, masks).
 #   - pe-manifest-<ts>.json : per-table row counts for restore verification.
 #
@@ -39,7 +39,7 @@ echo "[backup] $TS — dumping database $PG_DB…"
 $DC exec -T db pg_dump -U "$PG_USER" -Fc "$PG_DB" > "$DEST/pe-db-$TS.dump"
 
 echo "[backup] archiving storage config…"
-STORAGE_PATHS=(layouts masks sku_layouts.json fonts.json calendar_palettes calendar_styles holidays)
+STORAGE_PATHS=(layouts masks fonts.json calendar_palettes calendar_styles holidays)
 TAR_INCLUDE=()
 for p in "${STORAGE_PATHS[@]}"; do
   [[ -e "storage/$p" ]] && TAR_INCLUDE+=("$p")

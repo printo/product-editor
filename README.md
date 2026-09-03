@@ -491,7 +491,7 @@ storage/
 └── exports/    # generated render outputs
 ```
 
-Retention is controlled by stored `expires_at` values and `EXPORT_RETENTION_DAYS` rather than the older hard-coded 30-day / 14-day behaviour. The repo also stores SKU mappings in `storage/sku_layouts.json`, and chunk uploads are staged under `UPLOADS_DIR/.chunks/<upload_id>/` during assembly.
+Retention is controlled by stored `expires_at` values and `EXPORT_RETENTION_DAYS` rather than the older hard-coded 30-day / 14-day behaviour. Chunk uploads are staged under `UPLOADS_DIR/.chunks/<upload_id>/` during assembly.
 
 ---
 
