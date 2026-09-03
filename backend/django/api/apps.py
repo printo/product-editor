@@ -5,6 +5,18 @@ class ApiConfig(AppConfig):
     name = "api"
 
     def ready(self):
+        # Register the drf-spectacular authentication extensions. They only take
+        # effect once their module is imported, and nothing else imports it —
+        # without this the OpenAPI document references a BearerAuth scheme it
+        # never defines. See api/schema.py.
+        try:
+            from . import schema  # noqa: F401
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "drf-spectacular schema extensions failed to register", exc_info=True,
+            )
+
         # Tolerate truncated images process-wide. Consumer uploads — iOS/iCloud
         # exports, WhatsApp-forwarded photos, interrupted transfers — are
         # frequently truncated (the last few scanlines are missing). Browsers
