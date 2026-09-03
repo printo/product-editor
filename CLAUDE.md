@@ -858,6 +858,37 @@ Some configuration lives as JSON on disk (under `STORAGE_ROOT`, default `./stora
 
 **There is no SKU→layout mapping here.** It existed until 2026-09-04 (`storage/sku_layouts.json` plus `SKULayoutView`) and was removed: printo.in resolves an ordered SKU to a layout on its own side and passes the resolved layout name when it creates the embed session. Don't re-add it without checking that decision still holds — `scripts/smoke-test-embed.sh` and `scripts/smoke-test-calendar.sh` both assert `/api/sku-layouts/` returns 404.
 
+### These files are git-tracked AND written by the running app
+
+That combination is the source of a recurring deploy failure and a standing
+data-loss hazard. `storage/layouts/`, `storage/masks/`, `storage/fonts.json`,
+`storage/holidays/` and `storage/calendar_styles/` are all committed to git
+*and* rewritten at runtime by the ops UI. `storage/uploads/`,
+`storage/exports/` and `gc_last_run.json` are correctly gitignored; this set
+never got the same treatment.
+
+**Production has diverged badly.** As of 2026-09-04 `git status` on the prod box
+showed 20 tracked layouts deleted, 11 untracked ones under new names
+(`classic_4x6.json` → `classic_prints_-_4x6_in.json`), a new mask, and a
+modified `fonts.json`. Ops rebuilt the catalogue through the UI and none of it
+was ever committed.
+
+- **`git pull` on prod fails** whenever a commit touches a file that also
+  changed on disk. Removing `sku_layouts.json` did exactly that on 2026-09-04.
+  Resolve it by checking out the *one* named file, never a directory.
+- **Never run `git reset --hard` or `git checkout -- storage/` on prod.** Either
+  resurrects the 20 obsolete layouts *alongside* the live ones — duplicate
+  products under two naming schemes, and a customer can open the wrong one.
+
+**Layouts are not in Postgres.** There is no `Layout` model; `services/storage.py`
+does `os.listdir(LAYOUTS_DIR)`. So `pg_dump` covers none of the catalogue —
+`scripts/backup.sh`'s storage tarball is the only thing that does. The agreed
+fix is to move layout JSON into Postgres (a data migration imports prod's live
+catalogue automatically on deploy, so nothing needs copying by hand) and put
+masks and calendar background artwork behind the `S3Storage` seam already
+stubbed in `services/storage.py` — **not** in a `bytea` column, because every
+nightly `pg_dump` would then carry the artwork forever. Not started.
+
 ## Calendar product type (v1.13)
 
 A calendar layout is a regular multi-surface layout PLUS `productType: "calendar"` and a `monthRange + calendars[] + calendar` style block. The ops authoring UI is at `/editor/layouts/calendar/[name]`; the customer-facing preview lives at `/dev/calendar-preview` until the embed integration replaces it.
@@ -1015,7 +1046,7 @@ Key surfaces added in the resilience/compliance pass — grep these before touch
 - **Rate-limit IP** — `middleware._get_client_ip` and `actions/auth.ts` `clientIp()` trust nginx's `X-Real-IP` (else the RIGHT-most XFF hop), never the spoofable left-most hop.
 - **Queue** — Redis split into a durable broker (`redis`, noeviction + appendonly, keeps `redis_data`) and a disposable cache (`redis-cache`, allkeys-lru); `REDIS_CACHE_URL` points at it. Workers have `celery inspect ping` healthchecks. `render_canvas_task` has a poison-pill guard (counts ONLY genuine broker redeliveries via `delivery_info.redelivered`, aborts after 3 crash-redeliveries — NOT self.retry() re-runs) and a 500 MB disk-full pre-flight. `ChunkedUploadInitView` bounds `total_chunks` and pre-checks disk (507); the chunk endpoint caps each body at 2× CHUNK_SIZE.
 - **DPDP purge** — `api/purge.py` + `OrderDataPurgeView` (`DELETE /api/ops/orders/<order_id>/purge`, ops-only, NOT on the embed-proxy allowlist). Hard-deletes uploads/exports/CanvasData/EmbedSession rows AND files. Scope to one key with `?api_key=<name>`; cross-tenant (all keys) requires explicit `?all_tenants=true`. Keeps upload files shared with a surviving order. See `docs/DATA_LIFECYCLE.md`.
-- **Backups** — `scripts/backup.sh` (pg_dump + ops-config tar + exact-count manifest, 7-daily/4-weekly), `scripts/restore.sh` (gated), `scripts/test-backup-restore.sh` (restores into a throwaway DB + asserts row counts). Not scheduled — add the cron in the script header.
+- **Backups** — `scripts/backup.sh` (pg_dump + ops-config tar + exact-count manifest, 7-daily/4-weekly), `scripts/restore.sh` (gated), `scripts/test-backup-restore.sh` (restores into a throwaway DB + asserts row counts). **Scheduled on prod at 03:15 UTC and running since 2026-08-28** — this file claimed "not scheduled" until 2026-09-04, which was simply wrong; check `crontab -l` before repeating it. The `pe-storage-*.tgz` is verified to contain the live layout catalogue. The cron comment in the script header justifies 03:15 as "after the 02:00 UTC GC", which is stale — the GC moved to every 6 hours. 03:15 still falls between sweeps, so the time is fine and only the reasoning is out of date.
 - **CI** — `.github/workflows/ci.yml`: backend (mediapipe-free install, auto-discovers `services/tests/test_*.py`) + frontend (typecheck/lint/jest) on push/PR to main. **New backend test modules are auto-run** — no workflow edit needed. `scripts/load-baseline.sh` + `docs/LOAD_BASELINE.md`.
 - **Deploy fail-fast** — production now REQUIRES `EMBED_INTERNAL_SECRET`, `AUTH_SECRET`, `DJANGO_SECRET_KEY`, `INTERNAL_API_KEY` in `.env`: compose aborts on missing `AUTH_SECRET` (`:?`), Django won't boot with a default `DJANGO_SECRET_KEY` under `DEBUG=0`, the internal proxy 500s without `INTERNAL_API_KEY` (the `NEXT_PUBLIC_DIRECT_API_KEY` build-arg was removed). Internal ports bind `127.0.0.1` only.
 - **a11y** — `lib/use-modal-a11y.ts` (Escape + focus trap + restore); canvas cards are `role=button` + Enter/Space; editor modal has dialog semantics; a document-level Escape closes the confirm dialogs.
@@ -1055,6 +1086,19 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 - **Rows are swept by the GC** on `API_AUDIT_RETENTION_DAYS` (default 90), independent of file retention.
 
 `_get_client_ip` is module-level and shared with `RateLimitMiddleware` so a spoofed `X-Forwarded-For` can never be trusted by one and rejected by the other.
+
+**`error_message` is NULL for framework-level rejections** — precisely the case
+where you most want the reason. When Django rejects a request before the view
+runs (an oversized body raising `RequestDataTooBig`, say) there is no DRF
+exception for the middleware to record, so the row carries the status and
+nothing else. That cost real time on 2026-09-04: 1,569 `400`s on
+`canvas-state` with no recorded reason, resolved only by correlating
+`request_size_bytes` and then reproducing it with two `curl`s. Worth populating
+from `SuspiciousOperation` next time this middleware is open.
+
+`request_size_bytes` is the field that made that diagnosis possible at all —
+grouping by status and averaging it is the fastest way to find a payload
+problem. Keep it.
 
 ## Deployment (`deploy.sh`)
 
@@ -1151,7 +1195,34 @@ The runtime is driven by env vars (no per-environment Python/JS config files). A
 
 ## Known Issues
 
-No open P0/P1 issues. Previously tracked items B1, B4 and B5 have all shipped — see "Fixed" below for what each does and how to extend. B3 shipped and was later removed.
+**P1 — 37% of canvas autosaves are silently rejected in production.** Measured
+2026-09-04 from `api_requests` over ~27 days: 1,326 `201` (first save, 3 kB
+each), 1,333 `200` (2.4 MB average), and **1,569 `400` averaging 16 MB**. Total
+autosave upload traffic was **28 GB**, of which roughly 25 GB was uploaded by
+customers and discarded on arrival. Largest single autosave: 93 MB.
+
+The cause is `DATA_UPLOAD_MAX_MEMORY_SIZE = 10 MB` in `settings.py`, and it is
+doing its job — the defect is the payload. `editor_state` embeds base64 `data:`
+URL canvas previews at ~350 kB each, 15–32 per order, which is also why
+`canvas_data` is 422 MB of TOAST for 166 rows (heap is 240 kB; autovacuum is
+healthy and the GC is purging correctly — the rows are genuinely that big).
+
+Confirmed by experiment, holding body shape constant and varying only size: a
+1 MB body with a valid `layout_name` returns `201`, a 12 MB one returns `400`.
+
+**Why it stayed invisible:** renders are unaffected (submit writes `render_state`
+through a different endpoint), same-browser refresh recovers from IndexedDB
+locally, and Django rejects the body before the view runs so nothing is logged.
+Only a customer resuming a large order on another device loses work, silently.
+
+**Do not fix it by raising the limit.** At 16 MB average and 93 MB peak that
+makes gunicorn buffer those bodies per concurrent request on a 2-core box with
+a 2 GB worker cap — trading silent save failures for OOM under load. Strip the
+previews from what is persisted instead; they are regenerable by `renderCanvas`
+in `fabric-renderer.ts`. The success signal is the `400` rate reaching zero, not
+the payload size.
+
+No other open P0/P1 issues. Previously tracked items B1, B4 and B5 have all shipped — see "Fixed" below for what each does and how to extend. B3 shipped and was later removed.
 
 **Watch list (not blocking):**
 - NextAuth 5 is still in beta. The `(session as any)` casts have been removed, but if you bump the version, recheck `next-auth.d.ts` against the upstream `Session` / `JWT` shapes.
