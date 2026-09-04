@@ -39,3 +39,4 @@ pillow-heif==0.22.0
 # Pulls in tflite-runtime + opencv-python-headless + numpy + protobuf;
 # ~200 MB total docker layer cost. Apache 2.0 throughout.
 mediapipe==0.10.18
+boto3>=1.26.0
