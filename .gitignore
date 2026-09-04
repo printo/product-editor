@@ -72,6 +72,14 @@ storage/uploads/*
 !storage/uploads/.gitkeep
 storage/exports/*
 !storage/exports/.gitkeep
+# Layouts are now in Postgres (LayoutCatalogue) — never commit
+storage/layouts/
+# Masks are now in S3 — never commit
+storage/masks/
+# Calendar assets are now in S3 — never commit
+storage/calendar_styles/
+storage/calendar_palettes/
+storage/holidays/
 # Runtime state, not config: written by garbage_collector_task on every sweep.
 # Unlike layouts/fonts/sku_layouts.json in this directory, it is per-environment
 # and must never be committed — a checked-in copy would report a stale sweep

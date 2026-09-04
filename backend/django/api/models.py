@@ -6,6 +6,8 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
+from django.core.validators import MinValueValidator
+from django.db.models import Q
 
 
 def default_file_expiry():
@@ -399,3 +401,93 @@ class RenderJob(models.Model):
     
     def __str__(self):
         return f"RenderJob {self.id} - {self.status} ({self.queue_name})"
+
+
+class LayoutCatalogue(models.Model):
+    """
+    Single source of truth for layout definitions.
+
+    Replaces storage/layouts/*.json. The `name` field is the layout identifier
+    (was the filesystem stem, e.g. "circle_48mm"). Case-sensitive at the DB
+    level — Postgres text columns default to C-collation-compatible comparison
+    when using a C-locale database, which matches prod Linux filesystem behaviour.
+    """
+
+    name = models.CharField(
+        max_length=255, unique=True, db_index=True,
+        help_text="Layout identifier (e.g., 'circle_48mm'). Case-sensitive."
+    )
+    definition = models.JSONField(
+        help_text="Full layout schema — same structure as the former .json files."
+    )
+    product_type = models.CharField(
+        max_length=100,
+        blank=True,
+        default='single_canvas',
+        db_index=True,
+        help_text="Inferred from definition.productType at import time.",
+    )
+    category = models.CharField(
+        max_length=100, blank=True, default='', db_index=True,
+        help_text="Optional grouping tag, e.g. 'polaroid', 'passport'.",
+    )
+    is_public = models.BooleanField(
+        default=True,
+        help_text="If False, access controlled via LayoutPermission rows (future)."
+    )
+    is_deprecated = models.BooleanField(
+        default=False, db_index=True,
+        help_text="Hidden from public listings but still renderable."
+    )
+
+    version = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text="Bumped on each definition write. Starts at 1.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Provenance — set during data migration and manual imports only.
+    # Both must be set together or both left blank (validated in clean()).
+    imported_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When this layout was imported into Postgres."
+    )
+    imported_by = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text="'migration_0016', 'manual', etc. Must be set iff imported_at is set.",
+    )
+
+    class Meta:
+        db_table = 'layout_catalogue'
+        indexes = [
+            models.Index(fields=['name']),
+            models.Index(fields=['product_type', 'is_deprecated']),
+            models.Index(fields=['category']),
+            models.Index(fields=['is_deprecated', 'is_public']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(imported_by='') | Q(imported_by__isnull=False),
+                name='layout_catalogue_imported_by_consistency',
+            ),
+        ]
+
+    def clean(self):
+        """Co-validate imported_at / imported_by — both set or both blank."""
+        from django.core.exceptions import ValidationError
+        has_at = bool(self.imported_at)
+        has_by = bool(self.imported_by)
+        if has_at != has_by:
+            raise ValidationError(
+                "imported_at and imported_by must both be set together or both left blank."
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"LayoutCatalogue({self.name}, v{self.version})"
