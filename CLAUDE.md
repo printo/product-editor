@@ -203,10 +203,39 @@ const now = Math.floor(Date.now() / 1000);
 await encode({ salt: 'authjs.session-token', secret: AUTH_SECRET, token: {
   id: 'LOCAL-DEV', name: 'Local Dev', email: 'local@printo.in',
   role: 'admin', is_ops_team: true,          // flip to test privilege gates
+  is_super_user: false,                      // the NARROWER flag — gates /django-admin/
   accessToken: 'x', refreshToken: 'x', accessTokenExpires: (now + 3600) * 1000,
   sub: 'LOCAL-DEV', iat: now, exp: now + 3600 } });
 // then: document.cookie = "authjs.session-token=<jwt>; path=/"
 ```
+
+Mint one token per role you need to test. `role: 'admin'` is
+`is_super_user || is_ops_team`, so it does NOT distinguish the two — a surface
+gated on `is_super_user` (the Django admin link, `verify-django-admin`) needs
+that field set explicitly, and an ops-team-only session is `is_ops_team: true`
+with `is_super_user: false`.
+
+**You cannot swap that cookie a second time from JavaScript.** It works once.
+As soon as the page calls `/api/auth/session`, NextAuth re-issues the cookie
+**HttpOnly**, and from then on `document.cookie` can neither read nor
+overwrite it: a second `document.cookie = "authjs.session-token=<other jwt>"`
+is silently ignored and the app keeps serving the FIRST role. That failure is
+invisible — the page renders fine, and only `/api/auth/session` reveals the
+stale flags. Clear it server-side first:
+
+```js
+const { csrfToken } = await fetch('/api/auth/csrf').then(r => r.json());
+await fetch('/api/auth/signout', { method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({ csrfToken, json: 'true' }) });
+// /api/auth/session now returns null — plant the next cookie and reload
+```
+
+Corollary: **`authjs.session-token` missing from `document.cookie` does not
+mean there is no session.** Once it is HttpOnly it is invisible to JS while
+still being sent on every request. Read `/api/auth/session` to see the truth —
+and assert on the flags there, not on the cookie, before concluding a
+role-gated element rendered correctly.
 
 Local dev only — it depends on having the local `AUTH_SECRET`. Delete the
 script afterwards.
@@ -812,6 +841,11 @@ session.user.role        // "admin" | "user" (admin = is_super_user || is_ops_te
 session.accessToken      // PIA JWT — forwarded by /api/internal/proxy as Bearer
 session.is_ops_team      // PIA ops-team flag. NO LONGER gates the internal proxy or
                          // /editor/layouts — see "Ops privilege model" below
+session.is_super_user    // Raw PIA superuser flag. NARROWER than role === 'admin'
+                         // (which is is_super_user || is_ops_team). The only gate on
+                         // /django-admin/ — nginx auth_request → verify-django-admin —
+                         // and on the Django admin link in the /editor/layouts header.
+                         // Gate a Django-admin-adjacent surface on this, never on role.
 session.error            // "RefreshAccessTokenError" when refresh has failed → app redirects to /login
 ```
 
