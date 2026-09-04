@@ -76,6 +76,8 @@ storage/exports/*
 storage/layouts/
 # Masks are now in S3 — never commit
 storage/masks/
+# Fonts are now in S3 — never commit
+storage/fonts.json
 # Calendar assets are now in S3 — never commit
 storage/calendar_styles/
 storage/calendar_palettes/
