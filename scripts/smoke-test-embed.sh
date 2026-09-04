@@ -16,7 +16,9 @@
 #                    12). Off by default: it occupies a Celery worker slot and
 #                    writes 300-DPI output to EXPORTS_DIR, which on the 2-core
 #                    prod box competes with live customer renders.
-#   RENDER_LAYOUT=<name>  layout for step 12 (default: circle_48mm, 1 frame)
+#   RENDER_LAYOUT=<name>  layout for steps 9b and 12. Discovered from the
+#                    target's own catalogue when unset — do NOT hardcode a
+#                    default here, see resolve_render_layout below.
 #
 # Exits 0 if every check passes, 1 otherwise.
 
@@ -52,6 +54,48 @@ esac
 curl() { command curl ${CURL_OPTS} "$@"; }
 
 [ -n "$CURL_OPTS" ] && printf "\033[33m!\033[0m TLS verification disabled for %s\n" "$BASE"
+
+# ── Which layout to exercise ─────────────────────────────────────────────────
+# Discover a layout that actually exists on the TARGET rather than assuming
+# one. Both steps that name a layout have now been bitten by a hardcoded
+# `circle_48mm`, which exists only in the repo's dev seed data — production
+# carries a completely different ops-authored catalogue
+# (classic_prints_-_4x6_in, square_8x8, …):
+#
+#   step 12  failed on prod with FileNotFoundError on circle_48mm.json, after
+#            burning all 4 retries on a condition that could never resolve.
+#   step 9b  failed on prod on 2026-09-04 in a subtler way: the qty guard
+#            deliberately FAILS OPEN on a layout it cannot read, so an unknown
+#            name produces no quantity check at all and the over-count
+#            submission fell through to the upload-not-found 400. The guard was
+#            working correctly on prod the whole time; only the test was wrong.
+#            That is the trap — a fail-open guard cannot be tested against a
+#            layout the target does not have, and reads as a product failure.
+#
+# Prefer single-surface + single-frame: step 12's payload sends one frame and
+# no surface_key, and a multi-surface layout needs the real key or it renders
+# blank (see CLAUDE.md, "Per-surface render grouping"). Single-surface is also
+# what the qty rule applies to at all.
+#
+# Idempotent: resolves once, then returns the cached answer.
+resolve_render_layout() {
+  [ -n "${RENDER_LAYOUT:-}" ] && return 0
+  curl -s -o /tmp/se.layouts "$BASE/api/layouts?fields=summary" \
+    -H "Authorization: Bearer $API_KEY"
+  RENDER_LAYOUT=$(python3 -c "
+import json
+try:
+    items = json.load(open('/tmp/se.layouts')).get('layouts') or []
+except Exception:
+    items = []
+ok = [d for d in items
+      if isinstance(d, dict) and d.get('name')
+      and d.get('productType') not in ('calendar', 'book')
+      and d.get('surfaceCount') == 1]
+exact = [d for d in ok if d.get('frameCount') == 1]
+print((exact or ok or [{}])[0].get('name', ''))
+" 2>/dev/null || echo "")
+}
 
 # Pretty step printer ────────────────────────────────────────────────────────
 step() { printf "\n\033[1;36m▸ %s\033[0m\n" "$1"; }
@@ -220,16 +264,22 @@ status=$(curl -s -L -o /tmp/se.body -w '%{http_code}' \
 # answers with the qty message and an at-count one falls through to the
 # upload-not-found 400. Two different 400s, and which one you get is the test.
 step "9b. Render submit honours the session qty (over → 400, at-count → passes the gate)"
+resolve_render_layout
 if [ -z "$QTY_TOKEN" ]; then
   skip "no qty session token from step 2d"
+elif [ -z "${RENDER_LAYOUT:-}" ]; then
+  # Must SKIP, never pass: the guard fails open on an unreadable layout, so
+  # without a real one this step would report "not blocked" and prove nothing.
+  skip "No single-surface layout on $BASE — the qty guard fails open, so this cannot be tested (set RENDER_LAYOUT=<name>)"
 else
+  ok "using layout '$RENDER_LAYOUT'"
   render_body() { python3 -c '
 import json, sys
 n = int(sys.argv[1])
 print(json.dumps({"layout_name": sys.argv[2], "canvases": [
     {"canvas_index": i, "surface_key": "default",
      "frames": [{"frame_index": 0, "upload_id": "00000000-0000-4000-8000-%012d" % i}]}
-    for i in range(n)]}))' "$1" "${RENDER_LAYOUT:-circle_48mm}"; }
+    for i in range(n)]}))' "$1" "$RENDER_LAYOUT"; }
 
   # 3 photos on a qty=2 session → rejected, and the message must name the cap.
   status=$(curl -s -o /tmp/qty.over -w '%{http_code}' \
@@ -338,36 +388,11 @@ fi
 if [ "${SMOKE_RENDER:-0}" = "1" ] && [ -n "${UPLOAD_ID:-}" ]; then
   step "12. Render submit → poll → download"
 
-  # Discover a layout that actually exists on the TARGET, rather than assuming
-  # one. This step first shipped hardcoding `circle_48mm`, which exists only in
-  # the repo's storage/layouts/ dev seed data — production carries a completely
-  # different ops-authored catalogue (classic_prints_-_4x6_in, square_8x8, …),
-  # so the render passed locally and failed on prod with
-  #   FileNotFoundError: '/app/storage/layouts/circle_48mm.json'
-  # after burning all 4 retries on a condition that could never resolve.
-  #
-  # Prefer single-surface + single-frame: the payload below sends one frame and
-  # no surface_key, and a multi-surface layout needs the real key or it renders
-  # blank (see CLAUDE.md, "Per-surface render grouping").
-  if [ -z "${RENDER_LAYOUT:-}" ]; then
-    curl -s -o /tmp/se.layouts "$BASE/api/layouts?fields=summary" \
-      -H "Authorization: Bearer $API_KEY"
-    RENDER_LAYOUT=$(python3 -c "
-import json
-try:
-    items = json.load(open('/tmp/se.layouts')).get('layouts') or []
-except Exception:
-    items = []
-ok = [d for d in items
-      if isinstance(d, dict) and d.get('name')
-      and d.get('productType') != 'calendar'
-      and d.get('surfaceCount') == 1]
-exact = [d for d in ok if d.get('frameCount') == 1]
-print((exact or ok or [{}])[0].get('name', ''))
-" 2>/dev/null || echo "")
-  fi
+  # Shared with step 9b — see resolve_render_layout at the top of this file for
+  # why neither step may hardcode a layout name.
+  resolve_render_layout
 
-  if [ -z "$RENDER_LAYOUT" ]; then
+  if [ -z "${RENDER_LAYOUT:-}" ]; then
     skip "No single-surface layout found on $BASE (set RENDER_LAYOUT=<name> to force)"
   else
     ok "using layout '$RENDER_LAYOUT'"
