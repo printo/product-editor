@@ -1681,14 +1681,6 @@ class ExternalLayoutDetailView(APIView):
     """
     permission_classes = [IsAuthenticatedWithAPIKey, CanListLayouts]
 
-    def _is_valid_layout_name(self, name: str) -> bool:
-        # Dots are valid — layout names like `retro_polaroid_4.2x3.5` contain them.
-        # Double-dot sequences are still blocked to prevent path traversal.
-        return bool(re.match(r'^[a-zA-Z0-9_.\-]+$', name)) and '..' not in name
-
-    def _is_path_safe(self, path: str, base_dir: str) -> bool:
-        return os.path.abspath(path).startswith(os.path.abspath(base_dir))
-
     @extend_schema(
         tags=["layouts"],
         summary="Get layout for external systems",
@@ -1712,24 +1704,28 @@ class ExternalLayoutDetailView(APIView):
         },
     )
     def get(self, request, name):
+        from api.models import LayoutCatalogue
+
         # 400 for a malformed name, 404 for one that simply isn't there.
         if not GetLayoutView._is_safe_layout_name(name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
-        if not GetLayoutView._layout_exists(name):
-            return Response({"detail": f"Layout '{name}' not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        storage = get_storage()
-        path = os.path.join(storage.layouts_dir(), f"{name}.json")
-        
-        if not self._is_path_safe(path, storage.layouts_dir()):
-            return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
-            
-        if not os.path.exists(path):
-            return Response({"detail": "Layout not found"}, status=status.HTTP_404_NOT_FOUND)
-            
         try:
-            with open(path, "r") as f:
-                data = json.load(f)
+            # Query LayoutCatalogue from Postgres
+            layout = LayoutCatalogue.objects.get(
+                name=name,
+                is_deprecated=False,
+                is_public=True,
+            )
+        except LayoutCatalogue.DoesNotExist:
+            return Response(
+                {"detail": f"Layout '{name}' not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
+            data['name'] = layout.name
 
             # Filter surfaces if ?surfaces= param is provided (for multi-surface layouts)
             surfaces_param = request.query_params.get('surfaces')
