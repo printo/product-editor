@@ -1552,7 +1552,36 @@ class LayoutManagementView(APIView):
                 except _DjangoValidationError as exc:
                     msg = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
                     return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
-            
+
+            # Handle mask uploads (S3 or local storage)
+            mask_file = request.FILES.get('mask')
+            if mask_file:
+                try:
+                    storage = get_storage()
+                    from services.storage import S3Storage
+
+                    mask_filename = f"{layout_name}_mask{os.path.splitext(mask_file.name)[1]}"
+
+                    if isinstance(storage, S3Storage):
+                        # Upload to S3
+                        s3_key = f"masks/{mask_filename}"
+                        storage.save_upload(mask_filename, mask_file.file, order_id='')
+                        layout_data['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
+                        logger.info(f"Uploaded mask to S3: {s3_key}")
+                    else:
+                        # Upload to local storage
+                        mask_path = os.path.join(storage.masks_dir(), mask_filename)
+                        with open(mask_path, 'wb+') as destination:
+                            for chunk in mask_file.chunks():
+                                destination.write(chunk)
+                        layout_data['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
+                        logger.info(f"Uploaded mask to disk: {mask_path}")
+                except Exception as exc:
+                    logger.error(f"Failed to upload mask: {exc}")
+                    return Response(
+                        {"detail": f"Failed to upload mask: {str(exc)}"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
 
             # Infer product_type from definition
             product_type = layout_data.get('productType', 'single_canvas')
@@ -1568,6 +1597,27 @@ class LayoutManagementView(APIView):
                         old_layout.version = old_layout.version + 1
                         old_layout.save()
                         logger.info(f"Renamed layout '{old_name}' → '{layout_name}'")
+
+                        # Migrate masks on rename (S3 only)
+                        from services.storage import S3Storage
+                        storage = get_storage()
+                        if isinstance(storage, S3Storage):
+                            try:
+                                # Look for old mask with old name pattern
+                                # Try common extensions: .png, .jpg, .jpeg, .gif, .webp
+                                for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                                    old_mask_key = f"masks/{old_name}_mask{ext}"
+                                    new_mask_key = f"masks/{layout_name}_mask{ext}"
+                                    try:
+                                        if storage.file_exists(old_mask_key):
+                                            storage.copy_object(old_mask_key, new_mask_key)
+                                            storage.delete_file(old_mask_key)
+                                            logger.info(f"Migrated mask: {old_mask_key} → {new_mask_key}")
+                                            break
+                                    except Exception as inner_exc:
+                                        logger.warning(f"Failed to migrate mask {old_mask_key}: {inner_exc}")
+                            except Exception as exc:
+                                logger.warning(f"Mask migration failed on rename: {exc}")
                     except LayoutCatalogue.DoesNotExist:
                         # Old layout doesn't exist — create as new
                         LayoutCatalogue.objects.create(
@@ -1742,8 +1792,8 @@ class ExternalLayoutDetailView(APIView):
 
 
 class MaskDownloadView(APIView):
-    """View to download/serve layout mask images."""
-    permission_classes = [AllowAny] # Publicly accessible if URL is known
+    """View to serve layout mask images from S3 or local storage."""
+    permission_classes = [AllowAny]  # Publicly accessible if URL is known
 
     @extend_schema(
         tags=["layouts"],
@@ -1751,35 +1801,77 @@ class MaskDownloadView(APIView):
         description=(
             "Serves the mask bitmap a layout clips its frames against. Public if "
             "you know the filename — masks are shape stencils, not customer data.\n\n"
-            "The resolved path is checked to be inside the masks directory before "
-            "anything is opened, so a traversal filename gets a 403 rather than a "
-            "file read."
+            "**Local storage (dev):** Streams the file directly.\n"
+            "**S3 storage (prod):** Returns a 301 redirect to a presigned URL (1-hour expiry)."
         ),
         responses={
-            200: OpenApiResponse(response=OpenApiTypes.BINARY, description="The mask image (usually image/png)."),
-            403: OpenApiResponse(description="Filename resolved outside the masks directory."),
+            200: OpenApiResponse(response=OpenApiTypes.BINARY, description="The mask image (usually image/png) — local storage only."),
+            301: OpenApiResponse(description="Redirect to presigned S3 URL — S3 storage only."),
+            403: OpenApiResponse(description="Path traversal attempt detected."),
             404: OpenApiResponse(description="No such mask."),
+            502: OpenApiResponse(description="S3 service error."),
         },
         auth=[],
     )
     def get(self, request, filename):
+        from services.storage import LocalStorage, S3Storage
+
         storage = get_storage()
-        path = os.path.join(storage.masks_dir(), filename)
-        
-        # Security check: ensure path is within masks directory
-        if not os.path.abspath(path).startswith(os.path.abspath(storage.masks_dir())):
-            return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
-            
-        if not os.path.exists(path):
-            return Response({"detail": "Mask not found"}, status=status.HTTP_404_NOT_FOUND)
-            
+
+        # Guard against path traversal — filename must not contain / or .. or start with .
+        if '/' in filename or '\\' in filename or '..' in filename or filename.startswith('.'):
+            return Response(
+                {"detail": "Access denied"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
-            from django.http import FileResponse
-            import mimetypes
-            content_type, _ = mimetypes.guess_type(path)
-            return FileResponse(open(path, 'rb'), content_type=content_type or 'image/png')
+            if isinstance(storage, S3Storage):
+                # S3 storage: generate presigned URL and redirect
+                s3_key = f"masks/{filename}"
+                try:
+                    presigned_url = storage.generate_mask_presigned_url(s3_key, expiry=3600)
+                    response = Response(status=status.HTTP_301_MOVED_PERMANENTLY)
+                    response['Location'] = presigned_url
+                    return response
+                except Exception as exc:
+                    logger.error(f"Failed to generate presigned URL for mask {filename}: {exc}")
+                    return Response(
+                        {"detail": "S3 service unavailable"},
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
+            else:
+                # LocalStorage: serve file directly
+                import os
+                from django.http import FileResponse
+                import mimetypes
+
+                path = os.path.join(storage.masks_dir(), filename)
+
+                # Double-check path safety (belt and suspenders)
+                if not os.path.abspath(path).startswith(os.path.abspath(storage.masks_dir())):
+                    return Response(
+                        {"detail": "Access denied"},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+                if not os.path.exists(path):
+                    return Response(
+                        {"detail": "Mask not found"},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
+                content_type, _ = mimetypes.guess_type(path)
+                return FileResponse(
+                    open(path, 'rb'),
+                    content_type=content_type or 'image/png'
+                )
         except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Error serving mask {filename}: {e}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class EmbedSessionView(APIView):
