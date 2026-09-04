@@ -193,30 +193,173 @@ class LocalStorage(StorageBackend):
         os.makedirs(masks_path, exist_ok=True)
         return masks_path
 
+    def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
+        path = os.path.join(settings.STORAGE_ROOT, asset_type, asset_name)
+        try:
+            with open(path, 'rb') as fh:
+                return fh.read()
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Calendar asset not found locally: asset_type={asset_type!r}, asset_name={asset_name!r}"
+            )
 
-# ── Future: S3Storage ─────────────────────────────────────────────────────────
-# class S3Storage(StorageBackend):
-#     """Drop-in replacement using boto3.  Set STORAGE_BACKEND=s3 to activate."""
-#
-#     def __init__(self):
-#         import boto3
-#         self.s3 = boto3.client('s3',
-#             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-#             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-#             region_name=os.getenv('AWS_REGION', 'ap-south-1'),
-#         )
-#         self.bucket = os.getenv('S3_BUCKET')
-#
-#     def save_upload(self, filename, content):
-#         key = f"uploads/{filename}"
-#         self.s3.upload_fileobj(content, self.bucket, key)
-#         return key
-#
-#     def assemble_chunks(self, upload_id, final_filename, total_chunks):
-#         # Use S3 multipart upload API to compose parts server-side.
-#         ...
-#
-#     ... (implement remaining methods)
+
+class S3Storage(StorageBackend):
+    """
+    Production storage backend using Amazon S3.
+
+    Layouts: served from Postgres (LayoutCatalogue) — no S3 reads for layout JSON.
+    Masks: stored under s3://<bucket>/masks/
+    Uploads: stored under s3://<bucket>/uploads/<order_id>/
+    Exports: stored under s3://<bucket>/exports/
+    Calendar: stored under s3://<bucket>/ops-config/<asset_type>/
+    """
+
+    def __init__(self):
+        import boto3
+        from django.core.exceptions import ImproperlyConfigured
+
+        required = {
+            'AWS_ACCESS_KEY_ID': os.getenv('AWS_ACCESS_KEY_ID'),
+            'AWS_SECRET_ACCESS_KEY': os.getenv('AWS_SECRET_ACCESS_KEY'),
+            'AWS_REGION': os.getenv('AWS_REGION'),
+            'S3_BUCKET': os.getenv('S3_BUCKET'),
+        }
+        missing = [k for k, v in required.items() if not v]
+        if missing:
+            raise ImproperlyConfigured(
+                f"S3Storage: missing required env vars: {missing}. "
+                "Set them before starting the server."
+            )
+
+        self.s3 = boto3.client(
+            's3',
+            aws_access_key_id=required['AWS_ACCESS_KEY_ID'],
+            aws_secret_access_key=required['AWS_SECRET_ACCESS_KEY'],
+            region_name=required['AWS_REGION'],
+        )
+        self.bucket = required['S3_BUCKET']
+
+    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "") -> str:
+        subdir = upload_subdir(order_id)
+        key = f"uploads/{subdir}/{filename}"
+        self.s3.upload_fileobj(content, self.bucket, key)
+        return key
+
+    def read_upload(self, path: str) -> bytes:
+        response = self.s3.get_object(Bucket=self.bucket, Key=path)
+        return response['Body'].read()
+
+    def delete_file(self, path: str) -> bool:
+        try:
+            self.s3.delete_object(Bucket=self.bucket, Key=path)
+            return True
+        except Exception:
+            return False
+
+    def file_exists(self, path: str) -> bool:
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=path)
+            return True
+        except self.s3.exceptions.ClientError as exc:
+            if exc.response['Error']['Code'] in ('404', 'NoSuchKey'):
+                return False
+            raise
+
+    def chunked_staging_dir(self, upload_id: str) -> str:
+        return f"uploads/.chunks/{upload_id}"
+
+    def assemble_chunks(self, upload_id: str, final_filename: str, total_chunks: int) -> str:
+        staging_prefix = self.chunked_staging_dir(upload_id)
+        final_key = f"uploads/{final_filename}"
+
+        mpu = self.s3.create_multipart_upload(Bucket=self.bucket, Key=final_key)
+        upload_id_s3 = mpu['UploadId']
+
+        parts = []
+        try:
+            for idx in range(total_chunks):
+                part_key = f"{staging_prefix}/{idx}.part"
+                copy_response = self.s3.upload_part_copy(
+                    Bucket=self.bucket,
+                    CopySource={'Bucket': self.bucket, 'Key': part_key},
+                    Key=final_key,
+                    UploadId=upload_id_s3,
+                    PartNumber=idx + 1,
+                )
+                parts.append({
+                    'PartNumber': idx + 1,
+                    'ETag': copy_response['CopyPartResult']['ETag'],
+                })
+        except Exception as exc:
+            self.s3.abort_multipart_upload(
+                Bucket=self.bucket, Key=final_key, UploadId=upload_id_s3
+            )
+            raise RuntimeError(
+                f"S3 chunk assembly failed at part {idx} for upload {upload_id}: {exc}"
+            ) from exc
+
+        self.s3.complete_multipart_upload(
+            Bucket=self.bucket,
+            Key=final_key,
+            UploadId=upload_id_s3,
+            MultipartUpload={'Parts': parts},
+        )
+
+        for idx in range(total_chunks):
+            self.s3.delete_object(Bucket=self.bucket, Key=f"{staging_prefix}/{idx}.part")
+
+        return final_key
+
+    def list_layouts(self) -> List[str]:
+        from api.models import LayoutCatalogue
+        return list(
+            LayoutCatalogue.objects.filter(is_deprecated=False)
+            .values_list('name', flat=True)
+        )
+
+    def exports_path(self, name: str) -> str:
+        return f"exports/{name}"
+
+    def layouts_dir(self) -> str:
+        return f"s3://{self.bucket}/layouts/"
+
+    def masks_dir(self) -> str:
+        return f"s3://{self.bucket}/masks/"
+
+    def generate_mask_presigned_url(self, s3_key: str, expiry: int = 3600) -> str:
+        return self.s3.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': self.bucket, 'Key': s3_key},
+            ExpiresIn=expiry,
+        )
+
+    def copy_object(self, source_key: str, dest_key: str) -> None:
+        self.s3.copy_object(
+            CopySource={'Bucket': self.bucket, 'Key': source_key},
+            Bucket=self.bucket,
+            Key=dest_key,
+        )
+
+    def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
+        s3_key = f"ops-config/{asset_type}/{asset_name}"
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+            return response['Body'].read()
+        except Exception as exc:
+            fallback = os.path.join(settings.STORAGE_ROOT, asset_type, asset_name)
+            if os.path.isfile(fallback):
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "S3 read failed for %s (%s); serving from local fallback %s.",
+                    s3_key, exc, fallback,
+                )
+                with open(fallback, 'rb') as fh:
+                    return fh.read()
+            raise FileNotFoundError(
+                f"Calendar asset not found: asset_type={asset_type!r}, asset_name={asset_name!r}"
+            ) from exc
 
 
 _storage_instance: Optional[StorageBackend] = None
@@ -227,9 +370,7 @@ def get_storage() -> StorageBackend:
     if _storage_instance is None:
         backend = os.getenv("STORAGE_BACKEND", "local")
         if backend == "s3":
-            # Uncomment S3Storage above and use it here:
-            # _storage_instance = S3Storage()
-            raise NotImplementedError("S3 backend not yet implemented — set STORAGE_BACKEND=local")
+            _storage_instance = S3Storage()
         else:
             _storage_instance = LocalStorage()
     return _storage_instance
