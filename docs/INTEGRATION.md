@@ -405,37 +405,57 @@ The `callback_url` flows through the embed proxy to the backend, gets stamped on
 
 ### 4. Restrict uploads to the ordered quantity
 
-Append `qty=<N>` to the iframe URL, alongside the session token:
+Send `qty` in the session body — the same call as `order_id` and
+`callback_url`:
 
-```html
-<iframe src="https://product-editor.printo.in/editor/layout/circle_48mm?token=<uuid>&qty=12"></iframe>
+```bash
+curl -X POST https://product-editor.printo.in/api/embed/session \
+  -H "Authorization: Bearer $PRODUCT_EDITOR_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "order_id": "PE-F5D6D769",
+    "callback_url": "https://printo.in/api/internal/pe-callback",
+    "qty": 12
+  }'
 ```
 
-`qty` is the number of items the customer ordered. It is **not** a field on
-`POST /api/embed/session` — send it on the iframe URL or it has no effect.
+`qty` is the number of items the customer ordered: a whole number from 1 to
+10000. Omit it and no quantity is enforced. Anything else — `0`, a negative, a
+fraction, a string — is rejected with **400** at session creation, so a bad
+value fails at your call rather than silently at the customer's.
 
-What the editor does with it:
+The iframe URL stays exactly as it was — **do not put `qty` on it**:
+
+```html
+<iframe src="https://product-editor.printo.in/editor/layout/circle_48mm?token=<uuid>"></iframe>
+```
+
+That is the point of moving it. The quantity is stored on the session, injected
+into every upstream call as a header the browser never sees, and re-checked when
+the design is submitted. The customer cannot raise it by editing the URL.
 
 | Photos placed | Behaviour |
 |---|---|
-| More than `qty` | **Blocked.** A modal offers *Keep first N* (trims the selection) or *Choose again* (discards it). There is no way to proceed with more than `qty`. |
-| Fewer than `qty` | **Allowed, with warnings.** A banner offers Auto-fill / pick-to-fill, and the pre-submit modal repeats the shortfall. The customer can still submit — they will receive fewer prints than ordered. |
+| More than `qty` | **Blocked, twice.** A modal offers *Keep first N* (trims the selection) or *Choose again* (discards it) — there is no way to proceed with more. And `POST /api/editor/render` rejects an over-count submission with **400** even if the editor is bypassed entirely. |
+| Fewer than `qty` | **Allowed, with warnings.** A banner offers Auto-fill / pick-to-fill, and the pre-submit modal repeats the shortfall. The customer can still submit — they will receive fewer prints than ordered, and the server accepts it. |
 | Exactly `qty` | Nothing shown. |
 
-Under-upload is deliberately not blocked: `qty` reaches us through a URL the
-customer's browser can edit, so treating it as a hard gate in both directions
-would let a wrong value strand a real order at checkout. If your storefront
-needs a guaranteed count, re-check `file_count` on the completion webhook
-before accepting the order.
+Under-upload is deliberately not blocked, on the server either: `qty` comes from
+you, and treating it as a hard gate in both directions would let one wrong value
+strand a real order at checkout. **If your storefront needs a guaranteed count,
+re-check `file_count` on the completion webhook before accepting the order** —
+that is still the only guarantee, and it always will be.
 
 Applies to **single-surface products only** (photo prints, magnets, coasters).
 Two-sided products, calendars and books have a surface count fixed by the
-layout, which `qty` does not describe — the param is ignored there.
+layout, which `qty` does not describe — it is ignored there.
 
-> **Known limitation:** `qty` is enforced in the browser only; nothing
-> server-side validates it today. A customer who edits the URL can change it.
-> Moving `qty` into the embed session so it is stored server-side and checked
-> at render time is planned — see `docs/PRD.md` §8.0.
+> **Migrating from the URL parameter.** `?qty=N` on the iframe URL still works
+> as a fallback, so nothing breaks if you have not moved yet: the editor uses
+> the session value when there is one and the URL value otherwise. But the URL
+> parameter is browser-editable and **nothing server-side honours it** — only a
+> `qty` sent in the session body is actually enforced. Move it and drop it from
+> the URL.
 
 ### 5. Firewall
 

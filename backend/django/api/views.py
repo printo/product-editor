@@ -23,6 +23,13 @@ from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from layout_engine.engine import LayoutEngine
 from services.storage import get_storage
+from services.order_qty import (
+    InvalidOrderQty,
+    MAX_ORDER_QTY,
+    count_placed_photos,
+    parse_order_qty,
+    qty_violation,
+)
 from .permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts, CanListLayouts, CanAccessExports, IsOpsTeam
 from .authentication import APIKeyUser
 from .validators import validate_image_files
@@ -1953,7 +1960,7 @@ class EmbedSessionView(APIView):
             "Your server  →  POST /api/embed/session\n"
             "                (optionally include callback_url for the completion webhook)\n"
             "             ←  { token: '<uuid>' }\n\n"
-            "Your page    →  <iframe src=\"https://product-editor.printo.in/editor/layout/<name>?token=<uuid>&qty=<N>\" />\n\n"
+            "Your page    →  <iframe src=\"https://product-editor.printo.in/editor/layout/<name>?token=<uuid>\" />\n\n"
             "Customer edits canvas and clicks Save & Continue\n\n"
             "Your page    ←  window.postMessage({ type: 'pe:render_job', jobId, orderID })\n"
             "                (UX ping only — the rendered ZIP is delivered out-of-band\n"
@@ -1961,19 +1968,22 @@ class EmbedSessionView(APIView):
             "                 docs/INTEGRATION.md for the full contract)\n"
             "```\n\n"
             "### Ordered quantity (`qty`)\n\n"
-            "`qty` is **not a field on this endpoint** — append it to the iframe URL "
-            "as shown above, or it has no effect. It caps how many photos the customer "
-            "can submit:\n\n"
+            "Send `qty` in this body and it is stored on the session, injected "
+            "upstream as `X-Order-Qty`, and **enforced at render submission** — the "
+            "customer's browser never sees a number it could edit. It caps how many "
+            "photos the customer can submit:\n\n"
             "- **More than `qty`** — blocked. The editor offers *Keep first N* or "
-            "*Choose again*; there is no way to proceed with more.\n"
+            "*Choose again*, and `POST /api/editor/render` rejects an over-count "
+            "submission with 400 even if the editor is bypassed.\n"
             "- **Fewer than `qty`** — allowed, with an auto-fill prompt and a "
-            "pre-submit warning. Deliberate: `qty` travels in a URL the customer's "
-            "browser can edit, so a wrong value must not strand a real order at "
-            "checkout. Re-check `file_count` on the completion webhook if you need a "
-            "guaranteed count.\n"
+            "pre-submit warning. Deliberate, and true on the server too: a wrong "
+            "`qty` must not strand a real order at checkout. Re-check `file_count` on "
+            "the completion webhook if you need a guaranteed count.\n"
             "- Applies to **single-surface products only**. Two-sided products, "
             "calendars and books have a surface count fixed by the layout.\n\n"
-            "Enforced in the browser only — nothing server-side validates it today.\n\n"
+            "The legacy `?qty=N` URL parameter still works as a fallback for callers "
+            "that have not moved the value into this body, but it is browser-editable "
+            "and not enforced server-side. Prefer this field.\n\n"
             "### Security guarantees\n\n"
             "- Token is a disposable UUID — never the real API key\n"
             "- All subsequent calls from the embed page go through the Next.js server-side proxy "
@@ -2009,6 +2019,16 @@ class EmbedSessionView(APIView):
                         "mock + print files; `uploads_download_url` is then null."
                     ),
                 ),
+                "qty": drf_serializers.IntegerField(
+                    required=False,
+                    min_value=1,
+                    max_value=MAX_ORDER_QTY,
+                    help_text=(
+                        "Number of items the customer ordered. Stored on the session and "
+                        "injected as the `X-Order-Qty` header, so the editor's cap cannot be "
+                        "raised from the browser. Omit it and no quantity is enforced."
+                    ),
+                ),
             },
         ),
         responses={
@@ -2025,8 +2045,9 @@ class EmbedSessionView(APIView):
             400: OpenApiResponse(
                 description=(
                     "`order_id` outside `^[A-Za-z0-9_.\\-]{1,64}$`, `callback_url` over "
-                    "2000 chars, or `callback_url` failing the https-only + "
-                    "public-address SSRF check."
+                    "2000 chars, `callback_url` failing the https-only + "
+                    "public-address SSRF check, or `qty` that is not a whole number "
+                    "between 1 and 10000."
                 ),
             ),
             401: OpenApiResponse(description="Invalid or missing API key"),
@@ -2089,12 +2110,23 @@ class EmbedSessionView(APIView):
             request.data.get('include_uploads', True)
         ).strip().lower() not in ('0', 'false', 'no', 'off')
 
+        # Ordered quantity. Absent means "the caller did not say" and nothing
+        # is enforced — distinct from a zero, which is rejected. Stored here
+        # rather than read off the iframe URL so the cap the editor applies
+        # can't be raised by editing that URL; EditorRenderView re-checks it at
+        # submit from the header the proxy injects.
+        try:
+            qty = parse_order_qty(request.data.get('qty'))
+        except InvalidOrderQty as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
         session = EmbedSession.objects.create(
             api_key=api_key,
             expires_at=expires_at,
             order_id=order_id,
             callback_url=callback_url,
             include_uploads=include_uploads,
+            qty=qty,
         )
         return Response({
             'token': str(session.token),
@@ -2107,6 +2139,7 @@ class EmbedSessionView(APIView):
             'order_id': order_id or None,
             'callback_url': callback_url or None,
             'include_uploads': include_uploads,
+            'qty': qty,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -2213,6 +2246,7 @@ class EmbedSessionValidateView(APIView):
             'order_id': session.order_id or None,
             'callback_url': session.callback_url or None,
             'include_uploads': session.include_uploads,
+            'qty': session.qty,
             'expires_at': session.expires_at.isoformat(),
         })
 
@@ -2250,6 +2284,17 @@ class EditorInitView(APIView):
                 fields={
                     "layout": drf_serializers.DictField(),
                     "fonts": drf_serializers.ListField(child=drf_serializers.CharField()),
+                    "order_id": drf_serializers.CharField(
+                        allow_null=True,
+                        help_text="Echo of the embed session's order_id; null for dashboard requests.",
+                    ),
+                    "qty": drf_serializers.IntegerField(
+                        allow_null=True,
+                        help_text=(
+                            "Echo of the embed session's ordered quantity; null when the "
+                            "session carries none or the caller is the dashboard."
+                        ),
+                    ),
                 },
             ),
             400: OpenApiResponse(description="Missing or invalid `layout` query param"),
@@ -2307,10 +2352,23 @@ class EditorInitView(APIView):
         # iframe reload used to orphan the autosave). Only the trusted proxies
         # can set this header (both build forward headers from scratch);
         # dashboard requests carry none → null.
+        #
+        # qty echoes X-Order-Qty the same way, so the editor caps against the
+        # quantity the CALLER set rather than the browser-editable ?qty=N. Null
+        # for a dashboard request or a session created without one, and the
+        # editor then falls back to that URL param.
+        try:
+            init_qty = parse_order_qty(request.headers.get('X-Order-Qty'))
+        except InvalidOrderQty:
+            # A header only the trusted proxy can set, sourced from a validated
+            # column — if it is somehow unusable, drop it rather than fail the
+            # editor's mount request over it.
+            init_qty = None
         response = Response({
             'layout': layout_data,
             'fonts': _read_fonts(),
             'order_id': (request.headers.get('X-Order-ID') or '').strip() or None,
+            'qty': init_qty,
         })
         # Cacheable on the proxy edge for short-lived shared cache; private so a
         # tenant's surfaces= filter doesn't bleed across tenants.
@@ -2319,6 +2377,52 @@ class EditorInitView(APIView):
 
 
 # ─── Editor Render (server-side high-res render from uploaded files) ──────────
+
+
+def _read_layout_def(name: str) -> Optional[Dict[str, Any]]:
+    """
+    Read a layout definition for a *policy* decision, never for rendering.
+
+    Returns None — meaning "unknown, do not decide anything on this" — for a
+    name that fails the safety guard, a layout that is not in the catalogue, or
+    a definition that is not a dict. Callers must fail open on None; the render
+    task loads the layout again for real and reports a genuine failure properly.
+
+    Sourced from **LayoutCatalogue, not disk**. Layouts moved to Postgres in
+    PR #111 and `storage/layouts/` was deleted, so a disk read here would
+    return None for every layout in production and the quantity cap would
+    silently never fire — worse, it would fire only when this cache key
+    happened to be warm from a `GetLayoutView` request, making enforcement
+    non-deterministic. That is the same disk-vs-catalogue trap the #111 audit
+    fixed in four other places.
+
+    Shares GetLayoutView's cache key (unfiltered variant), so the editor's own
+    mount request has usually already warmed this and the read costs nothing —
+    and `invalidate_layout_caches` therefore clears this entry too, so an ops
+    layout edit cannot leave a policy decision reading yesterday's surfaces.
+    If you change that key's shape, this is a third consumer of it.
+    """
+    from django.core.cache import cache as django_cache
+
+    if not GetLayoutView._is_safe_layout_name(name):
+        return None
+    cache_key = f"layout_detail:{name}:"
+    cached = django_cache.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+    try:
+        from api.models import LayoutCatalogue
+        data = LayoutCatalogue.objects.filter(
+            name=name, is_deprecated=False,
+        ).values_list('definition', flat=True).first()
+    except Exception:
+        # A DB hiccup must not 400 a legitimate order — fail open.
+        return None
+    if not isinstance(data, dict):
+        return None
+    django_cache.set(cache_key, data, 120)
+    return data
+
 
 class EditorRenderView(APIView):
     """
@@ -2335,6 +2439,10 @@ class EditorRenderView(APIView):
     Webhook callback URL is sourced ONLY from the embed session (via
     `X-Callback-URL` header injected by the embed proxy). Direct callers do
     not get a webhook — they must poll `/api/render-status/<job_id>/`.
+
+    The ordered quantity comes from the embed session too (`X-Order-Qty`), and
+    a submission placing more photos than that is rejected with 400. Fewer is
+    accepted on purpose — see services/order_qty.py.
 
     Request body (JSON):
     {
@@ -2388,7 +2496,13 @@ class EditorRenderView(APIView):
             "Book products must be submitted here rather than via "
             "`/api/layout/generate`, which cannot assign photos per page.\n\n"
             "There is **no duplicate-submit guard**: the same `order_id` posted "
-            "twice creates a second job."
+            "twice creates a second job.\n\n"
+            "**Ordered quantity.** When the embed session was created with a `qty`, "
+            "the proxy injects it as `X-Order-Qty` and a submission placing more "
+            "photos than that is rejected with 400. Fewer is accepted — the "
+            "asymmetry is deliberate, so a wrong `qty` cannot strand an order. "
+            "Single-surface products only; calendars, books and multi-surface "
+            "products are not quantity-checked."
         ),
         request=inline_serializer(
             name="EditorRender",
@@ -2424,7 +2538,7 @@ class EditorRenderView(APIView):
                     "queue": drf_serializers.CharField(),
                 },
             ),
-            400: OpenApiResponse(description="Missing order_id, unknown layout, empty canvases, or an upload_id that resolves to no stored file."),
+            400: OpenApiResponse(description="Missing order_id, unknown layout, empty canvases, an upload_id that resolves to no stored file, or more photos than the embed session's `qty`."),
             403: OpenApiResponse(description="This API key may not generate layouts."),
             507: OpenApiResponse(description="Insufficient disk space to accept the job."),
         },
@@ -2486,6 +2600,41 @@ class EditorRenderView(APIView):
             request.headers.get('X-Include-Uploads', 'true')
         ).strip().lower() not in ('0', 'false', 'no', 'off')
         api_key = request.user.api_key
+
+        # ── Ordered-quantity cap ────────────────────────────────────────────
+        # X-Order-Qty is injected by the embed proxy from EmbedSession.qty, so
+        # unlike the legacy ?qty=N URL param the customer's browser cannot
+        # raise it. The editor already caps the pick; this is what makes the
+        # cap hold when the editor is bypassed.
+        #
+        # Absent header (dashboard, direct partner, or a session created
+        # without a quantity) → no check, exactly as before. A header that
+        # somehow will not parse is dropped rather than rejected: only the
+        # trusted proxy can set it, from a column validated at session
+        # creation, so a bad value is our bug and must not fail a real order.
+        #
+        # Going UNDER stays allowed here, as it is in the browser — see
+        # services/order_qty.py on why that asymmetry is load-bearing.
+        try:
+            order_qty = parse_order_qty(request.headers.get('X-Order-Qty'))
+        except InvalidOrderQty as exc:
+            logger.warning(
+                "EditorRenderView: unusable X-Order-Qty for order_id=%s (%s); "
+                "proceeding without a quantity check.", order_id, exc,
+            )
+            order_qty = None
+        if order_qty is not None:
+            over = qty_violation(
+                count_placed_photos(canvases_payload),
+                order_qty,
+                _read_layout_def(layout_name),
+            )
+            if over:
+                logger.warning(
+                    "EditorRenderView: rejected over-quantity submission for "
+                    "order_id=%s layout=%s (qty=%s)", order_id, layout_name, order_qty,
+                )
+                return Response({'detail': over}, status=status.HTTP_400_BAD_REQUEST)
 
         # ── Collect + validate all upload_ids ───────────────────────────────
         all_upload_ids = []

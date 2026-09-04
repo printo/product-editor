@@ -37,7 +37,7 @@ const INTERNAL_SECRET = process.env.EMBED_INTERNAL_SECRET || '';
 // ── In-process token → API key cache ─────────────────────────────────────────
 // Module-level so it persists across requests within the same Next.js worker
 // process (Node.js keeps module scope alive between hot invocations).
-interface CacheEntry { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean; exp: number }
+interface CacheEntry { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean; qty: number | null; exp: number }
 const tokenCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 110 * 60 * 1000; // 110 minutes (session TTL is 120 min)
 // Hard cap to prevent unbounded growth in pathological scenarios
@@ -63,12 +63,16 @@ function evictExpired(): void {
   }
 }
 
-interface SessionInfo { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean }
+interface SessionInfo { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean; qty: number | null }
 
 /**
- * Exchange an embed token for the real API key, order_id, and callback_url.
- * Returns the cached value if still valid; otherwise hits Django's internal
- * validate endpoint and stores the result.
+ * Exchange an embed token for the real API key, order_id, callback_url and
+ * ordered quantity. Returns the cached value if still valid; otherwise hits
+ * Django's internal validate endpoint and stores the result.
+ *
+ * Everything the proxy later injects as a header has to live in the cache
+ * entry — an entry missing a field would serve `null` for the whole 110-minute
+ * TTL, so the first request would enforce a quantity and the rest would not.
  */
 async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
   const now = Date.now();
@@ -76,7 +80,10 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
   // Fast path: valid cached entry.
   const cached = tokenCache.get(embedToken);
   if (cached && cached.exp > now) {
-    return { apiKey: cached.apiKey, orderId: cached.orderId, callbackUrl: cached.callbackUrl, includeUploads: cached.includeUploads };
+    return {
+      apiKey: cached.apiKey, orderId: cached.orderId, callbackUrl: cached.callbackUrl,
+      includeUploads: cached.includeUploads, qty: cached.qty,
+    };
   }
 
   // Cache miss — purge stale entries then fetch from Django.
@@ -101,8 +108,14 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
       // Defaults true when absent so older Django builds / existing sessions
       // keep including uploads (backward-compatible).
       const includeUploads: boolean = data.include_uploads !== false;
-      tokenCache.set(embedToken, { apiKey, orderId, callbackUrl, includeUploads, exp: now + CACHE_TTL_MS });
-      return { apiKey, orderId, callbackUrl, includeUploads };
+      // Ordered quantity. Null unless the caller set one, and only a clean
+      // positive integer counts — a malformed value must read as "no quantity"
+      // rather than reach Django as a cap nobody asked for.
+      const rawQty = data.qty;
+      const qty: number | null =
+        typeof rawQty === 'number' && Number.isInteger(rawQty) && rawQty > 0 ? rawQty : null;
+      tokenCache.set(embedToken, { apiKey, orderId, callbackUrl, includeUploads, qty, exp: now + CACHE_TTL_MS });
+      return { apiKey, orderId, callbackUrl, includeUploads, qty };
     }
     return null;
   } catch {
@@ -213,7 +226,7 @@ async function handler(
   if (!session) {
     return NextResponse.json({ detail: 'Invalid or expired embed token' }, { status: 401 });
   }
-  const { apiKey, orderId, callbackUrl, includeUploads } = session;
+  const { apiKey, orderId, callbackUrl, includeUploads, qty } = session;
 
   const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${trailingSlash}${req.nextUrl.search}`;
 
@@ -236,6 +249,11 @@ async function handler(
   // Caller's session-time choice for whether the download ZIP includes the
   // customer's original uploads. Always sent so EditorRenderView snapshots it.
   forwardHeaders['X-Include-Uploads'] = includeUploads ? '1' : '0';
+  // Ordered quantity, same pattern as X-Order-ID: the browser never sees a
+  // number it could edit. editor/init echoes it so the editor caps against it,
+  // and editor/render re-checks the submission against it. Omitted entirely
+  // when the session carries none, which means "do not enforce".
+  if (qty !== null) forwardHeaders['X-Order-Qty'] = String(qty);
   // Only set Content-Type when we'll actually have a body — for GET/HEAD
   // it's meaningless and some upstreams reject the combination.
   if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {

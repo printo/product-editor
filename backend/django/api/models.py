@@ -240,6 +240,13 @@ class EmbedSession(models.Model):
     # creation; flows via X-Include-Uploads → CanvasData.render_state → webhook.
     # Defaults True so existing integrations are unchanged.
     include_uploads = models.BooleanField(default=True)
+    # Number of items the customer ordered. Set by the caller at session
+    # creation and injected as X-Order-Qty on every forwarded request, so the
+    # count the editor enforces cannot be edited in the iframe URL the way the
+    # legacy ?qty=N param could. NULL means "the caller did not say" — the
+    # editor then falls back to that URL param and nothing server-side is
+    # enforced, which is what every pre-existing session does.
+    qty = models.PositiveIntegerField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_revoked = models.BooleanField(default=False)

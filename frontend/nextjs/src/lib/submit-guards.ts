@@ -87,8 +87,9 @@ export type QtyVerdict =
   | { status: 'over'; uploaded: number; allowed: number };
 
 /**
- * Compare the photo count against the order quantity (the `?qty=N` param on
- * the editor URL).
+ * Compare the photo count against the order quantity — `EmbedSession.qty`,
+ * echoed to the editor by `/editor/init`, with the legacy `?qty=N` URL param
+ * as a rollout fallback.
  *
  * Single-surface products only: a two-sided product, calendar or book has a
  * fixed physical surface count that qty does not describe, so those always
@@ -96,8 +97,11 @@ export type QtyVerdict =
  *
  * 'over' is a HARD cap — the caller trims to `allowed` or discards the pick;
  * there is deliberately no proceed-with-all path, so a submit can never carry
- * more photos than were ordered. 'under' stays warn-and-proceed: qty arrives
- * in a URL the caller controls, and a wrong one must never block a checkout.
+ * more photos than were ordered. `POST /api/editor/render` enforces the same
+ * cap against the stored session quantity, so this is the friendly half of the
+ * rule rather than the whole of it — see `backend/django/services/order_qty.py`
+ * for the Python twin. 'under' stays warn-and-proceed on BOTH sides: a wrong
+ * qty from the caller must never block a checkout.
  */
 export function checkOrderQty(
   uploaded: number,
