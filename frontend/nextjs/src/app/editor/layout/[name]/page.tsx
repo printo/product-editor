@@ -5,13 +5,13 @@
  */
 
 import React, {
-  useState, useEffect, useCallback, useMemo, useRef,
+  useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef,
 } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useHeader } from '@/context/HeaderContext';
 import {
-  Upload, Loader2, CheckCircle2, X,
+  Upload, Loader2, CheckCircle2, Check, X,
   Archive, FileText, Layout,
   SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
   Move, Lock, AlertTriangle, ImagePlus, ArrowLeftRight, Droplets, ArrowLeft, Plus,
@@ -764,6 +764,26 @@ export default function LayoutEditorPage() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [headerHeight]);
+
+  // The floating qty banner has to clear BOTH bars above it. In the embed
+  // iframe no app <header> is mounted at all (headerHeight is 0) and this
+  // sticky toolbar is the only thing at the top of the viewport, so a
+  // header-only offset would drop the banner straight on top of it. Measured
+  // rather than hardcoded — the toolbar is one row on desktop and two on a
+  // phone, and it re-flows as the window resizes. A callback ref so the
+  // measurement starts the moment the toolbar mounts (it renders only after
+  // the layout loads).
+  const [toolbarEl, setToolbarEl] = useState<HTMLDivElement | null>(null);
+  const [toolbarHeight, setToolbarHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    if (!toolbarEl) return;
+    const measure = () => setToolbarHeight(Math.round(toolbarEl.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(toolbarEl);
+    return () => observer.disconnect();
+  }, [toolbarEl]);
 
   useEffect(() => {
     if (embedToken) return;
@@ -1605,6 +1625,7 @@ export default function LayoutEditorPage() {
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      if (showAutoFillPicker) return setShowAutoFillPicker(false);
       if (pendingRepick) return setPendingRepick(null);
       if (deleteConfirm) return setDeleteConfirm(null);
       if (pendingOverFiles) return setPendingOverFiles(null);
@@ -1613,7 +1634,7 @@ export default function LayoutEditorPage() {
     };
     document.addEventListener('keydown', onEsc);
     return () => document.removeEventListener('keydown', onEsc);
-  }, [pendingRepick, deleteConfirm, pendingOverFiles, showDownloadModal, showEmbedDisclaimer]);
+  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, showDownloadModal, showEmbedDisclaimer]);
 
   // ── Tab-close guard (Phase 3) ─────────────────────────────────────────────
   // Warn before unloading ONLY while work is genuinely in flight: an active
@@ -3766,32 +3787,59 @@ export default function LayoutEditorPage() {
         </div>
       )}
       {/* ── Under-upload banner ─────────────────────────────────────────────── */}
+      {/* Offset by the MEASURED header height rather than a hardcoded `top-24`:
+          the mobile header is two rows (72 + 56 px), so the old 96 px offset
+          parked this card on top of it. Full-bleed with gutters on phones,
+          centred card from `sm` up. */}
       {qtyUnder && (
-        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200002] w-full max-w-md bg-white/95 backdrop-blur-2xl border border-indigo-200/60 rounded-2xl shadow-2xl shadow-indigo-900/10 p-4 animate-in fade-in slide-in-from-top-4 duration-400">
-          <div className="flex items-start gap-3 mb-3">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 text-[15px] font-black">↑</div>
+        <div
+          role="status"
+          aria-live="polite"
+          style={{ top: headerHeight + toolbarHeight + 12 }}
+          className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 z-[200002] bg-white/95 backdrop-blur-2xl border border-indigo-200/60 rounded-2xl shadow-2xl shadow-indigo-900/10 p-4 sm:p-5 animate-in fade-in slide-in-from-top-4 duration-400"
+        >
+          <div className="flex items-start gap-3 sm:gap-4">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+              <ImagePlus className="w-5 h-5" />
+            </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">
+              <p className="text-[13px] sm:text-sm font-black text-slate-900 uppercase tracking-tight leading-tight">
                 {qtyUnder.uploaded} of {qtyUnder.needed} images uploaded
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                {qtyUnder.needed - qtyUnder.uploaded} more needed to match your order quantity. You can upload more, or fill the remaining slots from your existing images.
+              <p className="text-[12px] text-slate-500 mt-1.5 leading-relaxed">
+                {qtyUnder.needed - qtyUnder.uploaded} more needed to match your order quantity. Upload more photos, or fill the remaining
+                slot{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''} from the images you already have.
               </p>
             </div>
-            <button onClick={() => setQtyUnder(null)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-all shrink-0">
-              <X className="w-3.5 h-3.5 text-slate-400" />
+            <button
+              onClick={() => setQtyUnder(null)}
+              aria-label="Dismiss"
+              className="p-2 -mt-1 -mr-1 hover:bg-slate-100 rounded-xl transition-all shrink-0"
+            >
+              <X className="w-4 h-4 text-slate-400" />
             </button>
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* The count IS the message, so show it as a bar too. */}
+          <div className="mt-4 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-indigo-600 transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.round((qtyUnder.uploaded / qtyUnder.needed) * 100))}%` }}
+            />
+          </div>
+
+          {/* Stacked on phones — side by side, these two labels wrap to three
+              lines each inside a 375 px viewport. */}
+          <div className="mt-4 flex flex-col sm:flex-row items-stretch gap-2">
             <button
               onClick={handleAutoFill}
-              className="flex-1 py-2 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+              className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
             >
               Auto-fill {qtyUnder.needed - qtyUnder.uploaded} remaining
             </button>
             <button
               onClick={() => { setShowAutoFillPicker(true); setPickerSelected(new Set()); }}
-              className="flex-1 py-2 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+              className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
             >
               Choose which to repeat
             </button>
@@ -3800,19 +3848,34 @@ export default function LayoutEditorPage() {
       )}
 
       {/* ── Auto-fill picker modal ──────────────────────────────────────────── */}
+      {/* Bottom sheet on phones (thumb-reachable, full width, safe-area padded),
+          centred dialog from `sm` up — same idiom as the editor sidebar. The
+          thumbnail grid is the only scrolling region, so the title and the
+          confirm button stay put however many photos are listed. */}
       {showAutoFillPicker && qtyUnder && (
-        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight">Choose images to repeat</p>
-              <button onClick={() => setShowAutoFillPicker(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-all">
-                <X className="w-3.5 h-3.5 text-slate-400" />
+        <div className="fixed inset-0 z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose images to repeat"
+            className="bg-white w-full sm:max-w-lg sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[88vh] sm:max-h-[80vh] flex flex-col animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
+          >
+            <div className="sm:hidden w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4 shrink-0" />
+            <div className="flex items-start justify-between gap-3 shrink-0">
+              <p className="text-[13px] sm:text-sm font-black text-slate-900 uppercase tracking-tight">Choose images to repeat</p>
+              <button
+                onClick={() => setShowAutoFillPicker(false)}
+                aria-label="Close"
+                className="p-2 -mt-1 -mr-1 hover:bg-slate-100 rounded-xl transition-all shrink-0"
+              >
+                <X className="w-4 h-4 text-slate-400" />
               </button>
             </div>
-            <p className="text-[10px] text-slate-400 mb-3">
-              Select {qtyUnder.needed - qtyUnder.uploaded} image{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''} to duplicate into the remaining slots.
+            <p className="text-[12px] text-slate-500 leading-relaxed mt-1.5 mb-4 shrink-0">
+              Tap up to {qtyUnder.needed - qtyUnder.uploaded} image{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''} to duplicate into the remaining
+              slot{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}. Pick fewer and the rest cycle through your photos.
             </p>
-            <div className="grid grid-cols-3 gap-2 mb-4 max-h-56 overflow-y-auto custom-scrollbar">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 mb-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
               {files.map((f, i) => {
                 // Use the helper so the URL is tracked for cleanup; the bare
                 // URL.createObjectURL fallback used to leak in the qty-picker.
@@ -3821,9 +3884,10 @@ export default function LayoutEditorPage() {
                 return (
                   <button
                     key={i}
+                    aria-pressed={isSelected}
                     onClick={() => setPickerSelected(prev => {
                       const next = new Set(prev);
-                      isSelected ? next.delete(i) : next.add(i);
+                      if (isSelected) next.delete(i); else next.add(i);
                       return next;
                     })}
                     className={clsx('relative aspect-square rounded-xl overflow-hidden border-2 transition-all active:scale-95', isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300')}
@@ -3831,7 +3895,9 @@ export default function LayoutEditorPage() {
                     <img src={url} alt={f.name} className="w-full h-full object-cover" />
                     {isSelected && (
                       <div className="absolute inset-0 bg-indigo-500/20 flex items-center justify-center">
-                        <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">\u2713</div>
+                        <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                          <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                        </div>
                       </div>
                     )}
                   </button>
@@ -3841,9 +3907,11 @@ export default function LayoutEditorPage() {
             <button
               onClick={handleFillWithPicked}
               disabled={pickerSelected.size === 0}
-              className="w-full py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="w-full min-h-[48px] py-3.5 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
             >
-              Use selected to fill {qtyUnder.needed - qtyUnder.uploaded} slot{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}
+              {pickerSelected.size === 0
+                ? 'Select at least one image'
+                : `Use ${pickerSelected.size} selected to fill ${qtyUnder.needed - qtyUnder.uploaded} slot${qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}`}
             </button>
           </div>
         </div>
@@ -3917,22 +3985,35 @@ export default function LayoutEditorPage() {
 
       {/* ── Over-upload confirm modal ───────────────────────────────────────── */}
       {pendingOverFiles && orderQty && (
-        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
-            <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">More images than ordered</p>
-            <p className="text-[10px] text-slate-500 leading-snug mb-4">
-              Your order is for <span className="font-black text-slate-800">{orderQty} {orderQty === 1 ? 'image' : 'images'}</span> but you selected <span className="font-black text-slate-800">{pendingOverFiles.length}</span>. Only {orderQty} can be printed on this order — keep the first {orderQty}, or choose again to pick exactly the ones you want.
-            </p>
-            <div className="flex items-center gap-2">
+        <div className="fixed inset-0 z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="More images than ordered"
+            className="bg-white w-full sm:max-w-md sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
+          >
+            <div className="sm:hidden w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4" />
+            <div className="flex items-start gap-3 sm:gap-4">
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] sm:text-sm font-black text-slate-900 uppercase tracking-tight leading-tight">More images than ordered</p>
+                <p className="text-[12px] text-slate-500 leading-relaxed mt-1.5">
+                  Your order is for <span className="font-black text-slate-800">{orderQty} {orderQty === 1 ? 'image' : 'images'}</span> but you selected <span className="font-black text-slate-800">{pendingOverFiles.length}</span>. Only {orderQty} can be printed on this order — keep the first {orderQty}, or choose again to pick exactly the ones you want.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col sm:flex-row items-stretch gap-2">
               <button
                 onClick={() => handleOverConfirm(true)}
-                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+                className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
               >
                 Keep first {orderQty}
               </button>
               <button
                 onClick={() => handleOverConfirm(false)}
-                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+                className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
               >
                 Choose again
               </button>
@@ -4135,6 +4216,7 @@ export default function LayoutEditorPage() {
           <div className="relative">
             <div ref={toolbarSentinelRef} className="absolute top-0 inset-x-0 h-px" aria-hidden />
             <div
+              ref={setToolbarEl}
               style={{ top: isToolbarStuck ? headerHeight : 0 }}
               className="sticky z-40 -mx-4 md:-mx-8 px-4 md:px-8 py-3 bg-white/60 backdrop-blur-3xl border-b border-slate-200/50 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4 shadow-sm"
             >
