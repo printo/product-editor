@@ -152,7 +152,10 @@ def invalidate_layout_caches(name: str | None = None) -> None:
     """
     from django.core.cache import cache as django_cache
 
-    django_cache.delete_many(["layouts_list_all", "ops_layouts_list_all"])
+    try:
+        django_cache.delete_many(["layouts_list_all", "ops_layouts_list_all"])
+    except Exception as exc:  # pragma: no cover — cache must never break a write
+        logger.warning("Failed to invalidate list caches: %s", exc)
 
     if not name:
         return
@@ -241,41 +244,30 @@ class ListLayoutsView(APIView):
     def get(self, request):
         try:
             from django.core.cache import cache as django_cache
+            from api.models import LayoutCatalogue
+
             CACHE_KEY = "layouts_list_all"
-            CACHE_TTL = 120  # 2 minutes — invalidated on upload/save
+            CACHE_TTL = 120  # 2 minutes — invalidated on layout write
 
             layouts_data = django_cache.get(CACHE_KEY)
             if layouts_data is None:
-                storage = get_storage()
-                layout_names = storage.list_layouts()
+                # Query LayoutCatalogue from Postgres — single source of truth
+                rows = LayoutCatalogue.objects.filter(
+                    is_deprecated=False,
+                    is_public=True,
+                ).values('name', 'definition', 'product_type', 'category', 'updated_at')
+
                 layouts_data = []
-                for name in layout_names:
-                    path = os.path.join(storage.layouts_dir(), f"{name}.json")
-                    if os.path.exists(path):
-                        try:
-                            with open(path, "r") as f:
-                                data = json.load(f)
-                                # The filename is the identifier every path-based
-                                # endpoint (get/put/delete/render) resolves by, so it
-                                # must win here too. A layout whose stored "name"
-                                # diverges from its filename (e.g. classic_A4.json
-                                # carrying "name":"classic_a4") is otherwise
-                                # unopenable and undeletable on a case-sensitive
-                                # (production Linux) filesystem — the list reports
-                                # "classic_a4" but only "classic_A4.json" exists.
-                                data["name"] = name
-                                # Explicit flag for the ops layout list badge (PRD §6
-                                # Phase 6 / audit fix #4). Frontend can also check
-                                # `productType` directly but hasCalendar is the
-                                # canonical field per the PRD spec.
-                                data["hasCalendar"] = data.get("productType") == "calendar"
-                                layouts_data.append(data)
-                        except Exception:
-                            layouts_data.append({"name": name})
-                    else:
-                        layouts_data.append({"name": name})
+                for row in rows:
+                    # Merge definition with metadata for response
+                    data = row['definition'].copy() if isinstance(row['definition'], dict) else {}
+                    data['name'] = row['name']
+                    data['category'] = row['category']
+                    data['hasCalendar'] = data.get('productType') == 'calendar'
+                    layouts_data.append(data)
+
                 django_cache.set(CACHE_KEY, layouts_data, CACHE_TTL)
-                logger.info(f"Layouts cache miss — loaded {len(layouts_data)} layouts from disk")
+                logger.info(f"Layouts cache miss — loaded {len(layouts_data)} layouts from LayoutCatalogue")
             else:
                 logger.info(f"Layouts cache hit — serving {len(layouts_data)} layouts")
 
@@ -1065,54 +1057,43 @@ class GetLayoutView(APIView):
     )
     def get(self, request, name: str):
         try:
+            from django.core.cache import cache as django_cache
+            from api.models import LayoutCatalogue
+
             # Malformed name is a client error; a well-formed name that simply
-            # isn't there is a missing resource. Collapsing both into 400
-            # "Invalid layout name" made a deleted layout look like a caller
-            # bug — misleading for partners whose SKU maps to a removed layout.
+            # isn't there is a missing resource.
             if not self._is_safe_layout_name(name):
                 return Response(
                     {"detail": "Invalid layout name"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            if not self._layout_exists(name):
+
+            # Cache individual layout JSON (same TTL as list endpoint)
+            surfaces_param = request.query_params.get('surfaces', '')
+            cache_key = f"layout_detail:{name}:{surfaces_param}"
+            cached_data = django_cache.get(cache_key)
+
+            if cached_data is not None:
+                response = Response(cached_data)
+                response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
+                return response
+
+            # Query LayoutCatalogue from Postgres
+            try:
+                layout = LayoutCatalogue.objects.get(
+                    name=name,
+                    is_deprecated=False,
+                    is_public=True,
+                )
+            except LayoutCatalogue.DoesNotExist:
                 return Response(
                     {"detail": f"Layout '{name}' not found"},
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            from django.core.cache import cache as django_cache
-
-            storage = get_storage()
-            # Use basename to prevent path traversal
-            safe_name = os.path.basename(name)
-
-            # Cache individual layout JSON (same TTL as list endpoint)
-            surfaces_param = request.query_params.get('surfaces', '')
-            cache_key = f"layout_detail:{safe_name}:{surfaces_param}"
-            cached_data = django_cache.get(cache_key)
-
-            if cached_data is not None:
-                response = Response(cached_data)
-                response['Cache-Control'] = 'private, max-age=30, must-revalidate'
-                return response
-
-            path = os.path.join(storage.layouts_dir(), f"{safe_name}.json")
-
-            # Extra security: ensure path is within layouts directory
-            if not self._is_path_safe(path, storage.layouts_dir()):
-                return Response(
-                    {"detail": "Access denied"},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-
-            if not os.path.exists(path):
-                return Response(
-                    {"detail": "Layout not found"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-            with open(path, "r") as f:
-                data = json.load(f)
+            # Fetch definition from database
+            data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
+            data['name'] = layout.name
 
             # Filter surfaces if ?surfaces= param is provided (for multi-surface layouts)
             if surfaces_param and 'surfaces' in data and isinstance(data['surfaces'], list):
@@ -1122,18 +1103,12 @@ class GetLayoutView(APIView):
                     if s.get('key', '').lower() in requested_keys
                 ]
 
-            django_cache.set(cache_key, data, 120)  # 2 min TTL, same as list endpoint
+            django_cache.set(cache_key, data, 120)  # 2 min TTL
 
             response = Response(data)
-            response['Cache-Control'] = 'private, max-age=30, must-revalidate'
+            response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
             return response
 
-        except json.JSONDecodeError:
-            logger.error(f"Invalid JSON in layout file: {name}")
-            return Response(
-                {"detail": "Corrupted layout file"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
         except Exception as e:
             logger.error(f"Error getting layout: {str(e)}")
             return Response(
@@ -1143,22 +1118,10 @@ class GetLayoutView(APIView):
 
     @staticmethod
     def _is_safe_layout_name(name: str) -> bool:
-        """Path-traversal guard only — says nothing about existence."""
+        """Guard against obviously malformed layout names — says nothing about existence."""
         if not name or '/' in name or '\\' in name or '..' in name:
             return False
         return not name.startswith('.')
-
-    @staticmethod
-    def _layout_exists(name: str) -> bool:
-        try:
-            return name in get_storage().list_layouts()
-        except Exception:
-            return False
-
-    @staticmethod
-    def _is_valid_layout_name(name: str) -> bool:
-        """Safe AND present. Retained for callers that treat absence as a 400."""
-        return GetLayoutView._is_safe_layout_name(name) and GetLayoutView._layout_exists(name)
 
     @staticmethod
     def _is_path_safe(path: str, allowed_dir: str) -> bool:
@@ -2344,6 +2307,7 @@ class EditorInitView(APIView):
     )
     def get(self, request):
         from django.core.cache import cache as django_cache
+        from api.models import LayoutCatalogue
 
         name = (request.query_params.get('layout') or '').strip()
         if not name:
@@ -2352,8 +2316,6 @@ class EditorInitView(APIView):
         # editor needs to tell "bad request" apart from "this layout is gone".
         if not GetLayoutView._is_safe_layout_name(name):
             return Response({'detail': 'Invalid layout name'}, status=status.HTTP_400_BAD_REQUEST)
-        if not GetLayoutView._layout_exists(name):
-            return Response({'detail': f"Layout '{name}' not found"}, status=status.HTTP_404_NOT_FOUND)
 
         surfaces_param = request.query_params.get('surfaces', '')
         # Reuse the GetLayoutView cache key so a request to either endpoint
@@ -2362,19 +2324,22 @@ class EditorInitView(APIView):
         layout_data = django_cache.get(cache_key)
 
         if layout_data is None:
-            storage = get_storage()
-            safe_name = os.path.basename(name)
-            path = os.path.join(storage.layouts_dir(), f"{safe_name}.json")
-            if not GetLayoutView._is_path_safe(path, storage.layouts_dir()):
-                return Response({'detail': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
-            if not os.path.exists(path):
-                return Response({'detail': 'Layout not found'}, status=status.HTTP_404_NOT_FOUND)
+            # Query LayoutCatalogue from Postgres
             try:
-                with open(path, 'r') as f:
-                    layout_data = json.load(f)
-            except json.JSONDecodeError:
-                logger.error("Invalid JSON in layout file: %s", name)
-                return Response({'detail': 'Corrupted layout file'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                layout = LayoutCatalogue.objects.get(
+                    name=name,
+                    is_deprecated=False,
+                    is_public=True,
+                )
+            except LayoutCatalogue.DoesNotExist:
+                return Response(
+                    {'detail': f"Layout '{name}' not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Fetch definition from database
+            layout_data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
+            layout_data['name'] = layout.name
 
             if surfaces_param and 'surfaces' in layout_data and isinstance(layout_data['surfaces'], list):
                 requested_keys = [k.strip().lower() for k in surfaces_param.split(',') if k.strip()]
@@ -2398,7 +2363,7 @@ class EditorInitView(APIView):
         })
         # Cacheable on the proxy edge for short-lived shared cache; private so a
         # tenant's surfaces= filter doesn't bleed across tenants.
-        response['Cache-Control'] = 'private, max-age=30, must-revalidate'
+        response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
         return response
 
 
