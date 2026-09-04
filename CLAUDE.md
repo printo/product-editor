@@ -495,6 +495,44 @@ That last check takes the **newest** mtime of the directory *and its contents*, 
 
 Always call `transaction.on_commit(lambda: task.apply_async(...))` **inside** the `atomic()` block so the callback fires only after the DB commit. Calling it outside an open transaction executes immediately (which works but is non-standard and fragile).
 
+## Layout Loading (Storage Migration)
+
+**Layouts are loaded from Postgres LayoutCatalogue, not disk** (as of 2026-09-04, PR #111). This is critical for all render paths:
+
+### All Render Paths Load from LayoutCatalogue
+
+| Path | Entry | Load Point | Status |
+|------|-------|-----------|--------|
+| Dashboard | EditorRenderView.post() | render_canvas_task queries LayoutCatalogue | ✅ |
+| Embed | EditorInitView.get() | EditorInitView queries LayoutCatalogue | ✅ |
+| Embed submit | EditorRenderView.post() | render_canvas_task queries LayoutCatalogue | ✅ |
+| Direct API (sync) | GenerateLayoutView._handle_async() | Queries LayoutCatalogue before LayoutEngine | ✅ |
+| Direct API (async) | GenerateLayoutView.post() | render_canvas_task queries LayoutCatalogue | ✅ |
+
+### Critical: LayoutEngine Constructor
+
+`LayoutEngine` must receive `layout_definition` parameter:
+```python
+layout_obj = LayoutCatalogue.objects.get(name=layout_name, is_deprecated=False)
+engine = LayoutEngine(
+    storage.layouts_dir(),      # Still passed for fallback only
+    job_exports_dir,
+    layout_definition=layout_obj.definition  # ← REQUIRED
+)
+```
+
+**Missing `layout_definition` causes `[Errno 2] No such file or directory` on render.** All calls to `LayoutEngine()` must load the layout from LayoutCatalogue first and pass it. The LayoutEngine will use the pre-loaded definition if available, falling back to disk only for legacy scenarios.
+
+### Audit Trail (2026-09-04)
+
+Four issues were found during audit and fixed:
+1. `render_canvas_task` wasn't passing `layout_definition` → Fixed
+2. `GenerateLayoutView._handle_async()` wasn't passing `layout_definition` → Fixed  
+3. `_layout_exists()` queried disk instead of LayoutCatalogue → Fixed
+4. `LocalStorage.list_layouts()` enumerated `/app/storage/layouts/` → Fixed
+
+**Prevention**: Any code instantiating `LayoutEngine` must query LayoutCatalogue first and pass the result.
+
 ## Server-Side Render Flow
 
 ### When It Triggers

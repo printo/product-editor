@@ -2,8 +2,8 @@
 
 Development rules and safety guidelines for AI agents working on this project.
 
-**Last verified against the code: 2026-08-14** (`main` @ `79104d0`, migration
-`0014`). This file is the short list of things that have actually bitten us;
+**Last verified against the code: 2026-09-04** (`main` @ `84c27e8`, after storage migration
+audit and layout loading fixes). This file is the short list of things that have actually bitten us;
 [`../CLAUDE.md`](../CLAUDE.md) is the full architectural reference and wins on
 any disagreement. If you correct a rule here, check whether CLAUDE.md says the
 same thing in its own words.
@@ -23,6 +23,7 @@ same thing in its own words.
 
 - **Path Safety**: Always use `_is_path_safe` or equivalent validation when handling file paths from requests to prevent path traversal.
 - **Authentication**: All new endpoints must require appropriate permissions (`IsAuthenticatedWithAPIKey`, `is_ops_team` for ops endpoints).
+- **Layout Loading**: Any code that instantiates `LayoutEngine` MUST query `LayoutCatalogue` first and pass the result as `layout_definition=` parameter. Missing this causes `[Errno 2] No such file or directory` on render. `LayoutEngine` must NEVER be responsible for loading layouts from disk — it receives pre-loaded definitions only. Audit trail: 4 issues found on 2026-09-04, all fixed. See CLAUDE.md "Layout Loading (Storage Migration)" section for details.
 - **Resource Management**: Large image processing tasks must run in Celery workers, never in a Gunicorn thread. Workers are memory-limited to **2 GB per replica** and concurrency is **auto-detected from CPU count** (no `CELERY_CONCURRENCY` in compose) — 2 render slots on the current 2-core prod box. Scale out with `docker compose up -d --scale celery-worker-standard=4` rather than raising per-replica concurrency; if you do cap it via `CELERY_CONCURRENCY`, keep the memory-per-slot headroom in mind (Pillow compositing is the consumer). The one deliberate exception to "never in a Gunicorn thread" is orientation inference (~30–150 ms) — see the auto-orientation note above for why it is inline.
 
 ### Async Task Rules (Celery)
