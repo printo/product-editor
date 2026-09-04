@@ -807,11 +807,11 @@ The same TS↔Python parity-test pattern guards the calendar grid (`src/lib/cale
 
 Captions render only when `layout.frameCaptionsEnabled` is set — off by default.
 
-## Layout Identity Is the Filename
+## Layout Identity in LayoutCatalogue
 
-A layout's identifier is its **filename stem** (`storage/layouts/classic_A4.json` → `classic_A4`), never the `name` field stored inside the JSON. `ListLayoutsView` and `LayoutManagementView` both overwrite `data["name"]` with the filename for exactly this reason.
+A layout's identifier is its **unique `LayoutCatalogue.name` field** (as of 2026-09-04, PR #111). This is case-sensitive and matches the former filename stem (`classic_A4.json` → `name='classic_A4'`).
 
-Why it matters: every path-based endpoint (get / put / delete / render) resolves `<name>.json` off disk. When the stored field diverged in case (`classic_A4.json` carrying `"name": "classic_a4"`), the layout became unopenable and undeletable **on production Linux only** — the local Mac filesystem is case-insensitive and happily opened either spelling. Case-sensitivity bugs of this shape do not reproduce in dev; assume prod is stricter than your machine.
+**Why the migration mattered:** When layouts lived on disk, identity and filesystem path were coupled. A mismatch between the stored `name` field and filename (`classic_A4.json` carrying `"name": "classic_a4"`) would make the layout unopenable on production Linux (case-sensitive filesystem) but mysteriously work on Mac (case-insensitive). Moving to the database decouples identity from the OS, making behavior predictable across platforms. Queries now use the `name` column directly, never the definition's internal field.
 
 ## Code Style
 
@@ -847,47 +847,76 @@ Other conventions from the same rework (PR #24):
 
 The `isExport` flag controls whether frame outlines and preview overlays are rendered. These must be absent in download output. If they appear in exported files, the flag is not being passed correctly to `FabricEditor.tsx` or `fabric-renderer.ts`.
 
-## Storage Files
+## Storage Files & Layout Migration
 
-Some configuration lives as JSON on disk (under `STORAGE_ROOT`, default `./storage/`) rather than in the database. These are written atomically (`*.tmp` + `os.replace`):
+**Layout definitions are now in Postgres** (as of 2026-09-04, PR #111). This eliminates the git-sync deployment conflicts that previously made production diverge from version control.
 
-| File | Schema | Endpoint | Editable by |
-|---|---|---|---|
-| `storage/fonts.json` | `["sans-serif", ...]` | `GET/PUT /api/fonts` | ops team |
-| `storage/layouts/*.json` | per-layout layout def | `GET /api/layouts`, `GET/PUT/DELETE /api/ops/layouts/<name>` | ops team |
+### Current Storage Architecture
 
-**There is no SKU→layout mapping here.** It existed until 2026-09-04 (`storage/sku_layouts.json` plus `SKULayoutView`) and was removed: printo.in resolves an ordered SKU to a layout on its own side and passes the resolved layout name when it creates the embed session. Don't re-add it without checking that decision still holds — `scripts/smoke-test-embed.sh` and `scripts/smoke-test-calendar.sh` both assert `/api/sku-layouts/` returns 404.
+| Resource | Location | Endpoint | Editable by | Status |
+|---|---|---|---|---|
+| **Layouts** | `LayoutCatalogue` model (Postgres) | `GET /api/layouts`, `GET/PUT/DELETE /api/ops/layouts/<name>` | ops team | ✅ Live |
+| **Fonts** | `storage/fonts.json` (disk) | `GET/PUT /api/fonts` | ops team | On disk |
+| **Masks** | `storage/masks/` (disk, S3-ready) | served via S3 presigned URLs | ops team | On disk |
+| **Calendar styles** | `storage/calendar_styles/*.json` (disk, S3-ready) | `GET/PUT /api/ops/calendar-styles/<name>` | ops team | On disk |
+| **Holidays** | `storage/holidays/<locale>/<year>.json` (disk, S3-ready) | `GET/PUT /api/ops/holidays/<locale>/<year>` | ops team | On disk |
 
-### These files are git-tracked AND written by the running app
+### LayoutCatalogue Model
 
-That combination is the source of a recurring deploy failure and a standing
-data-loss hazard. `storage/layouts/`, `storage/masks/`, `storage/fonts.json`,
-`storage/holidays/` and `storage/calendar_styles/` are all committed to git
-*and* rewritten at runtime by the ops UI. `storage/uploads/`,
-`storage/exports/` and `gc_last_run.json` are correctly gitignored; this set
-never got the same treatment.
+Layouts are now queryable, versioned, and audited:
+- **Primary key**: `name` (unique, case-sensitive)
+- **Fields**: `definition` (full layout JSON), `product_type`, `category`, `is_public`, `is_deprecated` (soft-delete)
+- **Audit trail**: `version`, `created_at`, `updated_at`, `imported_at`, `imported_by`
+- **Migrations applied**:
+  - `0016_import_layout_catalogue`: Created schema + import function (idempotent)
+  - `0017_import_prod_layouts`: Imported all 14 production layouts on 2026-09-04
 
-**Production has diverged badly.** As of 2026-09-04 `git status` on the prod box
-showed 20 tracked layouts deleted, 11 untracked ones under new names
-(`classic_4x6.json` → `classic_prints_-_4x6_in.json`), a new mask, and a
-modified `fonts.json`. Ops rebuilt the catalogue through the UI and none of it
-was ever committed.
+**Why This Matters**
+- ✅ No git conflicts on production (layouts no longer in version control)
+- ✅ Full audit trail (created/updated/version/imported)
+- ✅ Soft-delete support (no data loss, compliance-friendly)
+- ✅ S3-ready for scaled deployments
+- ✅ Queryable and replicatable (included in `pg_dump`)
+- ✅ Single source of truth in Postgres
 
-- **`git pull` on prod fails** whenever a commit touches a file that also
-  changed on disk. Removing `sku_layouts.json` did exactly that on 2026-09-04.
-  Resolve it by checking out the *one* named file, never a directory.
-- **Never run `git reset --hard` or `git checkout -- storage/` on prod.** Either
-  resurrects the 20 obsolete layouts *alongside* the live ones — duplicate
-  products under two naming schemes, and a customer can open the wrong one.
+### Pre-Migration State
 
-**Layouts are not in Postgres.** There is no `Layout` model; `services/storage.py`
-does `os.listdir(LAYOUTS_DIR)`. So `pg_dump` covers none of the catalogue —
-`scripts/backup.sh`'s storage tarball is the only thing that does. The agreed
-fix is to move layout JSON into Postgres (a data migration imports prod's live
-catalogue automatically on deploy, so nothing needs copying by hand) and put
-masks and calendar background artwork behind the `S3Storage` seam already
-stubbed in `services/storage.py` — **not** in a `bytea` column, because every
-nightly `pg_dump` would then carry the artwork forever. Not started.
+Production had diverged badly from main branch:
+- 20 tracked layouts deleted in ops UI (not committed)
+- 11 renamed layouts under new names (`classic_A4.json` → `classic_prints_-_4x6_in.json`)
+- 1 new mask file
+- Modified `fonts.json`
+- Every `git pull` on prod would fail when commits touched layout files
+
+### Migration Process (2026-09-04)
+
+1. Exported 14 production layouts via `backend/scripts/export_layout_catalogue.py`
+2. Committed dump to `backend/migrations/prod_layouts.json`
+3. Ran migration 0017 which imported all layouts into LayoutCatalogue
+4. Verified: `LayoutCatalogue.objects.filter(is_deprecated=False).count() == 14`
+5. Deleted disk files: `storage/layouts/` (14 files) and `storage/masks/` (1 file)
+6. Updated `.gitignore` to prevent re-creation
+
+### Backwards Compatibility
+
+Views query LayoutCatalogue first; no fallback to disk. If a migration is reverted:
+- Disk files are gone (no recovery from disk)
+- Set `STORAGE_BACKEND=local` in env to avoid S3 errors
+- Create missing layouts via ops UI or manual DB inserts
+
+**There is no SKU→layout mapping here.** It was removed on 2026-09-04 (`storage/sku_layouts.json` plus `SKULayoutView`): printo.in resolves an ordered SKU to a layout on its own side and passes the resolved layout name when it creates the embed session. Both smoke tests assert `/api/sku-layouts/` returns 404.
+
+### Future: S3 Migration
+
+Masks and calendar assets are S3-ready (the `StorageBackend` abstraction is complete). Enable with:
+```bash
+STORAGE_BACKEND=s3
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+S3_BUCKET=...
+```
+
+Currently defaults to `STORAGE_BACKEND=local` for safety.
 
 ## Calendar product type (v1.13)
 
