@@ -27,6 +27,7 @@ import {
   AlignRight,
   CalendarDays,
   BookOpen,
+  Database,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -347,11 +348,35 @@ export default function LayoutCreatorPage() {
           </button>
         </div>
       );
-      setRightActions(null);
+      // Jump to the Django admin console. Gated on `is_super_user`, which is
+      // the SAME flag nginx's auth_request checks via
+      // /api/internal/verify-django-admin — deliberately narrower than
+      // role === 'admin' (that also covers is_ops_team). Gating on anything
+      // wider would show most of the ops team a button that only lands them
+      // on /django-admin-denied.
+      //
+      // A plain <a>, not next/link: /django-admin/ is served by nginx
+      // straight to Django and is not a Next.js route, so client-side
+      // navigation would 404 against the app router.
+      setRightActions(
+        session?.is_super_user ? (
+          <a
+            href="/django-admin/"
+            aria-label="Django Admin"
+            title="Open the Django admin console"
+            className="flex items-center gap-1.5 p-2.5 md:px-3 md:py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-full md:rounded border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">Django Admin</span>
+          </a>
+        ) : null
+      );
     }
     // activeTagFilter is a dep because centerActions is a captured JSX snapshot —
     // without it the dropdown would keep rendering the tag selected at mount.
-  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length]);
+    // session?.is_super_user likewise: rightActions is a snapshot too, so the
+    // button would stay hidden for a superuser whose session resolved after mount.
+  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length, session?.is_super_user]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 
