@@ -1268,6 +1268,33 @@ problem. Keep it.
 
 `./deploy.sh [frontend|backend|workers|both]` (default `both`) runs **on the prod server** and **git-pulls `main` first** — so **push to `main` before deploying**. It rebuilds images, migrates *before* swapping containers, force-recreates, and health-checks. Prod `.env` lives at `/home/ubuntu/product-editor/.env` and is **not** the same as local `.env` (different host ports, hostnames) — edit it in place (back up as `.env.bak.<ts>` first), **never scp local over it**. A running `deploy.sh` can't reload itself, so a deploy.sh change only takes effect on the deploy *after* the one that pulls it — `git pull` on the server manually if you need it live immediately.
 
+**A changed `nginx.conf` needs the proxy RECREATED, not reloaded.** `nginx.conf`
+is bind-mounted as a single **file**, and a single-file bind mount binds the
+*inode*, not the path. `git pull` replaces that file rather than editing it, so
+a running proxy keeps serving the config it booted with — indefinitely, across
+any number of pulls and deploys — and `nginx -s reload` cannot help because it
+re-reads the same stale inode. `APP_SERVICES` also deliberately excludes
+`proxy` (nginx resolves upstreams at request time, so a recreated backend needs
+no reload), which is correct for upstream IPs and silently wrong for a config
+change.
+
+`deploy.sh::sync_proxy_config` now closes this: it compares the file the
+container has open against the one on disk, recreates the proxy only when they
+differ (so the ~1s TLS blip is paid only when it buys something), and
+**verifies** afterwards. Don't remove that step, and don't assume a pull is
+enough. Manual equivalent:
+
+```bash
+docker-compose up -d --force-recreate proxy   # NOT `nginx -s reload`
+docker-compose exec proxy nginx -T | grep -c <something-your-change-added>
+```
+
+This went unnoticed for a long time because no earlier nginx.conf edit mattered
+to a running feature. On 2026-09-04 the admin-SSO identity headers were pulled
+onto prod, the deploy reported success, and the proxy was still on an
+`nginx.conf` from 13 August — the feature simply did not work, with nothing
+anywhere saying why. `certs/` is a **directory** mount and has no such problem.
+
 **`entrypoint.sh` (web path) IGNORES its `$@`.** For the backend/web container it *always* runs `migrate` → seeds DIRECT/EXTERNAL/TESTING APIKey rows from env → `exec gunicorn`, regardless of the command passed. Consequences:
 - **Never** `docker-compose run backend <cmd>` expecting `<cmd>` to run alone — it starts a full gunicorn server that never exits and hangs whatever's waiting on it. Use `docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py <cmd>` to bypass. (This was the `deploy.sh` pre-swap-migrate hang, fixed in `0c5a0b5`.)
 - The celery-worker / celery-beat paths *do* honor `$1` (`celery-worker` / `celery-beat`) and skip DB setup.

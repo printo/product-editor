@@ -21,6 +21,13 @@ services:
       - "80:80"
       - "443:443"
     volumes:
+      # A single-FILE bind mount binds the inode, not the path, and `git pull`
+      # replaces this file rather than editing it — so a running proxy keeps
+      # serving the config it booted with, and `nginx -s reload` re-reads the
+      # same stale inode. `deploy.sh`'s sync_proxy_config compares the
+      # container's copy to this one and recreates the proxy when they differ;
+      # don't remove that step, and don't assume a pull is enough. (certs below
+      # is a DIRECTORY mount and has no such problem.)
       - ./proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./proxy/nginx/certs:/etc/nginx/certs:ro
       - nginx_logs:/var/log/nginx

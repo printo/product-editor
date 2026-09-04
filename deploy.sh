@@ -738,6 +738,72 @@ elif [[ "$MODE" == "both" ]]; then
   fi
 fi
 
+# ── Proxy config sync ────────────────────────────────────────────────────────
+# docker-compose bind-mounts proxy/nginx/nginx.conf as a single FILE, and a
+# single-file bind mount binds the INODE, not the path. `git pull` does not edit
+# that file in place — it REPLACES it, creating a new inode — so a running proxy
+# keeps serving the config it started with, forever, across any number of pulls
+# and deploys. `nginx -s reload` cannot rescue it either: it re-reads the same
+# stale inode. Only recreating the container remounts the current file.
+#
+# APP_SERVICES deliberately excludes proxy (see its comment above) because nginx
+# resolves upstreams at request time, so a recreated backend needs no reload.
+# That reasoning is sound for upstream IPs and silently wrong for a config
+# change. On 2026-09-04 that gap shipped the admin-SSO identity headers to prod,
+# reported the deploy as complete, and left the proxy on an nginx.conf from
+# 13 August — the feature simply did not work, with nothing anywhere saying why.
+# Every nginx.conf edit before that one had the same problem; none were noticed
+# because none of them mattered to a running feature.
+#
+# Compare the file the container actually has open against the one on disk, so
+# the ~1s TLS blip is paid only when it buys something. Verified rather than
+# assumed afterwards: an unverified recreate is how this went unnoticed once.
+sync_proxy_config() {
+  local host_hash container_hash i=0
+
+  host_hash=$(sha256sum proxy/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+  if [ -z "$host_hash" ]; then
+    print_warning "proxy/nginx/nginx.conf not found — skipping proxy config check"
+    return 0
+  fi
+
+  container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+  if [ -z "$container_hash" ]; then
+    print_action "Proxy not running — starting it..."
+    docker-compose up -d proxy >/dev/null 2>&1 || true
+    container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+  fi
+
+  if [ -n "$container_hash" ] && [ "$host_hash" = "$container_hash" ]; then
+    print_status "Proxy config in sync (nginx.conf unchanged)"
+    return 0
+  fi
+
+  print_action "nginx.conf differs from the running proxy's copy — recreating proxy..."
+  if ! docker-compose up -d --force-recreate proxy; then
+    fail "Proxy recreate failed — nginx.conf changes are NOT live"
+    return 0
+  fi
+
+  while [ "$i" -lt 15 ]; do
+    container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+    [ "$host_hash" = "$container_hash" ] && break
+    sleep 1
+    i=$((i + 1))
+  done
+
+  if [ "$host_hash" = "$container_hash" ]; then
+    print_status "Proxy recreated — now serving the current nginx.conf"
+  else
+    fail "Proxy is STILL serving a stale nginx.conf after recreate"
+  fi
+}
+
+if [[ "$MODE" != "rollback" ]]; then
+  print_header "Proxy Configuration"
+  sync_proxy_config
+fi
+
 # Rollback does its image restore + container recreate here — after the deploy
 # paths above have all declined to match, and before the shared status/health
 # reporting below, which it reuses unchanged.
