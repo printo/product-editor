@@ -439,15 +439,32 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
     job_exports_dir = None
 
     try:
+        from api.models import LayoutCatalogue
+
         canvas = CanvasData.objects.get(id=canvas_data_id)
         storage = get_storage()
+
+        # Load layout from LayoutCatalogue (Postgres)
+        layout_def = None
+        try:
+            layout_obj = LayoutCatalogue.objects.get(
+                name=canvas.layout_name,
+                is_deprecated=False,
+            )
+            layout_def = layout_obj.definition
+        except LayoutCatalogue.DoesNotExist:
+            logger.error(
+                "Layout '%s' not found in LayoutCatalogue for job %s",
+                canvas.layout_name, job_id
+            )
+            raise
 
         # Give each async job its own exports subdirectory so concurrent jobs
         # for the same layout name never overwrite each other's output files.
         job_exports_dir = os.path.join(settings.EXPORTS_DIR, job_id)
         os.makedirs(job_exports_dir, exist_ok=True)
 
-        engine = LayoutEngine(storage.layouts_dir(), job_exports_dir)
+        engine = LayoutEngine(storage.layouts_dir(), job_exports_dir, layout_definition=layout_def)
 
         start_time = time.time()
 

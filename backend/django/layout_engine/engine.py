@@ -38,9 +38,10 @@ Image.MAX_IMAGE_PIXELS = 500_000_000
 
 
 class LayoutEngine:
-    def __init__(self, layouts_dir: str, exports_dir: str):
+    def __init__(self, layouts_dir: str, exports_dir: str, layout_definition: dict = None):
         self.layouts_dir = layouts_dir
         self.exports_dir = exports_dir
+        self.layout_definition = layout_definition  # Pre-loaded layout from LayoutCatalogue
         os.makedirs(self.exports_dir, exist_ok=True)
 
     # ── Atomic file write helper ─────────────────────────────────────────────
@@ -151,6 +152,10 @@ class LayoutEngine:
     # ── Layout / mask helpers ────────────────────────────────────────────────
 
     def _load_layout(self, name: str):
+        # Use pre-loaded layout from LayoutCatalogue (Postgres) if available
+        if self.layout_definition:
+            return self.layout_definition
+        # Fallback to disk for legacy/testing scenarios
         path = os.path.join(self.layouts_dir, f"{name}.json")
         with open(path, "r") as f:
             return json.load(f)
