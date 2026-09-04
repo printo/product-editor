@@ -176,11 +176,12 @@ class LocalStorage(StorageBackend):
 
     # ── Layout / export directories ───────────────────────────────────────────
     def list_layouts(self) -> List[str]:
-        items = []
-        for name in os.listdir(settings.LAYOUTS_DIR):
-            if name.endswith(".json"):
-                items.append(os.path.splitext(name)[0])
-        return sorted(items)
+        # Layouts are now in LayoutCatalogue (Postgres), not on disk
+        from api.models import LayoutCatalogue
+        return list(
+            LayoutCatalogue.objects.filter(is_deprecated=False)
+            .values_list('name', flat=True)
+        )
 
     def exports_path(self, name: str) -> str:
         return os.path.join(settings.EXPORTS_DIR, name)

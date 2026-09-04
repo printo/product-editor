@@ -609,6 +609,8 @@ class GenerateLayoutView(APIView):
             start_time = time.time()
 
             try:
+                from api.models import LayoutCatalogue
+
                 for f in files:
                     fname = get_random_string(8) + "_" + f.name
                     # Direct-API sync path has no order context -> _no_order bucket.
@@ -626,6 +628,20 @@ class GenerateLayoutView(APIView):
                             order_id='',
                         )
 
+                # Load layout from LayoutCatalogue (Postgres)
+                layout_def = None
+                try:
+                    layout_obj = LayoutCatalogue.objects.get(
+                        name=layout_name,
+                        is_deprecated=False,
+                    )
+                    layout_def = layout_obj.definition
+                except LayoutCatalogue.DoesNotExist:
+                    return Response(
+                        {"detail": f"Layout '{layout_name}' not found"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
                 # Give every render request its own subdirectory so concurrent
                 # jobs for the same layout name never overwrite each other's files.
                 import uuid as _uuid
@@ -633,7 +649,7 @@ class GenerateLayoutView(APIView):
                 render_exports_dir = os.path.join(settings.EXPORTS_DIR, render_id)
                 os.makedirs(render_exports_dir, exist_ok=True)
 
-                engine = LayoutEngine(storage.layouts_dir(), render_exports_dir)
+                engine = LayoutEngine(storage.layouts_dir(), render_exports_dir, layout_definition=layout_def)
                 generation_time_ms = 0
 
                 # ── PNG / PDF export at 300 DPI ──────────────────────────
@@ -706,9 +722,13 @@ class GenerateLayoutView(APIView):
 
     @staticmethod
     def _layout_exists(name: str) -> bool:
-        """Does a layout with this filename stem exist in storage?"""
+        """Does a layout with this name exist in LayoutCatalogue?"""
+        from api.models import LayoutCatalogue
         try:
-            return name in get_storage().list_layouts()
+            return LayoutCatalogue.objects.filter(
+                name=name,
+                is_deprecated=False,
+            ).exists()
         except Exception:
             return False
 
