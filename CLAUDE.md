@@ -662,7 +662,7 @@ Neither `order_id` nor `callback_url` ever appears in the iframe URL — they fl
 
 `order_id` is validated server-side at session creation: `^[A-Za-z0-9_.\-]{1,64}$`. Anything else is rejected with 400.
 
-`qty` (optional) is validated at session creation by `parse_order_qty`: a whole positive integer up to `MAX_ORDER_QTY` (10,000). Absent/empty means "the caller did not say" and stores NULL; `0`, a negative, a fraction, a bool or a non-number is rejected with 400. NULL and 0 must stay distinguishable — NULL disables the check, and a 0 that ever reached the column would cap every order at nothing.
+`qty` (optional) is validated at session creation by `parse_order_qty`: a whole positive integer up to `MAX_ORDER_QTY` (10,000). Absent/empty means "the caller did not say" and stores NULL; `0`, a negative, a fraction, a bool and an unparseable value are rejected with 400. **A numeric string and an integral float are deliberately accepted** — `"12"`, `" 12 "` and `12.0` all store 12, because JSON has no int/float distinction and a caller's form value legitimately arrives as a string. Don't "tighten" that to a type check; `docs/INTEGRATION.md` claimed strings were rejected until 2026-09-04 and it was simply wrong. NULL and 0 must stay distinguishable — NULL disables the check, and a 0 that ever reached the column would cap every order at nothing.
 
 `callback_url` (optional) is validated at session creation: must be `https://`, max 2000 chars. No domain allowlist — auth is enforced by the api_key the caller already holds, and the HMAC signature lets them verify the request actually came from us.
 
