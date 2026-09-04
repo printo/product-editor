@@ -78,12 +78,23 @@ function logPiaLogin(
   data: { employee_id?: unknown; is_super_user?: unknown; is_ops_team?: unknown },
   email: string,
 ): void {
+  // The KEY NAMES PIA actually sent, which is the one thing the flag values
+  // cannot tell you. `is_super_user=undefined` has two very different causes —
+  // PIA omitted the field, or PIA spells it differently than we read it (its
+  // Django-side field would be `is_superuser`, no second underscore) — and
+  // those have different owners and different fixes. Both this file and
+  // `api/authentication.py::PIAUser` read `is_super_user`, so a spelling
+  // mismatch would be one assumption copied twice rather than a verified
+  // contract. Names only: the payload also holds `access` and `refresh`, which
+  // are bearer credentials and must never be logged.
+  const keys = Object.keys(data as Record<string, unknown>).sort().join(',');
   console.info(
     `[pia-login] provider=${provider} employee_id=${String(data.employee_id ?? '(none)')} ` +
       `email=${email || '(none)'} ` +
       `is_super_user=${String(data.is_super_user)}(${typeof data.is_super_user}) ` +
       `is_ops_team=${String(data.is_ops_team)}(${typeof data.is_ops_team}) ` +
-      `role=${data.is_super_user || data.is_ops_team ? 'admin' : 'user'}`,
+      `role=${data.is_super_user || data.is_ops_team ? 'admin' : 'user'} ` +
+      `pia_keys=[${keys}]`,
   );
 }
 
