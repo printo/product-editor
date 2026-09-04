@@ -2553,17 +2553,22 @@ _STORAGE_CACHE_TTL = 300
 
 
 def _read_fonts():
-    """Read the fonts config from disk, with a 5-minute Redis cache."""
+    """Read the fonts config from asset store, with a 5-minute Redis cache."""
     from django.core.cache import cache
+    from services.asset_store import read_asset, AssetNotFoundError
+
     cached = cache.get(_FONTS_CACHE_KEY)
     if cached is not None:
         return cached
+
     try:
-        with open(FONTS_JSON_PATH, 'r') as f:
-            data = json.load(f)
-            value = data if isinstance(data, list) else DEFAULT_FONTS
-    except (FileNotFoundError, json.JSONDecodeError):
+        # Fonts are stored as 'fonts' asset (no subdirectory)
+        data = json.loads(read_asset('fonts', 'fonts').decode('utf-8'))
+        value = data if isinstance(data, list) else DEFAULT_FONTS
+    except (AssetNotFoundError, json.JSONDecodeError, ValueError):
+        logger.warning("Failed to read fonts from asset store, using defaults")
         value = DEFAULT_FONTS
+
     cache.set(_FONTS_CACHE_KEY, value, _STORAGE_CACHE_TTL)
     return value
 
@@ -2682,61 +2687,73 @@ _CALENDAR_STYLE_CACHE_KEY = 'storage:calendar_styles:'  # + name
 
 
 def _list_calendar_styles():
-    """Return [{name, label}] for every calendar style on disk."""
+    """Return [{name, label}] for every calendar style from asset store."""
     from django.core.cache import cache
+    from services.asset_store import list_assets_in_local_storage
+
     cached = cache.get(_CALENDAR_STYLES_CACHE_KEY)
     if cached is not None:
         return cached
 
     out = []
-    if os.path.isdir(CALENDAR_STYLES_DIR):
-        for fname in sorted(os.listdir(CALENDAR_STYLES_DIR)):
-            if not fname.endswith('.json'):
-                continue
-            path = os.path.join(CALENDAR_STYLES_DIR, fname)
+    try:
+        # List from local storage (asset_store handles S3 fallback on read)
+        style_names = list_assets_in_local_storage('calendar_styles')
+        for name in style_names:
             try:
-                with open(path, 'r') as f:
-                    style = json.load(f)
-                out.append({
-                    'name': style.get('name') or fname[:-5],
-                    'label': style.get('label') or style.get('name') or fname[:-5],
-                    'description': style.get('description') or '',
-                })
-            except (OSError, json.JSONDecodeError) as exc:
-                logger.warning("Failed to read calendar style %s: %s", fname, exc)
+                style = _read_calendar_style(name)
+                if style:
+                    out.append({
+                        'name': style.get('name') or name,
+                        'label': style.get('label') or style.get('name') or name,
+                        'description': style.get('description') or '',
+                    })
+            except Exception as exc:
+                logger.warning("Failed to read calendar style %s: %s", name, exc)
+    except Exception as exc:
+        logger.error("Error listing calendar styles: %s", exc)
+
     cache.set(_CALENDAR_STYLES_CACHE_KEY, out, _STORAGE_CACHE_TTL)
     return out
 
 
 def _read_calendar_style(name):
-    """Read a single calendar style JSON. Returns None if missing/invalid."""
+    """Read a single calendar style JSON using asset_store. Returns None if missing/invalid."""
     from django.core.cache import cache
+    from services.asset_store import read_asset_json, AssetNotFoundError
+
+    # Path-traversal guard — name must be safe
+    if not name or not name.replace('-', '').replace('_', '').isalnum():
+        return None
+
     cache_key = _CALENDAR_STYLE_CACHE_KEY + name
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
-    path = os.path.join(CALENDAR_STYLES_DIR, f'{name}.json')
-    # Path-traversal guard — name must round-trip through basename.
-    if os.path.basename(path) != f'{name}.json' or not name.replace('-', '').replace('_', '').isalnum():
-        return None
     try:
-        with open(path, 'r') as f:
-            style = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        style = read_asset_json('calendar_styles', name)
+    except (AssetNotFoundError, json.JSONDecodeError):
         return None
 
     # For Gen-Z, attach the available palettes inline so clients don't
     # have to make a second request to enumerate them.
-    if style.get('name') == 'modern-genz' and os.path.isdir(GENZ_PALETTES_DIR):
+    if style.get('name') == 'modern-genz':
+        from services.asset_store import read_asset_json, AssetNotFoundError, list_assets_in_local_storage
+
         palettes = []
-        for fname in sorted(os.listdir(GENZ_PALETTES_DIR)):
-            if fname.endswith('.json'):
+        try:
+            palette_names = list_assets_in_local_storage('calendar_palettes/genz')
+            for palette_name in palette_names:
                 try:
-                    with open(os.path.join(GENZ_PALETTES_DIR, fname), 'r') as f:
-                        palettes.append(json.load(f))
-                except (OSError, json.JSONDecodeError):
+                    palette = read_asset_json('calendar_palettes/genz', palette_name)
+                    palettes.append(palette)
+                except (AssetNotFoundError, json.JSONDecodeError) as exc:
+                    logger.warning("Failed to read palette %s: %s", palette_name, exc)
                     continue
+        except Exception as exc:
+            logger.warning("Failed to load Gen-Z palettes: %s", exc)
+
         style['palettes'] = palettes
 
     cache.set(cache_key, style, _STORAGE_CACHE_TTL)
@@ -2906,22 +2923,24 @@ def _holiday_path(locale: str, year: int) -> str:
 
 
 def _read_holidays(locale: str, year: int) -> dict | None:
-    """Read a holiday file from disk with a Redis cache."""
+    """Read holidays from asset store with Redis cache."""
     from django.core.cache import cache
+    from services.asset_store import read_asset_json, AssetNotFoundError
+
     cache_key = f"{_HOLIDAYS_CACHE_KEY}{locale}:{year}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    path = _holiday_path(locale, year)
-    if not os.path.exists(path):
+
+    try:
+        # Asset name format: {locale}/{year}
+        asset_name = f"{locale}/{year}"
+        data = read_asset_json('holidays', asset_name)
+    except (AssetNotFoundError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to read holidays for %s/%d: %s", locale, year, exc)
         cache.set(cache_key, None, _STORAGE_CACHE_TTL)
         return None
-    try:
-        with open(path, 'r') as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to read holiday file %s: %s", path, exc)
-        return None
+
     cache.set(cache_key, data, _STORAGE_CACHE_TTL)
     return data
 
