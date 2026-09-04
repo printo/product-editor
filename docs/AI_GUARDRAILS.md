@@ -24,6 +24,7 @@ same thing in its own words.
 - **Path Safety**: Always use `_is_path_safe` or equivalent validation when handling file paths from requests to prevent path traversal.
 - **Authentication**: All new endpoints must require appropriate permissions (`IsAuthenticatedWithAPIKey`, `is_ops_team` for ops endpoints).
 - **Layout Loading**: Any code that instantiates `LayoutEngine` MUST query `LayoutCatalogue` first and pass the result as `layout_definition=` parameter. Missing this causes `[Errno 2] No such file or directory` on render. `LayoutEngine` must NEVER be responsible for loading layouts from disk — it receives pre-loaded definitions only. Audit trail: 4 issues found on 2026-09-04, all fixed. See CLAUDE.md "Layout Loading (Storage Migration)" section for details.
+- **Asset writes via storage abstraction**: All ops-managed assets (`fonts.json`, `calendar_styles/*.json`, `holidays/**/*.json`) MUST be written through `storage.write_calendar_asset()` and deleted via `storage.delete_calendar_asset()`. Never use `open()`, `os.remove()`, or direct filesystem writes. This ensures S3 compatibility: writes to local disk are invisible to S3-backed deployments and lost on container restart. **Critical**: The three functions `_write_fonts`, `_write_calendar_style`, and `_write_holidays` in `api/views.py` all route through the storage abstraction as of 2026-09-04. Do not re-introduce direct filesystem writes.
 - **Resource Management**: Large image processing tasks must run in Celery workers, never in a Gunicorn thread. Workers are memory-limited to **2 GB per replica** and concurrency is **auto-detected from CPU count** (no `CELERY_CONCURRENCY` in compose) — 2 render slots on the current 2-core prod box. Scale out with `docker compose up -d --scale celery-worker-standard=4` rather than raising per-replica concurrency; if you do cap it via `CELERY_CONCURRENCY`, keep the memory-per-slot headroom in mind (Pillow compositing is the consumer). The one deliberate exception to "never in a Gunicorn thread" is orientation inference (~30–150 ms) — see the auto-orientation note above for why it is inline.
 
 ### Async Task Rules (Celery)
@@ -44,6 +45,13 @@ same thing in its own words.
 - **The GC must stay time-limited** — `garbage_collector_task` carries `soft_time_limit=3300` / `time_limit=3600` so a hung sweep can never permanently occupy a worker slot. Don't remove them.
 - **Poison-pill guard counts only genuine broker redeliveries.** `render_canvas_task` aborts after 3 crash-redeliveries, detected via `delivery_info.redelivered` — a worker crash under `acks_late` redelivers the SAME message (`redelivered=True`, retries frozen), whereas `self.retry()` publishes a NEW one (`redelivered=False`, retries bumped). Never conflate the two, or normal retries will be mistaken for a poison pill and abort a healthy job.
 - **Never `requests.post` a customer `callback_url` directly** — always go through `services/url_safety.py::post_webhook_safely`, which pins the socket to the pre-validated IP (so DNS can't rebind between validation and send) and sets `allow_redirects=False`.
+
+### Ops Management Flows
+
+- **LayoutManagementView rename**: uses soft-delete-then-create pattern, NOT in-place mutation. Old row is soft-deleted (`is_deprecated=True`) and a new row is created with the new name, preserving audit trail and avoiding race conditions. Masks are migrated atomically within the transaction.
+- **Mask upload S3 routing**: uploads to `masks/{filename}` S3 key, NOT via `save_upload()` which routes to `uploads/_no_order/`. Direct S3 put-object for masks; LocalStorage uses `masks_dir()`.
+- **Asset write functions** (`_write_fonts`, `_write_calendar_style`, `_write_holidays`) all route through `storage.write_calendar_asset()`. Delete operations use `storage.delete_calendar_asset()`. Both methods return the path/key written, are atomic (temp + rename on local; single S3 put on remote), and invalidate caches on success.
+- **Re-creating deprecated layouts**: `update_or_create` now passes `is_deprecated=False` in defaults, so a layout that was soft-deleted can be un-deprecated by re-creating it with the same name. Verifies that "create a deleted layout again" makes it public, not leaves it deprecated.
 
 ### Data Integrity
 

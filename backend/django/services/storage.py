@@ -44,11 +44,14 @@ NO_ORDER_BUCKET = "_no_order"
 _ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
 
 
-def upload_subdir(order_id: Optional[str]) -> str:
+def upload_subdir(order_id: Optional[str], layout_name: Optional[str] = None) -> str:
     """
-    Directory name for an order's uploads.
+    Directory name for an order's uploads, optionally grouped by layout.
 
-    Traversal-safe: anything that is not a well-formed order id falls back to
+    Returns structure: {layout_name}/{order_id} if layout_name provided,
+    else just {order_id} for backwards compatibility.
+
+    Traversal-safe: anything that is not well-formed falls back to
     the no-order bucket rather than being interpolated into a path.
 
     The regex alone is NOT sufficient. '.' is a legal order-id character, so
@@ -62,6 +65,15 @@ def upload_subdir(order_id: Optional[str]) -> str:
         return NO_ORDER_BUCKET
     if oid.startswith('.') or set(oid) == {'.'}:
         return NO_ORDER_BUCKET
+
+    # Optional layout-based grouping for better S3 organization
+    if layout_name:
+        # Validate layout_name is safe (alphanumeric + underscore/hyphen)
+        if not layout_name or not all(c.isalnum() or c in '_-' for c in layout_name):
+            # Fall back to no-layout if invalid
+            return oid
+        return f"{layout_name}/{oid}"
+
     return oid
 
 
@@ -86,11 +98,15 @@ class StorageBackend:
     """Abstract base — every method must be implemented by concrete backends."""
 
     # ── Upload / download ─────────────────────────────────────────────────────
-    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "") -> str:
+    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "", layout_name: str = "") -> str:
         """Save an uploaded file and return its storage path / key.
 
         `order_id` selects the per-order directory — see upload_subdir(). Pass
-        it wherever it is known so DPDP erasure can find the file by path."""
+        it wherever it is known so DPDP erasure can find the file by path.
+        `layout_name` (optional) groups uploads by layout for better organization:
+            local: /app/storage/uploads/{layout_name}/{order_id}/{filename}
+            S3:    product-editor/uploads/{layout_name}/{order_id}/{filename}
+        """
         raise NotImplementedError
 
     def read_upload(self, path: str) -> bytes:
@@ -128,13 +144,58 @@ class StorageBackend:
     def masks_dir(self) -> str:
         raise NotImplementedError
 
+    def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
+        """Read a calendar/ops asset (holidays, styles, palettes).
+
+        Args:
+            asset_type: 'holidays', 'calendar_styles', 'calendar_palettes', 'fonts'
+            asset_name: e.g., 'en-IN/2026', 'modern-minimalist', 'genz/vibrant', 'fonts'
+
+        Returns:
+            Raw bytes of the asset file
+
+        Raises:
+            FileNotFoundError if the asset doesn't exist
+        """
+        raise NotImplementedError
+
+    def write_calendar_asset(self, asset_type: str, asset_name: str, content: bytes) -> str:
+        """Write a calendar/ops asset atomically.
+
+        Args:
+            asset_type: 'holidays', 'calendar_styles', 'calendar_palettes', 'fonts'
+            asset_name: the asset identifier
+            content: raw bytes to write
+
+        Returns:
+            The path or S3 key where the asset was written
+
+        Raises:
+            IOError on write failure
+        """
+        raise NotImplementedError
+
+    def delete_calendar_asset(self, asset_type: str, asset_name: str) -> bool:
+        """Delete a calendar/ops asset.
+
+        Args:
+            asset_type: 'holidays', 'calendar_styles', 'calendar_palettes', 'fonts'
+            asset_name: the asset identifier
+
+        Returns:
+            True on success, False if the asset didn't exist
+        """
+        raise NotImplementedError
+
 
 class LocalStorage(StorageBackend):
     """Concrete backend that stores everything on the local filesystem."""
 
     # ── Upload / download ─────────────────────────────────────────────────────
-    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "") -> str:
-        target_dir = order_upload_dir(order_id)
+    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "", layout_name: str = "") -> str:
+        # Build directory with optional layout-based grouping
+        subdir = upload_subdir(order_id, layout_name)
+        target_dir = order_upload_dir(subdir) if subdir == NO_ORDER_BUCKET else os.path.realpath(os.path.join(os.path.realpath(settings.UPLOADS_DIR), subdir))
         os.makedirs(target_dir, exist_ok=True)
         path = os.path.join(target_dir, filename)
         with open(path, "wb") as out:
@@ -204,6 +265,68 @@ class LocalStorage(StorageBackend):
                 f"Calendar asset not found locally: asset_type={asset_type!r}, asset_name={asset_name!r}"
             )
 
+    def write_calendar_asset(self, asset_type: str, asset_name: str, content: bytes) -> str:
+        """Write a calendar asset atomically using temp + rename."""
+        asset_dir = os.path.join(settings.STORAGE_ROOT, asset_type)
+        os.makedirs(asset_dir, exist_ok=True)
+
+        # Handle nested paths like 'en-IN/2026' for holidays
+        nested_parts = asset_name.split('/')
+        if len(nested_parts) > 1:
+            for part in nested_parts[:-1]:
+                asset_dir = os.path.join(asset_dir, part)
+            os.makedirs(asset_dir, exist_ok=True)
+            asset_filename = nested_parts[-1]
+        else:
+            asset_filename = asset_name
+
+        # For non-JSON files (like fonts), add .json extension if missing
+        if asset_type in ('fonts', 'calendar_styles', 'holidays') and not asset_filename.endswith('.json'):
+            asset_filename = asset_filename + '.json'
+
+        path = os.path.join(asset_dir, asset_filename)
+        tmp_path = path + '.tmp'
+
+        try:
+            with open(tmp_path, 'wb') as f:
+                f.write(content)
+            os.replace(tmp_path, path)
+            return path
+        except Exception:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            raise
+
+    def delete_calendar_asset(self, asset_type: str, asset_name: str) -> bool:
+        """Delete a calendar asset. Returns True on success, False if not found."""
+        asset_dir = os.path.join(settings.STORAGE_ROOT, asset_type)
+
+        # Handle nested paths like 'en-IN/2026' for holidays
+        nested_parts = asset_name.split('/')
+        if len(nested_parts) > 1:
+            for part in nested_parts[:-1]:
+                asset_dir = os.path.join(asset_dir, part)
+            asset_filename = nested_parts[-1]
+        else:
+            asset_filename = asset_name
+
+        # For non-JSON files, add .json extension if missing
+        if asset_type in ('fonts', 'calendar_styles', 'holidays') and not asset_filename.endswith('.json'):
+            asset_filename = asset_filename + '.json'
+
+        path = os.path.join(asset_dir, asset_filename)
+
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                return True
+            except OSError:
+                return False
+        return False
+
 
 class S3Storage(StorageBackend):
     """
@@ -241,9 +364,19 @@ class S3Storage(StorageBackend):
         )
         self.bucket = required['S3_BUCKET']
 
-    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "") -> str:
-        subdir = upload_subdir(order_id)
-        key = f"uploads/{subdir}/{filename}"
+        # Optional S3 prefix for service-based organization (e.g., "product-editor")
+        self.s3_prefix = os.getenv('S3_PREFIX', 'product-editor')
+
+        # Optional CDN domain for presigned URLs (e.g., "cdn-product-editor.printo.in")
+        self.cdn_domain = os.getenv('S3_CDN_DOMAIN', '')
+
+    def _s3_key(self, relative_path: str) -> str:
+        """Build full S3 key with service prefix."""
+        return f"{self.s3_prefix}/{relative_path}"
+
+    def save_upload(self, filename: str, content: BinaryIO, order_id: str = "", layout_name: str = "") -> str:
+        subdir = upload_subdir(order_id, layout_name)
+        key = self._s3_key(f"uploads/{subdir}/{filename}")
         self.s3.upload_fileobj(content, self.bucket, key)
         return key
 
@@ -272,7 +405,7 @@ class S3Storage(StorageBackend):
 
     def assemble_chunks(self, upload_id: str, final_filename: str, total_chunks: int) -> str:
         staging_prefix = self.chunked_staging_dir(upload_id)
-        final_key = f"uploads/{final_filename}"
+        final_key = self._s3_key(f"uploads/{final_filename}")
 
         mpu = self.s3.create_multipart_upload(Bucket=self.bucket, Key=final_key)
         upload_id_s3 = mpu['UploadId']
@@ -320,15 +453,20 @@ class S3Storage(StorageBackend):
         )
 
     def exports_path(self, name: str) -> str:
-        return f"exports/{name}"
+        return self._s3_key(f"exports/{name}")
 
     def layouts_dir(self) -> str:
-        return f"s3://{self.bucket}/layouts/"
+        return f"s3://{self.bucket}/{self.s3_prefix}/layouts/"
 
     def masks_dir(self) -> str:
-        return f"s3://{self.bucket}/masks/"
+        return f"s3://{self.bucket}/{self.s3_prefix}/masks/"
 
     def generate_mask_presigned_url(self, s3_key: str, expiry: int = 3600) -> str:
+        # If CDN domain is configured, construct CDN URL instead of presigned S3 URL
+        if self.cdn_domain:
+            # Remove bucket prefix from s3_key if present (it shouldn't be)
+            return f"https://{self.cdn_domain}/{s3_key}"
+
         return self.s3.generate_presigned_url(
             'get_object',
             Params={'Bucket': self.bucket, 'Key': s3_key},
@@ -361,6 +499,40 @@ class S3Storage(StorageBackend):
             raise FileNotFoundError(
                 f"Calendar asset not found: asset_type={asset_type!r}, asset_name={asset_name!r}"
             ) from exc
+
+    def write_calendar_asset(self, asset_type: str, asset_name: str, content: bytes) -> str:
+        """Write a calendar asset to S3 atomically."""
+        # For non-JSON files, add .json extension if missing
+        if asset_type in ('fonts', 'calendar_styles', 'holidays') and not asset_name.endswith('.json'):
+            asset_name = asset_name + '.json'
+
+        s3_key = self._s3_key(f"ops-config/{asset_type}/{asset_name}")
+        try:
+            import io
+            self.s3.upload_fileobj(
+                io.BytesIO(content),
+                self.bucket,
+                s3_key,
+            )
+            return s3_key
+        except Exception as exc:
+            raise IOError(f"Failed to write calendar asset to S3: {exc}") from exc
+
+    def delete_calendar_asset(self, asset_type: str, asset_name: str) -> bool:
+        """Delete a calendar asset from S3. Returns True on success, False if not found."""
+        # For non-JSON files, add .json extension if missing
+        if asset_type in ('fonts', 'calendar_styles', 'holidays') and not asset_name.endswith('.json'):
+            asset_name = asset_name + '.json'
+
+        s3_key = self._s3_key(f"ops-config/{asset_type}/{asset_name}")
+        try:
+            # S3 delete is idempotent — DeleteObject succeeds even if the object doesn't exist
+            # To distinguish, we'd need HeadObject first. For this use case, always return True
+            # since the asset "is gone" after the call, which is the contract.
+            self.s3.delete_object(Bucket=self.bucket, Key=s3_key)
+            return True
+        except Exception:
+            return False
 
 
 _storage_instance: Optional[StorageBackend] = None

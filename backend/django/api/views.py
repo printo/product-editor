@@ -423,13 +423,14 @@ class GenerateLayoutView(APIView):
             if isinstance(request.user, APIKeyUser):
                 api_key = request.user.api_key
 
-            # Save uploaded files
+            # Save uploaded files (organized by layout for better S3 structure)
             storage = get_storage()
             upload_paths = []
             for f in files:
                 fname = get_random_string(8) + "_" + f.name
                 # Per-order directory so erasure can find these by path.
-                path = storage.save_upload(fname, f.file, order_id=order_id or '')
+                # Optional layout_name organizes uploads: uploads/{layout_name}/{order_id}/{filename}
+                path = storage.save_upload(fname, f.file, order_id=order_id or '', layout_name=layout_name or '')
                 upload_paths.append(path)
                 if api_key:
                     UploadedFile.objects.create(
@@ -1579,17 +1580,23 @@ class LayoutManagementView(APIView):
                 try:
                     storage = get_storage()
                     from services.storage import S3Storage
+                    import io
 
                     mask_filename = f"{layout_name}_mask{os.path.splitext(mask_file.name)[1]}"
 
                     if isinstance(storage, S3Storage):
-                        # Upload to S3
+                        # Upload directly to S3 masks/ prefix (NOT order-based uploads/)
+                        mask_content = mask_file.file.read()
                         s3_key = f"masks/{mask_filename}"
-                        storage.save_upload(mask_filename, mask_file.file, order_id='')
+                        storage.s3.put_object(
+                            Bucket=storage.bucket,
+                            Key=s3_key,
+                            Body=mask_content,
+                        )
                         layout_data['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
                         logger.info(f"Uploaded mask to S3: {s3_key}")
                     else:
-                        # Upload to local storage
+                        # Upload to local storage masks/ directory
                         mask_path = os.path.join(storage.masks_dir(), mask_filename)
                         with open(mask_path, 'wb+') as destination:
                             for chunk in mask_file.chunks():
@@ -1608,23 +1615,36 @@ class LayoutManagementView(APIView):
 
             with db_transaction.atomic():
                 if old_name and old_name != layout_name:
-                    # Rename: update the old row's name + mark the new version
+                    # Rename: soft-delete old row, create new row with new name
+                    # This preserves audit trail and avoids race conditions
                     try:
                         old_layout = LayoutCatalogue.objects.get(name=old_name)
-                        old_layout.name = layout_name
-                        old_layout.definition = layout_data
-                        old_layout.product_type = product_type
-                        old_layout.version = old_layout.version + 1
-                        old_layout.save()
-                        logger.info(f"Renamed layout '{old_name}' → '{layout_name}'")
+                        old_version = old_layout.version
+                        old_imported_by = old_layout.imported_by
 
-                        # Migrate masks on rename (S3 only)
+                        # Create new row with new name (inheriting version context)
+                        new_layout = LayoutCatalogue.objects.create(
+                            name=layout_name,
+                            definition=layout_data,
+                            product_type=product_type,
+                            category='',
+                            is_public=True,
+                            version=old_version + 1,
+                            imported_by=old_imported_by,
+                        )
+                        logger.info(f"Created renamed layout '{layout_name}' (version {new_layout.version})")
+
+                        # Soft-delete the old row (preserve audit trail)
+                        old_layout.is_deprecated = True
+                        old_layout.save()
+                        logger.info(f"Soft-deleted old layout '{old_name}' (now deprecated)")
+
+                        # Migrate masks on rename
                         from services.storage import S3Storage
                         storage = get_storage()
                         if isinstance(storage, S3Storage):
                             try:
-                                # Look for old mask with old name pattern
-                                # Try common extensions: .png, .jpg, .jpeg, .gif, .webp
+                                # Try common extensions for the old mask
                                 for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
                                     old_mask_key = f"masks/{old_name}_mask{ext}"
                                     new_mask_key = f"masks/{layout_name}_mask{ext}"
@@ -1638,6 +1658,19 @@ class LayoutManagementView(APIView):
                                         logger.warning(f"Failed to migrate mask {old_mask_key}: {inner_exc}")
                             except Exception as exc:
                                 logger.warning(f"Mask migration failed on rename: {exc}")
+                        else:
+                            # Local storage: rename mask file if it exists
+                            try:
+                                for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                                    old_mask_path = os.path.join(storage.masks_dir(), f"{old_name}_mask{ext}")
+                                    if os.path.exists(old_mask_path):
+                                        new_mask_path = os.path.join(storage.masks_dir(), f"{layout_name}_mask{ext}")
+                                        os.rename(old_mask_path, new_mask_path)
+                                        logger.info(f"Migrated local mask: {old_mask_path} → {new_mask_path}")
+                                        break
+                            except Exception as exc:
+                                logger.warning(f"Local mask migration failed on rename: {exc}")
+
                     except LayoutCatalogue.DoesNotExist:
                         # Old layout doesn't exist — create as new
                         LayoutCatalogue.objects.create(
@@ -1658,6 +1691,7 @@ class LayoutManagementView(APIView):
                             'product_type': product_type,
                             'category': '',
                             'is_public': True,
+                            'is_deprecated': False,  # Un-deprecate if re-creating
                         },
                     )
                     if created:
@@ -1827,7 +1861,7 @@ class MaskDownloadView(APIView):
         responses={
             200: OpenApiResponse(response=OpenApiTypes.BINARY, description="The mask image (usually image/png) — local storage only."),
             301: OpenApiResponse(description="Redirect to presigned S3 URL — S3 storage only."),
-            403: OpenApiResponse(description="Path traversal attempt detected."),
+            400: OpenApiResponse(description="Malformed filename (path traversal attempt or invalid characters)."),
             404: OpenApiResponse(description="No such mask."),
             502: OpenApiResponse(description="S3 service error."),
         },
@@ -1839,10 +1873,11 @@ class MaskDownloadView(APIView):
         storage = get_storage()
 
         # Guard against path traversal — filename must not contain / or .. or start with .
+        # This is input validation (400), not an auth denial (403)
         if '/' in filename or '\\' in filename or '..' in filename or filename.startswith('.'):
             return Response(
-                {"detail": "Access denied"},
-                status=status.HTTP_403_FORBIDDEN
+                {"detail": "Invalid filename: path traversal not allowed"},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
@@ -1871,8 +1906,8 @@ class MaskDownloadView(APIView):
                 # Double-check path safety (belt and suspenders)
                 if not os.path.abspath(path).startswith(os.path.abspath(storage.masks_dir())):
                     return Response(
-                        {"detail": "Access denied"},
-                        status=status.HTTP_403_FORBIDDEN
+                        {"detail": "Invalid path: access denied"},
+                        status=status.HTTP_400_BAD_REQUEST
                     )
 
                 if not os.path.exists(path):
@@ -2594,11 +2629,18 @@ def _read_fonts():
 
 
 def _write_fonts(fonts):
-    """Write fonts config to disk and invalidate the cache."""
+    """Write fonts config via storage abstraction and invalidate the cache."""
     from django.core.cache import cache
-    with open(FONTS_JSON_PATH, 'w') as f:
-        json.dump(fonts, f, indent=2)
-    cache.delete(_FONTS_CACHE_KEY)
+    from services.storage import get_storage
+
+    try:
+        storage = get_storage()
+        content = json.dumps(fonts, indent=2).encode('utf-8')
+        storage.write_calendar_asset('fonts', 'fonts', content)
+        cache.delete(_FONTS_CACHE_KEY)
+    except Exception as exc:
+        logger.error(f"Failed to write fonts: {exc}")
+        raise
 
 
 # These three views are declared AllowAny because their GET is public, then gate
@@ -2781,18 +2823,22 @@ def _read_calendar_style(name):
 
 
 def _write_calendar_style(name, payload):
-    """Persist a calendar style atomically and invalidate cache."""
+    """Persist a calendar style via storage abstraction and invalidate cache."""
     from django.core.cache import cache
+    from services.storage import get_storage
+
     if not name.replace('-', '').replace('_', '').isalnum():
         raise ValueError("invalid style name")
-    os.makedirs(CALENDAR_STYLES_DIR, exist_ok=True)
-    path = os.path.join(CALENDAR_STYLES_DIR, f'{name}.json')
-    tmp_path = path + '.tmp'
-    with open(tmp_path, 'w') as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-    os.replace(tmp_path, path)
-    cache.delete(_CALENDAR_STYLES_CACHE_KEY)
-    cache.delete(_CALENDAR_STYLE_CACHE_KEY + name)
+
+    try:
+        storage = get_storage()
+        content = json.dumps(payload, indent=2, sort_keys=True).encode('utf-8')
+        storage.write_calendar_asset('calendar_styles', name, content)
+        cache.delete(_CALENDAR_STYLES_CACHE_KEY)
+        cache.delete(_CALENDAR_STYLE_CACHE_KEY + name)
+    except Exception as exc:
+        logger.error(f"Failed to write calendar style {name}: {exc}")
+        raise
 
 
 class CalendarStylesView(APIView):
@@ -2966,16 +3012,19 @@ def _read_holidays(locale: str, year: int) -> dict | None:
 
 
 def _write_holidays(locale: str, year: int, payload: dict) -> None:
-    """Persist a holiday file atomically and invalidate cache."""
+    """Persist a holiday file via storage abstraction and invalidate cache."""
     from django.core.cache import cache
-    dir_path = os.path.dirname(_holiday_path(locale, year))
-    os.makedirs(dir_path, exist_ok=True)
-    path = _holiday_path(locale, year)
-    tmp_path = path + '.tmp'
-    with open(tmp_path, 'w') as f:
-        json.dump(payload, f, indent=2, sort_keys=False)
-    os.replace(tmp_path, path)
-    cache.delete(f"{_HOLIDAYS_CACHE_KEY}{locale}:{year}")
+    from services.storage import get_storage
+
+    try:
+        storage = get_storage()
+        asset_name = f"{locale}/{year}"
+        content = json.dumps(payload, indent=2, sort_keys=False).encode('utf-8')
+        storage.write_calendar_asset('holidays', asset_name, content)
+        cache.delete(f"{_HOLIDAYS_CACHE_KEY}{locale}:{year}")
+    except Exception as exc:
+        logger.error(f"Failed to write holidays {locale}/{year}: {exc}")
+        raise
 
 
 class HolidaysView(APIView):
@@ -3174,11 +3223,22 @@ class HolidaysView(APIView):
         user, err = self._gate_ops(request)
         if err:
             return err
-        path = _holiday_path(locale, year_int)
-        if os.path.exists(path):
-            os.remove(path)
-            from django.core.cache import cache
+
+        from django.core.cache import cache
+        from services.storage import get_storage
+
+        try:
+            storage = get_storage()
+            asset_name = f"{locale}/{year_int}"
+            storage.delete_calendar_asset('holidays', asset_name)
             cache.delete(f"{_HOLIDAYS_CACHE_KEY}{locale}:{year_int}")
+        except Exception as exc:
+            logger.error(f"Failed to delete holidays {locale}/{year_int}: {exc}")
+            return Response(
+                {'detail': f"Failed to delete holidays: {str(exc)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
