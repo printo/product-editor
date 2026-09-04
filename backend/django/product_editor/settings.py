@@ -61,6 +61,11 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "product_editor.middleware.ProxyAuthenticationMiddleware",
+    # Signs the operator into /django-admin/ from the PIA session nginx already
+    # verified, so the admin needs no second password. Must come after
+    # SessionMiddleware + AuthenticationMiddleware (it logs into the session and
+    # reads request.user), and after the proxy-bypass guard above.
+    "product_editor.admin_sso.DjangoAdminSSOMiddleware",
     "api.middleware.APIRequestLoggingMiddleware",  # API request logging
     "api.middleware.RateLimitMiddleware",  # Rate limiting
 ]
