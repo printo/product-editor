@@ -1,1 +1,1148 @@
-[]
+[
+  {
+    "name": "classic_prints_-_4x6_in",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 1200,
+      "height": 1800,
+      "widthMm": 101.6,
+      "heightMm": 152.4,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "5xjr68cas",
+        "xMm": 0,
+        "yMm": 0,
+        "widthMm": 101.6,
+        "heightMm": 152.4,
+        "bleedMm": 0,
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T10:56:07.867771+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:56:07.867771+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:56:07.867771+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:56:07.867771+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "101.60 x 152.40mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "classic_prints_-_5x7_in",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 1500,
+      "height": 2100,
+      "widthMm": 127,
+      "heightMm": 177.8,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "41k9inkou",
+        "xMm": 0,
+        "yMm": 0,
+        "widthMm": 127,
+        "heightMm": 177.8,
+        "bleedMm": 0,
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T10:56:36.834357+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:56:36.834357+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:56:36.834357+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:56:36.834357+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "127.00 x 177.80mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "classic_prints_-_6x8_in",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 1800,
+      "height": 2400,
+      "widthMm": 152.4,
+      "heightMm": 203.2,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "ecakvgt80",
+        "xMm": 0,
+        "yMm": 0,
+        "widthMm": 152.4,
+        "heightMm": 203.2,
+        "bleedMm": 0,
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T10:56:49.334702+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:56:49.334702+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:56:49.334702+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:56:49.334702+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "152.40 x 203.20mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "classic_prints_-_8x10_in",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 2400,
+      "height": 3000,
+      "widthMm": 203.2,
+      "heightMm": 254,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "0k6flau61",
+        "xMm": 0,
+        "yMm": 0,
+        "widthMm": 203.2,
+        "heightMm": 254,
+        "bleedMm": 0,
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T10:57:22.347733+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:57:22.347733+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:57:22.347733+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:57:22.347733+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "203.20 x 254.00mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "classic_prints_-_9x12_in",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 2700,
+      "height": 3600,
+      "widthMm": 228.6,
+      "heightMm": 304.8,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "lncinisef",
+        "xMm": 0,
+        "yMm": 0,
+        "widthMm": 228.6,
+        "heightMm": 304.8,
+        "bleedMm": 0,
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T10:57:51.039346+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:57:51.039346+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:57:51.039346+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:57:51.039346+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "228.60 x 304.80mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "classic_prints_-_a4",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 2481,
+      "height": 3507,
+      "widthMm": 210.06,
+      "heightMm": 296.93,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "heu9b6io6",
+        "xMm": 0,
+        "yMm": 0,
+        "widthMm": 210.06,
+        "heightMm": 296.93,
+        "bleedMm": 0,
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T10:58:20.161957+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:58:20.161957+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:58:20.161957+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:58:20.161957+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "210.06 x 296.93mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "laptop_sleeve",
+    "type": "product",
+    "tags": [
+      "Gifts"
+    ],
+    "surfaces": [
+      {
+        "key": "front",
+        "label": "Front",
+        "canvas": {
+          "width": 4748,
+          "height": 3366,
+          "widthMm": 402,
+          "heightMm": 285,
+          "dpi": 300
+        },
+        "frames": [
+          {
+            "id": "5loj8qtuj",
+            "xMm": 0,
+            "yMm": 0,
+            "widthMm": 402,
+            "heightMm": 285,
+            "bleedMm": 0,
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 1,
+            "borderRadiusMm": 0
+          }
+        ],
+        "maskUrl": "/api/layouts/masks/laptop_sleeve_front_mask.png",
+        "maskOnExport": false
+      }
+    ],
+    "createdAt": "2026-03-26T16:40:36.621196+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-06-24T05:54:15.838486+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "Kanna Perumal C"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-03-26T16:40:36.621196+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-06-24T05:54:15.838486+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "front: 402.00x285.00mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Gifts"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "passport_prints",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 413,
+      "height": 531,
+      "widthMm": 35,
+      "heightMm": 45,
+      "dpi": 300
+    },
+    "frames": [],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-03-13T12:28:54.853132+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-07-21T11:07:00.729719+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "Kanna Perumal C"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-03-13T12:28:54.853132+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T11:07:00.729719+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "35.00 x 45.00mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "retro_polaroid_-_4.2x3.5_in",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 1050,
+      "height": 1260,
+      "widthMm": 88.9,
+      "heightMm": 106.68,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "32y9z47wt",
+        "xMm": 4.44,
+        "yMm": 4.44,
+        "widthMm": 80.01,
+        "heightMm": 78.08,
+        "bleedMm": 0,
+        "x": 0.049523809523809526,
+        "y": 0.04126984126984127,
+        "width": 0.9,
+        "height": 0.7317460317460317,
+        "captionEnabled": true,
+        "captionXMm": 8.69,
+        "captionYMm": 86.88,
+        "captionWidthMm": 71.36,
+        "captionFontMm": 12,
+        "captionAlign": "center",
+        "captionColor": "#2a2a2a",
+        "borderRadiusMm": 0,
+        "caption": "Caption1"
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": true,
+    "createdAt": "2026-07-21T10:58:37.911650+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:58:37.911650+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:58:37.911650+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:58:37.911650+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "88.90 x 106.68mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "square_8x8",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 2400,
+      "height": 2400,
+      "widthMm": 203.2,
+      "heightMm": 203.2,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "fq9zx9efm",
+        "xMm": 5,
+        "yMm": 5,
+        "widthMm": 193.2,
+        "heightMm": 193.2,
+        "bleedMm": 0,
+        "x": 0.024583333333333332,
+        "y": 0.024583333333333332,
+        "width": 0.9508333333333333,
+        "height": 0.9508333333333333,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "createdAt": "2026-03-13T12:29:00.387896+00:00",
+    "createdBy": "Kanna Perumal C",
+    "updatedAt": "2026-04-01T11:05:05.905694+00:00",
+    "updatedBy": "Kanna Perumal C",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "Kanna Perumal C"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-03-13T12:29:00.387896+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "Kanna Perumal C"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-04-01T11:05:05.905694+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "203.20 x 203.20mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": ""
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "square_prints_-_4x4_in",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 1200,
+      "height": 1200,
+      "widthMm": 101.6,
+      "heightMm": 101.6,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "3yspjahwz",
+        "xMm": 3.85,
+        "yMm": 4,
+        "widthMm": 93.9,
+        "heightMm": 93.9,
+        "bleedMm": 0,
+        "x": 0.0375,
+        "y": 0.03916666666666667,
+        "width": 0.9241666666666667,
+        "height": 0.9241666666666667,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T10:59:11.620061+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:59:11.620061+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:59:11.620061+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:59:11.620061+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "101.60 x 101.60mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "square_prints_-_5x5_in",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 1500,
+      "height": 1500,
+      "widthMm": 127,
+      "heightMm": 127,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "msy0xrd79",
+        "xMm": 4,
+        "yMm": 4,
+        "widthMm": 117.3,
+        "heightMm": 117.3,
+        "bleedMm": 0,
+        "x": 0.03133333333333333,
+        "y": 0.03133333333333333,
+        "width": 0.9233333333333333,
+        "height": 0.9233333333333333,
+        "borderRadiusMm": 0
+      }
+    ],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T10:59:26.731771+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T10:59:26.731771+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T10:59:26.731771+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T10:59:26.731771+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "127.00 x 127.00mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "stamp_size_print",
+    "tags": [
+      "Photo Prints"
+    ],
+    "canvas": {
+      "width": 236,
+      "height": 295,
+      "widthMm": 20,
+      "heightMm": 25,
+      "dpi": 300
+    },
+    "frames": [],
+    "maskUrl": null,
+    "maskOnExport": false,
+    "frameCaptionsEnabled": false,
+    "createdAt": "2026-07-21T11:07:32.891972+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-07-21T11:07:32.891972+00:00",
+    "updatedBy": "DIRECT",
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-07-21T11:07:32.891972+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-07-21T11:07:32.891972+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "20.00 x 25.00mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": "Photo Prints"
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  },
+  {
+    "name": "test_verification_calendar",
+    "productType": "calendar",
+    "canvas": {
+      "width": 1500,
+      "height": 2100,
+      "widthMm": 127,
+      "heightMm": 177.8,
+      "dpi": 300
+    },
+    "frames": [
+      {
+        "id": "top",
+        "x": 0.05,
+        "y": 0.05,
+        "width": 0.9,
+        "height": 0.42
+      }
+    ],
+    "calendars": [
+      {
+        "x": 0.05,
+        "y": 0.55,
+        "width": 0.9,
+        "height": 0.42
+      }
+    ],
+    "calendar": {
+      "themePreset": "modern-minimalist",
+      "calendarType": "english",
+      "weekStart": "sunday",
+      "holidaySource": {
+        "enabled": true,
+        "locale": "en-IN",
+        "showInCells": true
+      },
+      "defaultGenzPalette": "butter"
+    },
+    "monthRange": {
+      "count": 12,
+      "defaultYear": 2026
+    },
+    "createdAt": "2026-08-13T09:47:30.453821+00:00",
+    "createdBy": "DIRECT",
+    "updatedAt": "2026-08-13T09:47:30.453821+00:00",
+    "updatedBy": "DIRECT",
+    "tags": [],
+    "metadata": [
+      {
+        "key": "createdByName",
+        "label": "Created By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "createdById",
+        "label": "Emp ID",
+        "value": null
+      },
+      {
+        "key": "createdAt",
+        "label": "Created At",
+        "value": "2026-08-13T09:47:30.453821+00:00"
+      },
+      {
+        "key": "updatedByName",
+        "label": "Updated By",
+        "value": "DIRECT"
+      },
+      {
+        "key": "updatedById",
+        "label": "Updated Emp ID",
+        "value": null
+      },
+      {
+        "key": "updatedAt",
+        "label": "Updated At",
+        "value": "2026-08-13T09:47:30.453821+00:00"
+      },
+      {
+        "key": "dimensions",
+        "label": "Dimensions",
+        "value": "127.00 x 177.80mm"
+      },
+      {
+        "key": "tags",
+        "label": "Tags",
+        "value": ""
+      },
+      {
+        "key": "maskOnExport",
+        "label": "Mask on Export",
+        "value": "Disabled"
+      }
+    ]
+  }
+]
