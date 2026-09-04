@@ -73,6 +73,17 @@ repo has no `staging` branch, so **`main` is production**. `deploy.sh` git-pulls
 customers. The gate between "written" and "live" is your check-in with the
 user — there is nothing else.
 
+- **BEFORE ANY CODE EDIT: create a branch from freshly-pulled `main`.**
+  **NO EXCEPTIONS.** Do this FIRST, before opening any file to edit:
+  ```bash
+  git checkout main && git pull && git checkout -b feature/your-name
+  ```
+  Never `git checkout -b` from wherever the tree happens to be. Never edit files
+  on `main`. This checkout is shared with other Claude Code sessions, so local
+  `main` goes stale within minutes — stale base means your PR will conflict or
+  test against wrong code. Twice on 2026-08-08, a `git pull` failed silently and
+  work began against a base 7 commits behind. **Branch first, edit second.**
+
 - **Never push, open a PR, or merge without checking in first.** A request to do
   the work is not a request to ship it. Do the work, run the checks, then STOP
   and report what changed and what you verified — then wait for an explicit
@@ -81,15 +92,6 @@ user — there is nothing else.
   failure mode. It ran that way throughout 2026-08-08 (PRs #41–#53): each change
   was individually sound and verified, but the user was left reviewing merges
   rather than deciding them.
-
-- **Always branch from freshly-pulled `main`.**
-  `git checkout main && git pull && git checkout -b <name>` — never
-  `git checkout -b` from wherever the tree happens to be sitting. This checkout
-  is shared with other Claude Code sessions (three at once on 2026-08-08), so
-  local `main` goes stale within minutes. Twice that day a `git pull` failed
-  silently — once because stderr was suppressed with `2>/dev/null`, once because
-  untracked files blocked the merge — and work began against a base 7 commits
-  behind.
 
 - **Run `git status` and `git log --oneline -5` before every commit.** With
   several sessions in one directory, uncommitted files may not be yours. **Never
