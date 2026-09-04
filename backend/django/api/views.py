@@ -1367,14 +1367,12 @@ class LayoutManagementView(APIView):
     from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
     parser_classes = [JSONParser, MultiPartParser, FormParser]
     
-    def _is_valid_layout_name(self, name: str) -> bool:
-        """Validate layout name for security."""
-        import re
-        return bool(re.match(r'^[a-zA-Z0-9_.\-]+$', name))
-    
-    def _is_path_safe(self, path: str, base_dir: str) -> bool:
-        """Ensure path is within the intended directory."""
-        return os.path.abspath(path).startswith(os.path.abspath(base_dir))
+    @staticmethod
+    def _is_safe_layout_name(name: str) -> bool:
+        """Guard against obviously malformed layout names."""
+        if not name or '/' in name or '\\' in name or '..' in name:
+            return False
+        return not name.startswith('.')
 
     @extend_schema(
         tags=["ops"],
@@ -1404,57 +1402,43 @@ class LayoutManagementView(APIView):
     def get(self, request, name=None):
         """List layouts or get a specific layout's JSON."""
         from django.core.cache import cache as django_cache
-        storage = get_storage()
+        from api.models import LayoutCatalogue
+
         if name:
-            if not self._is_valid_layout_name(name):
+            if not self._is_safe_layout_name(name):
                 return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
 
-            path = os.path.join(storage.layouts_dir(), f"{name}.json")
-            if not self._is_path_safe(path, storage.layouts_dir()):
-                return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
-
-            if not os.path.exists(path):
+            # Query LayoutCatalogue from Postgres (ops can see all, not just public)
+            try:
+                layout = LayoutCatalogue.objects.get(name=name)
+            except LayoutCatalogue.DoesNotExist:
                 return Response({"detail": "Layout not found"}, status=status.HTTP_404_NOT_FOUND)
 
             try:
-                with open(path, "r") as f:
-                    response = Response(json.load(f))
-                    # Single-layout fetches are dominated by the editor mount on
-                    # an ops admin's machine; a 60 s browser cache + 120 s SWR
-                    # keeps repeat visits free without making invalidation
-                    # tricky (PUT clears `layouts_list_all` already; per-layout
-                    # cache is browser-only and ages out fast).
-                    response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
-                    return response
+                data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
+                data['name'] = layout.name
+                response = Response(data)
+                response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
+                return response
             except Exception as e:
                 return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
             # Full list — server-side Django cache mirrors ListLayoutsView so
-            # repeat hits skip the disk scan; HTTP Cache-Control lets the
+            # repeat hits skip the DB query; HTTP Cache-Control lets the
             # admin's browser cache it too.
             CACHE_KEY = "ops_layouts_list_all"
             CACHE_TTL = 120
             layouts_data = django_cache.get(CACHE_KEY)
             if layouts_data is None:
-                layout_names = storage.list_layouts()
+                # Query all layouts (not just public) for ops view
+                rows = LayoutCatalogue.objects.all().values('name', 'definition', 'product_type', 'is_deprecated')
                 layouts_data = []
-                for name in layout_names:
-                    path = os.path.join(storage.layouts_dir(), f"{name}.json")
-                    if os.path.exists(path):
-                        try:
-                            with open(path, "r") as f:
-                                data = json.load(f)
-                                # Filename is the source of truth for the identifier
-                                # (see ListLayoutsView) — always override a divergent
-                                # stored "name" so open/delete resolve on a
-                                # case-sensitive prod filesystem.
-                                data["name"] = name
-                                data["hasCalendar"] = data.get("productType") == "calendar"
-                                layouts_data.append(data)
-                        except Exception:
-                            layouts_data.append({"name": name})
-                    else:
-                        layouts_data.append({"name": name})
+                for row in rows:
+                    data = row['definition'].copy() if isinstance(row['definition'], dict) else {}
+                    data['name'] = row['name']
+                    data['hasCalendar'] = data.get('productType') == 'calendar'
+                    data['isDeprecated'] = row['is_deprecated']
+                    layouts_data.append(data)
                 django_cache.set(CACHE_KEY, layouts_data, CACHE_TTL)
             response = Response({"layouts": layouts_data})
             response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
@@ -1499,28 +1483,25 @@ class LayoutManagementView(APIView):
         },
     )
     def post(self, request, name=None):
-        """Create or update a layout JSON file."""
+        """Create or update a layout in LayoutCatalogue."""
+        from api.models import LayoutCatalogue
+        from django.db import transaction as db_transaction
+        from django.core.exceptions import ValidationError as _DjangoValidationError
+
         layout_name = name or request.data.get("name")
         layout_data = request.data.get("layout_data") or request.data.get("layout")
-        
+
         if not layout_name or not layout_data:
             return Response({"detail": "name and layout_data are required"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not self._is_valid_layout_name(layout_name):
+
+        if not self._is_safe_layout_name(layout_name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
-            
-        storage = get_storage()
-        path = os.path.join(storage.layouts_dir(), f"{layout_name}.json")
-        
-        if not self._is_path_safe(path, storage.layouts_dir()):
-            return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
-        
-        # Support rename: if old_name is provided and differs from layout_name,
-        # the old file will be removed after the new one is saved.
+
+        # Support rename: if old_name is provided and differs from layout_name
         old_name = request.data.get("old_name") or request.data.get("originalName")
         if old_name and old_name == layout_name:
             old_name = None  # Not actually a rename
-        
+
         try:
             # Basic validation: ensure it's a valid JSON dict
             if isinstance(layout_data, str):
@@ -1572,221 +1553,58 @@ class LayoutManagementView(APIView):
                     msg = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
                     return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
             
-            # Append metadata
-            from django.utils import timezone
-            now = timezone.now().isoformat()
-            
-            # Use full_name and empid if available, fallback to username
-            full_name = getattr(request.user, 'full_name', getattr(request.user, 'username', str(request.user)))
-            emp_id = getattr(request.user, 'empid', None)
-            
-            # Prepare metadata in array format for fast external loading/parsing
-            meta_entries = {
-                "createdByName": full_name,
-                "createdById": emp_id,
-                "createdAt": now,
-                "updatedByName": full_name,
-                "updatedById": emp_id,
-                "updatedAt": now
-            }
-            
-            # Handle Mask Image Upload
-            # For multi-surface layouts, masks can be uploaded as mask_{surface_key} fields
-            if is_multi_surface:
-                for surface in layout_data.get('surfaces', []):
-                    surface_key = surface.get('key', '')
-                    mask_field = f"mask_{surface_key}"
-                    surface_mask_file = request.FILES.get(mask_field)
-                    if surface_mask_file:
-                        try:
-                            import glob as glob_mod_s
-                            existing = glob_mod_s.glob(os.path.join(storage.masks_dir(), f"{layout_name}_{surface_key}_mask.*"))
-                            for m in existing:
-                                if os.path.exists(m):
-                                    os.remove(m)
-                        except Exception as e:
-                            logger.warning(f"Failed to cleanup old surface masks: {e}")
-                        mask_filename = f"{layout_name}_{surface_key}_mask{os.path.splitext(surface_mask_file.name)[1]}"
-                        mask_path = os.path.join(storage.masks_dir(), mask_filename)
-                        with open(mask_path, 'wb+') as destination:
-                            for chunk in surface_mask_file.chunks():
-                                destination.write(chunk)
-                        surface['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
 
-            mask_file = request.FILES.get('mask')
-            if mask_file:
-                # Cleanup ANY existing mask files for this layout first (to handle extension changes)
-                try:
-                    import glob
-                    existing_masks = glob.glob(os.path.join(storage.masks_dir(), f"{layout_name}_mask.*"))
-                    for m in existing_masks:
-                        if os.path.exists(m):
-                            os.remove(m)
-                except Exception as e:
-                    logger.warning(f"Failed to cleanup old masks during update: {e}")
+            # Infer product_type from definition
+            product_type = layout_data.get('productType', 'single_canvas')
 
-                mask_filename = f"{layout_name}_mask{os.path.splitext(mask_file.name)[1]}"
-                mask_path = os.path.join(storage.masks_dir(), mask_filename)
-                with open(mask_path, 'wb+') as destination:
-                    for chunk in mask_file.chunks():
-                        destination.write(chunk)
-                layout_data['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
-            
-            # Handle boolean flag for maskOnExport
-            if 'maskOnExport' in request.data:
-                val = request.data.get('maskOnExport')
-                layout_data['maskOnExport'] = str(val).lower() == 'true'
-
-            # Handle explicit mask removal
-            remove_mask = str(request.data.get('remove_mask', '')).lower() == 'true'
-            if remove_mask:
-                # Delete existing mask files from disk
-                try:
-                    import glob as glob_mod
-                    existing_masks = glob_mod.glob(os.path.join(storage.masks_dir(), f"{layout_name}_mask.*"))
-                    for m in existing_masks:
-                        os.remove(m)
-                        logger.info(f"Removed mask file: {m}")
-                except Exception as e:
-                    logger.warning(f"Failed to cleanup masks during removal: {e}")
-                layout_data['maskUrl'] = None
-                layout_data['maskOnExport'] = False
-
-            if os.path.exists(path):
-                try:
-                    with open(path, "r") as f:
-                        existing_data = json.load(f)
-
-                    # Handle Mask Migration if layout is renamed but mask already exists for old name
-                    # This prevents broken mask URLs when 'Saving As' or renaming
-                    # Skip restoration if mask was explicitly removed
-                    if not remove_mask and 'maskUrl' not in layout_data and 'maskUrl' in existing_data:
-                        layout_data['maskUrl'] = existing_data['maskUrl']
-                    elif not remove_mask and layout_data.get('maskUrl') and not mask_file:
-                        old_mask_url = layout_data['maskUrl']
-                        if f"masks/{layout_name}_mask" not in old_mask_url:
-                            # Mask belongs to a different layout name, try to migrate it
-                            try:
-                                old_filename = os.path.basename(old_mask_url)
-                                old_path = os.path.join(storage.masks_dir(), old_filename)
-                                if os.path.exists(old_path):
-                                    ext = os.path.splitext(old_filename)[1]
-                                    new_filename = f"{layout_name}_mask{ext}"
-                                    new_path = os.path.join(storage.masks_dir(), new_filename)
-                                    
-                                    import shutil
-                                    # Only copy if destination doesn't exist to avoid infinite recursion or overhead
-                                    if not os.path.exists(new_path):
-                                        shutil.copy2(old_path, new_path)
-                                        layout_data['maskUrl'] = f"/api/layouts/masks/{new_filename}"
-                                        logger.info(f"Migrated mask from {old_filename} to {new_filename} due to layout rename")
-                            except Exception as e:
-                                logger.warning(f"Failed to migrate mask during rename: {e}")
-
-                    # Persist certain fields if not provided (skip if mask was explicitly removed)
-                    if not remove_mask and 'maskOnExport' not in layout_data and 'maskOnExport' in existing_data:
-                        layout_data['maskOnExport'] = existing_data['maskOnExport']
-
-                    # Persist creation metadata
-                    existing_meta = existing_data.get('metadata', {})
-                    if isinstance(existing_meta, list):
-                        # Convert list back to dict for easy update if it was already stored as list
-                        existing_meta = {item['key']: item['value'] for item in existing_meta if 'key' in item}
-                    
-                    meta_entries["createdByName"] = existing_meta.get("createdByName", full_name)
-                    meta_entries["createdById"] = existing_meta.get("createdById", emp_id)
-                    meta_entries["createdAt"] = existing_meta.get("createdAt", now)
-                    
-                    # Merge tags if they aren't explicitly provided
-                    if 'tags' not in layout_data and 'tags' in existing_data:
-                        layout_data['tags'] = existing_data['tags']
-                except Exception:
-                    pass
-
-            # Update final metadata object (storing both for backward compatibility and the new array format)
-            # The user specifically requested an array format [ {label: value} ]
-            # Keep legacy top-level fields for existing UI components to prevent breakage while transitioning
-            layout_data['createdAt'] = meta_entries["createdAt"]
-            layout_data['createdBy'] = f"{meta_entries['createdByName']} ({meta_entries['createdById']})" if meta_entries['createdById'] else meta_entries['createdByName']
-            layout_data['updatedAt'] = meta_entries["updatedAt"]
-            layout_data['updatedBy'] = f"{meta_entries['updatedByName']} ({meta_entries['updatedById']})" if meta_entries['updatedById'] else meta_entries['updatedByName']
-            
-            # Ensure tags is a list
-            if 'tags' not in layout_data:
-                layout_data['tags'] = []
-            elif isinstance(layout_data['tags'], str):
-                layout_data['tags'] = [t.strip() for t in layout_data['tags'].split(',') if t.strip()]
-
-            # Final Dimensions & Metadata array for easy extraction
-            if is_multi_surface:
-                surface_dims = []
-                for s in layout_data.get('surfaces', []):
-                    sc = s.get('canvas', {})
+            with db_transaction.atomic():
+                if old_name and old_name != layout_name:
+                    # Rename: update the old row's name + mark the new version
                     try:
-                        sw = float(sc.get('widthMm', 0))
-                        sh = float(sc.get('heightMm', 0))
-                    except (ValueError, TypeError):
-                        sw = sh = 0
-                    surface_dims.append(f"{s.get('key', '?')}: {sw:.2f}x{sh:.2f}mm")
-                dim_str = " | ".join(surface_dims) if surface_dims else "N/A"
-            else:
-                canvas = layout_data.get('canvas', {})
-                try:
-                    val_w = float(canvas.get('widthMm', 0))
-                    val_h = float(canvas.get('heightMm', 0))
-                except (ValueError, TypeError):
-                    val_w = 0
-                    val_h = 0
-                dim_str = f"{val_w:.2f} x {val_h:.2f}mm"
-            
-            layout_data['metadata'] = [
-                {"key": "createdByName", "label": "Created By", "value": meta_entries["createdByName"]},
-                {"key": "createdById", "label": "Emp ID", "value": meta_entries["createdById"]},
-                {"key": "createdAt", "label": "Created At", "value": meta_entries["createdAt"]},
-                {"key": "updatedByName", "label": "Updated By", "value": meta_entries["updatedByName"]},
-                {"key": "updatedById", "label": "Updated Emp ID", "value": meta_entries["updatedById"]},
-                {"key": "updatedAt", "label": "Updated At", "value": meta_entries["updatedAt"]},
-                {"key": "dimensions", "label": "Dimensions", "value": dim_str},
-                {"key": "tags", "label": "Tags", "value": ", ".join(layout_data.get('tags', []))},
-                {"key": "maskOnExport", "label": "Mask on Export", "value": "Enabled" if layout_data.get('maskOnExport') else "Disabled"}
-            ]
-            with open(path, "w") as f:
-                json.dump(layout_data, f, indent=4)
-            
-            # --- Rename Cleanup: Delete the old layout file and move old mask ---
-            if old_name and old_name != layout_name:
-                old_path = os.path.join(storage.layouts_dir(), f"{old_name}.json")
-                if os.path.exists(old_path):
-                    try:
-                        os.remove(old_path)
-                        logger.info(f"Rename: removed old layout file '{old_name}.json'")
-                    except Exception as e:
-                        logger.warning(f"Rename: could not remove old file '{old_name}.json': {e}")
-                # Move old mask to new name if it exists and wasn't already migrated above
-                try:
-                    import glob
-                    old_masks = glob.glob(os.path.join(storage.masks_dir(), f"{old_name}_mask.*"))
-                    for old_mask in old_masks:
-                        ext = os.path.splitext(old_mask)[1]
-                        new_mask = os.path.join(storage.masks_dir(), f"{layout_name}_mask{ext}")
-                        if not os.path.exists(new_mask):
-                            import shutil
-                            shutil.move(old_mask, new_mask)
-                            logger.info(f"Rename: moved mask {old_mask} -> {new_mask}")
-                        else:
-                            os.remove(old_mask)
-                except Exception as e:
-                    logger.warning(f"Rename: mask move failed: {e}")
-            
-            # Clear the list caches AND this layout's detail entries, so the
-            # editor cannot keep composing against the pre-edit geometry.
-            # On rename, old_name's entries must go too or the old id stays
-            # resolvable until its TTL lapses.
+                        old_layout = LayoutCatalogue.objects.get(name=old_name)
+                        old_layout.name = layout_name
+                        old_layout.definition = layout_data
+                        old_layout.product_type = product_type
+                        old_layout.version = old_layout.version + 1
+                        old_layout.save()
+                        logger.info(f"Renamed layout '{old_name}' → '{layout_name}'")
+                    except LayoutCatalogue.DoesNotExist:
+                        # Old layout doesn't exist — create as new
+                        LayoutCatalogue.objects.create(
+                            name=layout_name,
+                            definition=layout_data,
+                            product_type=product_type,
+                            category='',
+                            is_public=True,
+                            version=1,
+                        )
+                        logger.info(f"Created new layout '{layout_name}'")
+                else:
+                    # Create or update (no rename)
+                    obj, created = LayoutCatalogue.objects.update_or_create(
+                        name=layout_name,
+                        defaults={
+                            'definition': layout_data,
+                            'product_type': product_type,
+                            'category': '',
+                            'is_public': True,
+                        },
+                    )
+                    if created:
+                        obj.version = 1
+                        obj.save()
+                        logger.info(f"Created new layout '{layout_name}'")
+                    else:
+                        obj.version = obj.version + 1
+                        obj.save()
+                        logger.info(f"Updated layout '{layout_name}' (version {obj.version})")
+
+            # Invalidate caches
             invalidate_layout_caches(layout_name)
             if old_name and old_name != layout_name:
                 invalidate_layout_caches(old_name)
 
-            return Response({"status": "success", "name": layout_name, "maskUrl": layout_data.get('maskUrl')})
+            return Response({"status": "success", "name": layout_name})
         except json.JSONDecodeError:
             return Response({"detail": "Invalid JSON data"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
@@ -1820,7 +1638,9 @@ class LayoutManagementView(APIView):
         },
     )
     def delete(self, request, name=None):
-        """Delete a layout JSON file."""
+        """Soft-delete a layout from LayoutCatalogue."""
+        from api.models import LayoutCatalogue
+
         # Both /api/ops/layouts and /api/ops/layouts/<name> route here, so the
         # collection form arrives with no name at all. Without this guard that
         # was a TypeError — a 500 on a route the API reference advertised as
@@ -1831,36 +1651,24 @@ class LayoutManagementView(APIView):
                 {"detail": "layout name is required in the URL: /api/ops/layouts/<name>"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if not self._is_valid_layout_name(name):
+        if not self._is_safe_layout_name(name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        storage = get_storage()
-        path = os.path.join(storage.layouts_dir(), f"{name}.json")
-        
-        if not self._is_path_safe(path, storage.layouts_dir()):
-            return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
-            
-        if not os.path.exists(path):
-            return Response({"detail": "Layout not found"}, status=status.HTTP_404_NOT_FOUND)
-            
-        try:
-            # Cleanup mask file if it exists
-            try:
-                import glob
-                mask_pattern = os.path.join(storage.masks_dir(), f"{name}_mask.*")
-                for m in glob.glob(mask_pattern):
-                    if os.path.exists(m):
-                        os.remove(m)
-            except Exception as e:
-                logger.warning(f"Failed to delete mask for layout {name}: {e}")
 
-            os.remove(path)
+        try:
+            # Soft-delete from LayoutCatalogue
+            layout = LayoutCatalogue.objects.get(name=name)
+            layout.is_deprecated = True
+            layout.save()
+            logger.info(f"Soft-deleted layout '{name}'")
+
             # Clear both list caches AND this layout's detail entries. Dropping
             # only "layouts_list_all" left the ops Templates page serving the
             # deleted row for its 2-minute TTL; leaving the detail entries meant
             # the deleted layout stayed openable in the editor for just as long.
             invalidate_layout_caches(name)
             return Response({"status": "success", "detail": f"Layout {name} deleted"})
+        except LayoutCatalogue.DoesNotExist:
+            return Response({"detail": "Layout not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Error deleting layout {name}: {str(e)}")
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
