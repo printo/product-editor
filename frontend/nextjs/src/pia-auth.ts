@@ -56,6 +56,37 @@ class GoogleDomainNotAllowedError extends CredentialsSignin {
   code = "GoogleDomainNotAllowed";
 }
 
+/**
+ * Record what PIA actually returned about a successful sign-in.
+ *
+ * `is_super_user` is captured here and nowhere else — the `jwt` callback sets
+ * it only on the first-login branch, and a token refresh preserves whatever
+ * was already there. So this line is the only evidence of why a session has
+ * the privileges it has, and its absence cost a real diagnosis: on 2026-09-04
+ * a superuser could not see the Django admin link, and answering "what did PIA
+ * say about this person?" needed three round trips through the browser because
+ * nothing server-side had written it down.
+ *
+ * Logs the flags and the identity, never the tokens: `data.access` and
+ * `data.refresh` are bearer credentials for PIA and must not reach a log
+ * aggregator. `typeof` on the raw flag is deliberate — "PIA omitted the field"
+ * and "PIA sent false" are different bugs with different owners, and they are
+ * indistinguishable once coerced with `|| false`.
+ */
+function logPiaLogin(
+  provider: 'password' | 'google',
+  data: { employee_id?: unknown; is_super_user?: unknown; is_ops_team?: unknown },
+  email: string,
+): void {
+  console.info(
+    `[pia-login] provider=${provider} employee_id=${String(data.employee_id ?? '(none)')} ` +
+      `email=${email || '(none)'} ` +
+      `is_super_user=${String(data.is_super_user)}(${typeof data.is_super_user}) ` +
+      `is_ops_team=${String(data.is_ops_team)}(${typeof data.is_ops_team}) ` +
+      `role=${data.is_super_user || data.is_ops_team ? 'admin' : 'user'}`,
+  );
+}
+
 const nextAuth = NextAuth({
   secret: process.env.AUTH_SECRET,
   providers: [
@@ -108,6 +139,7 @@ const nextAuth = NextAuth({
 
         const decoded = decodeJwt(data.access) as unknown as DecodedToken
         const isAdmin = data.is_super_user || data.is_ops_team
+        logPiaLogin('password', data, credentials.username as string)
 
         return {
           id: data.employee_id ? String(data.employee_id) : "unknown",
@@ -191,6 +223,7 @@ const nextAuth = NextAuth({
 
         const decoded = decodeJwt(data.access) as unknown as DecodedToken
         const isAdmin = data.is_super_user || data.is_ops_team
+        logPiaLogin('google', data, email)
 
         return {
           id: data.employee_id ? String(data.employee_id) : "unknown",
