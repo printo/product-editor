@@ -1432,7 +1432,49 @@ The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0** — §8.1/§8.
 Routing, TLS, and tunables live in [`proxy/nginx/nginx.conf`](proxy/nginx/nginx.conf) — single source, no per-service labels. The `certs/` workflow: paste a Cloudflare Origin Certificate (`SSL/TLS → Origin Server → Create Certificate`, RSA 2048, 15-year, hostnames `product-editor.printo.in` or `*.printo.in`) into `proxy/nginx/certs/origin.crt` and the matching key into `proxy/nginx/certs/origin.key` (`chmod 600`). Set Cloudflare SSL/TLS mode to **Full (strict)**. Skip → `deploy.sh` generates a self-signed bootstrap that requires CF "Full" (not strict). Notable behaviour:
 
 - `^~ /api/auth/`, `^~ /api/internal/proxy/`, `^~ /api/embed/proxy/` → frontend:3000
-- `^~ /django-admin/` → backend:8000, gated by nginx `auth_request` against `frontend:3000/api/internal/verify-django-admin` (checks the PIA/Google session for `is_super_user`; denied → `@django_admin_denied` → the `/django-admin-denied` page). Not basic-auth anymore — `proxy/nginx/.htpasswd` is gone from the repo entirely, so don't go looking for it.
+- `^~ /django-admin/` → backend:8000, gated by nginx `auth_request` against `frontend:3000/api/internal/verify-django-admin` (checks the PIA/Google session for `is_super_user`; denied → `@django_admin_denied` → the `/django-admin-denied` page). Not basic-auth anymore — `proxy/nginx/.htpasswd` is gone from the repo entirely, so don't go looking for it. **There is also no second Django password** — see below.
+
+### Django admin SSO (no second login)
+
+Passing the nginx gate now signs you into the admin. It used to grant nothing
+towards Django's own `auth_user` login, which meant the admin was unusable
+without a separately-created Django account — and on 2026-09-04 production had
+**zero** `auth_user` rows, so it was unreachable for everyone including
+superusers.
+
+How the identity crosses: `verify-django-admin` returns `X-PE-Admin-Id` /
+`-Email` / `-Exp` / `-Sig` on its 200; nginx lifts them off the subrequest with
+`auth_request_set` and forwards them; `product_editor/admin_sso.py`
+(`DjangoAdminSSOMiddleware`) verifies and logs in, provisioning an `auth_user`
+with `is_staff` + `is_superuser` and **no usable password** on first sight.
+
+**The signature is not decoration.** `proxy_set_header` stops a browser forging
+those headers *through nginx*, but anything reaching `backend:8000` directly on
+the Docker network could otherwise mint itself `is_superuser` over every table.
+The frontend therefore HMAC-signs the identity with a key derived from
+`EMBED_INTERNAL_SECRET` (`HMAC(secret, "django-admin-sso/v1")` — purpose-bound,
+so a signature can't be replayed into the embed-token path that shares the env
+var), over `id\nemail\nexp` with a 60 s TTL. Django rejects a bad signature, a
+tampered field, an expired stamp, and an absurdly distant one. If either side's
+derivation changes without the other, `services/tests/test_admin_sso.py`
+(16 tests, DB-free) fails on its parity case.
+
+`is_staff`/`is_superuser` are asserted on **every** request, not just at
+creation: PIA is the source of truth, so a flag granted there shouldn't need a
+Django-side edit. The corollary is that a deliberately-limited `auth_user` whose
+username collides with a PIA employee id **will be raised to superuser**.
+
+Two traps worth knowing:
+
+- **`ProxyAuthenticationMiddleware` guarded `/admin/` until 2026-09-04**, while
+  the admin has been mounted at `/django-admin/` since the initial commit — so
+  the "must arrive via the proxy" check had never once run. It matters now, so
+  it keys off `admin_sso.ADMIN_PATH_PREFIX`. Don't reintroduce a literal.
+- **`session.is_super_user` is captured only at sign-in.** The `jwt` callback
+  sets it inside `if (user)`; token refresh returns the existing token. A PIA
+  flag granted after someone's last login does not reach their session until
+  they sign out and back in, and refreshing the page never helps. Read
+  `/api/auth/session` to see the truth.
 - `^~ /api/` → backend:8000 (`proxy_buffering off`, `proxy_read_timeout 600s` for streaming ZIPs + sync renders)
 - `/` (catch-all) → frontend:3000
 - HTTP→HTTPS redirect on port 80
