@@ -106,6 +106,40 @@ status=$(curl -s -o /dev/null -w '%{http_code}' \
   -d "{\"order_id\":\"$ORDER_ID-bad\",\"callback_url\":\"http://printo.in/webhook\"}")
 [ "$status" = "400" ] && ok "http:// callback_url rejected with 400" || bad "Got $status (expected 400)"
 
+# ── 2d. Create embed session with qty ----------------------------------------
+# qty moved off the iframe URL onto the session so it can actually be enforced;
+# a caller sending it in this body is the supported path. The token minted here
+# is reused by step 9b to prove the render endpoint honours it.
+step "2d. Create embed session with qty"
+status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
+  -X POST "$BASE/api/embed/session" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d "{\"order_id\":\"$ORDER_ID-qty\",\"qty\":2}")
+QTY_TOKEN=""
+if [ "$status" = "201" ]; then
+  q=$(python3 -c 'import json; print(json.load(open("/tmp/se.body"))["qty"])')
+  QTY_TOKEN=$(python3 -c 'import json; print(json.load(open("/tmp/se.body"))["token"])')
+  [ "$q" = "2" ] \
+    && ok "qty accepted and round-tripped as $q" \
+    || bad "qty returned wrong value: $q"
+else
+  bad "POST /api/embed/session with qty → $status (expected 201)"
+fi
+
+# ── 2e. Reject nonsense qty ---------------------------------------------------
+# 0 must be refused rather than stored: NULL means "no quantity, do not check",
+# and a 0 in the column would cap every order at nothing.
+step "2e. Reject nonsense qty (0 / negative / fractional / non-numeric)"
+for bad_qty in 0 -3 1.5 '"abc"' 99999; do
+  status=$(curl -s -o /dev/null -w '%{http_code}' \
+    -X POST "$BASE/api/embed/session" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H 'Content-Type: application/json' \
+    -d "{\"order_id\":\"$ORDER_ID-q\",\"qty\":$bad_qty}")
+  [ "$status" = "400" ] && ok "qty=$bad_qty rejected with 400" || bad "qty=$bad_qty → $status (expected 400)"
+done
+
 # ── 3. Reject invalid order_id ------------------------------------------------
 step "3. Reject malformed order_id"
 status=$(curl -s -o /tmp/se.body -w '%{http_code}' \
@@ -179,6 +213,48 @@ status=$(curl -s -L -o /tmp/se.body -w '%{http_code}' \
 # Removed 2026-09-04: printo.in resolves SKU → layout on its own side, so this
 # service no longer carries the mapping. Asserted rather than deleted, so a
 # stray re-introduction is caught.
+# ── 9b. Render submit is capped by the session qty ---------------------------
+# The point of storing qty server-side: this bypasses the editor entirely and
+# still cannot exceed the ordered count. The upload_ids are deliberately bogus
+# — the qty gate runs before they are resolved, so an over-count submission
+# answers with the qty message and an at-count one falls through to the
+# upload-not-found 400. Two different 400s, and which one you get is the test.
+step "9b. Render submit honours the session qty (over → 400, at-count → passes the gate)"
+if [ -z "$QTY_TOKEN" ]; then
+  skip "no qty session token from step 2d"
+else
+  render_body() { python3 -c '
+import json, sys
+n = int(sys.argv[1])
+print(json.dumps({"layout_name": sys.argv[2], "canvases": [
+    {"canvas_index": i, "surface_key": "default",
+     "frames": [{"frame_index": 0, "upload_id": "00000000-0000-4000-8000-%012d" % i}]}
+    for i in range(n)]}))' "$1" "${RENDER_LAYOUT:-circle_48mm}"; }
+
+  # 3 photos on a qty=2 session → rejected, and the message must name the cap.
+  status=$(curl -s -o /tmp/qty.over -w '%{http_code}' \
+    -X POST "$BASE/api/embed/proxy/editor/render" \
+    -H "X-Embed-Token: $QTY_TOKEN" -H 'Content-Type: application/json' \
+    -d "$(render_body 3)")
+  if [ "$status" = "400" ] && grep -q "order is for 2" /tmp/qty.over; then
+    ok "3 photos on a qty=2 session → 400 over-quantity"
+  else
+    bad "Expected a 400 naming the qty cap, got $status: $(head -c 200 /tmp/qty.over)"
+  fi
+
+  # 1 photo on a qty=2 session (UNDER) must NOT be blocked — the asymmetry is
+  # deliberate, so a wrong qty from the caller cannot strand a real order.
+  status=$(curl -s -o /tmp/qty.under -w '%{http_code}' \
+    -X POST "$BASE/api/embed/proxy/editor/render" \
+    -H "X-Embed-Token: $QTY_TOKEN" -H 'Content-Type: application/json' \
+    -d "$(render_body 1)")
+  if grep -q "order is for" /tmp/qty.under; then
+    bad "Under-quantity was blocked — it must warn and proceed, never block"
+  else
+    ok "1 photo on a qty=2 session → not quantity-blocked (got $status)"
+  fi
+fi
+
 step "10. SKU-layouts endpoint no longer exists"
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/sku-layouts/")
 [ "$status" = "404" ] && ok "/api/sku-layouts/ → 404 (removed)" || bad "Expected 404, got $status"

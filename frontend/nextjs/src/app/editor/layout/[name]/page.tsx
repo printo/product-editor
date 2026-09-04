@@ -395,8 +395,8 @@ function LowDpiWarning({ frames }: { frames: LowDpiFrame[] }) {
 }
 
 /** Amber pre-submit notice when fewer photos are placed than the ordered
- *  quantity (`?qty=N`). Warn-and-proceed like the other guards: going UNDER is
- *  allowed, because qty comes from a caller-controlled URL and a wrong one must
+ *  quantity. Warn-and-proceed like the other guards: going UNDER is
+ *  allowed, because qty comes from the caller and a wrong one must
  *  never block a checkout. Going OVER is capped at pick time instead — see the
  *  qty block in processSelectedFiles. */
 function QtyShortfallWarning({ uploaded, needed }: { uploaded: number; needed: number }) {
@@ -444,13 +444,24 @@ export default function LayoutEditorPage() {
     return process.env.NEXT_PUBLIC_EMBED_PARENT_ORIGIN || 'https://printo.in';
   }, []);
 
-  // Quantity enforcement — optional ?qty=N URL param (single-surface only)
-  const orderQty = useMemo<number | null>(() => {
+  // Quantity enforcement (single-surface only). Two sources, in priority order:
+  //
+  //   1. EmbedSession.qty — set by the caller server-side, injected upstream as
+  //      X-Order-Qty and echoed back by /editor/init below. This is the number
+  //      POST /api/editor/render actually enforces, so it is the one the editor
+  //      must cap against.
+  //   2. the legacy ?qty=N URL param, kept as a fallback so callers that have
+  //      not moved the value into the session body keep working during rollout.
+  //      It lives in a URL the customer's browser owns, which is precisely why
+  //      (1) exists — nothing server-side honours it.
+  const urlQty = useMemo<number | null>(() => {
     if (typeof window === 'undefined') return null;
     const v = new URLSearchParams(window.location.search).get('qty');
     const n = v ? parseInt(v, 10) : NaN;
     return isNaN(n) || n <= 0 ? null : n;
   }, []);
+  const [sessionQty, setSessionQty] = useState<number | null>(null);
+  const orderQty = sessionQty ?? urlQty;
 
   // Stable order ID — read from URL or generate a new friendly ID.
   // Written back to the URL immediately so a refresh / share keeps the same ID.
@@ -816,6 +827,13 @@ export default function LayoutEditorPage() {
         if (embedToken && typeof payload.order_id === 'string' && payload.order_id && payload.order_id !== orderId) {
           legacyOrderIdRef.current = orderId;
           setOrderId(payload.order_id);
+        }
+        // Adopt the SESSION quantity when the caller set one — it outranks the
+        // ?qty=N URL param because it is what editor/render enforces. Absent
+        // (null) leaves the URL fallback in place; the layout resolves before
+        // any file pick, so this is set before the first qty comparison runs.
+        if (typeof payload.qty === 'number' && Number.isInteger(payload.qty) && payload.qty > 0) {
+          setSessionQty(payload.qty);
         }
         if (Array.isArray(payload.fonts) && payload.fonts.length) {
           setSelectedFonts(payload.fonts);
@@ -2655,9 +2673,11 @@ export default function LayoutEditorPage() {
     // Over-qty is a HARD cap: the customer keeps the first `allowed` photos or
     // discards the pick and chooses again. There is deliberately no
     // proceed-with-all path, so a submit can never carry more photos than were
-    // ordered. Under-qty stays warn-and-proceed — this banner plus a notice in
-    // the pre-submit modal — because qty arrives in a caller-controlled URL and
-    // a wrong one must never hard-block a customer's checkout.
+    // ordered; POST /api/editor/render re-checks the same cap, so bypassing
+    // this modal does not get past it. Under-qty stays warn-and-proceed — this
+    // banner plus a notice in the pre-submit modal, and the server accepts a
+    // shortfall too — because a wrong qty from the caller must never
+    // hard-block a customer's checkout.
     setQtyUnder(null);
     setPendingOverFiles(null);
     const qtyVerdict = checkOrderQty(allFiles.length, orderQty, surfaceStates.length);
@@ -3672,7 +3692,8 @@ export default function LayoutEditorPage() {
   // Ordered quantity as the upload box and pre-submit modals see it. They
   // compare against the LIVE placed count rather than the pick-time `qtyUnder`
   // banner state, which the customer can dismiss. 0 disables the notice: no qty
-  // in the URL, or a multi-surface product — the same gate as checkOrderQty.
+  // from the session or URL, or a multi-surface product — the same gate as
+  // checkOrderQty.
   const qtyNeeded = orderQty !== null && surfaceStates.length <= 1 ? orderQty : 0;
 
   return (

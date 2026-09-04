@@ -40,7 +40,7 @@ graphify explain "render_canvas_task"
 graphify explain "CalendarState"
 ```
 
-The graph covers 321 source files (274 code + 36 docs + 11 images) — **5,282 nodes, 17,271 edges, 212 communities** (rebuilt 2026-08-14 from `main` @ `69f7a5a`; includes the book layout feature, calendar product, data lifecycle/DPDP docs, API surface separation PRD, and printo-architecture-audit). Full stats: `graphify-out/GRAPH_REPORT.md`. Key communities:
+The graph covers 319 files — **2,974 nodes, 5,345 edges, 213 communities** (rebuilt 2026-09-04 from `main` @ `f3708ba`). **Read the counts out of `graphify-out/GRAPH_REPORT.md`, not from here.** This line claimed 5,282 nodes / 17,271 edges / 321 files until 2026-09-04, when the committed graph actually held 2,297 / 3,977 — those figures came from an older doc-inclusive build and `graphify update .` (AST-only, the form this file tells you to run) does not reproduce them. The report states its own source commit under "Graph Freshness"; compare it to `git rev-parse HEAD` to see whether the graph is stale. Key communities:
 
 - **Render Pipeline Core** — render_canvas_task, layout_engine/engine.py, _composite_canvas
 - **Book Layout Engine** — services/book_layout.py, materialize_pages, gutter mirroring, pagesToSpreads
@@ -52,7 +52,7 @@ The graph covers 321 source files (274 code + 36 docs + 11 images) — **5,282 n
 - **Data Lifecycle & DPDP** — EXPORT_RETENTION_DAYS, order data purge, UploadedFile.order_id, orphan exports
 - **Printo Architecture Audit** — cross-system analysis, target architecture, migration roadmap
 
-God nodes (highest connectivity): `editor/layout/[name]/page.tsx` (81 edges), `LayoutEngine` (75), `api/views.py` (61), `APIKey` (45), `APIKeyUser` (40), `UploadedFile` / `ExportedResult` / `EmbedSession` (37 each), `BearerTokenAuthentication` / `PIAAuthentication` (36 each). The top two are the files most likely to break something else when edited.
+God nodes (highest connectivity, 2026-09-04 build): `LayoutEngine` (75 edges), `APIKey` (44), `APIKeyUser` / `ExportedResult` (40), `UploadedFile` (39), `CanvasData` (37), `BearerTokenAuthentication` / `PIAAuthentication` (35). `editor/layout/[name]/page.tsx` and `api/views.py` are the two files most likely to break something else when edited — they topped the older doc-inclusive graph and are still the largest surfaces here.
 
 To update the graph after significant code changes:
 ```bash
@@ -289,8 +289,8 @@ Also copy `.env.example` → `.env` and fill in the required secrets (`DJANGO_SE
 ./fresh-install.sh                                             # Fresh environment setup
 ./reset-db.sh                                                  # Reset database
 ./benchmark.sh                                                 # Performance benchmarking
-API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # 10-step embed-flow smoke test
-API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-calendar.sh    # 19-check calendar/ops surface
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # embed flow end-to-end (session, proxy allowlist, qty cap, chunked upload)
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-calendar.sh    # calendar/ops surface
 ./scripts/test-backup-restore.sh                               # restore into a throwaway DB + assert row counts
 ```
 
@@ -368,17 +368,18 @@ flowchart TD
 - `src/lib/upload-utils.ts` — Chunked upload utility: `uploadFile()` (single, sequential chunks) and `uploadFiles()` (batched, 4 parallel)
 - `src/lib/zip-utils.ts` — Chunked ZIP generation still used for imposition-sheet downloads. Do not delete it as part of the retired client-side render ZIP cleanup; the old browser render/download path is gone, but imposition still imports `createZipFromDataUrls` / `downloadBlob`.
 - `src/lib/file-store.ts` — IndexedDB-backed File persistence keyed by `(orderId, fileId)`; recovers `originalFile` after page refresh. See "B1 — Canvas state file persistence" below.
-- `src/app/api/embed/proxy/[...path]/route.ts` — Embed proxy; resolves embed token → `{ apiKey, orderId, callbackUrl, includeUploads }`; injects `X-Order-ID`, `X-Callback-URL`, and `X-Include-Uploads`; caches in-process (110 min TTL, 10k cap)
+- `src/app/api/embed/proxy/[...path]/route.ts` — Embed proxy; resolves embed token → `{ apiKey, orderId, callbackUrl, includeUploads, qty }`; injects `X-Order-ID`, `X-Callback-URL`, `X-Include-Uploads` and `X-Order-Qty`; caches in-process (110 min TTL, 10k cap). **Anything injected as a header must be in the cached tuple** — a field resolved but not cached is present on a session's first request and silently absent for the remaining 110 minutes.
 - `src/types/` — TypeScript interfaces for layouts, surfaces, frames
 
 ### Backend Structure
 - `api/views.py` — `GenerateLayoutView`, `RenderStatusView`, `EditorRenderView` (chunked-upload render submission), `ChunkedUploadInitView/ChunkView/CompleteView`, `EmbedSessionView/ValidateView`, `RenderJobDownloadView`, `HealthView` (`GET /api/health`, public, used by Docker healthchecks)
 - `api/tasks.py` — `render_canvas_task` (calls `_extract_frame_transforms` + `_extract_overlays_per_canvas` + `_build_uploaded_files_map` → `LayoutEngine`), `notify_caller_webhook_task` (only dispatched when `canvas.callback_url` is set; signs payload with HMAC-SHA256 of api_key), `garbage_collector_task` (has `soft_time_limit=3300` / `time_limit=3600`)
-- `api/models.py` — `APIKey`, `EmbedSession` (+ `order_id` + `callback_url` fields), `CanvasData` (+ `editor_state` JSON, + `callback_url` propagated from EmbedSession), `RenderJob`, `UploadedFile` (+ `upload_session_id`), `ExportedResult`
+- `api/models.py` — `APIKey`, `EmbedSession` (+ `order_id` + `callback_url` + `qty` fields), `CanvasData` (+ `editor_state` JSON, + `callback_url` propagated from EmbedSession), `RenderJob`, `UploadedFile` (+ `upload_session_id`), `ExportedResult`
 - `api/validators.py` — `MAX_FILE_SIZE_MB` reads from `settings.MAX_UPLOAD_FILE_SIZE_MB` (single source via env)
 - `layout_engine/engine.py` — Pillow-based high-res PNG/PDF renderer at 300 DPI; `_smart_downscale()` pre-shrinks source images to 2× frame target (BOX resample); 90/180/270° rotation fast-path via `Image.transpose`; per-frame pan/zoom/rotation from `frame_transforms`; explicit `Image.close()` + `gc.collect()` between canvases. CMYK/soft-proof pipeline removed in v1.8. **As of CALENDAR_FEATURE_PRD Phase 1**: `_composite_canvas` now also accepts `overlays` + `uploaded_files` and invokes `services.overlay_renderer.render_overlays` after frame compositing and before the layout mask, so text/shape/image overlays appear in the 300 DPI output (previously preview-only).
 - `services/overlay_renderer.py` — `render_overlays(canvas, overlays, canvas_w_px, canvas_h_px, uploaded_files)` draws text / shape / image overlays via Pillow `ImageDraw`. Single bundled font (Inter Variable) per PRD §11.7 — no font picker. Phase 1 deliverable; foundation for Phase 4 (calendar renderer).
 - `services/image_loader.py` — **the single choke point for opening customer photos server-side** (`open_source_rgba(path)`): EXIF orientation + ICC→sRGB colour management (Display-P3 iPhone photos, AdobeRGB, CMYK-tagged JPEGs) via lcms2, fail-open on malformed profiles. All three render paths (frames in `engine.py`, image overlays, calendar cell images) load through it; output PNGs are tagged with an explicit sRGB profile (`srgb_profile_bytes()`). Never call `Image.open(...).convert("RGBA")` directly on customer photos — it silently discards the embedded profile and shifts colours in print.
+- `services/order_qty.py` — the server half of the `qty` rule (`parse_order_qty`, `is_qty_enforceable`, `count_placed_photos`, `qty_violation`). Pure functions, no Django, no DB. Python twin of `checkOrderQty`; see "Order quantity" for why it is deliberately narrower than the browser's version and why it fails open.
 - `services/fonts.py` — `get_font(size_px, weight)` returns a cached `PIL.ImageFont` for the bundled `services/fonts_assets/Inter-Variable.ttf`. Uses the variable axis to serve any weight from a single 859 KB .ttf. Falls back to PIL default on missing-font (logged once). Boot-time `startup_check()` warns if the font is absent.
 - `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. Install convention: [docs/BUNDLED_FONTS.md](docs/BUNDLED_FONTS.md).
 - `product_editor/celery.py` — Queue routing (all three tasks → `standard`; the `priority` queue has no producer — see Async Queue below), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
@@ -637,18 +638,20 @@ Response `202`:
 ```
 Caller (printo.in)  →  POST /api/embed/session
                        { order_id: "EXT-JOB-123",
-                         callback_url: "https://printo.in/api/internal/pe-callback" }
-                    ←  { token: "<uuid>", order_id, callback_url, expires_at }
+                         callback_url: "https://printo.in/api/internal/pe-callback",
+                         qty: 12 }
+                    ←  { token: "<uuid>", order_id, callback_url, qty, expires_at }
 
 iframe loads with  ?token=<uuid>
 
 Every iframe request → embed proxy resolveSession(token)
                     → checks path allowlist (rejects /ops, /admin, etc. with 403)
-                    → caches { apiKey, orderId, callbackUrl, includeUploads, exp } for 110 min
-                    → injects X-Order-ID + X-Callback-URL + X-Include-Uploads on every upstream request
+                    → caches { apiKey, orderId, callbackUrl, includeUploads, qty, exp } for 110 min
+                    → injects X-Order-ID + X-Callback-URL + X-Include-Uploads + X-Order-Qty on every upstream request
 
-EditorRenderView reads X-Order-ID + X-Callback-URL + X-Include-Uploads headers,
-persists callback_url onto CanvasData and snapshots include_uploads in render_state
+EditorRenderView reads X-Order-ID + X-Callback-URL + X-Include-Uploads + X-Order-Qty
+headers, persists callback_url onto CanvasData, snapshots include_uploads in
+render_state, and rejects a submission carrying more photos than qty (400)
 
 After Celery render completes — only when canvas.callback_url is set:
 notify_caller_webhook_task → POSTs webhook payload to canvas.callback_url
@@ -658,6 +661,8 @@ notify_caller_webhook_task → POSTs webhook payload to canvas.callback_url
 Neither `order_id` nor `callback_url` ever appears in the iframe URL — they flow: caller → session DB → proxy in-process cache → `X-Order-ID` / `X-Callback-URL` headers → Django.
 
 `order_id` is validated server-side at session creation: `^[A-Za-z0-9_.\-]{1,64}$`. Anything else is rejected with 400.
+
+`qty` (optional) is validated at session creation by `parse_order_qty`: a whole positive integer up to `MAX_ORDER_QTY` (10,000). Absent/empty means "the caller did not say" and stores NULL; `0`, a negative, a fraction, a bool or a non-number is rejected with 400. NULL and 0 must stay distinguishable — NULL disables the check, and a 0 that ever reached the column would cap every order at nothing.
 
 `callback_url` (optional) is validated at session creation: must be `https://`, max 2000 chars. No domain allowlist — auth is enforced by the api_key the caller already holds, and the HMAC signature lets them verify the request actually came from us.
 
@@ -724,37 +729,59 @@ It does NOT `register_heif_opener()`: that patches Pillow globally for the whole
 
 **iframe `frame-ancestors`** ([next.config.mjs](frontend/nextjs/next.config.mjs)) — `/layout/*` and `/editor/layout/*` get a CSP `frame-ancestors` header allowing `'self'`, `https://printo.in`, and `https://*.printo.in`. Override per-environment via `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS`. (The legacy `/embed/layout/*` SVG-preview route was removed — it read the raw `?apiKey=` from the URL, violating the "API keys must never appear in URLs" rule.)
 
-### Order quantity (`?qty=N`)
+### Order quantity (`qty`)
 
-The number of items the customer ordered, passed **on the iframe URL** next to
-the token (`/editor/layout/<name>?token=<uuid>&qty=12`). It is **not** a field
-on `POST /api/embed/session` — sending it in that body does nothing. Read once
-on mount in [page.tsx](frontend/nextjs/src/app/editor/layout/[name]/page.tsx);
-the comparison lives in `checkOrderQty` ([src/lib/submit-guards.ts](frontend/nextjs/src/lib/submit-guards.ts)).
+The number of items the customer ordered. **Stored on `EmbedSession`** (`qty`,
+nullable) and threaded exactly like `order_id`: caller → `POST /api/embed/session`
+→ session row → embed-proxy in-process cache → `X-Order-Qty` header → Django.
+It never appears in the iframe URL, so the browser has nothing to edit.
 
 **The rule is deliberately asymmetric, and the asymmetry is the point:**
 
 | Photos placed | Behaviour |
 |---|---|
-| **Over** `qty` | **Hard cap.** `processSelectedFiles` holds the pick and the modal offers *Keep first N* / *Choose again*. No proceed-with-all path exists, so a submit can never carry more photos than were ordered. |
-| **Under** `qty` | **Warn and proceed.** Auto-fill / pick-to-fill banner, plus a `QtyShortfallWarning` notice in both pre-submit modals. Submit still works. |
+| **Over** `qty` | **Hard cap, both sides.** `processSelectedFiles` holds the pick and the modal offers *Keep first N* / *Choose again* — no proceed-with-all path. `EditorRenderView` independently rejects an over-count submission with **400**, so bypassing the editor does not get past it. |
+| **Under** `qty` | **Warn and proceed, both sides.** Auto-fill / pick-to-fill banner, plus a `QtyShortfallWarning` notice in both pre-submit modals. Submit still works, and the server accepts the shortfall too. |
 
-Under-upload must **not** become blocking. `qty` reaches the editor through a
-URL the customer's browser can edit, so a wrong value from the caller would
-strand a real order at checkout — the cost of a customer who can't buy exceeds
-the cost of one who orders 12 and submits 8. Over-upload has no such downside:
-the customer just removes photos.
+Under-upload must **not** become blocking. `qty` is supplied by the caller, so a
+wrong value would strand a real order at checkout — the cost of a customer who
+can't buy exceeds the cost of one who orders 12 and submits 8. Over-upload has
+no such downside: the customer just removes photos. **`qty_violation` therefore
+has one `>` in it and no lower bound; don't add one.**
 
-Single-surface products only (`surfaceCount > 1` returns `ok`). A two-sided
-product, calendar or book has a surface count fixed by its layout, which `qty`
-does not describe.
+Single-surface products only. `checkOrderQty` opts out on `surfaceCount > 1`;
+`is_qty_enforceable` opts out on `type: "product"` + `surfaces[]` **and** on
+`productType` `calendar` / `book`. The server half is deliberately **narrower
+than the browser's** — the client normalizer flattens a calendar template to one
+`default` surface and so caps it, while the server exempts it. Being more
+permissive server-side can never 400 a submission the editor allowed; the
+reverse could. Keep it that way when you touch either.
 
-**Enforcement is client-side only.** Nothing in `EditorRenderView` or
-`render_canvas_task` validates the count against a stored quantity — there is
-no stored quantity. Moving `qty` onto `EmbedSession` (injected as a header like
-`X-Order-ID`, checked at submit) is the planned follow-up; see
-[docs/PRD.md](docs/PRD.md) §8.0. Until then, a caller that needs a guaranteed
-count should re-check `file_count` on the completion webhook.
+**The server half also fails open.** An unreadable layout, an absent header, a
+header that won't parse — all mean "don't check", never "reject". A tamper guard
+that can 400 a legitimate order on its own uncertainty is worse than no guard.
+
+Where the two halves live:
+
+| | File |
+|---|---|
+| Browser rule | `checkOrderQty` — [src/lib/submit-guards.ts](frontend/nextjs/src/lib/submit-guards.ts), tests in `src/lib/__tests__/submit-guards.test.ts` |
+| Server rule | [backend/django/services/order_qty.py](backend/django/services/order_qty.py) (`parse_order_qty`, `is_qty_enforceable`, `count_placed_photos`, `qty_violation`), tests in `services/tests/test_order_qty.py` |
+| Header plumbing | [embed proxy route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts), tests in `src/app/api/embed/proxy/__tests__/order-qty.test.ts` |
+
+**Counting matters.** Both halves count *photo placements* — frames holding an
+`upload_id` — not distinct uploads and not canvases. The qty auto-fill
+deliberately repeats one photo across the remaining slots, so 3 uploads filling
+a 12-item order arrive as 12 placements and must read as 12. Counting distinct
+uploads would read that as 3 and let a tampered 12-item order carry 40.
+
+**The legacy `?qty=N` URL param still works, as a fallback only.** The editor
+prefers the session value (`/editor/init` echoes it as `qty`) and falls back to
+the URL when the session carries none, so callers that haven't moved the value
+into the session body keep working. Nothing server-side honours the URL param —
+a caller that wants the cap enforced must send `qty` in the session body.
+A caller that needs a guaranteed count can still re-check `file_count` on the
+completion webhook.
 
 ### postMessage Contract
 
@@ -877,7 +904,7 @@ Two shared modules exist precisely to stop this drift — extend them rather tha
 - **`editor/layout/[name]/frame-fill.ts`** — unifies the two *client* renderers for fill-sides background (blur/border) and per-frame captions. This module exists because the blur once appeared in the thumbnail and print but not in the live editor.
 - **`src/lib/caption-layout.ts` ↔ `LayoutEngine._resolve_caption_box`** — caption placement maths, deliberately duplicated across the language boundary and pinned by parity tests on both sides (`src/lib/__tests__/caption-layout.test.ts` and `services/tests/test_caption_layout.py`). Change one formula and both suites must be updated together, or a positioned caption lands somewhere different in the print than in the preview.
 
-The same TS↔Python parity-test pattern guards the calendar grid (`src/lib/calendar.ts` ↔ `services/calendar_renderer.py`, `pnpm test:parity` + `services/tests/test_calendar_parity.py`).
+The same TS↔Python parity-test pattern guards the calendar grid (`src/lib/calendar.ts` ↔ `services/calendar_renderer.py`, `pnpm test:parity` + `services/tests/test_calendar_parity.py`) and the order-quantity rule (`checkOrderQty` in `src/lib/submit-guards.ts` ↔ `services/order_qty.py`, whose `test_matches_the_browser_verdicts_it_mirrors` re-runs the browser suite's cases through the server half). The qty pair is deliberately NOT symmetric — the server is narrower and fails open; see "Order quantity" for why.
 
 Captions render only when `layout.frameCaptionsEnabled` is set — off by default.
 
@@ -992,6 +1019,39 @@ S3_BUCKET=...
 
 Currently defaults to `STORAGE_BACKEND=local` for safety.
 
+### These files are git-tracked AND written by the running app
+
+That combination is the source of a recurring deploy failure and a standing
+data-loss hazard, so it is worth stating plainly: `storage/layouts/`,
+`storage/masks/`, `storage/fonts.json`, `storage/holidays/` and
+`storage/calendar_styles/` are all committed to git *and* rewritten at runtime
+by the ops UI. `storage/uploads/`, `storage/exports/` and `gc_last_run.json`
+are correctly gitignored; this set never got the same treatment.
+
+**Production has diverged badly.** As of 2026-09-04 `git status` on the prod box
+showed 20 tracked layouts deleted, 11 untracked ones under new names
+(`classic_4x6.json` → `classic_prints_-_4x6_in.json`), a new mask, and a
+modified `fonts.json`. Ops rebuilt the catalogue through the UI and none of it
+was ever committed.
+
+Two consequences:
+
+- **`git pull` on prod fails** whenever a commit touches a file that also
+  changed on disk. Removing `sku_layouts.json` did exactly that on 2026-09-04.
+  Resolve it by checking out the *one* named file, never a directory.
+- **Never run `git reset --hard` or `git checkout -- storage/` on prod.** Either
+  resurrects the 20 obsolete layouts *alongside* the live ones — duplicate
+  products under two naming schemes, and a customer can open the wrong one.
+
+**Layouts are not in Postgres.** There is no `Layout` model; `services/storage.py`
+does `os.listdir(LAYOUTS_DIR)`. So `pg_dump` covers none of the catalogue —
+`scripts/backup.sh`'s storage tarball is the only thing that does. The agreed
+fix is to move layout JSON into Postgres (a data migration imports prod's live
+catalogue automatically on deploy, so nothing needs copying by hand) and put
+masks and calendar background artwork behind the `S3Storage` seam already
+stubbed in `services/storage.py` — **not** in a `bytea` column, because every
+nightly `pg_dump` would then carry the artwork forever. Not started.
+
 ## Calendar product type (v1.13)
 
 A calendar layout is a regular multi-surface layout PLUS `productType: "calendar"` and a `monthRange + calendars[] + calendar` style block. The ops authoring UI is at `/editor/layouts/calendar/[name]`; the customer-facing preview lives at `/dev/calendar-preview` until the embed integration replaces it.
@@ -1059,7 +1119,7 @@ calendar-styles
 
 ### Smoke test
 
-`scripts/smoke-test-calendar.sh` — covers list endpoint, layout schema, style presets, palettes, holidays, SKU mapping, validator gate, and (with `EMBED_BASE` set) the embed-proxy allowlist. 19 checks; runs in ~3 s against the local stack. Negative test confirms `/ops/layouts` is still rejected with 403 through the proxy.
+`scripts/smoke-test-calendar.sh` — covers list endpoint, layout schema, style presets, palettes, holidays, SKU mapping, validator gate, and (with `EMBED_BASE` set) the embed-proxy allowlist. Runs in ~3 s against the local stack. Both smoke scripts print their own pass/fail totals — read those rather than a count written down here, which drifts (this line claimed 19 while the script ran 18). Negative test confirms `/ops/layouts` is still rejected with 403 through the proxy.
 
 ### Performance
 
@@ -1156,7 +1216,7 @@ Key surfaces added in the resilience/compliance pass — grep these before touch
 
 ## Migrations
 
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0014_audit_trail`.
+Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0015_embedsession_qty`.
 
 | Migration | Change |
 |---|---|
@@ -1174,6 +1234,7 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 | 0012 | `UploadedFile.expires_at` / `ExportedResult.expires_at` gain a `default` (the fields already existed, unpopulated), plus a backfill of `created_at + EXPORT_RETENTION_DAYS` for existing rows. The GC swept these two on `created_at + retention` **recomputed at sweep time**, so lowering `EXPORT_RETENTION_DAYS` acted RETROACTIVELY — deleting files whose expiry had already been sent to a partner as webhook `expires_at`. Silently: `CanvasData` and async render outputs use a stored `expires_at` so their print files survived, but the uploads went early and `RenderJobDownloadView` skips missing files with only a log line, handing back a ZIP without `1_customer_uploads/`. All four sweeps now run off one clock. **The backfill reads the retention in force at migration time — deploy before lowering the env var.** |
 | 0013 | `CanvasData.image_paths` gains `default=list`. `CanvasStateView.put` deliberately keeps `image_paths` out of `update_or_create`'s `defaults` (writing `image_paths or []` blanked recorded paths every 2 s — the 0011 erasure bug), but the column is NOT NULL with no default, so INSERT wrote NULL and the **first autosave for any new order 500'd**. No row was created, so every retry took the same path and a new order never persisted its editor state at all. A model default applies on INSERT only, never UPDATE: creates succeed, autosave still can't clobber submit-time paths. |
 | 0014 | `APIRequest.api_key` → nullable `SET_NULL`, plus `APIRequest.auth_source`. The table existed from the initial commit with **nothing ever writing to it**, so `APIRequest.objects.count()` returned 0 for every key forever — which reads as proof a credential was never used and is really proof nothing was recorded. `SET_NULL` keeps history across a key rotation (`CASCADE` erased it) and lets PIA/anonymous ops actions be recorded; `auth_source` denormalises the actor so the row still names it after the key row is gone. See "API audit trail" below. |
+| 0015 | `EmbedSession.qty` (nullable positive integer) — the ordered quantity, moved off the browser-editable `?qty=N` iframe URL param onto the session so `EditorRenderView` can enforce it. Nullable rather than 0-defaulted: "the caller did not send a quantity" and "the caller ordered nothing" must stay distinguishable, and every pre-existing session reads NULL, which means unchecked — the behaviour those sessions already had. See "Order quantity" above. |
 
 **Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.
 
@@ -1362,7 +1423,7 @@ The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0** — §8.1/§8.
 2. **(Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50`** to prod `.env` if you want a non-default ceiling. Default 50 if absent.
 3. **(Optional) Add `CSP_REPORT_ONLY=True`** — already the default; only set explicitly if you want to flip it later.
 4. **Rebuild the backend image.** `requirements.txt` gained `django-csp==3.8` and the Dockerfile is now multi-stage. `deploy.sh` already runs `docker-compose build`, so this happens automatically.
-5. **Check for unapplied migrations.** The backend container self-migrates on boot, so a normal deploy needs nothing here — but confirm with `docker-compose exec backend python manage.py showmigrations api` and compare against the Migrations table (latest is `0014_audit_trail`). Only migrate from the `backend` container, never from a worker or beat container.
+5. **Check for unapplied migrations.** The backend container self-migrates on boot, so a normal deploy needs nothing here — but confirm with `docker-compose exec backend python manage.py showmigrations api` and compare against the Migrations table (latest is `0015_embedsession_qty`). Only migrate from the `backend` container, never from a worker or beat container.
 6. **Verify healthchecks come up green** — `docker-compose ps` should show `(healthy)` next to `proxy`, `backend`, and `frontend`. The proxy probe hits `/nginx-health` on localhost:80; the backend probe hits `/api/health`; the frontend probe hits `/`. `proxy` `depends_on: backend: { condition: service_healthy }` so a slow backend blocks proxy startup until ready.
 7. **Smoke-test login on prod** — bad password should still say "Invalid credentials"; if PIA is reachable, login should succeed. The new error-code distinction (PiaTimeout / PiaServiceUnavailable) only surfaces during actual outages.
 
