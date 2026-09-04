@@ -420,9 +420,23 @@ curl -X POST https://product-editor.printo.in/api/embed/session \
 ```
 
 `qty` is the number of items the customer ordered: a whole number from 1 to
-10000. Omit it and no quantity is enforced. Anything else — `0`, a negative, a
-fraction, a string — is rejected with **400** at session creation, so a bad
-value fails at your call rather than silently at the customer's.
+10000. Omit it and no quantity is enforced. A bad value is rejected with **400**
+at session creation, so it fails at your call rather than silently at the
+customer's:
+
+| You send | Result |
+|---|---|
+| `12` | `qty: 12` |
+| `"12"`, `" 12 "`, `12.0` | `qty: 12` — a numeric string or an integral float is accepted, so a form value or a JS client that lost the int/float distinction is fine |
+| omitted, `null`, `""` | `qty: null` — "you did not specify"; nothing is enforced |
+| `0`, `-5` | **400** `qty must be a positive integer.` |
+| `1.5` | **400** `qty must be a whole number.` |
+| `true`, `"abc"`, `[]` | **400** `qty must be a positive integer.` |
+| `10001` | **400** `qty must not exceed 10000.` |
+
+Note `0` is an error, not "unlimited" — it would otherwise cap every order at
+nothing. Use omission for "no limit". `true` is rejected rather than read as
+`1`, because a boolean here is a caller bug, not a one-item order.
 
 The iframe URL stays exactly as it was — **do not put `qty` on it**:
 
