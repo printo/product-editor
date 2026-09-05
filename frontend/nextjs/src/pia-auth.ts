@@ -172,6 +172,10 @@ const nextAuth = NextAuth({
           accessTokenExpires: decoded.exp * 1000,
           is_ops_team: data.is_ops_team || false,
           is_super_user: data.is_super_user || false,
+          // Needed by the Django-admin rule (lib/django-admin-access.ts),
+          // which requires every product flag to be true.
+          is_deliveryq: data.is_deliveryq || false,
+          pia_access: data.pia_access || false,
         }
       },
     }),
@@ -256,6 +260,10 @@ const nextAuth = NextAuth({
           accessTokenExpires: decoded.exp * 1000,
           is_ops_team: data.is_ops_team || false,
           is_super_user: data.is_super_user || false,
+          // Needed by the Django-admin rule (lib/django-admin-access.ts),
+          // which requires every product flag to be true.
+          is_deliveryq: data.is_deliveryq || false,
+          pia_access: data.pia_access || false,
         }
       },
     }),
@@ -273,6 +281,8 @@ const nextAuth = NextAuth({
           accessTokenExpires: user.accessTokenExpires,
           is_ops_team: user.is_ops_team,
           is_super_user: user.is_super_user,
+          is_deliveryq: user.is_deliveryq,
+          pia_access: user.pia_access,
         }
       }
 
@@ -350,6 +360,8 @@ const nextAuth = NextAuth({
             session.accessToken = token.accessToken as string | undefined
             session.is_ops_team = token.is_ops_team as boolean | undefined
             session.is_super_user = token.is_super_user as boolean | undefined
+            session.is_deliveryq = token.is_deliveryq as boolean | undefined
+            session.pia_access = token.pia_access as boolean | undefined
             // Surface refresh errors to the client so the app can prompt re-login
             if (token.error) {
                 session.error = token.error as string
