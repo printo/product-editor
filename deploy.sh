@@ -418,23 +418,27 @@ fi
 # every docker-compose call in this script ignores the override.
 export COMPOSE_FILE=docker-compose.yml
 
-# ── The monitoring stack is deliberately NOT profile-activated here ─────────
-# loki / promtail / grafana / alloy sit behind compose's `monitoring` profile.
-# It is tempting to export COMPOSE_PROFILES=monitoring so `up -d` covers them —
-# don't. Verified on the prod host (2026-08-25): the grafana container had been
-# up continuously since 2026-08-10, across several `both` deploys, so
-# `down --remove-orphans` never touched it. Activating the profile would pull
-# all four INTO the down/up cycle and tear down observability on every deploy —
-# precisely during the window you most want logs.
+# ── Monitoring is NOT this repo's job ───────────────────────────────────────
+# This stack used to ship its own loki / promtail / grafana / alloy behind a
+# `monitoring` compose profile. Removed 2026-09-07: the server lead maintains
+# monitoring separately, and two half-owned stacks is worse than one owned one.
+# Don't add observability services back here — point the external collector at
+# these containers' stdout instead (the json-file logging anchor in
+# docker-compose.yml rotates it at 50 MB x 3 per service).
 #
-# This is version-specific and worth re-checking if the binary changes.
-# `deploy.sh` invokes `docker-compose` (hyphenated), which on prod is 2.37.1 and
-# leaves profile-disabled services alone. The newer `docker compose` plugin
-# (verified at v5.4.0) DOES remove them on `down --remove-orphans`. If the two
-# are ever unified, re-test before assuming the stack survives a deploy.
-#
-# To (re)start the monitoring stack by hand after stopping it:
-#   COMPOSE_PROFILES=monitoring docker-compose up -d
+# The four containers were still running on prod when this landed. They now
+# match no service in docker-compose.yml, so the `up -d --remove-orphans` near
+# the end of this script is EXPECTED to sweep them on the next deploy — but
+# that has not been verified against prod's docker-compose 2.37.1, and the
+# previous version of this comment exists because orphan/profile handling has
+# already differed between the binaries on that box. Check after the deploy,
+# and clean up by hand if they survive:
+#   docker-compose ps -a | grep -E 'grafana|loki|promtail|alloy'
+#   docker rm -f <names>
+# Orphan removal is scoped to THIS compose project, so anything the server
+# lead runs under their own project name is untouched either way. The named
+# volumes (loki_data, grafana_data) survive regardless — they hold Grafana's
+# users and dashboards, so delete them by hand only once nobody wants them.
 
 # ── Pull latest code from GitHub before deploying ───────────────────────────
 if [ "$MODE" = "rollback" ]; then

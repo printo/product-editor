@@ -64,6 +64,14 @@ DEAD=(
   DOMAIN_NAME LETSENCRYPT_EMAIL
   # Renamed or superseded.
   ALLOWED_FILE_TYPES STORAGE_DIR BACKEND_PORT
+  # Self-hosted Grafana stack, removed 2026-09-07 — the server lead maintains
+  # monitoring separately. Nothing reads these any more: the grafana/loki/
+  # promtail/alloy services, the nginx /grafana/ + /faro/ locations and
+  # scripts/setup-observability.sh (the sole reader of GOOGLE_CHAT_WEBHOOK)
+  # all went with them. SENTRY_* is NOT here — Sentry stayed.
+  GRAFANA_ADMIN_PASSWORD GRAFANA_ROOT_URL
+  GF_AUTH_GOOGLE_ENABLED GF_AUTH_GOOGLE_CLIENT_ID GF_AUTH_GOOGLE_CLIENT_SECRET
+  NEXT_PUBLIC_FARO_URL GOOGLE_CHAT_WEBHOOK
 )
 
 echo "Scanning ${ENV_FILE}"

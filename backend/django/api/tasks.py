@@ -1345,9 +1345,13 @@ def garbage_collector_task():
 #
 # That ambiguity produced two days of wrong answers on 2026-08-14 — "beat isn't
 # firing", then "the task dies on a stale DB connection" — before the worker log
-# showed the sweep succeeding nightly in 0.19s. Worker logs survive container
-# recreation in Loki; query {container=~".*celery-worker.*"} for the window
-# before theorising about a silent task.
+# showed the sweep succeeding nightly in 0.19s. Read the worker log for the
+# window before theorising about a silent task:
+#   docker-compose logs --since 24h celery-worker-standard
+# Note these live only in Docker's json-file log (50 MB x 3 per service) and do
+# NOT survive container recreation — this repo stopped shipping them to Loki on
+# 2026-09-07, when the self-hosted Grafana stack was removed. Grab the log
+# BEFORE recreating a container, or ask whoever runs the external collector.
 #
 # Connected to the task_failure signal rather than wrapping the sweep body in
 # try/except so the task's retry and acknowledgement behaviour is untouched, and
