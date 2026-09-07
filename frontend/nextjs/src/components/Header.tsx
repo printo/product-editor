@@ -8,6 +8,7 @@ import { HeaderBrand } from '@/components/HeaderBrand';
 import { HeaderUserMenu } from '@/components/HeaderUserMenu';
 import { SegmentedNav } from '@/components/ui/SegmentedNav';
 import { headerRoleLabel } from '@/lib/header-role-label';
+import { canManageTemplates } from '@/lib/roles';
 import { ubuntu } from '@/lib/site-fonts';
 
 export const Header = () => {
@@ -18,6 +19,20 @@ export const Header = () => {
   // Highlight "Templates" tab for the layouts list AND any sub-editor pages
   // (e.g. /editor/layouts/calendar/new, /editor/layouts/calendar/[name])
   const isLayoutEditor = pathname === '/editor/layouts' || pathname.startsWith('/editor/layouts/');
+  // The Templates tab is the only entry point into the ops authoring UI, so it
+  // follows the same rule as the page itself (proxy.ts) and its writes (the
+  // internal proxy). Showing it to the Editor tier would offer a tab that
+  // redirects straight back to the dashboard — a permission boundary that
+  // reads as a broken link. Built once so the desktop and mobile navs cannot
+  // disagree about who sees it.
+  const navItems = React.useMemo(() => {
+    const items = [{ href: '/dashboard', label: 'Dashboard', active: !isLayoutEditor }];
+    if (canManageTemplates(session)) {
+      items.push({ href: '/editor/layouts', label: 'Templates', active: isLayoutEditor });
+    }
+    return items;
+  }, [isLayoutEditor, session]);
+
   const headerRef = React.useRef<HTMLElement>(null);
 
   React.useEffect(() => {
@@ -102,10 +117,7 @@ export const Header = () => {
           {!!session && (
             <div className="hidden md:block">
               <SegmentedNav
-                items={[
-                  { href: '/dashboard', label: 'Dashboard', active: !isLayoutEditor },
-                  { href: '/editor/layouts', label: 'Templates', active: isLayoutEditor },
-                ]}
+                items={navItems}
               />
             </div>
           )}
@@ -127,10 +139,7 @@ export const Header = () => {
           {centerActions}
           {!!session && (
             <SegmentedNav
-              items={[
-                { href: '/dashboard', label: 'Dashboard', active: !isLayoutEditor },
-                { href: '/editor/layouts', label: 'Templates', active: isLayoutEditor },
-              ]}
+              items={navItems}
             />
           )}
         </div>

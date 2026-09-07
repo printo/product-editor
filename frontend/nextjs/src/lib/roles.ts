@@ -19,10 +19,14 @@
  *
  * Flags deliberately absent from every decision:
  *
- *   - `is_superuser` marked a **courier service account** in PIA and DENIED app
- *     access. It read like the field we wanted and meant close to the opposite.
- *     PIA has confirmed it is gone from the payload for good; nothing here
- *     looks at it, so its return would change nothing.
+ *   - `is_superuser` is the field that looks like the one we want and is not.
+ *     PIA described it as marking a **courier service account** that is DENIED
+ *     app access — but the login log on 2026-09-07 showed `is_superuser=true`
+ *     for a human employee with full access, so that description does not hold
+ *     and nobody should rely on either reading of it. PIA is removing it from
+ *     the payload from 2026-09-11. **Nothing here reads it**, which is why both
+ *     its wrong meaning and its removal are no-ops for this app — the point of
+ *     never having "fixed the spelling" from `is_super_user` to `is_superuser`.
  *   - `is_deliveryq` / `pia_access` grant access to other PIA products. They
  *     say nothing about this app and are carried only so the login log can
  *     report them.
