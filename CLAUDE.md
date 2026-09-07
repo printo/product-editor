@@ -847,7 +847,7 @@ PIA fetches use `AbortSignal.timeout(10_000)` (10 s) on both `/auth/` and `/auth
 
 ### Google Sign-In
 
-A second `Credentials` provider (`id: "google"`) in `pia-auth.ts` handles "Sign in with Google". The login page renders a Google Identity Services (GIS) button — client-id only, **no client secret** — which returns a Google **ID token** to the browser. `googleLoginAction` (`app/actions/auth.ts`, same per-IP rate limit as the password flow) dispatches `signIn("google", { id_token })`; the provider POSTs `{ id_token }` to **`{PIA_API_BASE_URL}/auth/google/login/`**, which returns the *same* `{ access, refresh, employee_id, full_name, is_staff, is_ops_team, is_deliveryq, pia_access, registration_status }` payload as `/auth/` (**believed identical — PIA has not confirmed parity in writing, and the Google path has omitted a field the password path sent before, so anything reading these must fail closed**). So the `jwt`/`session` callbacks, token refresh, and Django Bearer auth are all identical to the password flow — Google is just a different way to obtain PIA tokens.
+A second `Credentials` provider (`id: "google"`) in `pia-auth.ts` handles "Sign in with Google". The login page renders a Google Identity Services (GIS) button — client-id only, **no client secret** — which returns a Google **ID token** to the browser. `googleLoginAction` (`app/actions/auth.ts`, same per-IP rate limit as the password flow) dispatches `signIn("google", { id_token })`; the provider POSTs `{ id_token }` to **`{PIA_API_BASE_URL}/auth/google/login/`**, which returns the *same* `{ access, refresh, employee_id, full_name, is_staff, is_ops_team, is_deliveryq, pia_access, registration_status }` payload as `/auth/` (**`is_staff` is confirmed present on the Google path — 2026-09-05. Full parity across the two endpoints is still not confirmed in writing, and the Google path has omitted a field the password path sent before, so anything reading these must fail closed.**). So the `jwt`/`session` callbacks, token refresh, and Django Bearer auth are all identical to the password flow — Google is just a different way to obtain PIA tokens.
 
 - **Domain gate (`@printo.in`)**: enforced server-side in `authorize`. After PIA validates the token (proving its claims genuine), the ID token is decoded and rejected unless `hd === 'printo.in'` or the verified email ends in `@printo.in` → throws `GoogleDomainNotAllowedError` (code `GoogleDomainNotAllowed` → "Please sign in with your @printo.in Google account."). The client `hd` hint is advisory only.
 - **Client ID**: public; read from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (inlined at build time, so set it before `pnpm build`) with printo.in's ID as a hardcoded fallback in `login/page.tsx`. The endpoint path is the const `PIA_GOOGLE_AUTH_PATH` in `pia-auth.ts`.
@@ -1364,6 +1364,12 @@ all import them, so a button cannot appear for someone a gate will deny.
 | **Admin** | `is_staff` | `/django-admin/`, plus everything below |
 | **Ops** | `is_ops_team` | template / calendar / holiday **writes** |
 | **Editor** | authenticated | upload, generate, download |
+
+**Who holds `is_staff` (2026-09-05): two people** — Merving and Kanna
+(employee 12180) — granted by PIA's tech team on request. That narrowness is
+what makes the tier meaningful; if the population ever grows to "most of
+engineering", the gate stops being an admin gate and this table needs
+revisiting rather than quietly widening.
 
 **This reverses PR #24.** That PR removed the internal proxy's `ops/*` gate by
 product decision, opening template management to any authenticated user; the
