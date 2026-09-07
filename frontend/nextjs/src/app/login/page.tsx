@@ -17,10 +17,19 @@ const LoginForm = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  // `?error=` is set when the proxy bounces an already-signed-in session back
+  // here — today only a deactivated employee. Without this the redirect lands
+  // on a blank form with no explanation, which reads as the app logging you out
+  // at random. Message matches the one the login action returns for the same
+  // condition, so the cause reads the same however you arrive at it.
+  const [error, setError] = useState<string | null>(
+    searchParams.get('error') === 'AccountInactive'
+      ? 'This account is no longer active. Please contact HR or your administrator.'
+      : null,
+  );
 
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const [gsiReady, setGsiReady] = useState(false);
