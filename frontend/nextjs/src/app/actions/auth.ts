@@ -81,6 +81,11 @@ export async function loginAction(formData: FormData) {
           return { error: "Login is taking too long. The auth service may be slow — please try again in a moment." };
         case "PiaServiceUnavailable":
           return { error: "The authentication service is temporarily unavailable. Please try again shortly." };
+        // The password is fine — the employee record is deactivated. Saying
+        // "invalid credentials" here sends someone to reset a working
+        // password and never explains why it keeps failing.
+        case "AccountInactive":
+          return { error: "This account is no longer active. Please contact HR or your administrator." };
         default:
           return { error: "Invalid credentials. Please try again." };
       }
@@ -123,6 +128,11 @@ export async function googleLoginAction(idToken: string, callbackUrl?: string) {
           return { error: "Login is taking too long. The auth service may be slow — please try again in a moment." };
         case "PiaServiceUnavailable":
           return { error: "The authentication service is temporarily unavailable. Please try again shortly." };
+        // The password is fine — the employee record is deactivated. Saying
+        // "invalid credentials" here sends someone to reset a working
+        // password and never explains why it keeps failing.
+        case "AccountInactive":
+          return { error: "This account is no longer active. Please contact HR or your administrator." };
         case "GoogleDomainNotAllowed":
           return { error: "Please sign in with your @printo.in Google account." };
         default:

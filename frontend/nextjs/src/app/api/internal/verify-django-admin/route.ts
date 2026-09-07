@@ -15,10 +15,12 @@
  * answer "is this the same person who's logged into the dashboard, and are
  * they a superuser".
  *
- * Deliberately narrower than session.user.role === 'admin' (which also
- * includes is_ops_team) — Django admin can read/edit/delete every table
- * (orders, uploads, API keys), a bigger blast radius than the ops/*
- * dashboard routes that role already gates.
+ * The rule lives in lib/roles.ts so this gate and the Django
+ * Admin link in the templates header cannot drift apart — a button that
+ * appears for someone this route will deny is just a trip to the denied page.
+ * It requires EVERY PIA product flag, which is a proxy for trust rather than a
+ * grant of it; that module documents what is being accepted and why, and what
+ * to replace it with.
  *
  * ── Identity handoff ───────────────────────────────────────────────────────
  * A 200 also carries WHO the caller is, signed, so Django can log them into
@@ -37,6 +39,7 @@
 import { NextResponse } from 'next/server';
 import { createHmac } from 'node:crypto';
 import { auth } from '@/pia-auth';
+import { isAdmin, isRegistrationActive } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,9 +58,18 @@ function signIdentity(userId: string, email: string, expiresAt: number): string 
 export async function GET() {
   const session = await auth();
 
-  if (!session || session.error === 'RefreshAccessTokenError' || !session.is_super_user) {
+  // isRegistrationActive is re-checked here, not just at login: a session
+  // minted before someone was deactivated stays valid for its full lifetime,
+  // and this is the highest-privilege surface in the app.
+  if (
+    !session
+    || session.error === 'RefreshAccessTokenError'
+    || !isAdmin(session)
+    || !isRegistrationActive(session)
+  ) {
     console.warn(
-      `[verify-django-admin] denied for ${session?.user?.email ?? 'anonymous'}`
+      `[verify-django-admin] denied for ${session?.user?.email ?? 'anonymous'} ` +
+        `(is_staff=${session?.is_staff} status=${session?.registration_status})`,
     );
     return NextResponse.json({ detail: 'Forbidden' }, { status: 403 });
   }

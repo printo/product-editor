@@ -36,7 +36,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/pia-auth';
-import { isDestructiveOpsPath } from '@/lib/ops-guard';
+import { isDestructiveOpsPath, requiresOpsTier } from '@/lib/ops-guard';
+import { canManageTemplates, isRegistrationActive } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,11 +108,25 @@ async function handler(
   // rows plus the files on disk — to every authenticated PIA session.
   //
   // Re-gate exactly that, and nothing else — see lib/ops-guard.ts.
-  if (isDestructiveOpsPath(upstreamPath)) {
-    if (!session.is_ops_team) {
+  // A session minted before someone was deactivated stays valid for its full
+  // lifetime, so the active check is re-applied per request, not just at login.
+  if (!isRegistrationActive(session)) {
+    console.warn(
+      `[internal-proxy] blocked "${upstreamPath}" for inactive account ` +
+      `${session.user?.email ?? 'unknown'} (status=${session.registration_status})`
+    );
+    return NextResponse.json({ detail: 'Account is not active' }, { status: 403 });
+  }
+
+  // Ops tier for anything that WRITES ops-owned config, plus the destructive
+  // endpoints regardless of shape. Reads stay open — the editor lists layouts,
+  // fonts and calendar styles on mount, and the Editor tier must keep working.
+  if (isDestructiveOpsPath(upstreamPath) || requiresOpsTier(upstreamPath, req.method)) {
+    if (!canManageTemplates(session)) {
       console.warn(
-        `[internal-proxy] blocked destructive ops call to "${upstreamPath}" ` +
-        `for non-ops user ${session.user?.email ?? 'unknown'}`
+        `[internal-proxy] blocked ${req.method} "${upstreamPath}" for ` +
+        `${session.user?.email ?? 'unknown'} ` +
+        `(is_staff=${session.is_staff} is_ops_team=${session.is_ops_team})`
       );
       return NextResponse.json(
         { detail: 'Operations team membership required' },

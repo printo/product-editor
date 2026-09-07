@@ -38,6 +38,7 @@ import { TagFilter } from '@/components/ui/TagFilter';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Toast, ToastStack } from '@/components/ui/Toast';
 import { useHeader } from '@/context/HeaderContext';
+import { isAdmin } from '@/lib/roles';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
 import { hasTransparentPixels } from '@/lib/image-utils';
 
@@ -296,6 +297,14 @@ export default function LayoutCreatorPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Derived in render, not inside the effect: depending on `session` itself
+  // would re-run this on every identity change from useSession's polling, and
+  // the effect only ever needs the yes/no.
+  const canOpenDjangoAdmin = isAdmin({
+    is_staff: session?.is_staff,
+    registration_status: session?.registration_status,
+  });
+
   useEffect(() => {
     if (isModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -348,18 +357,16 @@ export default function LayoutCreatorPage() {
           </button>
         </div>
       );
-      // Jump to the Django admin console. Gated on `is_super_user`, which is
-      // the SAME flag nginx's auth_request checks via
-      // /api/internal/verify-django-admin — deliberately narrower than
-      // role === 'admin' (that also covers is_ops_team). Gating on anything
-      // wider would show most of the ops team a button that only lands them
-      // on /django-admin-denied.
+      // Jump to the Django admin console. Uses the SAME rule nginx's
+      // auth_request enforces via /api/internal/verify-django-admin, imported
+      // from one module so the two cannot drift — a button that appears for
+      // someone the gate will deny is just a trip to /django-admin-denied.
       //
       // A plain <a>, not next/link: /django-admin/ is served by nginx
       // straight to Django and is not a Next.js route, so client-side
       // navigation would 404 against the app router.
       setRightActions(
-        session?.is_super_user ? (
+        canOpenDjangoAdmin ? (
           <a
             href="/django-admin/"
             aria-label="Django Admin"
@@ -374,9 +381,9 @@ export default function LayoutCreatorPage() {
     }
     // activeTagFilter is a dep because centerActions is a captured JSX snapshot —
     // without it the dropdown would keep rendering the tag selected at mount.
-    // session?.is_super_user likewise: rightActions is a snapshot too, so the
-    // button would stay hidden for a superuser whose session resolved after mount.
-  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length, session?.is_super_user]);
+    // The access flags likewise: rightActions is a snapshot too, so the button
+    // would stay hidden for an administrator whose session resolved after mount.
+  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length, canOpenDjangoAdmin]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 
