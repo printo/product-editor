@@ -426,19 +426,26 @@ export COMPOSE_FILE=docker-compose.yml
 # these containers' stdout instead (the json-file logging anchor in
 # docker-compose.yml rotates it at 50 MB x 3 per service).
 #
-# The four containers were still running on prod when this landed. They now
-# match no service in docker-compose.yml, so the `up -d --remove-orphans` near
-# the end of this script is EXPECTED to sweep them on the next deploy — but
-# that has not been verified against prod's docker-compose 2.37.1, and the
-# previous version of this comment exists because orphan/profile handling has
-# already differed between the binaries on that box. Check after the deploy,
-# and clean up by hand if they survive:
-#   docker-compose ps -a | grep -E 'grafana|loki|promtail|alloy'
-#   docker rm -f <names>
-# Orphan removal is scoped to THIS compose project, so anything the server
-# lead runs under their own project name is untouched either way. The named
-# volumes (loki_data, grafana_data) survive regardless — they hold Grafana's
-# users and dashboards, so delete them by hand only once nobody wants them.
+# The four containers were still running on prod when this landed, matching no
+# service in docker-compose.yml. The `up -d --remove-orphans` near the end of
+# this script swept all four — VERIFIED on the prod host 2026-09-07, on
+# docker-compose 2.37.1, on the deploy that pulled 8430d8d. Worth recording
+# because the previous version of this comment existed precisely because
+# orphan/profile handling had already differed between the binaries on that
+# box; for genuinely absent services it does the right thing.
+#
+# Removal is scoped to THIS compose project, so anything the server lead runs
+# under their own project name was never at risk. Their named volumes are not
+# swept either and still exist on the box (product-editor_loki_data,
+# product-editor_grafana_data) — they hold Grafana's users and dashboards, so
+# delete those by hand only once nobody wants the data.
+#
+# If you ever need to re-check this, ask the DAEMON, not compose:
+#   docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -Ei 'grafana|loki'
+# `docker-compose ps` filters to services defined in the compose file, so it
+# reports nothing for a container that is no longer a service — which reads
+# identically whether the container was removed or is still running. That
+# ambiguity is why the check above is the daemon-level one.
 
 # ── Pull latest code from GitHub before deploying ───────────────────────────
 if [ "$MODE" = "rollback" ]; then
