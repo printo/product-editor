@@ -203,18 +203,19 @@ import { encode } from 'next-auth/jwt';
 const now = Math.floor(Date.now() / 1000);
 await encode({ salt: 'authjs.session-token', secret: AUTH_SECRET, token: {
   id: 'LOCAL-DEV', name: 'Local Dev', email: 'local@printo.in',
-  role: 'admin', is_ops_team: true,          // flip to test privilege gates
-  is_super_user: false,                      // the NARROWER flag — gates /django-admin/
+  role: 'admin',
+  is_staff: false,                           // ADMIN tier — gates /django-admin/
+  is_ops_team: true,                         // OPS tier — template/calendar/holiday writes
+  registration_status: 'ACTIVE',              // anything else is refused per request
   accessToken: 'x', refreshToken: 'x', accessTokenExpires: (now + 3600) * 1000,
   sub: 'LOCAL-DEV', iat: now, exp: now + 3600 } });
 // then: document.cookie = "authjs.session-token=<jwt>; path=/"
 ```
 
-Mint one token per role you need to test. `role: 'admin'` is
-`is_super_user || is_ops_team`, so it does NOT distinguish the two — a surface
-gated on `is_super_user` (the Django admin link, `verify-django-admin`) needs
-that field set explicitly, and an ops-team-only session is `is_ops_team: true`
-with `is_super_user: false`.
+Mint one token per tier you need to test — `is_staff: true` for Admin,
+`is_ops_team: true` alone for Ops, both false for Editor. `role: 'admin'` is
+legacy and expresses none of the three; see "Role model" below. Omit
+`registration_status` and it counts as active.
 
 **You cannot swap that cookie a second time from JavaScript.** It works once.
 As soon as the page calls `/api/auth/session`, NextAuth re-issues the cookie
@@ -846,7 +847,7 @@ PIA fetches use `AbortSignal.timeout(10_000)` (10 s) on both `/auth/` and `/auth
 
 ### Google Sign-In
 
-A second `Credentials` provider (`id: "google"`) in `pia-auth.ts` handles "Sign in with Google". The login page renders a Google Identity Services (GIS) button — client-id only, **no client secret** — which returns a Google **ID token** to the browser. `googleLoginAction` (`app/actions/auth.ts`, same per-IP rate limit as the password flow) dispatches `signIn("google", { id_token })`; the provider POSTs `{ id_token }` to **`{PIA_API_BASE_URL}/auth/google/login/`**, which returns the *same* `{ access, refresh, employee_id, full_name, is_super_user, is_ops_team }` payload as `/auth/`. So the `jwt`/`session` callbacks, token refresh, and Django Bearer auth are all identical to the password flow — Google is just a different way to obtain PIA tokens.
+A second `Credentials` provider (`id: "google"`) in `pia-auth.ts` handles "Sign in with Google". The login page renders a Google Identity Services (GIS) button — client-id only, **no client secret** — which returns a Google **ID token** to the browser. `googleLoginAction` (`app/actions/auth.ts`, same per-IP rate limit as the password flow) dispatches `signIn("google", { id_token })`; the provider POSTs `{ id_token }` to **`{PIA_API_BASE_URL}/auth/google/login/`**, which returns the *same* `{ access, refresh, employee_id, full_name, is_staff, is_ops_team, is_deliveryq, pia_access, registration_status }` payload as `/auth/` (**believed identical — PIA has not confirmed parity in writing, and the Google path has omitted a field the password path sent before, so anything reading these must fail closed**). So the `jwt`/`session` callbacks, token refresh, and Django Bearer auth are all identical to the password flow — Google is just a different way to obtain PIA tokens.
 
 - **Domain gate (`@printo.in`)**: enforced server-side in `authorize`. After PIA validates the token (proving its claims genuine), the ID token is decoded and rejected unless `hd === 'printo.in'` or the verified email ends in `@printo.in` → throws `GoogleDomainNotAllowedError` (code `GoogleDomainNotAllowed` → "Please sign in with your @printo.in Google account."). The client `hd` hint is advisory only.
 - **Client ID**: public; read from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (inlined at build time, so set it before `pnpm build`) with printo.in's ID as a hardcoded fallback in `login/page.tsx`. The endpoint path is the const `PIA_GOOGLE_AUTH_PATH` in `pia-auth.ts`.
@@ -865,15 +866,26 @@ Type-augmented in `src/types/next-auth.d.ts` — never use `(session as any)`:
 session.user.id          // PIA employee_id
 session.user.name        // PIA full_name
 session.user.email       // login username
-session.user.role        // "admin" | "user" (admin = is_super_user || is_ops_team)
+session.user.role        // "admin" | "user" — legacy, derived at login. Does NOT
+                         // express the three tiers; use lib/roles.ts for decisions.
 session.accessToken      // PIA JWT — forwarded by /api/internal/proxy as Bearer
-session.is_ops_team      // PIA ops-team flag. NO LONGER gates the internal proxy or
-                         // /editor/layouts — see "Ops privilege model" below
-session.is_super_user    // Raw PIA superuser flag. NARROWER than role === 'admin'
-                         // (which is is_super_user || is_ops_team). The only gate on
-                         // /django-admin/ — nginx auth_request → verify-django-admin —
-                         // and on the Django admin link in the /editor/layouts header.
-                         // Gate a Django-admin-adjacent surface on this, never on role.
+session.is_staff         // PIA's "may administer" flag — the ADMIN tier. Gates
+                         // /django-admin/ (nginx auth_request → verify-django-admin)
+                         // and the Django admin link. Granted per person by PIA's
+                         // tech team. Read it through lib/roles.ts, never directly.
+session.is_ops_team      // OPS tier — template / calendar / holiday management.
+                         // Admin implies ops; see lib/roles.ts.
+session.registration_status  // "ACTIVE" etc. PIA's /auth/ does NOT refuse a login for
+                         // a deactivated employee, so we check this ourselves at login
+                         // AND per request. An ABSENT status counts as active on
+                         // purpose — failing closed would lock everyone out the moment
+                         // PIA shipped a payload without it.
+session.is_deliveryq     // Other PIA products. Nothing here gates on them; carried
+session.pia_access       // only so the [pia-login] log can report them.
+                         // NOTE: `is_super_user` never existed in PIA and is gone from
+                         // this session. `is_superuser` (their spelling) marked a
+                         // COURIER SERVICE ACCOUNT and DENIED app access — never gate
+                         // on it if it reappears.
 session.error            // "RefreshAccessTokenError" when refresh has failed → app redirects to /login
 ```
 
@@ -1341,24 +1353,44 @@ The Next.js frontend never exposes API keys to the browser. All backend calls go
 
 - **`/api/internal/proxy/[...path]`** — Dashboard + editor. Authenticated via NextAuth session cookie (`pia-auth.ts` validates against `PIA_API_BASE_URL`). Uses `INTERNAL_API_KEY` (server-side only). Returns 401 if `session.error === 'RefreshAccessTokenError'`. **No per-path privilege gate** — see "Ops privilege model" immediately below.
 
-### Ops privilege model (changed in PR #24, Jul 2026)
+### Role model (three tiers, 2026-09-05)
 
-The internal proxy used to reject `ops/*` paths unless `session.is_ops_team`. PR #24 removed that check, opening template management (and the Fonts list) to any authenticated user by product decision. `/editor/layouts` and `/dashboard` lost their page-level ops redirects in the same commit.
+One flag per tier, confirmed with PIA's team. The rules live in
+**`src/lib/roles.ts`** — the gate, the Django Admin button and the header badge
+all import them, so a button cannot appear for someone a gate will deny.
 
-**The consequence to hold in your head:** Django's `IsOpsTeam` cannot substitute for the removed check. Everything through this proxy arrives as the shared, ops-flagged `INTERNAL_API_KEY` service account, so the backend sees one privileged identity regardless of which human is logged in. The proxy was the only thing distinguishing sessions. With it gone, **every authenticated PIA session can reach every `ops/*` route**, which today is:
-
-| Route | Reachable by | Effect |
+| Tier | Flag | Gets |
 |---|---|---|
-| `ops/layouts`, `ops/layouts/<name>` | any authenticated session | create / edit / **delete** layouts |
-| `ops/calendar-styles/<name>` | any authenticated session | edit theme presets |
-| `ops/holidays/<locale>/<year>` | any authenticated session | edit holiday data |
-| `ops/orders/<order_id>/purge` | **ops team only** (re-gated) | **DPDP hard delete** — irreversibly destroys an order's uploads, exports, `CanvasData`, and `EmbedSession` rows plus the files on disk |
+| **Admin** | `is_staff` | `/django-admin/`, plus everything below |
+| **Ops** | `is_ops_team` | template / calendar / holiday **writes** |
+| **Editor** | authenticated | upload, generate, download |
 
-The first three are the intended scope of the product decision and stay open. The purge endpoint was not — it is unrecoverable and had been ops-only — so it was re-gated in `route.ts` via **`src/lib/ops-guard.ts`**.
+**This reverses PR #24.** That PR removed the internal proxy's `ops/*` gate by
+product decision, opening template management to any authenticated user; the
+Editor tier above restores it. A designer who edited templates before
+2026-09-05 loses that unless they are flagged into the ops team — intended, not
+a side effect.
 
-**`isDestructiveOpsPath()` is the allowlist-in-reverse for this proxy.** It matches on path *shape* (`^ops/orders/[^/]+/purge/?$`), not an `ops/orders/` prefix, so a future read endpoint in that namespace doesn't silently become ops-only. Anything you add there becomes unreachable for ordinary staff; anything you omit is reachable by every logged-in session. Covered by `src/lib/__tests__/ops-guard.test.ts`.
+**Reads stay open.** `requiresOpsTier()` is method-aware: `GET ops/layouts` is
+how the editor and template library list templates, so gating it would break
+the Editor tier outright. Only POST/PUT/PATCH/DELETE under `ops/` need the Ops
+tier.
 
-**If you add another destructive ops endpoint, add it to that list** — the Django-side `IsOpsTeam` check will not protect it, for the reason above.
+**Why the gate has to be in the proxy.** Everything reaching Django through the
+internal proxy presents the shared, ops-flagged `INTERNAL_API_KEY` service
+account, so Django's `IsOpsTeam` sees one privileged identity no matter who is
+signed in. The proxy is the only place that knows the human, so it is the only
+place a per-user rule can be enforced. **A Django-side permission class cannot
+substitute** — that is the trap PR #24 fell into.
+
+`isDestructiveOpsPath()` is kept alongside, matching on path *shape*
+(`^ops/orders/[^/]+/purge/?$`), so the DPDP purge stays gated regardless of
+method. Covered by `src/lib/__tests__/ops-guard.test.ts` and `roles.test.ts`.
+
+**Deactivated employees are rejected per request, not just at login.** A session
+minted before someone was deactivated stays valid for its whole lifetime, so
+`isRegistrationActive` is re-checked in the internal proxy and in
+`verify-django-admin`.
 
 `ops/*` is still absent from the **embed** proxy allowlist, so none of this is reachable from the customer iframe — the exposure is authenticated-staff-only.
 - **`/api/embed/proxy/[...path]`** — Customer-facing iframe embed. Authenticated via short-lived `X-Embed-Token` created at `/api/embed/session`.
@@ -1490,7 +1522,7 @@ The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0** — §8.1/§8.
 Routing, TLS, and tunables live in [`proxy/nginx/nginx.conf`](proxy/nginx/nginx.conf) — single source, no per-service labels. The `certs/` workflow: paste a Cloudflare Origin Certificate (`SSL/TLS → Origin Server → Create Certificate`, RSA 2048, 15-year, hostnames `product-editor.printo.in` or `*.printo.in`) into `proxy/nginx/certs/origin.crt` and the matching key into `proxy/nginx/certs/origin.key` (`chmod 600`). Set Cloudflare SSL/TLS mode to **Full (strict)**. Skip → `deploy.sh` generates a self-signed bootstrap that requires CF "Full" (not strict). Notable behaviour:
 
 - `^~ /api/auth/`, `^~ /api/internal/proxy/`, `^~ /api/embed/proxy/` → frontend:3000
-- `^~ /django-admin/` → backend:8000, gated by nginx `auth_request` against `frontend:3000/api/internal/verify-django-admin` (checks the PIA/Google session for `is_super_user`; denied → `@django_admin_denied` → the `/django-admin-denied` page). Not basic-auth anymore — `proxy/nginx/.htpasswd` is gone from the repo entirely, so don't go looking for it. **There is also no second Django password** — see below.
+- `^~ /django-admin/` → backend:8000, gated by nginx `auth_request` against `frontend:3000/api/internal/verify-django-admin` (checks the PIA/Google session for `is_staff` via `lib/roles.ts`; denied → `@django_admin_denied` → the `/django-admin-denied` page). Not basic-auth anymore — `proxy/nginx/.htpasswd` is gone from the repo entirely, so don't go looking for it. **There is also no second Django password** — see below.
 
 ### Django admin SSO (no second login)
 
@@ -1528,11 +1560,14 @@ Two traps worth knowing:
   the admin has been mounted at `/django-admin/` since the initial commit — so
   the "must arrive via the proxy" check had never once run. It matters now, so
   it keys off `admin_sso.ADMIN_PATH_PREFIX`. Don't reintroduce a literal.
-- **`session.is_super_user` is captured only at sign-in.** The `jwt` callback
-  sets it inside `if (user)`; token refresh returns the existing token. A PIA
-  flag granted after someone's last login does not reach their session until
-  they sign out and back in, and refreshing the page never helps. Read
-  `/api/auth/session` to see the truth.
+- **The PIA flags are captured only at sign-in.** The `jwt` callback sets them
+  inside `if (user)`; token refresh returns the existing token. A flag granted
+  in PIA after someone's last login does not reach their session until they
+  sign out and back in, and refreshing the page never helps. Read
+  `/api/auth/session` to see the truth, and `[pia-login]` in the frontend logs
+  to see what PIA actually sent — it prints every flag with its type plus the
+  full key list, which is what finally settled a day of guessing about
+  `is_super_user`.
 - `^~ /api/` → backend:8000 (`proxy_buffering off`, `proxy_read_timeout 600s` for streaming ZIPs + sync renders)
 - `/` (catch-all) → frontend:3000
 - HTTP→HTTPS redirect on port 80

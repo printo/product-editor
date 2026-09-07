@@ -15,7 +15,7 @@
  * answer "is this the same person who's logged into the dashboard, and are
  * they a superuser".
  *
- * The rule lives in lib/django-admin-access.ts so this gate and the Django
+ * The rule lives in lib/roles.ts so this gate and the Django
  * Admin link in the templates header cannot drift apart — a button that
  * appears for someone this route will deny is just a trip to the denied page.
  * It requires EVERY PIA product flag, which is a proxy for trust rather than a
@@ -39,7 +39,7 @@
 import { NextResponse } from 'next/server';
 import { createHmac } from 'node:crypto';
 import { auth } from '@/pia-auth';
-import { hasFullAccess } from '@/lib/django-admin-access';
+import { isAdmin, isRegistrationActive } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,11 +58,18 @@ function signIdentity(userId: string, email: string, expiresAt: number): string 
 export async function GET() {
   const session = await auth();
 
-  if (!session || session.error === 'RefreshAccessTokenError' || !hasFullAccess(session)) {
+  // isRegistrationActive is re-checked here, not just at login: a session
+  // minted before someone was deactivated stays valid for its full lifetime,
+  // and this is the highest-privilege surface in the app.
+  if (
+    !session
+    || session.error === 'RefreshAccessTokenError'
+    || !isAdmin(session)
+    || !isRegistrationActive(session)
+  ) {
     console.warn(
       `[verify-django-admin] denied for ${session?.user?.email ?? 'anonymous'} ` +
-        `(is_ops_team=${session?.is_ops_team} is_deliveryq=${session?.is_deliveryq} ` +
-        `pia_access=${session?.pia_access})`,
+        `(is_staff=${session?.is_staff} status=${session?.registration_status})`,
     );
     return NextResponse.json({ detail: 'Forbidden' }, { status: 403 });
   }

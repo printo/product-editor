@@ -38,7 +38,7 @@ import { TagFilter } from '@/components/ui/TagFilter';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Toast, ToastStack } from '@/components/ui/Toast';
 import { useHeader } from '@/context/HeaderContext';
-import { hasFullAccess } from '@/lib/django-admin-access';
+import { isAdmin } from '@/lib/roles';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
 import { hasTransparentPixels } from '@/lib/image-utils';
 
@@ -300,10 +300,9 @@ export default function LayoutCreatorPage() {
   // Derived in render, not inside the effect: depending on `session` itself
   // would re-run this on every identity change from useSession's polling, and
   // the effect only ever needs the yes/no.
-  const canOpenDjangoAdmin = hasFullAccess({
-    is_ops_team: session?.is_ops_team,
-    is_deliveryq: session?.is_deliveryq,
-    pia_access: session?.pia_access,
+  const canOpenDjangoAdmin = isAdmin({
+    is_staff: session?.is_staff,
+    registration_status: session?.registration_status,
   });
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { isDestructiveOpsPath } from '../ops-guard';
+import { isDestructiveOpsPath, requiresOpsTier } from '../ops-guard';
 
 describe('isDestructiveOpsPath — DPDP purge stays ops-only', () => {
   it.each([
@@ -39,5 +39,40 @@ describe('isDestructiveOpsPath — template management stays open', () => {
   it('does not gate a path that merely contains "purge" deeper down', () => {
     expect(isDestructiveOpsPath('ops/orders/EXT-JOB-123/purge/extra')).toBe(false);
     expect(isDestructiveOpsPath('layouts/purge')).toBe(false);
+  });
+});
+
+describe('requiresOpsTier', () => {
+  it('gates writes under the ops namespace', () => {
+    expect(requiresOpsTier('ops/layouts', 'POST')).toBe(true);
+    expect(requiresOpsTier('ops/layouts/classic_a4', 'PUT')).toBe(true);
+    expect(requiresOpsTier('ops/layouts/classic_a4', 'DELETE')).toBe(true);
+    expect(requiresOpsTier('ops/calendar-styles/modern-genz', 'PUT')).toBe(true);
+    expect(requiresOpsTier('ops/holidays/en-IN/2026', 'PUT')).toBe(true);
+  });
+
+  it('gates the fonts write, which sits outside the ops namespace', () => {
+    // The Fonts modal on /editor/layouts saves with PUT /api/fonts. A
+    // namespace-only check left the whole font list writable by any
+    // authenticated session while the layouts beside it were gated.
+    expect(requiresOpsTier('fonts', 'PUT')).toBe(true);
+  });
+
+  it('leaves reads open, or the Editor tier cannot work at all', () => {
+    // Listing templates and loading fonts is what the editor does on mount.
+    expect(requiresOpsTier('ops/layouts', 'GET')).toBe(false);
+    expect(requiresOpsTier('fonts', 'GET')).toBe(false);
+    expect(requiresOpsTier('ops/layouts/classic_a4', 'HEAD')).toBe(false);
+  });
+
+  it('does not gate the editor and upload paths an Editor needs', () => {
+    expect(requiresOpsTier('editor/render', 'POST')).toBe(false);
+    expect(requiresOpsTier('canvas-state/ORDER-1', 'PUT')).toBe(false);
+    expect(requiresOpsTier('upload/init', 'POST')).toBe(false);
+    expect(requiresOpsTier('upload/abc/complete', 'POST')).toBe(false);
+  });
+
+  it('is not fooled by a path that merely starts with the letters ops', () => {
+    expect(requiresOpsTier('opsomething', 'POST')).toBe(false);
   });
 });

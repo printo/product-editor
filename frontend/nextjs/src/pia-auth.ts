@@ -1,6 +1,7 @@
 import NextAuth, { CredentialsSignin } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import { decodeJwt } from "jose"
+import { isRegistrationActive } from "@/lib/roles"
 
 interface DecodedToken {
   exp: number;
@@ -56,16 +57,26 @@ class GoogleDomainNotAllowedError extends CredentialsSignin {
   code = "GoogleDomainNotAllowed";
 }
 
+// Raised when PIA authenticates the credentials but the employee's
+// registration is not ACTIVE. PIA's /auth/ does NOT refuse these logins
+// (confirmed with their team 2026-09-05), so a departed employee keeps working
+// credentials until this check rejects them. Its own code so the login page
+// can say what is actually wrong instead of "invalid credentials", which would
+// send someone to reset a password that works fine.
+class AccountInactiveError extends CredentialsSignin {
+  code = "AccountInactive";
+}
+
 /**
  * Record what PIA actually returned about a successful sign-in.
  *
- * `is_super_user` is captured here and nowhere else — the `jwt` callback sets
- * it only on the first-login branch, and a token refresh preserves whatever
- * was already there. So this line is the only evidence of why a session has
- * the privileges it has, and its absence cost a real diagnosis: on 2026-09-04
- * a superuser could not see the Django admin link, and answering "what did PIA
- * say about this person?" needed three round trips through the browser because
- * nothing server-side had written it down.
+ * The flags are captured here and nowhere else — the `jwt` callback sets them
+ * only on the first-login branch, and a token refresh preserves whatever was
+ * already there. So this line is the only evidence of why a session has the
+ * privileges it has, and its absence cost a real diagnosis: on 2026-09-04 an
+ * "administrator" could not see the Django admin link, and answering "what did
+ * PIA say about this person?" needed three round trips through the browser
+ * because nothing server-side had written it down.
  *
  * Logs the flags and the identity, never the tokens: `data.access` and
  * `data.refresh` are bearer credentials for PIA and must not reach a log
@@ -103,7 +114,7 @@ function logPiaLogin(
   console.info(
     `[pia-login] provider=${provider} employee_id=${String(data.employee_id ?? '(none)')} ` +
       `email=${email || '(none)'} ${flags} ` +
-      `role=${data.is_super_user || data.is_ops_team ? 'admin' : 'user'} ` +
+      `role=${data.is_staff || data.is_ops_team ? 'admin' : 'user'} ` +
       `pia_keys=[${keys}]`,
   );
 }
@@ -159,8 +170,18 @@ const nextAuth = NextAuth({
         }
 
         const decoded = decodeJwt(data.access) as unknown as DecodedToken
-        const isAdmin = data.is_super_user || data.is_ops_team
+        // Legacy field: one flag per tier lives in lib/roles.ts now. Kept
+        // coherent rather than derived from `is_super_user`, which PIA never
+        // sends — that made an is_staff-only admin come out as role:'user'.
+        const isAdmin = data.is_staff || data.is_ops_team
         logPiaLogin('password', data, credentials.username as string)
+        if (!isRegistrationActive(data)) {
+          console.warn(
+            `[pia-login] rejected: registration_status=${String(data.registration_status)} ` +
+              `for ${String(data.employee_id ?? '(no id)')}`,
+          );
+          throw new AccountInactiveError()
+        }
 
         return {
           id: data.employee_id ? String(data.employee_id) : "unknown",
@@ -171,11 +192,13 @@ const nextAuth = NextAuth({
           refreshToken: data.refresh,
           accessTokenExpires: decoded.exp * 1000,
           is_ops_team: data.is_ops_team || false,
-          is_super_user: data.is_super_user || false,
-          // Needed by the Django-admin rule (lib/django-admin-access.ts),
-          // which requires every product flag to be true.
+          // is_staff is the admin flag (lib/roles.ts). The other two grant
+          // access to different PIA products and gate nothing here; they are
+          // carried so the login log can report them.
+          is_staff: data.is_staff || false,
           is_deliveryq: data.is_deliveryq || false,
           pia_access: data.pia_access || false,
+          registration_status: typeof data.registration_status === 'string' ? data.registration_status : undefined,
         }
       },
     }),
@@ -247,8 +270,18 @@ const nextAuth = NextAuth({
         }
 
         const decoded = decodeJwt(data.access) as unknown as DecodedToken
-        const isAdmin = data.is_super_user || data.is_ops_team
+        // Legacy field: one flag per tier lives in lib/roles.ts now. Kept
+        // coherent rather than derived from `is_super_user`, which PIA never
+        // sends — that made an is_staff-only admin come out as role:'user'.
+        const isAdmin = data.is_staff || data.is_ops_team
         logPiaLogin('google', data, email)
+        if (!isRegistrationActive(data)) {
+          console.warn(
+            `[pia-login] rejected: registration_status=${String(data.registration_status)} ` +
+              `for ${String(data.employee_id ?? '(no id)')}`,
+          );
+          throw new AccountInactiveError()
+        }
 
         return {
           id: data.employee_id ? String(data.employee_id) : "unknown",
@@ -259,11 +292,13 @@ const nextAuth = NextAuth({
           refreshToken: data.refresh,
           accessTokenExpires: decoded.exp * 1000,
           is_ops_team: data.is_ops_team || false,
-          is_super_user: data.is_super_user || false,
-          // Needed by the Django-admin rule (lib/django-admin-access.ts),
-          // which requires every product flag to be true.
+          // is_staff is the admin flag (lib/roles.ts). The other two grant
+          // access to different PIA products and gate nothing here; they are
+          // carried so the login log can report them.
+          is_staff: data.is_staff || false,
           is_deliveryq: data.is_deliveryq || false,
           pia_access: data.pia_access || false,
+          registration_status: typeof data.registration_status === 'string' ? data.registration_status : undefined,
         }
       },
     }),
@@ -280,9 +315,10 @@ const nextAuth = NextAuth({
           refreshToken: user.refreshToken,
           accessTokenExpires: user.accessTokenExpires,
           is_ops_team: user.is_ops_team,
-          is_super_user: user.is_super_user,
+          is_staff: user.is_staff,
           is_deliveryq: user.is_deliveryq,
           pia_access: user.pia_access,
+          registration_status: user.registration_status,
         }
       }
 
@@ -359,9 +395,10 @@ const nextAuth = NextAuth({
             session.user.role = token.role as string | undefined
             session.accessToken = token.accessToken as string | undefined
             session.is_ops_team = token.is_ops_team as boolean | undefined
-            session.is_super_user = token.is_super_user as boolean | undefined
+            session.is_staff = token.is_staff as boolean | undefined
             session.is_deliveryq = token.is_deliveryq as boolean | undefined
             session.pia_access = token.pia_access as boolean | undefined
+            session.registration_status = token.registration_status as string | undefined
             // Surface refresh errors to the client so the app can prompt re-login
             if (token.error) {
                 session.error = token.error as string
