@@ -134,10 +134,44 @@ fi
 
 log_header "STEP 3: REMOVE OLD FILES"
 
-if [ -d ~/product-editor ]; then
+# Recorded so the COMPLETION section can tell you what was left behind. An
+# install that silently accrues state is how ten of these directories reached
+# September 2026 unnoticed.
+ARCHIVED_DIR=""
+
+if [ -d "$HOME/product-editor" ]; then
+    ARCHIVED_DIR="$HOME/product-editor.old.$(date +%s)"
     log_info "Archiving old product-editor directory..."
-    mv ~/product-editor ~/product-editor.old.$(date +%s)
-    log_success "Old installation archived"
+    mv "$HOME/product-editor" "$ARCHIVED_DIR"
+
+    # A compose project is named after its DIRECTORY, so this rename hands the
+    # archive its own project identity. `docker compose up` run in here builds
+    # a SECOND, parallel stack with its own empty postgres/redis volumes,
+    # named product-editorold<timestamp>_* and invisible to compose in the
+    # live directory — so no `down -v` can ever reach them again. That is
+    # exactly how a 47 MB orphaned database sat on prod from 2026-04-03 to
+    # 2026-09-07. The marker is the cheapest thing that warns whoever opens
+    # this directory next.
+    cat > "$ARCHIVED_DIR/ARCHIVED.txt" <<'ARCHIVED_NOTE'
+This directory is an ARCHIVED product-editor install, left by fresh-install.sh.
+The live install is at ~/product-editor.
+
+DO NOT run docker-compose / docker compose in here.
+
+Compose names its project after the containing directory. Because this one was
+renamed, running compose here does NOT touch the live stack — it builds a
+separate, parallel one with its own empty database and redis volumes, named
+product-editorold<timestamp>_*. Those volumes are then unreachable from the
+live directory and survive every `down -v` you will ever run there.
+
+To delete this archive once you are sure nothing here is needed:
+
+    rm -rf <this directory>
+    docker volume ls | grep product-editorold     # anything listed is junk
+    docker volume rm <the volumes listed above>
+ARCHIVED_NOTE
+
+    log_success "Old installation archived to $ARCHIVED_DIR"
 fi
 
 ##############################################################################
@@ -381,4 +415,49 @@ echo "  ${CYAN}docker compose down${NC}            - Stop all services"
 echo ""
 log_success "Setup complete. You're ready to go!"
 echo ""
+
+##############################################################################
+# LEFT BEHIND — state this script created but will never remove
+##############################################################################
+# This script archives rather than deletes, which is the right default for an
+# installer. What was missing is any report of it: on prod, ten archived
+# directories and two orphaned volumes accumulated from 2026-04-03 and were
+# found five months later only by accident, while reading an unrelated
+# `docker volume ls`. Cleanup stays a human decision — being told is not.
+#
+# Every command below is guarded: `set -e` is on, and a `grep` with no match
+# exits non-zero.
+
+leftover_dirs="$(ls -d "$HOME"/product-editor.old.* 2>/dev/null || true)"
+leftover_vols="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '^product-editorold' || true)"
+
+if [ -n "$leftover_dirs" ] || [ -n "$leftover_vols" ]; then
+    log_header "LEFT BEHIND (not removed — your call)"
+
+    if [ -n "$leftover_dirs" ]; then
+        dir_count="$(printf '%s\n' "$leftover_dirs" | wc -l | tr -d '[:space:]')"
+        dir_total="$(du -ch $leftover_dirs 2>/dev/null | tail -n 1 | awk '{print $1}' || true)"
+        log_warning "$dir_count archived install director$([ "$dir_count" = 1 ] && echo y || echo ies):"
+        printf '%s\n' "$leftover_dirs" | sed 's/^/    /'
+        [ -n "$dir_total" ] && echo "    ($dir_total total — these are checkouts; customer data lives in the live install)"
+        echo ""
+        echo "  Remove the ones you no longer need:"
+        echo -e "    ${CYAN}rm -rf <directory>${NC}"
+        echo ""
+    fi
+
+    if [ -n "$leftover_vols" ]; then
+        log_warning "Orphaned Docker volumes from a compose run inside an archive:"
+        printf '%s\n' "$leftover_vols" | sed 's/^/    /'
+        echo ""
+        echo "  These belong to no live stack and no \`down -v\` can reach them."
+        echo "  Check what is in one before deleting, then:"
+        echo -e "    ${CYAN}docker run --rm -v <volume>:/d alpine du -sh /d${NC}"
+        echo -e "    ${CYAN}docker volume rm <volume>${NC}"
+        echo ""
+    fi
+
+    log_info "Never run docker-compose inside an archived directory — see its ARCHIVED.txt."
+    echo ""
+fi
 
