@@ -152,6 +152,32 @@ class PIAUser:
         self.id = data.get('id')
         self.username = data.get('username') or data.get('email')
         self.email = data.get('email')
+        # `is_super_user` has never existed in PIA's payload under that spelling,
+        # so both of these are permanently False. **Do not "fix" it to
+        # data.get('is_staff') without reading the following.**
+        #
+        # 1. This class is unreachable in production. `PIAUser` is only built by
+        #    PIAAuthentication, and nothing sends a PIA token: the internal proxy
+        #    deliberately forwards `Bearer <INTERNAL_API_KEY>` rather than the
+        #    user's session.accessToken (see its module docstring), and the
+        #    `access` cookie it also accepts is never set — our session cookie is
+        #    `authjs.session-token`. Prod audit on 2026-09-07: **0 of 10,441
+        #    requests authenticated as PIA** (DIRECT 10,284, Printo.in Storefront
+        #    56, EXTERNAL 4, anonymous 97).
+        # 2. If it were reachable, wiring `is_staff` would switch on exactly two
+        #    behaviours, not five: `CanGenerateLayouts` (which today has no
+        #    PIAUser branch and falls through to False) and `IsOpsTeam` (which
+        #    would then admit an admin who is not on the ops team).
+        #    IsAuthenticatedWithAPIKey, CanListLayouts and CanAccessExports
+        #    already allow PIAUser explicitly, so nothing changes there.
+        # 3. `/auth/token-verify/` — the endpoint that feeds this — returns a
+        #    DIFFERENT shape from the login response (`id` / `username` /
+        #    `user_id`, not `employee_id` / `full_name`). Nobody has confirmed it
+        #    carries `is_staff` at all, so the change would rest on an assumption
+        #    about a payload we have never inspected.
+        #
+        # The role model that actually gates this app lives in the frontend —
+        # see frontend/nextjs/src/lib/roles.ts and "Role model" in CLAUDE.md.
         self.is_staff = data.get('is_super_user', False)
         self.is_superuser = data.get('is_super_user', False)
         self.is_ops_team = data.get('is_ops_team', False)
