@@ -8,7 +8,7 @@ Product Editor is a full-stack print-file generator for Printo.in. Customers upl
 
 ## Docs — and which of them to trust
 
-**This file is the current-state reference.** `docs/` is mostly *not*: of the ten files there, four describe present behaviour and the rest are shipped-feature design records, unstarted plans, or an audit of other systems. Index with per-file status: [docs/README.md](docs/README.md). Reading a shipped PRD as documentation is the main way to get a wrong answer from that folder — **where a doc and the code disagree, the code wins**, and where a doc and this file disagree, this file was more recently verified.
+**This file is the current-state reference.** `docs/` is mostly *not*: four of its files describe present behaviour and the rest are shipped-feature design records or unstarted plans. (Count them with `ls docs/*.md` rather than trusting a number here — this sentence claimed "ten" while the real count was twelve.) Index with per-file status: [docs/README.md](docs/README.md). Reading a shipped PRD as documentation is the main way to get a wrong answer from that folder — **where a doc and the code disagree, the code wins**, and where a doc and this file disagree, this file was more recently verified.
 
 The four to actually rely on:
 
@@ -50,7 +50,8 @@ The graph covers 319 files — **2,974 nodes, 5,345 edges, 213 communities** (re
 - **Canvas Editor UI** — FabricEditor, CanvasEditorModal, surface-allocation.ts
 - **Calendar Cell Upload** — lib/calendar-cell-upload.ts
 - **Data Lifecycle & DPDP** — EXPORT_RETENTION_DAYS, order data purge, UploadedFile.order_id, orphan exports
-- **Printo Architecture Audit** — cross-system analysis, target architecture, migration roadmap
+
+The 2026-09-04 graph also carries a **Printo Architecture Audit** community. Its source, `docs/printo-architecture-audit/`, was removed on 2026-09-07 (the server lead maintains it), so those nodes point at files that no longer exist. `graphify update .` is AST-only and will not clear doc nodes — ignore that community until someone does a full rebuild.
 
 God nodes (highest connectivity, 2026-09-04 build): `LayoutEngine` (75 edges), `APIKey` (44), `APIKeyUser` / `ExportedResult` (40), `UploadedFile` (39), `CanvasData` (37), `BearerTokenAuthentication` / `PIAAuthentication` (35). `editor/layout/[name]/page.tsx` and `api/views.py` are the two files most likely to break something else when edited — they topped the older doc-inclusive graph and are still the largest surfaces here.
 
