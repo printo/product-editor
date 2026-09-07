@@ -140,6 +140,11 @@ product-editor-hardening-prd.html
 # Local backup artifacts (Phase 4)
 backups/
 
-# Timestamped .env backups made before edits — local only, never commit secrets
-.env.bak.*
-**/.env.local.bak.*
+# .env backups — local only, never commit secrets. Deliberately `.bak*` and not
+# `.bak.*`: the dot-suffixed form only covers the timestamped convention, and a
+# hand-made `.env.bak2` (found untracked on prod 2026-09-07, holding the
+# production secret keys and DB password) matched nothing and sat committable
+# in the working tree. This repo's checkout is shared between sessions, so the
+# "never `git add -A`" rule is the only other thing standing in the way.
+.env.bak*
+**/.env.local.bak*
