@@ -49,11 +49,11 @@ code, **the code is right**.
 | [`API_SURFACE_SEPARATION_PRD.md`](API_SURFACE_SEPARATION_PRD.md) | 🟡 Open, not started; re-verified 2026-08-14. Its **Core Product Invariant** section *is* current policy regardless — dashboard and embed access must render byte-equivalent output — and is restated in CLAUDE.md as the "access-mode invariant". |
 | [`BOOK_LAYOUT_PRD.md`](BOOK_LAYOUT_PRD.md) | 🔵 Draft, unscheduled, nothing built. Covers any bound page-ordered product (photobook, booklet, brochure), not just photobooks. Updated 2026-08-14: **D2, D2a and D4 answered** (customer-entered page count auto-populates inner pages; author one cover + one inner-page template; covers sit outside the count). **D1, D3, D5, D6 and the new D7** (cover and inner pages may differ in size) still open. |
 
-## Adjacent
+## Removed
 
 | Doc | Notes |
 |---|---|
-| [`printo-architecture-audit/`](printo-architecture-audit/) | 12-part May 2026 audit of the **wider Printo estate** — the Flask storefront, Printose, the PHP Estimator, PIA — not this repo. Start at [`00-executive-summary.md`](printo-architecture-audit/00-executive-summary.md). Ages independently of this codebase and cannot be verified from here, since those repos aren't in this checkout; its Product Editor references are pinned at v1.10. |
+| `printo-architecture-audit/` | 12-part May 2026 audit of the **wider Printo estate** — the Flask storefront, Printose, the PHP Estimator, PIA. **Removed from this repo 2026-09-07**; the server lead maintains it separately, so ask them for the current copy rather than reading one from here. It was never about this codebase, could not be verified from this checkout (those repos aren't here), and its Product Editor references were pinned at v1.10 — a stale second copy that would only drift from theirs. Recoverable at `git show 13430c7:docs/printo-architecture-audit/00-executive-summary.md` if the history is ever wanted. |
 
 ## Conventions
 

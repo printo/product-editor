@@ -8,7 +8,7 @@ Product Editor is a full-stack print-file generator for Printo.in. Customers upl
 
 ## Docs — and which of them to trust
 
-**This file is the current-state reference.** `docs/` is mostly *not*: of the ten files there, four describe present behaviour and the rest are shipped-feature design records, unstarted plans, or an audit of other systems. Index with per-file status: [docs/README.md](docs/README.md). Reading a shipped PRD as documentation is the main way to get a wrong answer from that folder — **where a doc and the code disagree, the code wins**, and where a doc and this file disagree, this file was more recently verified.
+**This file is the current-state reference.** `docs/` is mostly *not*: four of its files describe present behaviour and the rest are shipped-feature design records or unstarted plans. (Count them with `ls docs/*.md` rather than trusting a number here — this sentence claimed "ten" while the real count was twelve.) Index with per-file status: [docs/README.md](docs/README.md). Reading a shipped PRD as documentation is the main way to get a wrong answer from that folder — **where a doc and the code disagree, the code wins**, and where a doc and this file disagree, this file was more recently verified.
 
 The four to actually rely on:
 
@@ -50,7 +50,8 @@ The graph covers 319 files — **2,974 nodes, 5,345 edges, 213 communities** (re
 - **Canvas Editor UI** — FabricEditor, CanvasEditorModal, surface-allocation.ts
 - **Calendar Cell Upload** — lib/calendar-cell-upload.ts
 - **Data Lifecycle & DPDP** — EXPORT_RETENTION_DAYS, order data purge, UploadedFile.order_id, orphan exports
-- **Printo Architecture Audit** — cross-system analysis, target architecture, migration roadmap
+
+The 2026-09-04 graph also carries a **Printo Architecture Audit** community. Its source, `docs/printo-architecture-audit/`, was removed on 2026-09-07 (the server lead maintains it), so those nodes point at files that no longer exist. `graphify update .` is AST-only and will not clear doc nodes — ignore that community until someone does a full rebuild.
 
 God nodes (highest connectivity, 2026-09-04 build): `LayoutEngine` (75 edges), `APIKey` (44), `APIKeyUser` / `ExportedResult` (40), `UploadedFile` (39), `CanvasData` (37), `BearerTokenAuthentication` / `PIAAuthentication` (35). `editor/layout/[name]/page.tsx` and `api/views.py` are the two files most likely to break something else when edited — they topped the older doc-inclusive graph and are still the largest surfaces here.
 
@@ -465,7 +466,7 @@ Retry strategy: `self.retry()` with exponential backoff (2s → 4s → 8s), max 
 
 **Alert on `stale` OR `failing`** — they answer different questions. `stale` means no *successful* sweep recently (never recorded, unreadable record, or older than `GC_STALE_AFTER_HOURS`, default 36). `failing` means the most recent *attempt* raised, with `last_error` saying how; a sweep can be failing while not yet stale.
 
-That second field exists because its absence is genuinely expensive. The first version recorded only successes, on the reasoning that a crash would surface as staleness. It does — but staleness cannot say *why*, and it reads identically to "never scheduled". On 2026-08-14 that ambiguity let a wrong diagnosis run for two days: with no failure record, "the sweep broke" and "the sweep was never dispatched" look the same from outside. **The answer was in the worker log the whole time** — and worker logs survive container recreation in Loki, so query `{container=~".*celery-worker.*"}` for the window *before* theorising. `api/tasks.py` now hooks `task_failure` for the sweep, which leaves retry semantics untouched. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
+That second field exists because its absence is genuinely expensive. The first version recorded only successes, on the reasoning that a crash would surface as staleness. It does — but staleness cannot say *why*, and it reads identically to "never scheduled". On 2026-08-14 that ambiguity let a wrong diagnosis run for two days: with no failure record, "the sweep broke" and "the sweep was never dispatched" look the same from outside. **The answer was in the worker log the whole time** — so read `docker-compose logs --since 24h celery-worker-standard` for the window *before* theorising. Those logs live only in Docker's json-file log and do **not** survive container recreation (see "Observability" below), so capture them first. `api/tasks.py` now hooks `task_failure` for the sweep, which leaves retry semantics untouched. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
 
 The same endpoint carries a **live `disk` block** (`used_percent`, `free_gb`, `pressure` at >80%), read at request time rather than lifted from the last sweep's stats. That distinction is the point: `garbage_collector.stats.disk_usage_percent` is only as fresh as the last sweep, so at the moment it matters most — nothing sweeping — it is absent or stale. Production hit 89% unnoticed twice for that reason.
 
@@ -494,7 +495,7 @@ Four sweeps a day caps the lag at ~6h. A no-op sweep costs 0.19s and a full one 
 
 `CONN_MAX_AGE` does nothing in a worker on its own. Django enforces it from its `request_started`/`request_finished` signals, and Celery has no requests — so a connection opened by a worker's first task stays checked out for the life of that process, however long it idles, until Postgres or Docker drops the socket. The next query then raises `InterfaceError: connection already closed`.
 
-**This has not been observed biting in production** — treat the hooks below as hardening, not a fix for a known incident. The 2026-08-14 nightly sweep ran and succeeded in 0.19s; a plausible-sounding story about it dying on a stale connection turned out to be wrong when the Loki logs were finally read. `worker_max_tasks_per_child = 50` recycles the process periodically, which is probably why the risk has stayed latent.
+**This has not been observed biting in production** — treat the hooks below as hardening, not a fix for a known incident. The 2026-08-14 nightly sweep ran and succeeded in 0.19s; a plausible-sounding story about it dying on a stale connection turned out to be wrong when the worker logs were finally read. `worker_max_tasks_per_child = 50` recycles the process periodically, which is probably why the risk has stayed latent.
 
 The risk is nonetheless real and was unguarded, verified both directions: kill `connection.connection`, and the next query raises `InterfaceError: connection already closed` without the hook and succeeds with it.
 
@@ -1303,6 +1304,36 @@ anywhere saying why. `certs/` is a **directory** mount and has no such problem.
 **collectstatic runs at image BUILD time** (Dockerfile `RUN`), before any runtime `.env` exists. Under `DEBUG=0` (the default) the `settings.py` `DJANGO_SECRET_KEY` fail-fast guard fires on the dev-default key and aborts the build. The Dockerfile supplies an **inline build-only** `DJANGO_SECRET_KEY` scoped to that one command (never baked into the image ENV); runtime still requires the real key from `env_file` (fixed in `bc880b4`). **Verify any Dockerfile / settings-import change with a CLEAN build** (`docker compose build <svc>`, confirm the `collectstatic` layer is NOT `CACHED`) — a cached layer or a stale running container hides the failure until `deploy.sh` does its clean build.
 
 **Recovery when a deploy hangs mid-run:** `pkill -f "deploy.sh"`, remove the throwaway `*-backend-run-*` container (`docker rm -f`), then `docker-compose up -d` — images are already built and the entrypoint migrates on boot. Verify: all 9 containers `(healthy)`, and `https://product-editor.printo.in/api/health` → 200.
+
+## Observability — owned outside this repo
+
+**This stack ships no monitoring services.** Loki, Promtail, Grafana and Grafana
+Alloy (the Faro RUM receiver) lived here behind a `monitoring` compose profile
+from 2026-08-08 (`ac28d51`) until **2026-09-07**, when they were removed: the
+server lead maintains monitoring separately, and two half-owned stacks is worse than one
+owned one. Removed with them: `monitoring/`, the nginx `^~ /grafana/` and
+`^~ /faro/` locations, `scripts/setup-observability.sh`, the `GRAFANA_*` /
+`GF_AUTH_GOOGLE_*` / `NEXT_PUBLIC_FARO_URL` / `GOOGLE_CHAT_WEBHOOK` env vars, and
+the `@grafana/faro-*` frontend SDK.
+
+**Don't add them back here.** Point the external collector at the containers'
+stdout instead — every service inherits the `x-default-logging` anchor in
+`docker-compose.yml`, so Docker's json-file driver already captures and rotates
+each one at 50 MB × 3.
+
+What remains in-repo:
+
+| Signal | Where |
+|---|---|
+| Exceptions | **Sentry** — `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`, blank by default. `src/lib/observability.ts` (client) is Sentry-only now. |
+| Container logs | `docker-compose logs <service>` — json-file, 50 MB × 3, **lost on container recreation** |
+| nginx access log | JSON to stdout (`json_analytics` format), so it lands in the same place |
+| GC health | `garbage_collector.stale` / `.failing` + the live `disk` block on `GET /api/celery/monitor/` (ops-only) |
+| API audit trail | `APIRequest` rows, 90-day retention — see "API audit trail (0014)" |
+
+**The 50 MB × 3 ceiling is the thing to remember when debugging.** Worker logs do
+not survive `docker-compose up -d --force-recreate`, which every `deploy.sh` run
+does. Capture the log window you need *before* redeploying.
 
 ## Frontend Proxy Routes
 
