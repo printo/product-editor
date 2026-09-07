@@ -98,12 +98,14 @@ function logPiaLogin(
   //   is_ops_team   CSV upload, courier setup, nav   (enforced by PIA)
   //   pia_access    PIA chat                         (NOT enforced — their TODO)
   //   is_staff      "may log into a Django admin"    (not enforced by their DRF)
-  //   is_superuser  COURIER SERVICE ACCOUNT — and it DENIES app access
+  //   is_superuser  meaning DISPUTED — see below. Removed from 2026-09-11.
   //
-  // That last line is why this logs rather than guesses. `is_superuser` looks
-  // like the field we meant and means close to the opposite: gating our Django
-  // admin on it would hand it to courier service accounts, which are barred
-  // from the app. Do not "fix the spelling".
+  // That last line is why this logs rather than guesses. PIA described
+  // `is_superuser` as marking a courier service account DENIED app access;
+  // this log then showed it `true` for a human employee with full access
+  // (2026-09-07), so neither reading is trustworthy. Nothing gates on it, and
+  // it is being dropped from the payload — kept in FLAGS below purely so the
+  // removal is visible when it happens. Do not "fix the spelling".
   //
   // Named flags plus the full key list, so a flag PIA adds later shows up here
   // without another deploy. Names and booleans only — the payload also carries

@@ -883,9 +883,11 @@ session.registration_status  // "ACTIVE" etc. PIA's /auth/ does NOT refuse a log
 session.is_deliveryq     // Other PIA products. Nothing here gates on them; carried
 session.pia_access       // only so the [pia-login] log can report them.
                          // NOTE: `is_super_user` never existed in PIA and is gone from
-                         // this session. `is_superuser` (their spelling) marked a
-                         // COURIER SERVICE ACCOUNT and DENIED app access — never gate
-                         // on it if it reappears.
+                         // this session. `is_superuser` (their spelling) is DISPUTED:
+                         // PIA called it a courier service account denied app access,
+                         // then sent it `true` for a human with full access
+                         // (2026-09-07). Removed from the payload 2026-09-11. Nothing
+                         // reads it — never gate on it if it reappears.
 session.error            // "RefreshAccessTokenError" when refresh has failed → app redirects to /login
 ```
 
