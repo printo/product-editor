@@ -72,6 +72,12 @@ DEAD=(
   GRAFANA_ADMIN_PASSWORD GRAFANA_ROOT_URL
   GF_AUTH_GOOGLE_ENABLED GF_AUTH_GOOGLE_CLIENT_ID GF_AUTH_GOOGLE_CLIENT_SECRET
   NEXT_PUBLIC_FARO_URL GOOGLE_CHAT_WEBHOOK
+  # `monitoring` was the only compose profile this repo ever declared, and it
+  # went with that stack — docker-compose.yml now has no `profiles:` key at
+  # all, so this selects nothing. (It never did: the value shipped in
+  # .env.example was `prod`, which matched no service either.) Re-add the
+  # variable if a real profile is ever introduced.
+  COMPOSE_PROFILES
 )
 
 echo "Scanning ${ENV_FILE}"
