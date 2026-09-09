@@ -3983,6 +3983,28 @@ export default function LayoutEditorPage() {
         }}
       />
 
+      {/* The one "add photos" picker, mounted unconditionally. Both entry points
+          open it through this ref: the empty-state drop zone and the "Add Photos"
+          bar. It used to live INSIDE the bar, which only renders once a photo
+          exists — so on an empty editor the ref was null and clicking the drop
+          zone silently did nothing, leaving drag-and-drop as the only way in. */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        accept={IMAGE_AND_PDF_ACCEPT_ATTR}
+        className="hidden"
+        aria-hidden
+        onChange={(e) => {
+          // Clearing the value once the handler is done is what lets the SAME
+          // photo be picked twice in a row — an unchanged value fires no change
+          // event, so the second pick would look like a dead click. handleFileChange
+          // copies e.target.files before its first await, so this can't race it.
+          const el = e.target;
+          void handleFileChange(e).finally(() => { el.value = ''; });
+        }}
+      />
+
       {/* ── Over-upload confirm modal ───────────────────────────────────────── */}
       {pendingOverFiles && orderQty && (
         <div className="fixed inset-0 z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -4237,8 +4259,18 @@ export default function LayoutEditorPage() {
                 area only); revealed once user uploads at least one photo (secondary "Add more" action) */}
             {(files.length > 0 || surfaceStates.some(s => s.files.length > 0)) && (
               <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink relative group">
-                <div className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all", 'border-emerald-200 bg-emerald-50/30')}>
-                  <input ref={uploadInputRef} type="file" multiple onChange={handleFileChange} accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                <div
+                  className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all cursor-pointer", 'border-emerald-200 bg-emerald-50/30')}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => uploadInputRef.current?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                      e.preventDefault();
+                      uploadInputRef.current?.click();
+                    }
+                  }}
+                >
                   <div className="w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-emerald-500 text-white">
                     <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
                   </div>
