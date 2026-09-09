@@ -31,6 +31,39 @@ export interface FrameGeom {
 }
 
 /**
+ * The photo's ROTATED bounding box. A frame fits the box the rotated photo
+ * actually occupies, not the raw pixel dimensions — at 344° a 1200×1600 photo
+ * needs a 1595×1869 box, so fitting on 1200×1600 oversizes it by a third and
+ * the corners get clipped away.
+ */
+export function rotatedBounds(imgW: number, imgH: number, rotationDeg: number) {
+  const rad = ((rotationDeg || 0) * Math.PI) / 180;
+  const sinA = Math.abs(Math.sin(rad));
+  const cosA = Math.abs(Math.cos(rad));
+  return {
+    effW: imgW * cosA + imgH * sinA,
+    effH: imgW * sinA + imgH * cosA,
+  };
+}
+
+/**
+ * The fit-mode scale multiplier a frame applies before the customer's own zoom.
+ * Single source of truth: FabricEditor builds frame images, updates them in
+ * place, AND inverts this on drag-release, and all three have to agree or the
+ * photo changes size on its own between one interaction and the next.
+ */
+export function frameBaseScale(
+  imgW: number, imgH: number, rotationDeg: number,
+  frameW: number, frameH: number,
+  fitMode: 'contain' | 'cover',
+): number {
+  const { effW, effH } = rotatedBounds(imgW, imgH, rotationDeg);
+  const sX = frameW / effW;
+  const sY = frameH / effH;
+  return fitMode === 'contain' ? Math.min(sX, sY) : Math.max(sX, sY);
+}
+
+/**
  * Build the fill object that sits BEHIND a contain-mode frame photo, filling the
  * whitespace a contained photo leaves. Returns null when no fill applies (cover
  * mode, no style chosen, or the photo already fills the frame).
