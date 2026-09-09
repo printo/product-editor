@@ -20,7 +20,7 @@ import {
   type FabricObject,
 } from 'fabric';
 import type { CanvasItem } from './types';
-import { buildFrameFill, buildFrameCaption } from './frame-fill';
+import { buildFrameFill, buildFrameCaption, rotatedBounds, frameBaseScale } from './frame-fill';
 import { captionOverridesFromMm } from '@/lib/caption-layout';
 import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
@@ -639,26 +639,28 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         let scale = frameState.scale;
 
         if (frameState.fitMode === 'contain' || frameState.fitMode === 'cover') {
-          const sX = clip.fw / imgW;
-          const sY = clip.fh / imgH;
-          const baseScale = frameState.fitMode === 'contain' ? Math.min(sX, sY) : Math.max(sX, sY);
-          scale = baseScale * frameState.scale;
+          // Rotation-aware, exactly as the initial build and the thumbnail
+          // renderer compute it — see frameBaseScale.
+          scale = frameBaseScale(
+            imgW, imgH, frameState.rotation || 0, clip.fw, clip.fh, frameState.fitMode,
+          ) * frameState.scale;
         }
 
-        const imgX = clip.fx + (clip.fw - imgW * scale) / 2 + frameState.offset.x;
-        const imgY = clip.fy + (clip.fh - imgH * scale) / 2 + frameState.offset.y;
+        const { effW, effH } = rotatedBounds(imgW, imgH, frameState.rotation || 0);
+        const imgX = clip.fx + (clip.fw - effW * scale) / 2 + frameState.offset.x;
+        const imgY = clip.fy + (clip.fh - effH * scale) / 2 + frameState.offset.y;
 
         if (_DEV) {
           log('Frame Image Calculation (In-place Update):', {
-            frameState, clip, imgW, imgH, scale, imgX, imgY,
-            left: imgX + (imgW * scale) / 2,
-            top: imgY + (imgH * scale) / 2,
+            frameState, clip, imgW, imgH, effW, effH, scale, imgX, imgY,
+            left: imgX + (effW * scale) / 2,
+            top: imgY + (effH * scale) / 2,
           });
         }
 
         img.set({
-          left: imgX + (imgW * scale) / 2,
-          top: imgY + (imgH * scale) / 2,
+          left: imgX + (effW * scale) / 2,
+          top: imgY + (effH * scale) / 2,
           scaleX: scale, scaleY: scale,
           angle: frameState.rotation,
         });
@@ -802,18 +804,11 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const imgW = img.width!;
         const imgH = img.height!;
         const rot = frameState.rotation || 0;
-        const rad = (rot * Math.PI) / 180;
-        const sinA = Math.abs(Math.sin(rad));
-        const cosA = Math.abs(Math.cos(rad));
-        const effW = imgW * cosA + imgH * sinA;
-        const effH = imgW * sinA + imgH * cosA;
+        const { effW, effH } = rotatedBounds(imgW, imgH, rot);
 
         let scale = frameState.scale;
         if (frameState.fitMode === 'contain' || frameState.fitMode === 'cover') {
-          const sX = fw / effW;
-          const sY = fh / effH;
-          const baseScale = frameState.fitMode === 'contain' ? Math.min(sX, sY) : Math.max(sX, sY);
-          scale = baseScale * frameState.scale;
+          scale = frameBaseScale(imgW, imgH, rot, fw, fh, frameState.fitMode) * frameState.scale;
         }
         img.__clipRect = { fx, fy, fw, fh };
         const w = effW * scale;
@@ -1093,9 +1088,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         // and shifting it, since the offset WAS captured at the dragged size.
         const imgW = target.width ?? 1;
         const imgH = target.height ?? 1;
-        const sX = clip.fw / imgW;
-        const sY = clip.fh / imgH;
-        const baseScale = frameState.fitMode === 'contain' ? Math.min(sX, sY) : Math.max(sX, sY);
+        const baseScale = frameBaseScale(
+          imgW, imgH, target.angle ?? frameState.rotation, clip.fw, clip.fh, frameState.fitMode,
+        );
         const newScale = baseScale > 0 && target.scaleX != null ? target.scaleX / baseScale : frameState.scale;
         const newOffsetX = (target.left ?? 0) - (clip.fx + clip.fw / 2);
         const newOffsetY = (target.top ?? 0) - (clip.fy + clip.fh / 2);
