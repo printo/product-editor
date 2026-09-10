@@ -459,7 +459,7 @@ Worker config (in `product_editor/celery.py`):
 
 Retry strategy: `self.retry()` with exponential backoff (2s → 4s → 8s), max 3 retries. `MemoryError` and `SoftTimeLimitExceeded` skip retries. Never use `autoretry_for` — this codebase uses `self.retry()` exclusively.
 
-`garbage_collector_task` runs daily at 02:00 UTC and has `soft_time_limit=3300` / `time_limit=3600` so a hung GC sweep can never permanently block a worker slot.
+`garbage_collector_task` runs every 6 hours (00:00 / 06:00 / 12:00 / 18:00 UTC — see "Why the GC runs every 6 hours, not nightly" below) and has `soft_time_limit=3300` / `time_limit=3600` so a hung GC sweep can never permanently block a worker slot.
 
 **Check whether the GC is actually running via `garbage_collector.stale` on `GET /api/celery/monitor/`** (ops-only). Do NOT try to infer it from the database: the sweep flags rows `is_deleted=True` and then hard-deletes those same tombstones later in the *same* pass, so `ExportedResult.objects.filter(is_deleted=True).count()` reads **0** whether the GC ran an hour ago or has never run at all. It looks like a "did it run?" signal and is not one — that misreading cost real debugging time on 2026-08-13.
 
