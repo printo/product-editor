@@ -678,6 +678,7 @@ export default function LayoutEditorPage() {
   const serializeCanvasState = useCallback((items: CanvasItem[]) =>
     items.map(c => ({
       ...c,
+      dataUrl: null, // strip base64 preview to reduce payload size — regenerate on restore
       frames: c.frames.map(f => ({ ...f, originalFile: null })),
       overlays: c.overlays.map(o => ({ ...o, originalFile: undefined })),
     }))
@@ -1122,6 +1123,33 @@ export default function LayoutEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canvases, orderId, layout, restorePending]);
 
+  // ── Regenerate canvas previews (autosave-payload-bloat fix) ──────────────
+  // After restore, regenerate base64 previews that were stripped to reduce
+  // autosave payload. Runs asynchronously in the background — previews appear
+  // as they're ready, never blocking canvas state update.
+  const regenerateCanvasPreviews = useCallback(async (canvasesToRender: CanvasItem[]) => {
+    if (!layout) return canvasesToRender;
+
+    try {
+      const withPreviews = await Promise.all(
+        canvasesToRender.map(async (c) => {
+          // If dataUrl already exists, skip regeneration
+          if (c.dataUrl) return c;
+          try {
+            const newDataUrl = await renderCanvasCore(c, layout, getFileUrl, { thumbnail: true });
+            return { ...c, dataUrl: newDataUrl };
+          } catch {
+            // On render error, keep the canvas as-is (dataUrl remains null)
+            return c;
+          }
+        }),
+      );
+      return withPreviews;
+    } catch {
+      return canvasesToRender;
+    }
+  }, [layout, getFileUrl]);
+
   // ── Auto-restore: run once after layout is ready ──────────────────────────
   useEffect(() => {
     if (!orderId || !layout || layoutLoading || restoredRef.current) return;
@@ -1293,6 +1321,14 @@ export default function LayoutEditorPage() {
           isRestoringRef.current = true;
           skipNextGenerateRef.current = true; // suppress generateCanvases trigger
           setCanvases(hydrated);
+          // Regenerate canvas previews that were stripped from autosave payload
+          // to reduce size. Runs async in the background — previews appear as
+          // they're ready, never blocking UI update.
+          void regenerateCanvasPreviews(hydrated).then(withPreviews => {
+            if (withPreviews.some(c => c.dataUrl !== (hydrated.find(h => h.id === c.id)?.dataUrl || null))) {
+              setCanvases(withPreviews);
+            }
+          });
           // Repopulate `files` from the hydrated frames in the SAME commit
           // (Phase 3): with files left empty the skip flag went stale and
           // swallowed the user's NEXT real upload (blank grid), and any
