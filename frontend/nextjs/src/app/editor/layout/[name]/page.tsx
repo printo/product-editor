@@ -30,7 +30,7 @@ import { usePdfPageImport } from '@/components/use-pdf-page-import';
 import { saveFile, getFilesForOrder, pruneStaleOrders, FileStoreQuotaError, getPersistenceMode } from '@/lib/file-store';
 import { LazyImg } from '@/components/LazyImg';
 import CanvasCardSkeleton from '@/components/CanvasCardSkeleton';
-import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
+import { normalizeLayout, filterSurfaces, getCanvasSpec, getFrames, type NormalizedLayout } from '@/lib/layout-utils';
 import { getImageMetadata, getImageSize, detectJpegColorSpace, isImageComplete } from '@/lib/image-utils';
 import { collectLowDpiFrames, type LowDpiFrame } from '@/lib/dpi-utils';
 import { planCanvasReuse, countCanvasesLosingEdits } from './canvas-merge';
@@ -1784,10 +1784,11 @@ export default function LayoutEditorPage() {
             });
           } else {
             const { width: imgW, height: imgH, element: imgEl } = await getImageMetadata(file);
-            const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames) || [];
+            const canvasSpec = getCanvasSpec(layoutDef) || { width: 1200, height: 1800 };
+            const frames = getFrames(layoutDef) || [];
             const frameSpec = frames[f] || { x: 0, y: 0, width: 1, height: 1 };
-            const canvasW = layoutDef?.canvas?.width || (layoutDef as any)?.surfaces?.[0]?.canvas?.width || 1200;
-            const canvasH = layoutDef?.canvas?.height || (layoutDef as any)?.surfaces?.[0]?.canvas?.height || 1800;
+            const canvasW = canvasSpec.width;
+            const canvasH = canvasSpec.height;
             const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
             const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
             const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
@@ -2196,10 +2197,11 @@ export default function LayoutEditorPage() {
         if (f.fitMode === 'cover' && f.offset.x === 0 && f.offset.y === 0 && f.scale === 1 && f.originalFile) {
           const { element: imgEl } = await getImageMetadata(f.originalFile);
           const layoutDef = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.def : layout;
-          const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames) || [];
+          const canvasSpec = getCanvasSpec(layoutDef) || { width: 1200, height: 1800 };
+          const frames = getFrames(layoutDef) || [];
           const frameSpec = frames[fIdx] || { x: 0, y: 0, width: 1, height: 1 };
-          const canvasW = layoutDef?.canvas?.width || (layoutDef as any)?.surfaces?.[0]?.canvas?.width || 1200;
-          const canvasH = layoutDef?.canvas?.height || (layoutDef as any)?.surfaces?.[0]?.canvas?.height || 1800;
+          const canvasW = canvasSpec.width;
+          const canvasH = canvasSpec.height;
           const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
           const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
           const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
@@ -2222,10 +2224,11 @@ export default function LayoutEditorPage() {
         if (newFitMode === 'cover' && f.originalFile) {
           const { element: imgEl } = await getImageMetadata(f.originalFile);
           const layoutDef = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.def : layout;
-          const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames) || [];
+          const canvasSpec = getCanvasSpec(layoutDef) || { width: 1200, height: 1800 };
+          const frames = getFrames(layoutDef) || [];
           const frameSpec = frames[fIdx] || { x: 0, y: 0, width: 1, height: 1 };
-          const canvasW = layoutDef?.canvas?.width || (layoutDef as any)?.surfaces?.[0]?.canvas?.width || 1200;
-          const canvasH = layoutDef?.canvas?.height || (layoutDef as any)?.surfaces?.[0]?.canvas?.height || 1800;
+          const canvasW = canvasSpec.width;
+          const canvasH = canvasSpec.height;
           const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
           const frameW = isPercent ? frameSpec.width * canvasW : frameSpec.width;
           const frameH = isPercent ? frameSpec.height * canvasH : frameSpec.height;
@@ -2255,11 +2258,9 @@ export default function LayoutEditorPage() {
   /** Resolve the layout def + canvas dims + frame specs for a card. */
   const panGeometry = (surfaceKey: string | null) => {
     const layoutDef = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.def : layout;
-    const canvasW = layoutDef?.canvas?.width || (layoutDef as any)?.surfaces?.[0]?.canvas?.width || 1200;
-    const canvasH = layoutDef?.canvas?.height || (layoutDef as any)?.surfaces?.[0]?.canvas?.height || 1800;
-    const frames = (layoutDef?.canvas?.width ? layoutDef.frames : (layoutDef as any)?.surfaces?.[0]?.frames)
-      || [{ x: 0, y: 0, width: 1, height: 1 }];
-    return { canvasW, canvasH, frames };
+    const canvasSpec = getCanvasSpec(layoutDef) || { width: 1200, height: 1800 };
+    const frames = getFrames(layoutDef) || [{ x: 0, y: 0, width: 1, height: 1 }];
+    return { canvasW: canvasSpec.width, canvasH: canvasSpec.height, frames };
   };
 
   /** Push the latest offset, coalesced to one re-render per frame and serialised. */

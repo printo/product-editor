@@ -144,6 +144,50 @@ export function denormalizeLayout(normalized: NormalizedLayout): any {
   return base;
 }
 
+// ─── Discriminated helpers (no `as any`) ────────────────────────────────────
+
+/**
+ * Get canvas dimensions from either layout shape:
+ * - Single-canvas: `layoutDef.canvas`
+ * - Multi-surface: `layoutDef.surfaces[0].canvas`
+ */
+export function getCanvasSpec(layoutDef: any): CanvasSpec | null {
+  if (!layoutDef) return null;
+
+  // Try single-canvas shape first
+  if (layoutDef.canvas?.width) {
+    return layoutDef.canvas;
+  }
+
+  // Fall back to multi-surface shape
+  if (Array.isArray(layoutDef.surfaces) && layoutDef.surfaces[0]?.canvas) {
+    return layoutDef.surfaces[0].canvas;
+  }
+
+  return null;
+}
+
+/**
+ * Get frames from either layout shape:
+ * - Single-canvas: `layoutDef.frames`
+ * - Multi-surface: `layoutDef.surfaces[0].frames`
+ */
+export function getFrames(layoutDef: any): FrameSpec[] {
+  if (!layoutDef) return [];
+
+  // Try single-canvas shape first
+  if (layoutDef.canvas?.width && Array.isArray(layoutDef.frames)) {
+    return layoutDef.frames;
+  }
+
+  // Fall back to multi-surface shape
+  if (Array.isArray(layoutDef.surfaces) && layoutDef.surfaces[0]?.frames) {
+    return layoutDef.surfaces[0].frames;
+  }
+
+  return [];
+}
+
 // ─── Filter surfaces by key ──────────────────────────────────────────────────
 
 export function filterSurfaces(
