@@ -10,7 +10,6 @@ import {
   Save,
   ChevronRight,
   AlertCircle,
-  CheckCircle2,
   Loader2,
   X,
   Eye,
@@ -643,7 +642,7 @@ export default function LayoutCreatorPage() {
       } else {
         setError(result.detail || 'Failed to save layout');
       }
-    } catch (err) {
+    } catch (_err) {
       setError('An error occurred while saving.');
     } finally {
       setIsSaving(false);

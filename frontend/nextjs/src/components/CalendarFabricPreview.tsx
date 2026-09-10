@@ -334,7 +334,7 @@ export function CalendarFabricPreview({
     }
 
     fc.renderAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [frames, calendars, mode, posterCustomLayout, widthMm, heightMm, snapGrid, getScale]);
 
   // ── Fabric events → parent state ─────────────────────────────────────────

@@ -1446,7 +1446,7 @@ export default function LayoutEditorPage() {
   // `canvases`, so cell edits would never auto-save without this separate
   // effect. We set canvases to a dummy value increment to piggyback on the
   // main debounce — simpler than duplicating the full save logic.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     if (!isCalendarProduct || !orderId || !layout) return;
     // Touch the save trigger by calling the existing save path directly.
@@ -1496,7 +1496,7 @@ export default function LayoutEditorPage() {
   // Changing the page count alone doesn't touch `canvases`, so — same
   // reasoning as the calendar effect above — it needs its own trigger, or a
   // pure count change (no photo edits) would never survive a refresh.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     if (!isBookProduct || !orderId || !layout) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);

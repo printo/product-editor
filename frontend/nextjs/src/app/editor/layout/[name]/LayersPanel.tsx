@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ImagePlus, GripVertical, ChevronDown, Lock } from 'lucide-react';
+import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ChevronDown, Lock } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { CanvasItem, Overlay } from './types';
 

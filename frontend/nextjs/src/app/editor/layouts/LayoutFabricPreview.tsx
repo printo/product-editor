@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { Canvas, Rect, FabricText, FabricImage, ActiveSelection, Textbox, type FabricObject } from 'fabric';
+import { Canvas, FabricImage, ActiveSelection, Textbox, type FabricObject } from 'fabric';
 import { captionOverridesFromMm, resolveCaptionBox } from '@/lib/caption-layout';
 import {
   AlignStartVertical, AlignCenterVertical, AlignEndVertical,

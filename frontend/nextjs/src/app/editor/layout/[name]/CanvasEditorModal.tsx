@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { Upload, CheckCircle2, X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, ImagePlus, Type, Trash2, AlignLeft, AlignCenter, AlignRight, ChevronRight } from 'lucide-react';
+import { X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, Type, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
 // FabricImage is used only inside an async callback — imported lazily at call-site below
 import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay, SurfaceState } from './types';
