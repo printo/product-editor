@@ -13,8 +13,13 @@ import { useHeader } from '@/context/HeaderContext';
 import {
   Upload, Loader2, CheckCircle2, Check, X,
   Archive, FileText, Layout,
-  SendHorizonal, RotateCw, Maximize, Palette, Download, ChevronRight, Trash2,
-  Move, Lock, AlertTriangle, ImagePlus, ArrowLeftRight, Droplets, ArrowLeft, Plus,
+  SendHorizonal, RotateCw, Maximize, Download, ChevronRight, Trash2,
+  AlertTriangle, ImagePlus, ArrowLeftRight, Droplets, ArrowLeft, Plus,
+  // Palette, Move, Lock: only used by the hidden Set-BG-Color and
+  // reposition-lock buttons (commented-out JSX below); re-add them if those
+  // come back.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  Palette, Move, Lock,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
@@ -180,6 +185,10 @@ function formatWait(seconds: number): string {
  * "retro_polaroid_-_4.2x3.5_in" render as readable text here without ever
  * touching the identifier itself or anything sent to the API.
  */
+// Layout name heading is hidden per CEO request (2026-09-09, see the
+// commented-out <h1> below) rather than deleted; this stays for when it
+// comes back.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function formatLayoutDisplayName(rawName: string): string {
   return rawName
     .replace(/_+/g, ' ')
@@ -505,9 +514,6 @@ export default function LayoutEditorPage() {
 
   const apiBase = embedToken ? '/api/embed/proxy' : '/api/internal/proxy';
 
-  const isAdmin = !embedToken &&
-    (session?.user?.role === 'admin' || session?.is_ops_team === true);
-
   // Last-resort HEIC decoder, running current libheif on the server. Needed
   // because the in-browser decoders cannot read the gain-map HDR photos
   // current iPhones write, and Chrome/Firefox have no HEIC codec at all.
@@ -562,6 +568,9 @@ export default function LayoutEditorPage() {
   // ── Reposition mode: drag-to-pan the photo inside a grid card ──────────────
   // Off by default so a stray drag can't shift a photo. Global (all canvases),
   // matching the Fit/Cover control it sits next to.
+  // setRepositionMode: kept for the hidden reposition-lock toggle button
+  // (see the commented-out JSX below) rather than deleted alongside it.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [repositionMode, setRepositionMode] = useState(false);
   /** Live drag state, captured on pointerdown so pointermove stays synchronous. */
   const panRef = useRef<{
@@ -2385,13 +2394,9 @@ export default function LayoutEditorPage() {
     openEditor(idx, surfaceKey ?? undefined);
   };
 
-  const handleQuickCycleBg = (idx: number, surfaceKey: string | null = null) => {
-    updateCanvasState(idx, surfaceKey, (c) => ({
-      ...c,
-      bgColor: c.bgColor === '#ffffff' ? '#000000' : c.bgColor === '#000000' ? '#f8fafc' : '#ffffff'
-    }));
-  };
-
+  // Kept for the hidden Set-Background-Color button (see the two commented-out
+  // JSX blocks below) rather than deleted alongside it.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleQuickSetBg = (idx: number, color: string, surfaceKey: string | null = null) => {
     updateCanvasState(idx, surfaceKey, (c) => ({
       ...c,
@@ -2435,6 +2440,7 @@ export default function LayoutEditorPage() {
   // Quick-download — the button that called this is commented out in the
   // JSX (see the two card-grid blocks below) rather than deleted, so this
   // stays too even though nothing currently calls it.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleQuickDownload = async (idx: number, surfaceKey: string | null = null) => {
     const targetCanvases = surfaceKey ? surfaceStates.find(s => s.key === surfaceKey)?.canvases : canvases;
     const c = targetCanvases?.[idx];
@@ -3662,10 +3668,6 @@ export default function LayoutEditorPage() {
     });
   }, []);
 
-  const handleCalendarCellClick = (surfaceIndex: number, year: number, month: number, iso: string) => {
-    setSelectedCalendarCell({ surfaceIndex, year, month, iso });
-  };
-
   // Phase 8 — cell image override upload
   const handleCellImageFileSelected = useCallback(async (file: File) => {
     if (!selectedCalendarCell || !orderId) return;
@@ -4547,7 +4549,7 @@ export default function LayoutEditorPage() {
             <section className="space-y-6 pt-0">
               {surfaceStates.length > 1 ? (
                 <div className="flex gap-6 items-start justify-center overflow-x-auto pb-4 px-4 w-full custom-scrollbar">
-                  {surfaceStates.map((surface, sIdx) => {
+                  {surfaceStates.map((surface) => {
                     const cw = surface.def.canvas?.width || 1200;
                     const ch = surface.def.canvas?.height || 1800;
                     const surfaceCanvas = surface.canvases[0] || null;

@@ -1,4 +1,4 @@
-import { Canvas, Rect, FabricImage, Textbox, FabricText, Path, Shadow } from 'fabric';
+import { Canvas, Rect, FabricImage, Textbox, FabricText, Path } from 'fabric';
 import type { CanvasItem } from './types';
 import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
 import { buildFrameFill, buildFrameCaption } from './frame-fill';
