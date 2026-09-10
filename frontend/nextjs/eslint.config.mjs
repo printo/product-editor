@@ -24,6 +24,13 @@ export default [
       // "warn" by default; demote to "off" so CI passes while these are
       // tracked separately.
       "@typescript-eslint/no-explicit-any": "off",
+      // Codebase convention: a leading underscore marks an intentionally
+      // unused binding (rest params kept only to match a sibling branch's
+      // type signature, caught errors that aren't inspected, etc).
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
 ];

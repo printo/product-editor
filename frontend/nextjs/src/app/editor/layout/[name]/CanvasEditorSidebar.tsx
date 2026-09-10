@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical, CheckCircle2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
 import { Dropdown } from '@/components/ui/Dropdown';

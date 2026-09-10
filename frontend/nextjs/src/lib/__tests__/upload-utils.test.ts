@@ -29,7 +29,7 @@ function mockFetch(route: Route) {
   return calls;
 }
 
-const happyRoute = (uploadId: string): Route => (url, init) => {
+const happyRoute = (uploadId: string): Route => (url) => {
   if (url.endsWith('/upload/init')) return { status: 200, body: { upload_id: uploadId, chunk_size: CHUNK } };
   if (url.includes('/chunk?index=')) return { status: 200, body: { received: 1, total: 1 } };
   if (url.endsWith('/complete')) return { status: 200, body: { file_path: `/u/${uploadId}.jpg`, filename: 'f.jpg' } };

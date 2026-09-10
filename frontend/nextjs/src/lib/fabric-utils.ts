@@ -23,11 +23,10 @@ export function changeDpiDataUrl(base64Image: string, dpi: number): string {
   let rawStr;
   try {
     rawStr = atob(b64Data);
-  } catch (err) {
+  } catch {
     return base64Image;
   }
-  
-  const len = rawStr.length;
+
   const pixelsPerMeter = Math.round(dpi / 0.0254);
   
   // Create pHYs chunk data

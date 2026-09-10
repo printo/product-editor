@@ -88,7 +88,6 @@ const ALIGN_BUTTONS: { edge: AlignEdge; Icon: React.ComponentType<{ className?: 
 export function LayoutFabricPreview({
   widthMm,
   heightMm,
-  dpi,
   frames,
   maskUrl,
   maskFile,

@@ -15,7 +15,6 @@ import {
   Canvas, FabricImage, Textbox, Point, Path,
   Rect,
   Ellipse,
-  Circle,
   Shadow,
   type FabricObject,
 } from 'fabric';
@@ -64,12 +63,8 @@ interface FabricEditorProps {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const DATA_KEY    = '__fabricEditor';
 const PAPER_KEY   = '__paper';
-const OUTLINE_KEY = '__outlineLayer';
 const BG_KEY      = '__bgLayer';
-const GUIDE_KEY   = '__guideLayer';
-const GRID_KEY    = '__gridLayer';
 const BLEED_KEY   = '__bleedLayer';
 const SAFE_KEY    = '__safeLayer';
 
@@ -342,7 +337,6 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const leftBar = fh - 2 * fr > 0.1 ? ` L ${fx} ${fy + fh - fr}` : '';
         const bottomBar = fw - 2 * fr > 0.1 ? ` L ${fx + fw - fr} ${fy + fh}` : '';
         const rightBar = fh - 2 * fr > 0.1 ? ` L ${fx + fw} ${fy + fr}` : '';
-        const topBar = fw - 2 * fr > 0.1 ? ` L ${fx + fr} ${fy}` : '';
 
         path += ` M ${fx + fr} ${fy} A ${fr} ${fr} 0 0 0 ${fx} ${fy + fr}${leftBar} A ${fr} ${fr} 0 0 0 ${fx + fr} ${fy + fh}${bottomBar} A ${fr} ${fr} 0 0 0 ${fx + fw} ${fy + fh - fr}${rightBar} A ${fr} ${fr} 0 0 0 ${fx + fw - fr} ${fy} Z`;
       } else {

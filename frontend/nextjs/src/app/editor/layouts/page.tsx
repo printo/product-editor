@@ -134,8 +134,7 @@ interface SurfaceEditorState {
 // dashboard's filter chips).
 
 // Pure mm/px helpers — hoisted to module scope so they're stable references
-// across renders. Required so `_mapFrames` below can be added to the
-// debouncedLayout effect's dep array without re-firing on every render.
+// across renders.
 const mmToPx = (mm: number, dpiVal: number) => Math.round((mm / 25.4) * dpiVal);
 const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
 const pxToMm = (px: number, dpiVal: number) => round2((px / dpiVal) * 25.4);
@@ -213,7 +212,6 @@ export default function LayoutCreatorPage() {
   const [dpi, setDpi] = useState(300);
   const [widthMm, setWidthMm] = useState(101.6);
   const [heightMm, setHeightMm] = useState(152.4);
-  const [borderRadiusMm, setBorderRadiusMm] = useState(0);
   // Per-template opt-in for per-frame captions. When on, the customer editor
   // shows a caption box per print area (gated on layout.frameCaptionsEnabled).
   const [frameCaptionsEnabled, setFrameCaptionsEnabled] = useState(false);
@@ -238,49 +236,6 @@ export default function LayoutCreatorPage() {
   // Each surface has its own mask — a stale warning from surface A must not
   // linger over surface B's card after switching tabs.
   useEffect(() => { setMaskWarning(null); }, [activeSurfaceIdx]);
-
-  // Use a debounced layout for the preview to avoid crashes during typing
-  const [debouncedLayout, setDebouncedLayout] = useState<any>(null);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const canvasW = mmToPx(widthMm, dpi);
-      const canvasH = mmToPx(heightMm, dpi);
-      const internalId = layoutName.toLowerCase().replace(/\s+/g, '_');
-      
-      const layoutData = {
-        name: internalId,
-        type: layoutType,
-        borderRadiusMm,
-        frameCaptionsEnabled,
-        canvas: {
-          width: canvasW,
-          height: canvasH,
-          widthMm: round2(widthMm),
-          heightMm: round2(heightMm),
-          dpi,
-        },
-        frames: layoutType === 'product' 
-          ? surfaces.map(s => _mapFrames(s.frames, s.widthMm, s.heightMm, s.dpi))
-          : _mapFrames(frames, widthMm, heightMm, dpi),
-        surfaces: layoutType === 'product' ? surfaces.map(s => ({
-          ...s,
-          canvas: {
-            width: mmToPx(s.widthMm, s.dpi),
-            height: mmToPx(s.heightMm, s.dpi),
-            widthMm: round2(s.widthMm),
-            heightMm: round2(s.heightMm),
-            dpi: s.dpi,
-          },
-          frames: _mapFrames(s.frames, s.widthMm, s.heightMm, s.dpi)
-        })) : undefined
-      };
-      setDebouncedLayout(layoutData);
-    }, 400);
-    return () => clearTimeout(timer);
-    // _mapFrames is now module-scope (stable reference) so doesn't need to
-    // be listed; mmToPx/round2/pxToMm are module-scope helpers it uses.
-  }, [widthMm, heightMm, dpi, frames, surfaces, layoutType, borderRadiusMm, layoutName, frameCaptionsEnabled]);
 
   const [snapGrid, setSnapGrid] = useState(true);
   const [zoom, setZoom] = useState(1);
@@ -642,7 +597,7 @@ export default function LayoutCreatorPage() {
       } else {
         setError(result.detail || 'Failed to save layout');
       }
-    } catch (_err) {
+    } catch {
       setError('An error occurred while saving.');
     } finally {
       setIsSaving(false);
@@ -665,10 +620,10 @@ export default function LayoutCreatorPage() {
         try {
           const result = JSON.parse(text);
           detail = result.detail || detail;
-        } catch (e) { }
+        } catch { }
         setError(detail);
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred while deleting.');
     }
   };
@@ -912,8 +867,7 @@ export default function LayoutCreatorPage() {
       if (f.id !== id) return f;
       const w = Number(f.widthMm || 0);
       const h = Number(f.heightMm || 0);
-      const bleed = Number(f.bleedMm || 0);
-      
+
       if (axis === 'h') {
         return { ...f, xMm: round2((cW - w) / 2) };
       } else {

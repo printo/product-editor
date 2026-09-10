@@ -2,19 +2,15 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { X, Minus, Undo2, Redo2, Plus, Sparkles, Palette, Image, Hexagon, Type, ChevronRight } from 'lucide-react';
+import { X, Minus, Undo2, Redo2, Plus, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
 // FabricImage is used only inside an async callback — imported lazily at call-site below
-import type { CanvasItem, FrameState, TextOverlay, ShapeOverlay, ImageOverlay, FitMode, Overlay, SurfaceState } from './types';
+import type { CanvasItem, FitMode, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { getImageMetadata } from '@/lib/image-utils';
-import { AlignmentToolbar } from './AlignmentToolbar';
-import { LayersPanel, type LayerSelection } from './LayersPanel';
+import { type LayerSelection } from './LayersPanel';
 // Type-only import: erased at compile time, zero bundle impact
 import type { FabricEditorHandle } from './FabricEditor';
-import { ShapesPicker } from './ShapesPicker';
-import { IconBrowser } from './IconBrowser';
-import { ColorPicker } from '@/components/ColorPicker';
 import { CanvasEditorSidebar } from './CanvasEditorSidebar';
 import type { ServerHeicConverter } from '@/lib/heic-convert';
 
@@ -63,10 +59,9 @@ export interface CanvasEditorModalProps {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function CanvasEditorModal({
-  activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, globalFitMode, selectedFonts,
-  apiBase, getAuthHeaders,
-  setEditingCanvas, setCanvases, setFiles, setError, onClose, onOpenCanvas,
-  getFileUrl, loadGoogleFont, skipNextGenerateRef, expandPdfPages, serverHeicConvert,
+  activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, selectedFonts,
+  setEditingCanvas, setCanvases, onClose, onOpenCanvas,
+  getFileUrl, loadGoogleFont, expandPdfPages, serverHeicConvert,
 }: CanvasEditorModalProps) {
 
   // ── Local state (editor-only) ──────────────────────────────────────────────
@@ -290,14 +285,6 @@ export function CanvasEditorModal({
       }
     }, 80);
   }, [renderCanvas, setEditingCanvas]);
-
-  const ADD_TABS = [
-    { key: 'background' as const, icon: Palette, label: 'BG', activeClass: 'text-amber-600 ring-amber-100' },
-    { key: 'text' as const, icon: Type, label: 'Text', activeClass: 'text-pink-600 ring-pink-100' },
-    { key: 'shape' as const, icon: Hexagon, label: 'Shape', activeClass: 'text-purple-600 ring-purple-100' },
-    { key: 'icon' as const, icon: Sparkles, label: 'Icon', activeClass: 'text-violet-600 ring-violet-100' },
-    { key: 'image' as const, icon: Image, label: 'Image', activeClass: 'text-sky-600 ring-sky-100' },
-  ];
 
   // ── Fabric canvas change handler ──────────────────────────────────────────
   const handleFabricChange = useCallback((updated: CanvasItem) => {
