@@ -696,12 +696,25 @@ The split is served by `?content=` on the one endpoint (`all` — the default �
 
 | Prefix | Methods |
 |---|---|
-| `layouts`, `editor/init`, `render-status`, `jobs`, `fonts`, `holidays`, `calendar-styles`, `config`, `embed/session` | **GET** only |
+| `layouts`, `layouts/masks`, `editor/init`, `render-status`, `jobs`, `fonts`, `holidays`, `calendar-styles`, `config`, `embed/session` | **GET** only |
 | `canvas-state` | GET, PUT (autosave) |
 | `upload` | POST (init/complete), PUT (chunk) |
 | `editor/render`, `orientation`, `heic` | POST |
 
 Anything else returns 403 *before* token resolution, so an attacker can't probe Django auth surfaces with a stolen embed token.
+
+**Intentionally excluded endpoints — documented for clarity** (requests return 403 via embed proxy):
+
+| Backend Path | Customer-facing? | Routing | Why Excluded |
+|---|---|---|---|
+| `/api/exports/<path>` | No | Via `/api/jobs/<job_id>/download/` instead | Direct access not needed; all downloads routed through render job endpoints with built-in auth |
+| `/api/ops/layouts*` | No | Via `/api/internal/proxy/` + PIA session | Template authoring is ops-only; embed tokens are customer-facing URLs and must never reach ops surfaces |
+| `/api/ops/orders/<id>/purge` | No | Via `/api/internal/proxy/` + ops tier | Data erasure is ops-only administrative action |
+| `/api/celery/monitor/` | No | Via `/api/internal/proxy/` + ops tier | Admin surface for render queue health monitoring |
+| `/api/health` | Public | Direct (not via embed) | Internal status endpoint; no need for customer requests |
+| `/django-admin/*` | No | nginx auth_request gate | Administrative interface; SSO boundary |
+
+The allowlist is **fail-closed by design**: any endpoint not explicitly listed is rejected with 403 before the token is even validated, preventing accidental exposure of new admin/ops surfaces. **When adding a new customer-facing endpoint to the backend**, you must update `ALLOWED_PATH_METHODS` in [route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts) AND add a test case in [allowlist.test.ts](frontend/nextjs/src/app/api/embed/proxy/__tests__/allowlist.test.ts), or the endpoint is unreachable from the iframe.
 
 **The method half is load-bearing, not tidiness.** This list was prefix-only until 2026-09-03, with "GET only" written in a comment rather than enforced. `fonts`, `holidays` and `calendar-styles` all accept ops writes upstream, and **the proxy injects the session's real api_key** — so with an ops-flagged key behind the session, an embed token (which lives in a URL in the customer's browser) could `PUT` holiday data. `DIRECT` is ops-flagged and is exactly what the local embed recipe above uses. Django's `_gate_ops` was the only thing in the way, and it *passes* for an ops key. Ops writes reach these same endpoints through the **internal** proxy with a PIA session, so restricting the embed side costs the ops UI nothing. Pinned by `src/app/api/embed/proxy/__tests__/allowlist.test.ts` — **add a method there when you add a prefix**, or the prefix is unreachable.
 
