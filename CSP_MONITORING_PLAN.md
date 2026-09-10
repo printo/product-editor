@@ -30,24 +30,25 @@ CSP_REPORT_ONLY = os.getenv("CSP_REPORT_ONLY", "True").lower() not in ("false", 
 - [x] Open DevTools Console
 - [x] Check for CSP violations (should be report-only, not blocked)
 - [x] Verify Fabric.js editor works without errors
-- [ ] Upload a photo and draw on canvas
+- [x] Upload a photo and draw on canvas
 - [x] Check for violations in Network tab (CSP reports if any)
 
 ### 2. Embed Iframe Test
-- [ ] Create embed session via `/api/embed/session`
-- [ ] Load iframe in test page with embed token
-- [ ] Verify `frame-ancestors` allows embedding from test origin
-- [ ] Check console for frame-related CSP violations
-- [ ] Confirm postMessage contract works (`pe:render_job` message)
+- [x] Create embed session via `/api/embed/session`
+- [x] Load iframe in test page with embed token
+- [x] Verify `frame-ancestors` allows embedding from test origin
+- [x] Check console for frame-related CSP violations
+- [x] Confirm postMessage contract works (`pe:render_job` message)
 
 ### 3. Admin/Dashboard Pages
-- [ ] Login to dashboard (`/dashboard`)
-- [ ] Access `/editor/layouts` (ops template list)
-- [ ] Verify no CSP violations on authenticated pages
+- [x] Login to dashboard (`/dashboard`)
+- [x] Access `/editor/layouts` (ops template list)
+- [x] Verify no CSP violations on authenticated pages
 
 ### 4. CSP Report Verification
-- [ ] Check `GET /api/celery/monitor/` for any CSP violation reports
-- [ ] Inspect violation payload structure if any exist
+- [x] Check `GET /api/celery/monitor/` for any CSP violation reports
+- [x] Inspect violation payload structure if any exist
+- **Result**: No CSP violations detected (empty report - ✅ expected)
 
 ## Validation Criteria
 
@@ -83,7 +84,7 @@ docker-compose up -d backend
 - Browser DevTools Console — violation messages
 - Browser Network tab — CSP report headers
 
-## Test Results (2026-09-10)
+## Test Results (2026-09-10 - COMPLETE)
 
 ### Backend CSP Headers ✅
 ```
@@ -110,11 +111,15 @@ Content-Security-Policy-Report-Only:
 - ✅ No CSP-blocked resources
 - ✅ Report-only mode active (headers not enforced)
 
-### Findings
-- All CSP directives properly configured
-- `'unsafe-eval'` correctly allows Fabric.js without violations
-- frame-ancestors limits embedding to printo.in (production-ready)
-- Ready to proceed with enforcement testing when needed
+### Findings - Final Validation Complete ✅
+- ✅ All CSP directives properly configured (default-src, connect-src, script-src, frame-ancestors, style-src, img-src, font-src)
+- ✅ `'unsafe-eval'` correctly allows Fabric.js without violations
+- ✅ frame-ancestors limits embedding to printo.in (production-ready)
+- ✅ Report-only mode active: violations reported but not blocked
+- ✅ No unintended CSP violations detected across all test scenarios
+- ✅ Embed proxy access control enforced (403 on restricted paths)
+- ✅ All directives verified in DevTools and via curl headers
+- ✅ Production-ready for enforcement: CSP_REPORT_ONLY=False when new features validated
 
 ## Notes
 
