@@ -1,22 +1,21 @@
 # PRD: Separate Direct Partner API and Iframe Embed API
 
-**Status:** 🟡 **OPEN — not started.** Written 2026-07-17; re-verified against
-`main` @ `79104d0` on 2026-08-14, and every problem described below is still
-present:
+**Status:** ✅ **IMPLEMENTED — shipped 2026-09-04 (PR #133, commit `3070706`).**
+Written 2026-07-17; problem statement below described the codebase as of the
+2026-08-14 re-verification, which is now historical:
 
-- There is **no shared render-submission service** — `backend/django/services/`
-  holds no such module, and `CanvasData` upsert + `RenderJob` creation + queue
-  selection + Celery dispatch are still duplicated between `GenerateLayoutView`
-  and `EditorRenderView`.
-- The **unreachable synchronous helper is still in `GenerateLayoutView`**
-  (`backend/django/api/views.py:566`, `"""Handle synchronous generation request
-  - backward compatible."""`).
+- A shared `RenderSubmissionService` exists and is used by both
+  `GenerateLayoutView` and `EditorRenderView` — `CanvasData` upsert,
+  `RenderJob` creation, queue selection, and Celery dispatch are unified there.
+- The unreachable synchronous helper that used to sit in `GenerateLayoutView`
+  was removed as part of the same change.
 
-The **Core Product Invariant** below is the part that is already load-bearing
-today, independent of whether this refactor ever ships — it is restated in
-`CLAUDE.md` as the "access-mode invariant" and must hold for every change to the
-editor or render path. Treat that section as current policy and the rest of this
-document as a plan.
+See CLAUDE.md's "Open follow-ups" table for the current pointer. The **Core
+Product Invariant** below predates the refactor and remains current policy
+regardless — it is restated in `CLAUDE.md` as the "access-mode invariant" and
+must hold for every change to the editor or render path. The **Problem** /
+**Goals** / plan sections after it are retained as the design rationale for why
+the refactor happened, not as a description of present-day code.
 
 ## Summary
 
