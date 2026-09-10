@@ -1,6 +1,6 @@
 # Product Editor — documentation index
 
-**Last reviewed: 2026-08-14** (`main` @ `79104d0`, migration `0014`).
+**Last reviewed: 2026-09-11** (`main` @ `b7817c0`, migration `0017`).
 
 The single most useful thing to know about this folder: **most of it is not
 current-state reference.** Two files describe how the system behaves today; four
@@ -41,12 +41,12 @@ code, **the code is right**.
 | [`PRD.md`](PRD.md) | The business/product PRD — problem statement, TAT targets, success metrics, and the rollout decision framework. Now at v1.13. **§8.0 is the live open-items list**; §8.1 and §8.2 are history and are not re-verified per revision. |
 | [`CALENDAR_FEATURE_PRD.md`](CALENDAR_FEATURE_PRD.md) | ✅ Shipped (foundation v1.12, calendar v1.13). Two things shipped differently from the proposal — flat ISO-date cell map instead of 12-slot arrays, and a 12-month photo cap — both flagged at the top of the file. For working on calendars, read CLAUDE.md → "Calendar product type (v1.13)". |
 | [`DPDP_ERASURE_GAP_PRD.md`](DPDP_ERASURE_GAP_PRD.md) | ✅ Closed 2026-07-26 (migration `0011`). Worth reading anyway: §7 records why a "delete rows with blank `order_id`" cleanup would destroy valid uploads, and the failure mode where erasure reported success while 6.4 GB of photos stayed on disk. |
+| [`API_SURFACE_SEPARATION_PRD.md`](API_SURFACE_SEPARATION_PRD.md) | ✅ Shipped 2026-09-04 (PR #133, commit `3070706`) — moved here from "Not started" 2026-09-11. Its **Core Product Invariant** section *is* current policy independent of the refactor — dashboard and embed access must render byte-equivalent output — and is restated in CLAUDE.md as the "access-mode invariant". |
 
 ## Not started — plans
 
 | Doc | Status |
 |---|---|
-| [`API_SURFACE_SEPARATION_PRD.md`](API_SURFACE_SEPARATION_PRD.md) | 🟡 Open, not started; re-verified 2026-08-14. Its **Core Product Invariant** section *is* current policy regardless — dashboard and embed access must render byte-equivalent output — and is restated in CLAUDE.md as the "access-mode invariant". |
 | [`BOOK_LAYOUT_PRD.md`](BOOK_LAYOUT_PRD.md) | 🔵 Draft, unscheduled, nothing built. Covers any bound page-ordered product (photobook, booklet, brochure), not just photobooks. Updated 2026-08-14: **D2, D2a and D4 answered** (customer-entered page count auto-populates inner pages; author one cover + one inner-page template; covers sit outside the count). **D1, D3, D5, D6 and the new D7** (cover and inner pages may differ in size) still open. |
 
 ## Removed

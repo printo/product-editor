@@ -26,10 +26,10 @@ lowering it.**
 
 | Artifact | Where | Personal data? | Created by | Retention | Deleted by |
 |---|---|---|---|---|---|
-| Uploaded photos | `UPLOADS_DIR/<order_id>/` + `UploadedFile` rows | **Yes** — customer photos + `original_filename` | Chunked upload API | `EXPORT_RETENTION_DAYS`, stamped on the row | `garbage_collector_task` (daily 02:00 UTC); immediately by order purge |
+| Uploaded photos | `UPLOADS_DIR/<order_id>/` + `UploadedFile` rows | **Yes** — customer photos + `original_filename` | Chunked upload API | `EXPORT_RETENTION_DAYS`, stamped on the row | `garbage_collector_task` (every 6 h — 00:00/06:00/12:00/18:00 UTC); immediately by order purge |
 | Chunk staging | `UPLOADS_DIR/.chunks/<upload_id>/` | Yes (partial photo bytes) | Chunked upload (in progress) | 24 h if never completed | GC stale-chunk sweep; order purge |
 | Async render output | `EXPORTS_DIR/<job_id>/` + `RenderJob.output_paths` | Yes (composited photos) | `render_canvas_task` | `CanvasData.expires_at` = `created_at + EXPORT_RETENTION_DAYS` — the same value sent as webhook `expires_at` | GC; order purge |
-| Orphaned export dirs | `EXPORTS_DIR/<uuid>/` with no DB row | Yes (composited photos) | Renders killed mid-flight (OOM/SIGKILL) whose rows later cascaded away | retention + 1 day | `services/orphan_exports.py`, gated by `GC_ORPHAN_SWEEP` (`off`/`dry_run`/`delete`; **defaults to `dry_run` — reports only, deletes nothing**) |
+| Orphaned export dirs | `EXPORTS_DIR/<uuid>/` with no DB row | Yes (composited photos) | Renders killed mid-flight (OOM/SIGKILL) whose rows later cascaded away | retention + 1 day | `services/orphan_exports.py`, gated by `GC_ORPHAN_SWEEP` (`off`/`dry_run`/`delete`; **armed to `delete` in production since 2026-09-10** — see "Closed" below) |
 | Sync render output | `ExportedResult` rows + files | Yes | `GenerateLayoutView` | `expires_at` stamped on the row (`is_deleted` soft-delete, tombstone dropped later) | GC; order purge (hard-delete) |
 | Design state | `CanvasData` (incl. `editor_state` dataURL previews, `render_state`) | Yes (photo thumbnails, transforms) | Autosave + submit | `EXPORT_RETENTION_DAYS` | GC row delete; order purge |
 | Embed sessions | `EmbedSession` rows (`order_id`, `callback_url`) | Partial (order id, caller URL) | `POST /api/embed/session` | 2 h token validity (sliding, extended while editing); **rows expire at `expires_at`, swept by GC** (2026-09-10, commit `56a2136`) | Order purge; `garbage_collector_task` deletes rows older than 30 days |
@@ -91,15 +91,17 @@ landed, so there was nothing to backfill.
 
 ## Known gaps (recommended follow-ups)
 
-- **`GC_ORPHAN_SWEEP` is still `dry_run` in production** — stranded export
-  directories are counted and reported but not deleted, so customer photos in
-  them outlive the retention window. Read a few nights of
-  `garbage_collector.stats.orphan_exports` on `GET /api/celery/monitor/`, then
-  set it to `delete`. It is the one sweep that deletes on the *absence* of a DB
-  row, which is why it ships disarmed.
+None currently open — see "Closed" below for what used to be tracked here.
 
 ### Closed
 
+- **`GC_ORPHAN_SWEEP` was `dry_run` in production** — closed 2026-09-10.
+  `GC_ORPHAN_SWEEP=delete` now runs on production; five independent safety
+  guards must all hold before a directory is deleted (UUID-format name, not in
+  live `RenderJob`/`ExportedResult`/`CanvasData`, age > retention + 1 day).
+  Latest health check: 244 dirs scanned, 0 orphans. It is the one sweep that
+  deletes on the *absence* of a DB row, which is why it shipped disarmed by
+  default and needed a deliberate arm.
 - **`EmbedSession` rows** accumulating after 2 h token expiry — closed 2026-09-10,
   commit `56a2136`. GC sweep now deletes rows with `expires_at < (now - 30 days)`,
   integrated into `garbage_collector_task`. Runs every 6 hours; results reported

@@ -2,8 +2,7 @@
 
 Development rules and safety guidelines for AI agents working on this project.
 
-**Last verified against the code: 2026-09-04** (`main` @ `84c27e8`, after storage migration
-audit and layout loading fixes). This file is the short list of things that have actually bitten us;
+**Last verified against the code: 2026-09-11** (`main` @ `b7817c0`). This file is the short list of things that have actually bitten us;
 [`../CLAUDE.md`](../CLAUDE.md) is the full architectural reference and wins on
 any disagreement. If you correct a rule here, check whether CLAUDE.md says the
 same thing in its own words.
@@ -90,9 +89,8 @@ same thing in its own words.
 
 ## Data Consistency
 
-- Layout JSON files in `storage/layouts` must follow the established schema (canvas dimensions in mm/px, frame coordinates, DPI).
-- **A layout's identifier is its filename stem**, never the `name` field inside the JSON. `ListLayoutsView` and `LayoutManagementView` both overwrite `data["name"]` with the filename for exactly this reason. When the two diverged in case (`classic_A4.json` carrying `"name": "classic_a4"`), the layout became unopenable and undeletable **on production Linux only** — the dev Mac's filesystem is case-insensitive. Assume prod is stricter than your machine.
-- `metadata` in layouts must remain an object or array as expected by the management views.
-- Never add a new field to `CanvasData` without a corresponding migration. Current latest: **`0014_audit_trail`**. Run migrations only from the `backend` (Gunicorn) container — never from a worker or beat container.
+- **Layouts live in Postgres (`LayoutCatalogue`), not disk** (as of 2026-09-04, PR #111) — `storage/layouts/` was deleted. A layout's identifier is the unique, case-sensitive `LayoutCatalogue.name` column, matching the former filename stem (`classic_A4.json` → `name='classic_A4'`). Queries use `name` directly now, never a filename. Any code instantiating `LayoutEngine` must query `LayoutCatalogue` first and pass `layout_definition=` — see "Layout Loading" above.
+- `metadata` in a layout's `definition` JSON must remain an object or array as expected by the management views.
+- Never add a new field to `CanvasData` without a corresponding migration. Current latest: **`0017_import_prod_layouts`**. Run migrations only from the `backend` (Gunicorn) container — never from a worker or beat container.
 - **Don't cross the `editor_state` / `render_state` streams** (post-`0008`): `editor_state` is frontend-owned, written ONLY by `CanvasStateView` (autosave). `render_state` is pipeline-owned, written ONLY by `EditorRenderView` at submit. They were one field, and the two writers clobbered each other — submit wiped the customer's autosaved design, and a post-submit autosave could strip a queued job's payload.
 - **`CanvasStateView.put` must keep `image_paths` out of `update_or_create`'s `defaults`.** Writing `image_paths or []` there blanked recorded paths every 2 s, which is what made DPDP erasure report `files_deleted: 0` while photos stayed on disk (migration `0011`). The column carries a model-level `default=list` (`0013`) so INSERT still works — a model default applies on INSERT only, never UPDATE.
