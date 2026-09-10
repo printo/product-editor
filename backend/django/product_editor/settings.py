@@ -371,13 +371,20 @@ SECURE_BROWSER_XSS_FILTER = True
 
 # Content Security Policy via django-csp.
 # Starts in report-only mode — headers are emitted but nothing is blocked, so we
-# can monitor violations before enforcing. Flip CSP_REPORT_ONLY=False in env once
-# the policy has been validated against the editor (Fabric.js, embed iframes).
+# can monitor violations before enforcing.
+# NOTE: this policy only decorates responses THIS Django process serves —
+# Django API/JSON responses and the Scalar docs page (/docs/api/). It does NOT
+# reach the customer-facing editor, which is served by the separate Next.js
+# frontend; that app sends its own parallel copy of this same policy (see
+# frontend/nextjs/next.config.mjs's headers()), which is what actually needs
+# validating against Fabric.js / embed-iframe behaviour before either side
+# flips CSP_REPORT_ONLY=False. Change both sides together — flipping only one
+# leaves the two apps enforcing different policies.
 CSP_DEFAULT_SRC = ("'self'",)
 CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'")  # 'unsafe-eval' for Fabric.js
 CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
 CSP_IMG_SRC = ("'self'", "data:", "blob:", "https:")
-CSP_FONT_SRC = ("'self'", "data:")
+CSP_FONT_SRC = ("'self'", "data:", "https://fonts.scalar.com")  # Scalar's API docs page (/docs/api/) self-hosts its JS but loads its webfonts from this CDN
 CSP_CONNECT_SRC = ("'self'", "https:")
 CSP_FRAME_ANCESTORS = ("'self'", "https://printo.in", "https://*.printo.in")
 CSP_REPORT_ONLY = os.getenv("CSP_REPORT_ONLY", "True").lower() not in ("false", "0", "no")
