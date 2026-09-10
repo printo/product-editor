@@ -451,62 +451,29 @@ class GenerateLayoutView(APIView):
                         order_id=order_id or '',
                     )
 
-            # Soft-proof + CMYK pipelines retired; everything renders to the
-            # standard queue now.
-            queue_name = 'standard'
+            # Use shared render submission service for job creation + dispatch
+            from api.render_submission import RenderSubmissionService, RenderSubmissionError
 
-            # Upsert CanvasData — if the same (order_id, api_key) pair is
-            # resubmitted (operator retry, customer re-upload) we update in
-            # place rather than blowing up on the unique_together constraint.
-            with transaction.atomic():
-                canvas, created = CanvasData.objects.update_or_create(
-                    order_id=order_id,
-                    api_key=api_key,        # part of the lookup key
-                    defaults=dict(
-                        layout_name=layout_name,
-                        image_paths=upload_paths,
-                        fit_mode=fit_mode,
-                        export_format=export_format,
-                        # Invalidate any prior editor-submit snapshot: a
-                        # direct-API resubmit must render THESE uploads, not
-                        # a stale render_state (whose embedded image_paths
-                        # would silently hijack the job — wrong-print class).
-                        render_state=None,
-                        # callback_url is no longer accepted at this endpoint;
-                        # configure it via POST /api/embed/session for the
-                        # embed flow. Direct callers should poll render-status.
-                        callback_url=None,
-                        requires_manual_review=False,
-                        expires_at=timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS),
-                    ),
+            service = RenderSubmissionService(api_key, order_id)
+            try:
+                # Direct API does NOT support books — use simple image_paths contract.
+                # render_state must be None so engine uses image_paths directly.
+                result = service.submit(
+                    layout_name=layout_name,
+                    image_paths=upload_paths,
+                    export_format=export_format,
+                    fit_mode=fit_mode,
+                    render_state=None,  # Direct API uses image_paths, not render_state
+                    callback_url=None,  # Direct API doesn't support webhooks
+                    queue_name='standard',
                 )
-
-                job = RenderJob.objects.create(
-                    canvas_data=canvas,
-                    celery_task_id=None,  # set after enqueue inside on_commit
-                    queue_name=queue_name,
+                return Response(result, status=status.HTTP_202_ACCEPTED)
+            except RenderSubmissionError as exc:
+                logger.error("Render submission failed for order_id=%s: %s", order_id, exc)
+                return Response(
+                    {"detail": f"Failed to enqueue job: {exc}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-
-                # Capture loop variables explicitly to avoid late-binding closure bugs.
-                _canvas_id = str(canvas.id)
-                _job_id = str(job.id)
-                _queue = queue_name
-                transaction.on_commit(
-                    lambda cid=_canvas_id, jid=_job_id, q=_queue: self._enqueue_task(cid, jid, q)
-                )
-
-            action = 'created' if created else 'resubmitted'
-            logger.info(
-                "Async job %s: order_id=%s, job_id=%s, queue=%s",
-                action, order_id, job.id, queue_name,
-            )
-
-            return Response({
-                'job_id': str(job.id),
-                'status_url': f'/api/render-status/{job.id}/',
-                'queue': queue_name,
-                'estimated_wait_seconds': self._estimate_wait_time(queue_name),
-            }, status=status.HTTP_202_ACCEPTED)
             
         except Exception as exc:
             logger.error("Error in async generate: %s", exc)
@@ -514,205 +481,7 @@ class GenerateLayoutView(APIView):
                 {"detail": f"Failed to enqueue job: {exc}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-    
-    def _enqueue_task(self, canvas_id: str, job_id: str, queue_name: str):
-        """
-        Enqueue render task to Celery and update the job record with the Celery task ID.
 
-        Called inside transaction.on_commit(), so the DB row is guaranteed to exist.
-        On failure (e.g. Redis down) the job is immediately marked 'failed' so it
-        doesn't silently stay in 'queued' forever.
-        """
-        from api.tasks import render_canvas_task
-        from api.models import RenderJob
-
-        try:
-            task = render_canvas_task.apply_async(
-                args=[canvas_id, job_id],
-                queue=queue_name,
-            )
-            RenderJob.objects.filter(id=job_id).update(celery_task_id=task.id)
-            logger.info(
-                "Task enqueued: job_id=%s, celery_task_id=%s, queue=%s",
-                job_id, task.id, queue_name,
-            )
-        except Exception as exc:
-            logger.error(
-                "Failed to enqueue task for job_id=%s (queue=%s): %s",
-                job_id, queue_name, exc,
-                exc_info=True,
-            )
-            # Mark job failed so operators can see it immediately; don't leave it stuck.
-            RenderJob.objects.filter(id=job_id).update(
-                status='failed',
-                error_message=f"Failed to dispatch task to Celery: {exc}",
-                completed_at=timezone.now(),
-            )
-
-    def _estimate_wait_time(self, queue_name: str) -> int:
-        """
-        Estimate seconds until a newly-enqueued job will start processing.
-
-        Takes worker concurrency into account: with N concurrent workers, the
-        effective wait is depth/concurrency * avg_render_time, not depth * avg_render_time.
-        """
-        from api.models import RenderJob
-        from api.tasks import WORKER_CONCURRENCY
-
-        queued_count = RenderJob.objects.filter(
-            queue_name=queue_name,
-            status__in=('queued', 'processing'),
-        ).count()
-
-        avg_time_per_job = 30 if queue_name == 'priority' else 60
-        # Divide by concurrency — jobs drain in parallel across workers.
-        concurrency = max(1, WORKER_CONCURRENCY)
-        return max(0, int((queued_count / concurrency) * avg_time_per_job))
-
-    @with_timeout(seconds=600)
-    def _handle_sync(self, request):
-        """Handle synchronous generation request - backward compatible."""
-        try:
-            layout_data = request.data.get("layout")
-            if isinstance(layout_data, str) and (layout_data.startswith('{') or layout_data.startswith('[')):
-                try:
-                    layout_data = json.loads(layout_data)
-                except Exception:
-                    pass
-
-            layout_name = layout_data.get('name') if isinstance(layout_data, dict) else layout_data
-            files = request.FILES.getlist("images")
-
-            fit_mode = request.data.get("fit_mode", "cover")
-            if fit_mode not in ("contain", "cover"):
-                fit_mode = "cover"
-
-            export_format = request.data.get("export_format", "png")
-            if export_format not in ("png", "pdf"):
-                export_format = "png"
-
-            if not layout_name or not files:
-                return Response(
-                    {"detail": "layout and images are required"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if not self._is_valid_layout_name(layout_name):
-                return Response(
-                    {"detail": f"Invalid layout name: {layout_name}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            try:
-                validate_image_files(files)
-            except ValidationError as e:
-                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-            api_key = None
-            if isinstance(request.user, APIKeyUser):
-                api_key = request.user.api_key
-
-            upload_paths = []
-            storage = get_storage()
-            start_time = time.time()
-
-            try:
-                from api.models import LayoutCatalogue
-
-                for f in files:
-                    fname = get_random_string(8) + "_" + f.name
-                    # Direct-API sync path has no order context -> _no_order bucket.
-                    path = storage.save_upload(fname, f.file)
-                    upload_paths.append(path)
-                    if api_key:
-                        UploadedFile.objects.create(
-                            api_key=api_key,
-                            file_path=path,
-                            original_filename=f.name,
-                            file_size_bytes=f.size,
-                            file_type='image',
-                            # Synchronous direct-API path carries no order id;
-                            # left blank, swept by the GC on age.
-                            order_id='',
-                        )
-
-                # Load layout from LayoutCatalogue (Postgres)
-                layout_def = None
-                try:
-                    layout_obj = LayoutCatalogue.objects.get(
-                        name=layout_name,
-                        is_deprecated=False,
-                    )
-                    layout_def = layout_obj.definition
-                except LayoutCatalogue.DoesNotExist:
-                    return Response(
-                        {"detail": f"Layout '{layout_name}' not found"},
-                        status=status.HTTP_404_NOT_FOUND,
-                    )
-
-                # Give every render request its own subdirectory so concurrent
-                # jobs for the same layout name never overwrite each other's files.
-                import uuid as _uuid
-                render_id = str(_uuid.uuid4())
-                render_exports_dir = os.path.join(settings.EXPORTS_DIR, render_id)
-                os.makedirs(render_exports_dir, exist_ok=True)
-
-                engine = LayoutEngine(storage.layouts_dir(), render_exports_dir, layout_definition=layout_def)
-                generation_time_ms = 0
-
-                # ── PNG / PDF export at 300 DPI ──────────────────────────
-                outputs = engine.generate(
-                    layout_name, upload_paths, fit_mode=fit_mode, export_format=export_format,
-                )
-                generation_time_ms = int((time.time() - start_time) * 1000)
-
-                if api_key and outputs:
-                    for out_path in outputs:
-                        ExportedResult.objects.create(
-                            api_key=api_key,
-                            layout_name=layout_name,
-                            export_file_path=out_path,
-                            input_files=upload_paths,
-                            generation_time_ms=generation_time_ms,
-                            file_size_bytes=os.path.getsize(out_path),
-                        )
-
-                rel = [os.path.relpath(p, settings.EXPORTS_DIR) for p in outputs]
-                logger.info(
-                    "Layout generated: %s by %s (%d files, %d ms, format=%s)",
-                    layout_name,
-                    api_key.name if api_key else "unknown",
-                    len(rel),
-                    generation_time_ms,
-                    export_format,
-                )
-                return Response({
-                    "canvases": rel,
-                    "layout_name": layout_name,
-                    "export_format": export_format,
-                    "generation_time_ms": generation_time_ms,
-                })
-
-            except TimeoutError:
-                logger.error("Timeout generating layout: %s", layout_name)
-                return Response(
-                    {"detail": "Layout generation timed out. Try with fewer/smaller images."},
-                    status=status.HTTP_408_REQUEST_TIMEOUT,
-                )
-            except Exception as exc:
-                logger.error("Error generating layout '%s': %s", layout_name, exc)
-                return Response(
-                    {"detail": f"Failed to generate layout: {exc}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
-        except Exception as exc:
-            logger.error("Unexpected error in GenerateLayoutView: %s", exc)
-            return Response(
-                {"detail": "An unexpected error occurred"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-    
     @staticmethod
     def _is_safe_layout_name(name: str) -> bool:
         """
@@ -2679,11 +2448,7 @@ class EditorRenderView(APIView):
                 uid = str(frame.get('upload_id', '') or '').strip()
                 image_paths.append(upload_id_to_path.get(uid, ''))
 
-        # ── Persist CanvasData + RenderJob atomically ───────────────────────
-        # Soft-proof + CMYK pipelines retired; everything routes to 'standard'.
-        queue_name = 'standard'
-        expires_at = timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS)
-
+        # ── Snapshot the render contract ──────────────────────────────────────
         # Snapshot the render contract into its own field. editor_state stays
         # untouched: it is the frontend's autosaved design, and overwriting it
         # here is what used to blank the editor after every submit. Embedding
@@ -2696,50 +2461,24 @@ class EditorRenderView(APIView):
             'include_uploads': include_uploads,
         }
 
-        try:
-            with db_transaction.atomic():
-                canvas_obj, _ = CanvasData.objects.update_or_create(
-                    order_id=order_id,
-                    api_key=api_key,
-                    defaults={
-                        'layout_name': layout_name,
-                        'image_paths': image_paths,
-                        'fit_mode': 'cover',
-                        'export_format': export_format,
-                        'render_state': render_state,
-                        'callback_url': callback_url,
-                        'expires_at': expires_at,
-                    },
-                )
-                job = RenderJob.objects.create(
-                    canvas_data=canvas_obj,
-                    status='queued',
-                    queue_name=queue_name,
-                )
-                # on_commit inside atomic() so it fires only after the
-                # transaction commits — task is guaranteed to find the DB rows.
-                _canvas_id = str(canvas_obj.id)
-                _job_id = str(job.id)
-                _queue = queue_name
-                db_transaction.on_commit(
-                    lambda: render_canvas_task.apply_async(
-                        args=[_canvas_id, _job_id],
-                        queue=_queue,
-                    )
-                )
+        # ── Submit via shared render submission service ──────────────────────
+        from api.render_submission import RenderSubmissionService, RenderSubmissionError
 
-        except Exception as exc:
+        service = RenderSubmissionService(api_key, order_id)
+        try:
+            result = service.submit(
+                layout_name=layout_name,
+                image_paths=image_paths,
+                export_format=export_format,
+                fit_mode='cover',
+                render_state=render_state,
+                callback_url=callback_url,
+                queue_name='standard',
+            )
+            return Response(result, status=status.HTTP_202_ACCEPTED)
+        except RenderSubmissionError as exc:
             logger.error("EditorRenderView: failed to create render job for order_id=%s: %s", order_id, exc)
             return Response({'detail': 'Failed to submit render job.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        logger.info("Editor render job %s queued: order_id=%s, layout=%s, queue=%s", _job_id, order_id, layout_name, queue_name)
-
-        return Response({
-            'job_id': _job_id,
-            'order_id': order_id,
-            'status_url': f'/api/render-status/{_job_id}/',
-            'queue': queue_name,
-        }, status=status.HTTP_202_ACCEPTED)
 
 
 # ─── Fonts management ─────────────────────────────────────────────────────────
