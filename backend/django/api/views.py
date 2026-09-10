@@ -18,6 +18,7 @@ from django.core.exceptions import ValidationError
 import platform
 import signal
 import threading
+import sentry_sdk
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, inline_serializer
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
@@ -93,6 +94,53 @@ class HealthView(APIView):
             "database": "connected",
             "timestamp": int(time.time() * 1000)
         })
+
+
+class CSPReportView(APIView):
+    """
+    Public, unauthenticated sink for browser-generated CSP violation reports.
+
+    Both django-csp's own policy (CSP_REPORT_URI below) and the Next.js
+    frontend's parallel copy (next.config.mjs) point their `report-uri` here —
+    nginx routes all of /api/* to this backend regardless of which app
+    rendered the page that violated, so one endpoint covers both. Never
+    called by anything but a browser; there is no legitimate manual use.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        tags=["csp"],
+        summary="CSP violation report sink",
+        description="Browsers POST here automatically per the `report-uri` CSP directive. Not meant to be called directly.",
+        auth=[],
+        request=None,
+        responses={204: None},
+    )
+    def post(self, request):
+        try:
+            payload = json.loads(request.body or b"{}")
+        except (ValueError, UnicodeDecodeError):
+            payload = {}
+        # Legacy report-uri format wraps the report in a "csp-report" key;
+        # tolerate a bare report body too in case a browser ever sends one.
+        report = payload.get("csp-report", payload) if isinstance(payload, dict) else {}
+        logger.warning(
+            "CSP violation: directive=%s blocked=%s document=%s",
+            report.get("violated-directive") or report.get("effective-directive"),
+            report.get("blocked-uri"),
+            report.get("document-uri"),
+            extra={"csp_report": report},
+        )
+        # No-ops safely if SENTRY_DSN isn't set (sentry_sdk.capture_message
+        # returns None when no client is initialized) — see settings.py's
+        # "Sentry Error Tracking Initialization" for the one-time init.
+        sentry_sdk.capture_message(
+            f"CSP violation: {report.get('violated-directive') or report.get('effective-directive') or 'unknown'}",
+            level="warning",
+        )
+        # 204: browsers don't read the response body for report-uri deliveries.
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ConfigView(APIView):
