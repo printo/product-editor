@@ -70,11 +70,14 @@ const nextConfig = {
     const isReportOnly = !['false', '0', 'no'].includes(reportOnlyEnv);
     const cspDirectives = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // 'unsafe-eval' for Fabric.js
-      "style-src 'self' 'unsafe-inline'",
+      // 'unsafe-eval' for Fabric.js; accounts.google.com for the /login
+      // page's Google Identity Services (GIS) "Sign in with Google" script.
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com", // GIS injects its own stylesheet
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
       "connect-src 'self' https:",
+      "frame-src 'self' https://accounts.google.com", // GIS opens its sign-in flow in a framed popup
     ].join('; ');
 
     return [
