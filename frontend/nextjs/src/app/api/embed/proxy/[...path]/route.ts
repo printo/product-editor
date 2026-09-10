@@ -145,6 +145,7 @@ const GET_ONLY: readonly ProxyMethod[] = ['GET'];
 // with a PIA session, so restricting the embed side costs the ops UI nothing.
 const ALLOWED_PATH_METHODS: Record<string, readonly ProxyMethod[]> = {
   'layouts': GET_ONLY,              // layout details (no list/manage)
+  'layouts/masks': GET_ONLY,        // layout mask assets (calendar month artwork, backgrounds)
   'canvas-state': ['GET', 'PUT'],   // editor auto-save / restore
   'editor/render': ['POST'],        // server-side render submission
   'editor/init': GET_ONLY,          // batched layout + fonts on editor mount (C6)

@@ -13,6 +13,7 @@ import { isPathAllowed } from '../[...path]/route';
 describe('isPathAllowed — customer flows keep working', () => {
   it.each([
     ['layouts/classic_4x6', 'GET'],
+    ['layouts/masks/month-background.png', 'GET'],
     ['editor/init', 'GET'],
     ['editor/render', 'POST'],
     ['canvas-state/PE-1234/', 'GET'],
