@@ -1022,7 +1022,7 @@ def garbage_collector_task():
     """
     import shutil
     from datetime import timedelta
-    from api.models import ExportedResult, CanvasData, RenderJob, UploadedFile
+    from api.models import ExportedResult, CanvasData, RenderJob, UploadedFile, EmbedSession
 
     now = timezone.now()
     # Same constant that sets CanvasData.expires_at and the expires_at we send
@@ -1309,6 +1309,21 @@ def garbage_collector_task():
     except Exception as exc:
         logger.error("GC: chunk staging sweep failed: %s", exc)
 
+    # ── Expired embed session cleanup ────────────────────────────────────────
+    # EmbedSession rows accumulate indefinitely after their 2-hour token
+    # expiry. Keeping ~30 days of history (one cleanup pass per order flow
+    # recovery scenario) is sufficient; anything older is just DB bloat.
+    embed_sessions_deleted = 0
+    try:
+        embed_cutoff = now - timedelta(days=30)
+        embed_sessions_deleted, _ = EmbedSession.objects.filter(
+            expires_at__lt=embed_cutoff
+        ).delete()
+        if embed_sessions_deleted:
+            logger.info("GC: deleted %d expired EmbedSession row(s)", embed_sessions_deleted)
+    except Exception as exc:
+        logger.error("GC: failed to delete expired EmbedSession rows: %s", exc)
+
     result = {
         'chunk_staging': chunk_staging_result,
         'orphan_exports': orphan_result,
@@ -1322,6 +1337,7 @@ def garbage_collector_task():
         'canvas_data_deleted': canvas_deleted,
         'tombstones_deleted': tombstones_deleted,
         'audit_rows_deleted': audit_deleted,
+        'embed_sessions_deleted': embed_sessions_deleted,
         'disk_usage_percent': usage_percent,
     }
 
