@@ -32,7 +32,7 @@ lowering it.**
 | Orphaned export dirs | `EXPORTS_DIR/<uuid>/` with no DB row | Yes (composited photos) | Renders killed mid-flight (OOM/SIGKILL) whose rows later cascaded away | retention + 1 day | `services/orphan_exports.py`, gated by `GC_ORPHAN_SWEEP` (`off`/`dry_run`/`delete`; **defaults to `dry_run` — reports only, deletes nothing**) |
 | Sync render output | `ExportedResult` rows + files | Yes | `GenerateLayoutView` | `expires_at` stamped on the row (`is_deleted` soft-delete, tombstone dropped later) | GC; order purge (hard-delete) |
 | Design state | `CanvasData` (incl. `editor_state` dataURL previews, `render_state`) | Yes (photo thumbnails, transforms) | Autosave + submit | `EXPORT_RETENTION_DAYS` | GC row delete; order purge |
-| Embed sessions | `EmbedSession` rows (`order_id`, `callback_url`) | Partial (order id, caller URL) | `POST /api/embed/session` | 2 h token validity (sliding, extended while editing); **rows themselves persist** | Order purge. *Gap: no scheduled sweep of expired rows — see below.* |
+| Embed sessions | `EmbedSession` rows (`order_id`, `callback_url`) | Partial (order id, caller URL) | `POST /api/embed/session` | 2 h token validity (sliding, extended while editing); **rows expire at `expires_at`, swept by GC** (2026-09-10, commit `56a2136`) | Order purge; `garbage_collector_task` deletes rows older than 30 days |
 | API audit trail | `APIRequest` rows (`ip_address`, `user_agent`) | **Yes** (IP) | `APIRequestLoggingMiddleware` (one row per non-exempt API call) | `API_AUDIT_RETENTION_DAYS`, default **90** — deliberately outlives the data it describes, so "who touched this order" is still answerable | `garbage_collector_task`, independent of file retention |
 | Client file cache | Browser IndexedDB (`file-store.ts`) | Yes (original photos) | Editor (B1 persistence) | Device-local; stale orders pruned after 7 days, evicted under quota pressure | Client-side prune (Phase 3); never leaves the device |
 | Orientation detection | — | Yes (transient image bytes) | `POST /api/orientation/detect` | **Nothing persisted** — inference is stateless | n/a |
@@ -91,10 +91,6 @@ landed, so there was nothing to backfill.
 
 ## Known gaps (recommended follow-ups)
 
-- **`EmbedSession` rows** are never swept after their 2 h token expiry — add a
-  GC pass deleting sessions older than ~30 days. Still open. The rows hold an
-  `order_id` and the caller's `callback_url`, not customer photos, so the
-  exposure is low, but it is unbounded growth of order-linked data.
 - **`GC_ORPHAN_SWEEP` is still `dry_run` in production** — stranded export
   directories are counted and reported but not deleted, so customer photos in
   them outlive the retention window. Read a few nights of
@@ -104,6 +100,12 @@ landed, so there was nothing to backfill.
 
 ### Closed
 
+- **`EmbedSession` rows** accumulating after 2 h token expiry — closed 2026-09-10,
+  commit `56a2136`. GC sweep now deletes rows with `expires_at < (now - 30 days)`,
+  integrated into `garbage_collector_task`. Runs every 6 hours; results reported
+  under `garbage_collector.embed_sessions_deleted` on `GET /api/celery/monitor/`.
+  The rows hold `order_id` and caller `callback_url` (not customer photos), so the
+  exposure was low, but the growth was unbounded.
 - **`APIRequest` unbounded growth** — closed by migration `0014`. The rows are
   now swept on `API_AUDIT_RETENTION_DAYS` (90). Note the table was also *empty*
   until `0014`: the model shipped in the initial commit with nothing writing to
