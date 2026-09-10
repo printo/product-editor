@@ -54,7 +54,45 @@ const nextConfig = {
     // time via NEXT_PUBLIC_EMBED_FRAME_ANCESTORS for staging or partner hosts.
     const frameAncestors = process.env.NEXT_PUBLIC_EMBED_FRAME_ANCESTORS
       || "'self' https://printo.in https://*.printo.in";
+
+    // Mirrors backend/django/product_editor/settings.py's CSP_* directives
+    // (duplicated across the language boundary deliberately, same as the
+    // calendar/caption-layout TS↔Python pairs — keep both in sync by hand).
+    // Django's own copy of this policy only reaches its own responses
+    // (JSON/API, the Scalar docs page); it never reaches these pages, which
+    // this server renders. Without this, the customer-facing editor —
+    // Fabric.js, uploaded-photo previews, the embed iframe — had no CSP
+    // coverage of its own at all. frame-ancestors is deliberately excluded
+    // from this policy and left to the separate, always-enforcing rule below:
+    // it's already validated and load-bearing, independent of whatever this
+    // broader report-only rollout is doing.
+    const reportOnlyEnv = (process.env.CSP_REPORT_ONLY ?? 'True').toLowerCase();
+    const isReportOnly = !['false', '0', 'no'].includes(reportOnlyEnv);
+    const cspDirectives = [
+      "default-src 'self'",
+      // 'unsafe-eval' for Fabric.js; accounts.google.com for the /login
+      // page's Google Identity Services (GIS) "Sign in with Google" script.
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com", // GIS injects its own stylesheet
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data:",
+      "connect-src 'self' https:",
+      "frame-src 'self' https://accounts.google.com", // GIS opens its sign-in flow in a framed popup
+    ].join('; ');
+
     return [
+      {
+        // Whole app, mirroring CSP_REPORT_ONLY exactly like the backend does —
+        // flip both together, or the two halves of the app enforce different
+        // policies.
+        source: '/:path*',
+        headers: [
+          {
+            key: isReportOnly ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy',
+            value: cspDirectives,
+          },
+        ],
+      },
       {
         // Embed editor entry — printo.in iframes /editor/layout/<name>?token=...
         // X-Frame-Options is the legacy fallback; modern browsers use CSP
