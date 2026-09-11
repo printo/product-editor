@@ -52,11 +52,16 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
     # High-frequency paths that would swamp the table without adding anything an
     # investigation would want. Chunk PUTs fire hundreds of times per order and
     # the /complete call that finalises the file IS recorded; render-status is
-    # polled every few seconds for the life of a job.
+    # polled every few seconds for the life of a job. /csp-report is a
+    # different kind of noise: an anonymous, unauthenticated browser callback
+    # with no api_key to attribute — the audit trail's whole purpose (who did
+    # what) doesn't apply, and CSPReportView's own logger.warning + Sentry
+    # capture is the actual signal for this one.
     AUDIT_EXEMPT_PREFIXES = (
         '/api/health',
         '/api/config',
         '/api/render-status/',
+        '/api/csp-report',
     )
     AUDIT_EXEMPT_RE = re.compile(r'^/api/upload/[^/]+/chunk')
 

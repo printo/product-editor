@@ -7,7 +7,7 @@ from .views import (
     CanvasStateView, CalendarStylesView, HolidaysView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
     OrientationDetectView, HeicConvertView,
-    EditorRenderView, EditorInitView,
+    EditorRenderView, EditorInitView, CSPReportView,
 )
 
 urlpatterns = [
@@ -18,6 +18,7 @@ urlpatterns = [
     path("layouts/<str:name>", GetLayoutView.as_view(), name="layout-detail"),
     path("health", HealthView.as_view(), name="health"),
     path("config", ConfigView.as_view(), name="config"),
+    path("csp-report", CSPReportView.as_view(), name="csp-report"),
     path("orientation/detect", OrientationDetectView.as_view(), name="orientation-detect"),
     path("heic/convert", HeicConvertView.as_view(), name="heic-convert"),
     path("exports/<path:file_path>", SecureExportDownloadView.as_view(), name="export-download"),

@@ -78,6 +78,11 @@ const nextConfig = {
       "font-src 'self' data:",
       "connect-src 'self' https:",
       "frame-src 'self' https://accounts.google.com", // GIS opens its sign-in flow in a framed popup
+      // Relative path: nginx routes all of /api/* to the Django backend
+      // regardless of which app served the violating page, so this resolves
+      // correctly from pages this server renders too. See CSPReportView
+      // (backend/django/api/views.py) and settings.py's CSP_REPORT_URI.
+      "report-uri /api/csp-report",
     ].join('; ');
 
     return [
