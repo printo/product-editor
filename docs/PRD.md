@@ -408,13 +408,15 @@ trail). **The remaining gap is not in this codebase.**
 
 | Gap | Where it lives | Consequence while open |
 |---|---|---|
-| **Webhook consumer** | printo.in storefront backend | Print files are generated, signed, and offered — and nothing collects them. The manual handoff this PRD exists to delete is still in the loop. Implementation guide: [`INTEGRATION.md`](INTEGRATION.md). |
+| ~~**Webhook consumer**~~ | printo.in storefront backend | **Confirmed working, verified 2026-09-11.** 43 real `EmbedSession` rows carrying a live `callback_url` (`https://alpha.printo.in/api/pe-callback`), created 2026-09-04 through 2026-09-11 — a full week of real order traffic, not a test. The corresponding 45 ZIP-download fetches by the real "Printo.in Storefront" API key all returned `200`, three per job (matching the print/mock/uploads split archives). Cross-checked against a real order (576430) showing an attached, in-production design file in Printo's internal ops tool. **Open question, not yet resolved:** this was verified against `alpha.printo.in` specifically — confirm with printo.in whether that is their production domain or a pre-production tier before calling this fully closed. Implementation guide: [`INTEGRATION.md`](INTEGRATION.md). |
 | ~~**SKU → layout data**~~ | ~~`storage/sku_layouts.json`~~ | **No longer a blocker (2026-09-04).** Resolution moved to printo.in, which passes the resolved layout name when creating the embed session. Endpoint removed. |
 | **Production sign-off** | Mohan / production | Rollout can't be scheduled without a fallback path for a print-quality issue that preflight would have caught. |
 
-The honest read: the engineering side of Track B is done and the automation
-outcome is still blocked on two integration items and one approval. Detail and
-ownership in §8.0.
+The honest read: the engineering side of Track B is done, and as of
+2026-09-11 the webhook consumer is confirmed working against a week of real
+order traffic (see above) — pending confirmation of which printo.in domain
+that traffic represents. That leaves production sign-off as the one
+remaining approval before rollout. Detail and ownership in §8.0.
 
 ---
 
@@ -484,7 +486,7 @@ find it. Ordered by what blocks the product outcome.
 
 | Priority | Action | Owner | Blocks |
 |---|---|---|---|
-| **1** | **printo.in storefront must consume the webhook** — accept `POST /api/internal/pe-callback`, verify the `X-Signature` HMAC against the api_key, fetch `mock_download_url` + `print_download_url` (or the combined `download_url`) with the api_key as Bearer auth, attach to the order. Guide: [`INTEGRATION.md`](INTEGRATION.md). | printo.in backend | **The entire automation outcome.** The Product Editor side has been done since May 5; until this lands, files are generated and never collected, so the manual preflight step this PRD exists to remove is still in the loop. |
+| ~~**1**~~ | ~~printo.in storefront must consume the webhook~~ — **confirmed working, verified 2026-09-11.** 43 real `EmbedSession` rows with `callback_url=https://alpha.printo.in/api/pe-callback`, created 2026-09-04 through 2026-09-11 (a full week of real order traffic). 45 corresponding ZIP-download fetches by the real "Printo.in Storefront" API key all returned `200`, three per job (matching the print/mock/uploads split). Cross-checked against a real order (576430) showing an attached, in-production design file in Printo's internal ops tool. Guide: [`INTEGRATION.md`](INTEGRATION.md). | ~~printo.in backend~~ | **Not fully closed:** verified against `alpha.printo.in` specifically — confirm with printo.in whether that is production or a pre-production tier. |
 | ~~**2**~~ | ~~Populate `storage/sku_layouts.json`~~ — **dropped 2026-09-04.** printo.in resolves SKU → layout itself and passes the layout name into the embed session; the endpoint and file were removed. | ~~Viji / Catalog Ops~~ | Closed — no longer needed. |
 | ~~**2b**~~ | ~~Move `qty` enforcement server-side~~ — **shipped 2026-09-04.** `qty` is now a field on `POST /api/embed/session`, stored on `EmbedSession`, injected as `X-Order-Qty` by the embed proxy, and enforced by `EditorRenderView` (over-count → 400; under-count still accepted, deliberately). The browser-editable `?qty=N` URL param survives as a rollout fallback but is not enforced. printo.in should move the value into the session body — see [`INTEGRATION.md`](INTEGRATION.md) §4. | ~~Kanna~~ | Closed. |
 | **3** | **Production readiness sign-off** — can production accept automated output without preflight review, and what is the fallback if a print-quality issue slips through? | Mohan | Rollout decision (§7). |
