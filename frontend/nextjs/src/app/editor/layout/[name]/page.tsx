@@ -2428,11 +2428,17 @@ export default function LayoutEditorPage() {
       // canvas itself, so every later canvas stays aligned with its photos
       // and the identity merge preserves their edits.
       const frameCount = layout?.frames?.length || 1;
+      const nextFiles = [
+        ...files.slice(0, idx * frameCount),
+        ...files.slice((idx + 1) * frameCount),
+      ];
       setCanvases(prev => prev.filter((_, i) => i !== idx));
-      setFiles(prev => [
-        ...prev.slice(0, idx * frameCount),
-        ...prev.slice((idx + 1) * frameCount),
-      ]);
+      setFiles(nextFiles);
+      // Deleting can drop the placed count back under the order quantity —
+      // re-run the same check processSelectedFiles does so the shortfall
+      // banner reappears/updates instead of only ever reflecting upload-time.
+      const qtyVerdict = checkOrderQty(nextFiles.length, orderQty, surfaceStates.length);
+      setQtyUnder(qtyVerdict.status === 'under' ? { uploaded: qtyVerdict.uploaded, needed: qtyVerdict.needed } : null);
     }
     setDeleteConfirm(null);
   };
@@ -2919,19 +2925,6 @@ export default function LayoutEditorPage() {
       repickConfirmedRef.current = true;
       void processSelectedFiles(held);
     }
-  };
-
-  // ── Qty: auto-fill (cycle images to fill remaining slots) ─────────────────
-  const handleAutoFill = () => {
-    if (!qtyUnder || files.length === 0) return;
-    const needed = qtyUnder.needed - files.length;
-    const filled = [...files];
-    for (let i = 0; i < needed; i++) filled.push(files[i % files.length]);
-    // These duplicates are deliberate — exempt them from the duplicate-fill
-    // pre-submit warning (Phase 3).
-    filled.forEach(f => intentionalDupesRef.current.add(duplicateFingerprint(f)));
-    setQtyUnder(null);
-    setFiles(filled);
   };
 
   // ── Qty: fill with user-chosen duplicates from picker ─────────────────────
@@ -3846,8 +3839,7 @@ export default function LayoutEditorPage() {
                 {qtyUnder.uploaded} of {qtyUnder.needed} images uploaded
               </p>
               <p className="text-[12px] text-slate-500 mt-1.5 leading-relaxed">
-                {qtyUnder.needed - qtyUnder.uploaded} more needed to match your order quantity. Upload more photos, or fill the remaining
-                slot{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''} from the images you already have.
+                Upload {qtyUnder.needed - qtyUnder.uploaded} more photo{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}, or repeat from the images already uploaded.
               </p>
             </div>
             <button
@@ -3871,16 +3863,16 @@ export default function LayoutEditorPage() {
               lines each inside a 375 px viewport. */}
           <div className="mt-4 flex flex-col sm:flex-row items-stretch gap-2">
             <button
-              onClick={handleAutoFill}
-              className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
-            >
-              Auto-fill {qtyUnder.needed - qtyUnder.uploaded} remaining
-            </button>
-            <button
               onClick={() => { setShowAutoFillPicker(true); setPickerSelected(new Set()); }}
               className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
             >
               Choose which to repeat
+            </button>
+            <button
+              onClick={() => uploadInputRef.current?.click()}
+              className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+            >
+              Upload More
             </button>
           </div>
         </div>
@@ -4287,6 +4279,28 @@ export default function LayoutEditorPage() {
                 being three independent flex-row siblings, unchanged from before. */}
             <div className="flex items-center justify-between gap-3 md:contents">
             <div className="flex items-center gap-3 min-w-0 md:flex-none">
+              {/* Embed only — the iframe has no "Back to Templates" destination to
+                  push to (that's dashboard-only, see the HeaderContext effect
+                  above). Deliberately NOT router.back()/history.back(): a nested
+                  iframe shares its ONE browser-tab history with the parent page
+                  (there is no separate per-iframe back stack), so calling it here
+                  could navigate the PARENT printo.in page backward — or, if the
+                  tab's history has nothing printo.in-related immediately prior,
+                  take the customer off printo.in's site entirely mid-checkout.
+                  Instead this mirrors the existing pe:render_job pattern: tell the
+                  parent the customer wants to go back and let THEIR app decide
+                  what that means. No-op until printo.in adds a listener — see
+                  docs/INTEGRATION.md. */}
+              {embedToken && (
+                <button
+                  onClick={() => window.parent.postMessage({ type: 'pe:back', orderID: orderId }, parentOrigin)}
+                  aria-label="Back"
+                  title="Back"
+                  className="p-2 md:p-2.5 rounded-full hover:bg-slate-100 transition-all text-slate-600 hover:text-slate-900 shrink-0"
+                >
+                  <ArrowLeft className="w-4 h-4 md:w-5 md:h-5" />
+                </button>
+              )}
               <img src="/printo-logo.webp" alt="Printo" className="h-10 md:h-12 w-auto shrink-0" />
               <div className="w-px h-8 md:h-10 bg-slate-200 shrink-0" />
               {/* Layout name display — hidden per CEO request (2026-09-09) */}

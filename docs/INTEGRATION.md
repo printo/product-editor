@@ -542,6 +542,19 @@ window.parent.postMessage(
 
 This is purely for the storefront's **UX** ("your design is being prepared") — the actual file delivery happens via the webhook above. Don't rely on this message for fulfillment; it's optional and best-effort.
 
+### `pe:back` — customer tapped the editor's Back button
+
+```js
+window.parent.postMessage(
+  { type: 'pe:back', orderID: '<order_id>' },
+  parentOrigin // strictly locked, never '*'
+);
+```
+
+The embed editor shows a Back arrow (top-left, before the Printo logo). We deliberately do **not** use the browser's own back navigation for it: an iframe doesn't get its own back/forward stack — browsers keep one shared history per tab across the parent page and every frame in it — so calling browser-back from inside the iframe risks navigating **your** page backward unpredictably, or in the worst case taking the customer off your site entirely mid-checkout if there's nothing of yours earlier in that tab's history.
+
+Instead we hand you the signal and let your frontend decide what "back" means in your own flow (close the step, navigate your own router, etc.) — same trust model as `pe:render_job`. **Until you add a listener for this message, the button is a safe no-op** — nothing happens, no navigation of any kind, so there's no urgency, but the Back button won't do anything for your customers until you wire it up.
+
 ---
 
 ## Reference
