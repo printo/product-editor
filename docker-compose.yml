@@ -168,10 +168,14 @@ services:
     deploy:
       resources:
         # Gunicorn (2*nproc+1) workers × 4 threads + persistent DB connections;
-        # bound at 2 GB so a leak in one worker can't OOM the whole container.
+        # a leak in one worker shouldn't OOM the whole container. BACKEND_MEM_LIMIT
+        # is derived from host memory at deploy time by
+        # scripts/compute-mem-limits.sh (see deploy.sh) so this scales with the
+        # box instead of staying pinned to whatever was hardcoded here; the 2G
+        # fallback is today's fixed value, used verbatim if that script never ran.
         # Reservation lets the orchestrator schedule with comfortable headroom.
         limits:
-          memory: 2G
+          memory: ${BACKEND_MEM_LIMIT:-2G}
         reservations:
           memory: 512M
     restart: unless-stopped
@@ -278,8 +282,10 @@ services:
       - web
     deploy:
       resources:
+        # CELERY_MEM_LIMIT: see the same note on the backend service above —
+        # derived from host memory by scripts/compute-mem-limits.sh, 2G fallback.
         limits:
-          memory: 2G
+          memory: ${CELERY_MEM_LIMIT:-2G}
         reservations:
           memory: 512M
     restart: unless-stopped

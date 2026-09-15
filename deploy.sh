@@ -533,6 +533,18 @@ print_info "Mode: ${MODE}"
 print_info "Started at: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
+# ── Size backend/celery memory limits from this host's actual spec ─────────
+# Recomputed on every deploy rather than hardcoded, so a server upgrade takes
+# effect on the next deploy with no docker-compose.yml edit. Mirrors
+# CELERY_CONCURRENCY being left unset so Celery re-detects CPU count at every
+# worker boot. See scripts/compute-mem-limits.sh for the formula; exported
+# here so every docker-compose invocation below picks it up via
+# docker-compose.yml's ${BACKEND_MEM_LIMIT:-2G} / ${CELERY_MEM_LIMIT:-2G}.
+eval "$(bash ./scripts/compute-mem-limits.sh)"
+print_info "Backend memory limit: ${BACKEND_MEM_LIMIT}"
+print_info "Celery worker memory limit: ${CELERY_MEM_LIMIT}"
+echo ""
+
 # Backup existing images
 print_header "Backing Up Current Images"
 if [[ "$MODE" == "both" ]]; then
