@@ -185,10 +185,6 @@ function formatWait(seconds: number): string {
  * "retro_polaroid_-_4.2x3.5_in" render as readable text here without ever
  * touching the identifier itself or anything sent to the API.
  */
-// Layout name heading is hidden per CEO request (2026-09-09, see the
-// commented-out <h1> below) rather than deleted; this stays for when it
-// comes back.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function formatLayoutDisplayName(rawName: string): string {
   return rawName
     .replace(/_+/g, ' ')
@@ -4314,10 +4310,14 @@ export default function LayoutEditorPage() {
               )}
               <img src="/printo-logo.webp" alt="Printo" className="h-10 md:h-12 w-auto shrink-0" />
               <div className="w-px h-8 md:h-10 bg-slate-200 shrink-0" />
-              {/* Layout name display — hidden per CEO request (2026-09-09) */}
-              {/* <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter truncate">
+              {/* Layout name display — hidden per CEO request (2026-09-09), restored per
+                  management feedback (2026-09-15): the original ask was to drop the raw
+                  technical identifier (e.g. "retro_polaroid_-_4.2x3.5_in"), not the name
+                  entirely. formatLayoutDisplayName() already exists for exactly this —
+                  it title-cases and de-underscores the raw name into something readable. */}
+              <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter truncate">
                 {formatLayoutDisplayName(layout?.name || layoutName)}
-              </h1> */}
+              </h1>
             </div>
             {/* Top upload section — hidden when empty (empty state shows primary upload
                 area only); revealed once user uploads at least one photo (secondary "Add more" action).
