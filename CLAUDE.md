@@ -803,6 +803,9 @@ completion webhook.
 | Type | Sender | When | Payload |
 |---|---|---|---|
 | `pe:render_job` | Product Editor iframe | After every embed submit; parent's frontend uses this for "preparing your design" UX. Actual file delivery is via the webhook (see `EmbedSession.callback_url`). | `{ type, jobId, orderID }` |
+| `pe:back` | Product Editor iframe | Customer taps the embed's Back button (top-left, before the logo, editor page only). | `{ type, orderID }` |
+
+**Why `pe:back` exists instead of just calling browser history.** An iframe does not have its own back/forward stack — the WHATWG spec has ONE joint session history per browser tab, shared across the parent page and every frame in it. `history.back()`/`router.back()` called from inside the iframe therefore acts on the *whole tab's* history, not "steps taken inside the editor." Verified empirically (real nested `<iframe>`, not just a browser tab) before landing on this: it can walk the parent page backward through printo.in's own history — which might be fine — or, if the tab's history has nothing printo.in-related immediately before this point, carry the customer off printo.in's site entirely, mid-checkout, with no warning. `pe:back` sidesteps that by not touching navigation at all — it just tells the parent "customer tapped back," and printo.in's frontend decides what that means in their own flow (same trust boundary as `pe:render_job`). **No-op until printo.in's team adds a listener** — see [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 **targetOrigin is locked, never `'*'`.** Resolution chain in [editor page](frontend/nextjs/src/app/editor/layout/[name]/page.tsx) `parentOrigin`: `window.location.ancestorOrigins[0]` (Chromium/Safari) → `document.referrer` origin → `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` env → `https://printo.in` default. So an unrelated outer page can't eavesdrop on completion payloads (which include order_id, job_id, and dataUrls for client-rendered jobs).
 
