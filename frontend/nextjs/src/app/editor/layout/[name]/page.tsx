@@ -4315,30 +4315,45 @@ export default function LayoutEditorPage() {
                 competing ways to add photos rather than one clear one. */}
             {(files.length > 0 || surfaceStates.some(s => s.files.length > 0)) && !qtyUnder && (
               <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink relative group">
-                <div
-                  className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all cursor-pointer", 'border-emerald-200 bg-emerald-50/30')}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => uploadInputRef.current?.click()}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-                      e.preventDefault();
-                      uploadInputRef.current?.click();
-                    }
-                  }}
-                >
-                  <div className="w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-emerald-500 text-white">
-                    <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                {qtyNeeded > 0 && totalUploadedCount >= qtyNeeded ? (
+                  // Order quantity fully met — show plain info, not a clickable
+                  // "add more" pill: clicking it would immediately hit the
+                  // over-qty hard-cap modal (there's nowhere left to add to),
+                  // so an actionable-looking control here is a dead end.
+                  <div className="flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border border-emerald-200/60 bg-emerald-50/30">
+                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500 text-white">
+                      <Check className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                    </div>
+                    <p className="flex-1 min-w-0 truncate text-[10px] md:text-[11px] font-black text-emerald-700/80 uppercase tracking-tight">
+                      {`${totalUploadedCount} of ${qtyNeeded} images uploaded`}
+                    </p>
                   </div>
-                  <p className="flex-1 min-w-0 truncate text-[10px] md:text-[11px] font-black text-slate-800/70 uppercase tracking-tight">
-                    <span className="md:hidden">
-                      {`Add Files (${totalUploadedCount}${qtyNeeded ? `/${qtyNeeded}` : ''})`}
-                    </span>
-                    <span className="hidden md:inline">
-                      {`Add Photos | Currently uploaded (${totalUploadedCount}${qtyNeeded ? ` of ${qtyNeeded}` : ''})`}
-                    </span>
-                  </p>
-                </div>
+                ) : (
+                  <div
+                    className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all cursor-pointer", 'border-emerald-200 bg-emerald-50/30')}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => uploadInputRef.current?.click()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                        e.preventDefault();
+                        uploadInputRef.current?.click();
+                      }
+                    }}
+                  >
+                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-emerald-500 text-white">
+                      <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                    </div>
+                    <p className="flex-1 min-w-0 truncate text-[10px] md:text-[11px] font-black text-slate-800/70 uppercase tracking-tight">
+                      <span className="md:hidden">
+                        {`Add Files (${totalUploadedCount}${qtyNeeded ? `/${qtyNeeded}` : ''})`}
+                      </span>
+                      <span className="hidden md:inline">
+                        {`Add Photos | Currently uploaded (${totalUploadedCount}${qtyNeeded ? ` of ${qtyNeeded}` : ''})`}
+                      </span>
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             </div>

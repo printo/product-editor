@@ -448,9 +448,15 @@ That is the point of moving it. The quantity is stored on the session, injected
 into every upstream call as a header the browser never sees, and re-checked when
 the design is submitted. The customer cannot raise it by editing the URL.
 
+At submit time, the cap is enforced by looking the quantity up directly from
+your `EmbedSession` row (by `order_id` — not from that header), so it holds
+the same way whether the customer goes through our iframe, or **your own
+backend posts to `POST /api/editor/render` directly** with your api_key for
+an order that has a `qty` set on its session.
+
 | Photos placed | Behaviour |
 |---|---|
-| More than `qty` | **Blocked, twice.** A modal offers *Keep first N* (trims the selection) or *Choose again* (discards it) — there is no way to proceed with more. And `POST /api/editor/render` rejects an over-count submission with **400** even if the editor is bypassed entirely. |
+| More than `qty` | **Blocked, twice.** A modal offers *Keep first N* (trims the selection) or *Choose again* (discards it) — there is no way to proceed with more in the editor. And `POST /api/editor/render` independently rejects an over-count submission with **400** for that order_id, whether it's called through the editor or posted to directly. |
 | Fewer than `qty` | **Allowed, with warnings.** A banner offers Auto-fill / pick-to-fill, and the pre-submit modal repeats the shortfall. The customer can still submit — they will receive fewer prints than ordered, and the server accepts it. |
 | Exactly `qty` | Nothing shown. |
 

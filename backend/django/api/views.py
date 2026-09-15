@@ -2265,9 +2265,12 @@ class EditorRenderView(APIView):
     `X-Callback-URL` header injected by the embed proxy). Direct callers do
     not get a webhook — they must poll `/api/render-status/<job_id>/`.
 
-    The ordered quantity comes from the embed session too (`X-Order-Qty`), and
-    a submission placing more photos than that is rejected with 400. Fewer is
-    accepted on purpose — see services/order_qty.py.
+    The ordered quantity comes from the embed session too — resolved directly
+    from `EmbedSession.qty` by `(order_id, api_key)`, not from a header, so it
+    is enforced the same way whether the request came through the embed proxy
+    or was POSTed here directly — and a submission placing more photos than
+    that is rejected with 400. Fewer is accepted on purpose — see
+    services/order_qty.py.
 
     Request body (JSON):
     {
@@ -2323,8 +2326,10 @@ class EditorRenderView(APIView):
             "There is **no duplicate-submit guard**: the same `order_id` posted "
             "twice creates a second job.\n\n"
             "**Ordered quantity.** When the embed session was created with a `qty`, "
-            "the proxy injects it as `X-Order-Qty` and a submission placing more "
-            "photos than that is rejected with 400. Fewer is accepted — the "
+            "it is looked up directly from that session (by `order_id` + your api_key) "
+            "and a submission placing more photos than that is rejected with 400 — "
+            "enforced the same way whether this is called via the embed proxy or "
+            "posted here directly with your own key. Fewer is accepted — the "
             "asymmetry is deliberate, so a wrong `qty` cannot strand an order. "
             "Single-surface products only; calendars, books and multi-surface "
             "products are not quantity-checked."
@@ -2427,27 +2432,36 @@ class EditorRenderView(APIView):
         api_key = request.user.api_key
 
         # ── Ordered-quantity cap ────────────────────────────────────────────
-        # X-Order-Qty is injected by the embed proxy from EmbedSession.qty, so
-        # unlike the legacy ?qty=N URL param the customer's browser cannot
-        # raise it. The editor already caps the pick; this is what makes the
-        # cap hold when the editor is bypassed.
+        # Resolved directly from EmbedSession.qty (order_id + api_key) — NOT
+        # trusted from the X-Order-Qty header the embed proxy injects. That
+        # header is genuine for iframe traffic, but nothing stops a caller who
+        # holds the real api_key (which they necessarily do, to create embed
+        # sessions in the first place) from POSTing straight here with no
+        # proxy in the path, in which case the header simply never arrives.
+        # Verified directly: a session created with qty=5, 7 files uploaded,
+        # then POSTed here with the real key and no proxy — accepted with
+        # HTTP 202 and no cap, even though the session's own qty said 5. The
+        # doc claim ("rejects an over-count submission even if the editor is
+        # bypassed") was therefore only true for callers who happened to go
+        # through the proxy, not for the actual trust boundary. Looking the
+        # value up ourselves from the row that is the real source of truth
+        # closes that regardless of which path the request took.
         #
-        # Absent header (dashboard, direct partner, or a session created
-        # without a quantity) → no check, exactly as before. A header that
-        # somehow will not parse is dropped rather than rejected: only the
-        # trusted proxy can set it, from a column validated at session
-        # creation, so a bad value is our bug and must not fail a real order.
+        # A caller can hold more than one session for the same order_id (e.g.
+        # re-opening the flow), so take the most recent statement of intent:
+        # order by -created_at and use the first with a qty actually set.
+        # No matching row (dashboard, direct-partner GenerateLayoutView, or a
+        # session created without a quantity) → no check, exactly as before.
         #
         # Going UNDER stays allowed here, as it is in the browser — see
         # services/order_qty.py on why that asymmetry is load-bearing.
-        try:
-            order_qty = parse_order_qty(request.headers.get('X-Order-Qty'))
-        except InvalidOrderQty as exc:
-            logger.warning(
-                "EditorRenderView: unusable X-Order-Qty for order_id=%s (%s); "
-                "proceeding without a quantity check.", order_id, exc,
-            )
-            order_qty = None
+        order_qty = (
+            EmbedSession.objects
+            .filter(order_id=order_id, api_key=api_key, qty__isnull=False)
+            .order_by('-created_at')
+            .values_list('qty', flat=True)
+            .first()
+        )
         if order_qty is not None:
             over = qty_violation(
                 count_placed_photos(canvases_payload),

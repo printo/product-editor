@@ -651,9 +651,12 @@ Every iframe request → embed proxy resolveSession(token)
                     → caches { apiKey, orderId, callbackUrl, includeUploads, qty, exp } for 110 min
                     → injects X-Order-ID + X-Callback-URL + X-Include-Uploads + X-Order-Qty on every upstream request
 
-EditorRenderView reads X-Order-ID + X-Callback-URL + X-Include-Uploads + X-Order-Qty
-headers, persists callback_url onto CanvasData, snapshots include_uploads in
-render_state, and rejects a submission carrying more photos than qty (400)
+EditorRenderView reads X-Order-ID + X-Callback-URL + X-Include-Uploads headers,
+persists callback_url onto CanvasData, snapshots include_uploads in
+render_state, and rejects a submission carrying more photos than qty (400) —
+qty itself is looked up directly from EmbedSession (order_id + api_key), NOT
+from a header, so the cap holds even for a request that never went through
+the embed proxy (see "Order quantity" below)
 
 After Celery render completes — only when canvas.callback_url is set:
 notify_caller_webhook_task → POSTs webhook payload to canvas.callback_url
@@ -747,15 +750,28 @@ It does NOT `register_heif_opener()`: that patches Pillow globally for the whole
 ### Order quantity (`qty`)
 
 The number of items the customer ordered. **Stored on `EmbedSession`** (`qty`,
-nullable) and threaded exactly like `order_id`: caller → `POST /api/embed/session`
-→ session row → embed-proxy in-process cache → `X-Order-Qty` header → Django.
-It never appears in the iframe URL, so the browser has nothing to edit.
+nullable). For the *browser's* copy: caller → `POST /api/embed/session` →
+session row → embed-proxy in-process cache → `X-Order-Qty` header → Django's
+`EditorInitView`, which echoes it back so the editor can show/cap it in the
+UI. It never appears in the iframe URL, so the browser has nothing to edit.
+
+**The submission-time cap does NOT trust that header.** It was originally
+implemented as "read `X-Order-Qty`, reject if over" in `EditorRenderView` —
+which is real for iframe traffic, but a caller who holds the real api_key
+(which they must, to create embed sessions at all) can POST to
+`/api/editor/render` directly with no proxy in the path, and then the header
+simply never arrives. Verified directly (2026-09-15): a qty=5 session, 7
+files uploaded, POSTed straight to the endpoint with the real key — **202,
+no cap, job queued with all 7**. Fixed by having `EditorRenderView` look
+`EmbedSession.qty` up itself, by `(order_id, api_key)`, instead of trusting
+the header — so the cap now holds regardless of which path the request took.
+Most-recent-session-for-that-order-id wins if more than one exists.
 
 **The rule is deliberately asymmetric, and the asymmetry is the point:**
 
 | Photos placed | Behaviour |
 |---|---|
-| **Over** `qty` | **Hard cap, both sides.** `processSelectedFiles` holds the pick and the modal offers *Keep first N* / *Choose again* — no proceed-with-all path. `EditorRenderView` independently rejects an over-count submission with **400**, so bypassing the editor does not get past it. |
+| **Over** `qty` | **Hard cap, both sides.** `processSelectedFiles` holds the pick and the modal offers *Keep first N* / *Choose again* — no proceed-with-all path. `EditorRenderView` independently re-derives the qty from `EmbedSession` and rejects an over-count submission with **400** — true even for a direct API call that skips the editor and the proxy entirely (see above). |
 | **Under** `qty` | **Warn and proceed, both sides.** Auto-fill / pick-to-fill banner, plus a `QtyShortfallWarning` notice in both pre-submit modals. Submit still works, and the server accepts the shortfall too. |
 
 Under-upload must **not** become blocking. `qty` is supplied by the caller, so a
