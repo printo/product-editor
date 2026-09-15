@@ -2952,7 +2952,18 @@ export default function LayoutEditorPage() {
   // larger than orderQty — that is the point of the cap.
   const handleOverConfirm = (keepFirst: boolean) => {
     if (!pendingOverFiles || orderQty === null) return;
-    if (keepFirst) setFiles(pendingOverFiles.slice(0, orderQty));
+    if (keepFirst) {
+      setFiles(pendingOverFiles.slice(0, orderQty));
+    } else {
+      // "Choose again" promises to let the customer pick exactly the ones
+      // they want, but discarding the pick and closing the modal alone left
+      // them looking at the same at-quota screen with no visible way to try
+      // a different selection — the header's "Add Photos" pill is plain info
+      // once quota is met, and the shortfall banner (with its own "Choose
+      // which to repeat") only exists while under quota. Reopen the picker
+      // immediately so the button actually does what it says.
+      uploadInputRef.current?.click();
+    }
     setPendingOverFiles(null);
   };
 
