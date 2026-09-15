@@ -137,7 +137,7 @@ python manage.py shell
 
 ### Tests
 
-The two halves use **different, deliberately lightweight harnesses**. Neither needs a database.
+Three harnesses, not two — frontend Jest, backend DB-free `services/tests/`, and backend DB-backed `api/tests/`. The first two are **deliberately lightweight and need no database**; `api/tests/` is the deliberate exception, covered in its own section below.
 
 **Frontend — Jest** (`next/jest` + SWC transforms + `@happy-dom/jest-environment`; config in `frontend/nextjs/jest.config.ts`). Only `src/**/__tests__/**` is collected. happy-dom is used instead of jsdom specifically because jsdom auto-requires the native `canvas` module that Fabric.js peer-deps.
 
@@ -172,7 +172,18 @@ cd backend/django && DJANGO_SETTINGS_MODULE=product_editor.settings DEBUG=1 pyth
 
 **Writing new backend tests:** copy the `__main__` footer from an existing module. CI auto-discovers `services/tests/test_*.py`, so a new file is picked up with no workflow edit. Keep them DB-free and mediapipe-free — CI installs a mediapipe-stripped requirements subset.
 
-**CI** (`.github/workflows/ci.yml`, push/PR to `main`): backend loop above, then frontend `pnpm typecheck` → `pnpm lint` → `pnpm test -- --ci`. Note the org is on GitHub Free with Actions billing-locked, so the checks may show red for reasons unrelated to the code — verify locally.
+**Backend — `api/tests/`, ordinary Django `TestCase`s, real Postgres + Redis, `manage.py test`.** A second, intentionally separate convention: `LayoutCatalogue` is a real Postgres model and `invalidate_layout_caches` drives the real `django_redis` cache backend, so testing either honestly needs a live DB and a live cache — the opposite of the `services/tests/` contract above. Don't move these into `services/tests/` and don't fake the DB with sqlite either: the model docstring's case-sensitivity guarantee is a Postgres collation behaviour that sqlite won't reproduce.
+
+```bash
+docker-compose up -d db redis backend
+docker-compose exec backend python manage.py test api.tests --verbosity 2
+```
+
+These two files (`test_layout_catalogue.py`, `test_cache_invalidation.py`) shipped with the LayoutCatalogue migration (PR #111, 2026-09-04) but were never wired into CI and, until 2026-09-15, weren't even reliably runnable: `api/tests/` had no `__init__.py`, so `manage.py test api.tests` — the natural invocation — crashed with `TypeError: expected str, bytes or os.PathLike object, not NoneType` (a namespace package has no `__file__` for unittest's discovery to dirname), and `manage.py test api` silently found and ran 0 tests. Only the fully-qualified dotted form (`manage.py test api.tests.test_layout_catalogue`) actually worked, which is presumably how whoever wrote them last ran them. Once you could actually run the suite, one test was failing: `test_invalidate_preserves_other_layouts` asserted a *different* layout's cache entry was cleared (with a comment rationalizing why), directly contradicting both its own name and `invalidate_layout_caches`'s actual (correct) scoped-glob behavior — fixed to assert the entry survives, matching what the function is actually supposed to do. **If you touch `invalidate_layout_caches` or `LayoutCatalogue`, run this suite** — nothing else will catch a regression in either.
+
+**Writing new tests here:** they belong in `api/tests/` only when the thing under test genuinely needs Postgres or the real cache — anything that can be tested DB-free belongs in `services/tests/` instead. New `api/tests/test_*.py` files are auto-discovered by `manage.py test api.tests`; no workflow edit needed as long as they subclass `TestCase`.
+
+**CI** (`.github/workflows/ci.yml`, push/PR to `main`): three jobs — `backend` (the DB-free loop above + OpenAPI schema validation), `backend-db` (spins up real `postgres:16-alpine` + `redis:7-alpine` service containers, then `manage.py test api.tests`), and `frontend` (`pnpm typecheck` → `pnpm lint` → `pnpm test -- --ci`). Note the org is on GitHub Free with Actions billing-locked, so the checks may show red for reasons unrelated to the code — verify locally.
 
 ### Verifying UI changes in a real browser (no PIA login)
 

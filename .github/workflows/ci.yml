@@ -69,6 +69,75 @@ jobs:
           DEBUG: "1"
         run: python manage.py spectacular --validate --fail-on-warn --file /dev/null
 
+  # Separate from the `backend` job on purpose. `api/tests/` are ordinary
+  # Django TestCases (LayoutCatalogue is a real Postgres model, and
+  # invalidate_layout_caches exercises the real django_redis cache backend) —
+  # they need a live Postgres + Redis, which is exactly what services/tests/
+  # is documented to deliberately avoid. Keeping them in their own job with
+  # real service containers is more honest than faking either dependency.
+  backend-db:
+    name: Backend tests (DB-backed)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/django
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: product_editor
+          POSTGRES_USER: product_editor
+          POSTGRES_PASSWORD: product_editor
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/django/requirements.txt
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y gcc python3-dev
+
+      - name: Install deps (mediapipe excluded — see backend job)
+        run: |
+          grep -vE '^mediapipe' requirements.txt > /tmp/requirements-ci.txt
+          pip install -r /tmp/requirements-ci.txt
+
+      # `api.tests` needs a real DB (LayoutCatalogue is a Postgres model) and a
+      # real cache backend (invalidate_layout_caches drives django_redis) — the
+      # opposite of the DB-free services/tests/ convention. `manage.py test`
+      # migrates the test DB itself, so no separate migrate step is needed.
+      - name: Run Django TestCase suite (api.tests)
+        env:
+          DJANGO_SETTINGS_MODULE: product_editor.settings
+          DEBUG: "1"
+          POSTGRES_DB: product_editor
+          POSTGRES_USER: product_editor
+          POSTGRES_PASSWORD: product_editor
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
+          REDIS_CACHE_URL: redis://localhost:6379/1
+        run: python manage.py test api.tests --verbosity 2
+
   frontend:
     name: Frontend typecheck / lint / test
     runs-on: ubuntu-latest
