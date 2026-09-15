@@ -83,9 +83,10 @@ class CacheInvalidationTest(TestCase):
         # layout1 detail should be gone
         self.assertIsNone(cache.get(f'layout_detail:{layout1}:'))
 
-        # layout2 detail should remain
-        self.assertIsNone(cache.get(f'layout_detail:{layout2}:'))  # list cleared, so this was also cleared
-        # This is by design: list invalidation clears everything
+        # layout2 detail should remain — invalidate_layout_caches only globs
+        # layout_detail:{name}:*, so a write to layout1 must not evict layout2's
+        # own entry. Only the shared list caches are cleared unconditionally.
+        self.assertIsNotNone(cache.get(f'layout_detail:{layout2}:'))
 
     def test_invalidate_rename_both_names(self):
         """Test that rename operation clears both old and new name caches."""
