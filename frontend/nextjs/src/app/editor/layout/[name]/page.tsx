@@ -4309,8 +4309,11 @@ export default function LayoutEditorPage() {
               </h1> */}
             </div>
             {/* Top upload section — hidden when empty (empty state shows primary upload
-                area only); revealed once user uploads at least one photo (secondary "Add more" action) */}
-            {(files.length > 0 || surfaceStates.some(s => s.files.length > 0)) && (
+                area only); revealed once user uploads at least one photo (secondary "Add more" action).
+                Also hidden while the qty-shortfall banner is up (below) — its own "Upload More"
+                button already does the exact same thing, so showing both at once read as two
+                competing ways to add photos rather than one clear one. */}
+            {(files.length > 0 || surfaceStates.some(s => s.files.length > 0)) && !qtyUnder && (
               <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink relative group">
                 <div
                   className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all cursor-pointer", 'border-emerald-200 bg-emerald-50/30')}
