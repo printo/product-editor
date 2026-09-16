@@ -208,6 +208,11 @@ export default function LayoutCreatorPage() {
   // Tag filter: clicking a chip sets this; '' means "All". Independent of
   // the text search so ops can type "5x7" while filtered to Photo Prints.
   const [activeTagFilter, setActiveTagFilter] = useState('');
+  // GET /api/ops/layouts intentionally returns soft-deleted (isDeprecated)
+  // rows too, so ops can distinguish a renamed-away layout from a genuine
+  // dead end (see LayoutCatalogue.resolve_active()). Hidden by default so a
+  // "deleted" layout doesn't look identical to a live one in the grid.
+  const [showDeleted, setShowDeleted] = useState(false);
 
   const [dpi, setDpi] = useState(300);
   const [widthMm, setWidthMm] = useState(101.6);
@@ -898,6 +903,20 @@ export default function LayoutCreatorPage() {
         {/* Mobile slot — the header row has no space for a fourth control. */}
         <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="flex md:hidden mb-4" />
 
+        {layouts.some((l: any) => typeof l === 'object' && l.isDeprecated) && (
+          <div className="flex justify-end mb-4">
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showDeleted}
+                onChange={(e) => setShowDeleted(e.target.checked)}
+                className="rounded border-slate-300 text-[#64318E] focus:ring-[#64318E]"
+              />
+              Show deleted ({layouts.filter((l: any) => typeof l === 'object' && l.isDeprecated).length})
+            </label>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Single card split into two creation options */}
           {/* Side-by-side on phones (vertical space is scarce there), stacked
@@ -979,7 +998,11 @@ export default function LayoutCreatorPage() {
               const matchesSearch = !q || name.toLowerCase().includes(q) || layoutTags.some((t: string) => t.toLowerCase().includes(q));
               // Tag chip filter: '' means All, otherwise must include that tag.
               const matchesTag = !activeTagFilter || layoutTags.includes(activeTagFilter);
-              return matchesSearch && matchesTag;
+              // Soft-deleted rows stay in the API response (see showDeleted
+              // toggle above) — keep them out of the grid unless asked for.
+              const isDeprecated = typeof l === 'object' && !!l.isDeprecated;
+              const matchesDeleted = showDeleted || !isDeprecated;
+              return matchesSearch && matchesTag && matchesDeleted;
             })
             .map((layoutObj: any) => {
               const layoutStr = typeof layoutObj === 'string' ? layoutObj : layoutObj.name;
@@ -995,12 +1018,22 @@ export default function LayoutCreatorPage() {
               // crash, so route Edit the same way calendar does and disable
               // Duplicate rather than let either reach a book layout.
               const isBook = typeof layoutObj === 'object' && layoutObj.productType === 'book';
+              // Soft-deleted (see LayoutManagementView.delete). renamedTo set
+              // means the name was superseded by a rename and still resolves
+              // via LayoutCatalogue.resolve_active() — a dead end otherwise.
+              const isDeprecated = typeof layoutObj === 'object' && !!layoutObj.isDeprecated;
+              const renamedTo = typeof layoutObj === 'object' ? layoutObj.renamedTo : null;
               return (
                 <div
                   key={layoutStr}
                   data-testid={`layout-card-${layoutStr}`}
                   data-product-type={isCalendar ? 'calendar' : isBook ? 'book' : 'standard'}
-                  className="bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-lg hover:border-indigo-200 transition-all group relative"
+                  data-deprecated={isDeprecated || undefined}
+                  className={`bg-white border rounded-2xl p-6 transition-all group relative ${
+                    isDeprecated
+                      ? 'opacity-60 border-slate-200 bg-slate-50/60'
+                      : 'border-slate-200 hover:shadow-lg hover:border-indigo-200'
+                  }`}
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-4">
@@ -1029,6 +1062,25 @@ export default function LayoutCreatorPage() {
                               Book
                             </span>
                           )}
+                          {isDeprecated && (
+                            renamedTo ? (
+                              <span
+                                data-testid={`renamed-badge-${layoutStr}`}
+                                className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[9px] rounded-full font-bold uppercase tracking-tight"
+                                title={`Renamed to "${renamedTo}" — this identifier still resolves, it isn't a dead end`}
+                              >
+                                Renamed → {renamedTo}
+                              </span>
+                            ) : (
+                              <span
+                                data-testid={`deleted-badge-${layoutStr}`}
+                                className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[9px] rounded-full font-bold uppercase tracking-tight"
+                                title="Soft-deleted — no longer served to customers or partners"
+                              >
+                                Deleted
+                              </span>
+                            )
+                          )}
                         </div>
                         <p className="text-[10px] text-slate-400 font-mono mt-0.5 tracking-wider">{(layoutStr || '')}.json</p>
                         {layoutObj.tags && layoutObj.tags.length > 0 && (
@@ -1044,45 +1096,50 @@ export default function LayoutCreatorPage() {
                       </div>
                     </div>
                     <div className="flex items-center">
-                      <button
-                        onClick={() => { if (!isBook) openCopyModal(layoutStr); }}
-                        disabled={isBook}
-                        className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                        title={isBook ? 'Duplicating book layouts isn\'t supported yet' : 'Duplicate Layout'}
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                      {isCalendar ? (
-                        <Link
-                          href={`/editor/layouts/calendar/${layoutStr}`}
-                          data-testid={`edit-calendar-${layoutStr}`}
-                          className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
-                          title="Edit Calendar Layout"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </Link>
-                      ) : isBook ? (
-                        <Link
-                          href={`/editor/layouts/book/${layoutStr}`}
-                          data-testid={`edit-book-${layoutStr}`}
-                          className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
-                          title="Edit Book Layout"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </Link>
-                      ) : (
-                        <button
-                          onClick={() => openEditModal(layoutStr)}
-                          className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all"
-                          title="Edit Layout"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
+                      {!isDeprecated && (
+                        <>
+                          <button
+                            onClick={() => { if (!isBook) openCopyModal(layoutStr); }}
+                            disabled={isBook}
+                            className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                            title={isBook ? 'Duplicating book layouts isn\'t supported yet' : 'Duplicate Layout'}
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          {isCalendar ? (
+                            <Link
+                              href={`/editor/layouts/calendar/${layoutStr}`}
+                              data-testid={`edit-calendar-${layoutStr}`}
+                              className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
+                              title="Edit Calendar Layout"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </Link>
+                          ) : isBook ? (
+                            <Link
+                              href={`/editor/layouts/book/${layoutStr}`}
+                              data-testid={`edit-book-${layoutStr}`}
+                              className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
+                              title="Edit Book Layout"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </Link>
+                          ) : (
+                            <button
+                              onClick={() => openEditModal(layoutStr)}
+                              className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all"
+                              title="Edit Layout"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </>
                       )}
                       <button
                         onClick={() => setDeleteConfirm(layoutStr)}
-                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
-                        title="Delete Layout"
+                        disabled={isDeprecated}
+                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                        title={isDeprecated ? 'Already deleted' : 'Delete Layout'}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
