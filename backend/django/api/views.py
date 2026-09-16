@@ -885,7 +885,12 @@ class GetLayoutView(APIView):
     @extend_schema(
         tags=["layouts"],
         summary="Get layout by name",
-        description="Retrieve the full JSON definition for a specific layout.",
+        description=(
+            "Retrieve the full JSON definition for a specific layout. If `name` "
+            "was renamed by ops, this still resolves — the response's `name` "
+            "field reflects the *current* identifier, which may differ from what "
+            "you requested."
+        ),
         parameters=[
             OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
         ],
@@ -1226,7 +1231,12 @@ class LayoutManagementView(APIView):
             "returns that one layout.\n\n"
             + LAYOUT_ID_NOTE +
             "\n\nThe list is cached server-side for 2 minutes and invalidated on "
-            "write, so an edit shows up immediately rather than after the TTL."
+            "write, so an edit shows up immediately rather than after the TTL.\n\n"
+            "Both forms also carry `isDeprecated` and `renamedTo` (the alias target's "
+            "`name`, or `null`) so a deprecated row's fate is visible without a DB "
+            "query — a `renamedTo` value means it's a harmless alias left over from "
+            "an ops rename (see `LayoutCatalogue.resolve_active()`); `null` while "
+            "`isDeprecated` is true means a genuine dead end."
         ),
         responses={
             200: OpenApiResponse(
@@ -1304,7 +1314,13 @@ class LayoutManagementView(APIView):
             "Writes a layout JSON file. Ops team only.\n\n"
             + LAYOUT_ID_NOTE +
             "\n\n**Rename:** send `old_name` (or `originalName`) alongside the new "
-            "`name`; the old file is removed only after the new one is written.\n\n"
+            "`name`. The old row is soft-deleted (`is_deprecated=True`) only after "
+            "the new one is created, and is left pointing at the new row via "
+            "`renamed_to` — so requests still using the pre-rename `name` keep "
+            "resolving (`LayoutCatalogue.resolve_active()`) instead of 404ing. "
+            "Renaming onto a name that's already taken — active, or a deprecated "
+            "alias-source left over from an earlier rename — is rejected with 400 "
+            "rather than attempted.\n\n"
             "**Validation depends on `productType`.** A calendar or book layout is "
             "checked against its own validator; a multi-surface product must give "
             "every surface a canvas width and height; a plain layout must carry a "
@@ -1331,7 +1347,7 @@ class LayoutManagementView(APIView):
         ),
         responses={
             200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The layout as stored."),
-            400: OpenApiResponse(description="Missing name/layout_data, invalid name, malformed JSON, or failed product validation."),
+            400: OpenApiResponse(description="Missing name/layout_data, invalid name, malformed JSON, failed product validation, or (on a rename) `name` already belongs to an existing layout."),
             403: OpenApiResponse(description="Caller is not on the ops team, or the path resolved outside the layouts directory."),
         },
     )
@@ -1643,7 +1659,10 @@ class ExternalLayoutDetailView(APIView):
         summary="Get layout for external systems",
         description=(
             "Fetch a layout JSON definition via API key auth. "
-            "Intended for external server-to-server use (not browser clients)."
+            "Intended for external server-to-server use (not browser clients). "
+            "If `name` was renamed by ops, this still resolves — the response's "
+            "`name` field reflects the *current* identifier, which may differ "
+            "from what you requested. See docs/INTEGRATION.md."
         ),
         parameters=[
             OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
@@ -2126,6 +2145,15 @@ class EditorInitView(APIView):
     @extend_schema(
         tags=["editor"],
         summary="Batched editor mount payload",
+        description=(
+            "Returns the static, cacheable bits the editor needs on mount: "
+            "`{ layout, fonts, order_id, qty }`. If `layout` was renamed by ops, "
+            "this still resolves — the response's `layout.name` reflects the "
+            "*current* identifier, which may differ from the `layout` you "
+            "requested. This is what an embed iframe's URL hits on load, so a "
+            "stale identifier baked into your iframe URL keeps working "
+            "indefinitely rather than 404ing."
+        ),
         parameters=[
             OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True),
             OpenApiParameter("surfaces", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),

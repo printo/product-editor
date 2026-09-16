@@ -477,6 +477,22 @@ layout, which `qty` does not describe — it is ignored there.
 > `qty` sent in the session body is actually enforced. Move it and drop it from
 > the URL.
 
+### Layout renames don't break your iframe URL (as of Sep 16, 2026)
+
+The layout identifier in your iframe URL (`circle_48mm` above) can be renamed
+on our side by ops. Before Sep 16, 2026 that broke your embed outright — a
+renamed-away identifier 404'd immediately and permanently, with no way for you
+to know short of a customer complaint. That's fixed now: a rename keeps the
+old identifier resolving indefinitely (`/api/editor/init`, `/api/layouts/<name>`,
+and the render pipeline all follow the alias). **You don't need to do
+anything** — no action, no re-sync, no urgency.
+
+That said, an identifier you've had aliased for a long time is still a stale
+reference. If you periodically re-pull `GET /api/layouts` for the layouts you
+use, the `name` field in the response is always the *current* identifier —
+worth updating your stored mapping to it opportunistically, but never
+time-sensitive.
+
 ### 5. Firewall
 
 Allow inbound HTTPS from Product Editor's egress IP range to your `/api/internal/pe-callback` endpoint. Confirm the IP set with infra; add to allowlist.
