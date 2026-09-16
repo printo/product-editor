@@ -1,6 +1,6 @@
 # Product Editor — documentation index
 
-**Last reviewed: 2026-09-16** (`main` @ `7b033a5`, migration `0019`).
+**Last reviewed: 2026-09-16** (`main` @ `fbebef3`, migration `0020`).
 
 The single most useful thing to know about this folder: **most of it is not
 current-state reference.** Two files describe how the system behaves today; four

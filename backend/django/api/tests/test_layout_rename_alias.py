@@ -107,8 +107,15 @@ class ResolveActiveTest(TestCase):
         self.assertEqual(resolved.name, 'internal_only')
 
 
-class RenameEndpointAliasTest(TestCase):
-    """POST /api/ops/layouts/<name> (rename) must record the alias pointer."""
+class RenameEndpointRetiredTest(TestCase):
+    """
+    POST /api/ops/layouts/<name> no longer performs a rename (2026-09-16) —
+    `name` is immutable once a row exists. `old_name`/`originalName` are
+    still read, purely to reject a stale client with a clear message instead
+    of a generic error. The historical alias mechanism (LayoutCatalogue.
+    resolve_active(), renamed_to) is exercised separately in ResolveActiveTest
+    since nothing can create a new alias through this endpoint any more.
+    """
 
     def setUp(self):
         self.client = Client()
@@ -118,9 +125,10 @@ class RenameEndpointAliasTest(TestCase):
         self.auth_headers = {'HTTP_AUTHORIZATION': f'Bearer {self.api_key.key}'}
         LayoutCatalogue.objects.create(
             name='classic_a4', definition=_layout_def('classic_a4'),
+            display_name='Classic A4',
         )
 
-    def test_rename_sets_renamed_to_on_old_row(self):
+    def test_old_name_differing_from_name_is_rejected(self):
         response = self.client.post(
             '/api/ops/layouts/classic_prints_4x6',
             data={
@@ -130,36 +138,102 @@ class RenameEndpointAliasTest(TestCase):
             },
             **self.auth_headers,
         )
-        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('immutable', response.json()['detail'])
 
+        # Nothing was created or touched.
+        self.assertFalse(LayoutCatalogue.objects.filter(name='classic_prints_4x6').exists())
         old = LayoutCatalogue.objects.get(name='classic_a4')
-        new = LayoutCatalogue.objects.get(name='classic_prints_4x6')
-        self.assertTrue(old.is_deprecated)
-        # renamed_to is keyed on `name` (LayoutCatalogue's natural identifier),
-        # so the FK's raw column value is the target's name, not its numeric pk.
-        self.assertEqual(old.renamed_to_id, new.name)
-        self.assertEqual(old.renamed_to.pk, new.pk)
+        self.assertFalse(old.is_deprecated)
+        self.assertIsNone(old.renamed_to)
 
-        # The whole point: the old name still resolves after the rename.
-        resolved = LayoutCatalogue.resolve_active('classic_a4')
-        self.assertEqual(resolved.name, 'classic_prints_4x6')
-
-    def test_resurrecting_a_deprecated_name_clears_stale_alias(self):
-        """
-        Renaming A -> B, then later creating a brand-new layout under the
-        name 'A' again (no old_name given) must not leave a dangling
-        renamed_to pointer on the resurrected row.
-        """
-        self.client.post(
+    def test_original_name_alias_of_old_name_is_also_rejected(self):
+        response = self.client.post(
             '/api/ops/layouts/classic_prints_4x6',
             data={
                 'name': 'classic_prints_4x6',
-                'old_name': 'classic_a4',
+                'originalName': 'classic_a4',
                 'layout_data': json.dumps(_layout_def('classic_prints_4x6')),
             },
             **self.auth_headers,
         )
-        # Re-create 'classic_a4' as an unrelated, fresh layout.
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_display_name_auto_derived_when_omitted_on_create(self):
+        response = self.client.post(
+            '/api/ops/layouts/retro_polaroid_4x6',
+            data={
+                'name': 'retro_polaroid_4x6',
+                'layout_data': json.dumps(_layout_def('retro_polaroid_4x6')),
+            },
+            **self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        created = LayoutCatalogue.objects.get(name='retro_polaroid_4x6')
+        self.assertEqual(created.display_name, 'Retro Polaroid 4x6')
+
+    def test_display_name_used_when_provided_on_create(self):
+        response = self.client.post(
+            '/api/ops/layouts/retro_polaroid_4x6',
+            data={
+                'name': 'retro_polaroid_4x6',
+                'display_name': 'Retro Polaroid Prints (4x6)',
+                'layout_data': json.dumps(_layout_def('retro_polaroid_4x6')),
+            },
+            **self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        created = LayoutCatalogue.objects.get(name='retro_polaroid_4x6')
+        self.assertEqual(created.display_name, 'Retro Polaroid Prints (4x6)')
+
+    def test_display_name_preserved_on_update_when_omitted(self):
+        """
+        Updating an existing layout's definition without sending display_name
+        (e.g. an old client build, or the calendar/book ops editors, which
+        don't have a dedicated display-name field yet) must not silently
+        blank out — or reset to an auto-derived value — an ops-curated name.
+        """
+        response = self.client.post(
+            '/api/ops/layouts/classic_a4',
+            data={
+                'name': 'classic_a4',
+                'layout_data': json.dumps(_layout_def('classic_a4')),
+            },
+            **self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        updated = LayoutCatalogue.objects.get(name='classic_a4')
+        self.assertEqual(updated.display_name, 'Classic A4')
+        self.assertEqual(updated.version, 2)
+
+    def test_display_name_can_be_edited_on_update(self):
+        response = self.client.post(
+            '/api/ops/layouts/classic_a4',
+            data={
+                'name': 'classic_a4',
+                'display_name': 'Classic Prints (A4)',
+                'layout_data': json.dumps(_layout_def('classic_a4')),
+            },
+            **self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        updated = LayoutCatalogue.objects.get(name='classic_a4')
+        self.assertEqual(updated.display_name, 'Classic Prints (A4)')
+
+    def test_resurrecting_a_deprecated_name_clears_stale_alias(self):
+        """
+        A deprecated, aliased row (the historical shape, built directly since
+        the endpoint can no longer produce one) that gets a fresh create
+        under the same name must not keep a dangling renamed_to pointer.
+        """
+        target = LayoutCatalogue.objects.create(
+            name='classic_prints_4x6', definition=_layout_def('classic_prints_4x6'), version=2,
+        )
+        old = LayoutCatalogue.objects.get(name='classic_a4')
+        old.is_deprecated = True
+        old.renamed_to = target
+        old.save()
+
         response = self.client.post(
             '/api/ops/layouts/classic_a4',
             data={
@@ -174,38 +248,49 @@ class RenameEndpointAliasTest(TestCase):
         self.assertFalse(resurrected.is_deprecated)
         self.assertIsNone(resurrected.renamed_to)
 
-    def test_rename_onto_an_existing_deprecated_name_is_rejected_cleanly(self):
-        """
-        Renaming A -> B leaves 'A' as a deprecated alias-source row. Renaming
-        some OTHER layout back onto the name 'A' would hit the `name` unique
-        constraint inside .create() — it must come back as a clean 400, not
-        a raw IntegrityError/500.
-        """
-        self.client.post(
-            '/api/ops/layouts/classic_prints_4x6',
-            data={
-                'name': 'classic_prints_4x6',
-                'old_name': 'classic_a4',
-                'layout_data': json.dumps(_layout_def('classic_prints_4x6')),
-            },
-            **self.auth_headers,
+
+class LayoutNameImmutabilityTest(TestCase):
+    """Model-level guard: LayoutCatalogue.name cannot change on an existing row."""
+
+    def test_changing_name_on_existing_row_raises(self):
+        layout = LayoutCatalogue.objects.create(
+            name='classic_a4', definition=_layout_def('classic_a4'),
         )
-        LayoutCatalogue.objects.create(
-            name='unrelated_layout', definition=_layout_def('unrelated_layout'),
+        layout.name = 'classic_a4_v2'
+        with self.assertRaises(ValueError):
+            layout.save()
+
+    def test_saving_without_changing_name_is_fine(self):
+        layout = LayoutCatalogue.objects.create(
+            name='classic_a4', definition=_layout_def('classic_a4'),
+        )
+        layout.display_name = 'Classic A4 Updated'
+        layout.save()  # must not raise
+        layout.refresh_from_db()
+        self.assertEqual(layout.display_name, 'Classic A4 Updated')
+
+    def test_creating_a_new_row_is_unaffected(self):
+        layout = LayoutCatalogue.objects.create(
+            name='brand_new', definition=_layout_def('brand_new'),
+        )
+        self.assertEqual(layout.name, 'brand_new')
+
+
+class DefaultDisplayNameTest(TestCase):
+    """default_display_name_for() must match the frontend's formatLayoutDisplayName() exactly."""
+
+    def test_underscores_become_spaces_and_words_title_case(self):
+        from api.models import default_display_name_for
+        self.assertEqual(default_display_name_for('classic_a4'), 'Classic A4')
+
+    def test_matches_the_hyphenated_dimension_example_from_the_incident(self):
+        from api.models import default_display_name_for
+        self.assertEqual(
+            default_display_name_for('retro_polaroid_-_4.2x3.5_in'),
+            'Retro Polaroid - 4.2x3.5 In',
         )
 
-        response = self.client.post(
-            '/api/ops/layouts/classic_a4',
-            data={
-                'name': 'classic_a4',
-                'old_name': 'unrelated_layout',
-                'layout_data': json.dumps(_layout_def('classic_a4')),
-            },
-            **self.auth_headers,
-        )
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn('already exists', response.json()['detail'])
-
-        # Neither row was corrupted by the failed attempt.
-        self.assertTrue(LayoutCatalogue.objects.filter(name='unrelated_layout', is_deprecated=False).exists())
-        self.assertTrue(LayoutCatalogue.objects.filter(name='classic_a4', is_deprecated=True).exists())
+    def test_empty_name_does_not_crash(self):
+        from api.models import default_display_name_for
+        self.assertEqual(default_display_name_for(''), '')
+        self.assertEqual(default_display_name_for(None), '')

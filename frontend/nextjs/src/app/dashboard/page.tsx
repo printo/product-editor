@@ -86,13 +86,16 @@ export default function Dashboard() {
   }, [status, session, router]);
 
   const normalizeLayoutItem = useCallback((item: any) => {
-    if (typeof item === 'string') return { id: item, name: item, frames: [], tags: [], canvas: {}, surfaceCount: 0 };
+    if (typeof item === 'string') return { id: item, name: item, displayName: item, frames: [], tags: [], canvas: {}, surfaceCount: 0 };
     const isProduct = item.type === 'product' && Array.isArray(item.surfaces);
     const canvas = isProduct ? item.surfaces[0]?.canvas : item.canvas;
     const frames = isProduct ? item.surfaces[0]?.frames || [] : item.frames || [];
     return {
       id: item.name,
       name: item.name,
+      // Ops-curated customer-facing name (2026-09-16) — falls back to the raw
+      // identifier only for a response that predates the field.
+      displayName: item.displayName || item.name,
       dimensions: canvas?.widthMm && canvas?.heightMm
         ? `${canvas.widthMm.toFixed(2)}x${canvas.heightMm.toFixed(2)}mm`
         : null,
@@ -220,7 +223,7 @@ export default function Dashboard() {
                   <LayoutPreview layout={layout} />
                   <div className="p-3 sm:p-5">
                     <h3 className={`${ubuntu.className} text-base font-bold text-slate-900/90 uppercase tracking-tight truncate group-hover:text-indigo-600 group-active:text-indigo-600 transition-colors`}>
-                      {layout.name.replace(/_/g, ' ')}
+                      {layout.displayName}
                     </h3>
                     {layout.dimensions && (
                       <p className={`${ubuntu.className} text-[11px] sm:text-[10px] text-slate-600/80 sm:text-slate-500/90 font-medium uppercase tracking-widest mt-1 flex items-center gap-1.5 sm:gap-2 flex-wrap`}>

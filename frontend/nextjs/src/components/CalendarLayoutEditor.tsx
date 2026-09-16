@@ -78,6 +78,7 @@ function modeToCounts(mode: CalendarMode): { count: number; calendars: number } 
 function defaultCalendarLayout(name: string): CalendarLayoutDraft {
   return {
     name,
+    displayName: '',
     productType: 'calendar',
     mode: 'multi-surface',
     canvasWidthMm: 127,
@@ -108,6 +109,12 @@ function defaultCalendarLayout(name: string): CalendarLayoutDraft {
  */
 export interface CalendarLayoutDraft {
   name: string;
+  /**
+   * Ops-editable customer-facing name (2026-09-16) — independent of `name`,
+   * which is immutable once the layout exists. Optional: an empty value
+   * makes the server auto-derive one from `name` (default_display_name_for).
+   */
+  displayName?: string;
   productType: 'calendar';
   mode: CalendarMode;
   canvasWidthMm: number;
@@ -136,12 +143,20 @@ export interface CalendarLayoutEditorProps {
   initial?: Partial<CalendarLayoutDraft>;
   /** Override the new-layout name (defaults to "untitled_calendar"). */
   newLayoutName?: string;
+  /**
+   * True when editing a layout that already exists in LayoutCatalogue —
+   * locks the "Layout name" input, since `name` is immutable once created
+   * (2026-09-16). False (default) for a brand-new layout, where it's still
+   * freely editable up to the first save.
+   */
+  isExistingLayout?: boolean;
   /** Available Gen-Z palettes — host page fetches from /api/calendar-styles/modern-genz. */
   genzPalettes: GenzPalette[];
   /** Sample holidays to show in the live preview thumb. Host page fetches per locale+year. */
   previewHolidays?: HolidayEntry[];
-  /** Called when ops clicks Save. Parent serialises + POSTs. */
-  onSave: (layoutJson: Record<string, unknown>) => void | Promise<void>;
+  /** Called when ops clicks Save. Parent serialises + POSTs `layoutJson` as
+   *  `layout_data` and `displayName` as the separate `display_name` field. */
+  onSave: (layoutJson: Record<string, unknown>, displayName: string) => void | Promise<void>;
   /** Called on Cancel button click. Parent navigates away or resets. */
   onCancel?: () => void;
 }
@@ -819,6 +834,7 @@ function StepIndicator({
 export function CalendarLayoutEditor({
   initial,
   newLayoutName = 'untitled_calendar',
+  isExistingLayout = false,
   genzPalettes,
   previewHolidays = [],
   onSave,
@@ -906,7 +922,7 @@ export function CalendarLayoutEditor({
     }
     setBusy(true);
     try {
-      await onSave(draftToLayoutJson(draft, { posterCustomLayout }));
+      await onSave(draftToLayoutJson(draft, { posterCustomLayout }), draft.displayName ?? '');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
@@ -1063,14 +1079,32 @@ export function CalendarLayoutEditor({
               <p className="text-xs text-zinc-500 mb-3">Name this layout and choose what kind of calendar product it is.</p>
               <div className="flex flex-col gap-3">
                 <label className="flex flex-col gap-1 text-xs">
-                  <span className="font-medium text-zinc-700">Layout name</span>
+                  <span className="font-medium text-zinc-700">Display name</span>
+                  <input
+                    type="text"
+                    value={draft.displayName ?? ''}
+                    onChange={(e) => patch({ displayName: e.target.value })}
+                    placeholder="e.g. Modern Minimalist Calendar"
+                    data-testid="layout-display-name"
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-zinc-700">Layout name (identifier)</span>
                   <input
                     type="text"
                     value={draft.name}
                     onChange={(e) => patch({ name: e.target.value })}
+                    disabled={isExistingLayout}
                     data-testid="layout-name"
-                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono"
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono disabled:bg-zinc-100 disabled:text-zinc-500"
                   />
+                  {/* Immutable once created (2026-09-16) — a rename broke printo.in's
+                      embed for real because their iframe URL hardcodes it. Edit
+                      Display name above instead. */}
+                  {isExistingLayout && (
+                    <span className="text-[11px] text-zinc-400">Cannot be changed once created — edit Display name instead.</span>
+                  )}
                 </label>
                 <div className="text-xs text-zinc-500">
                   Product type: <strong>Calendar</strong>. For non-calendar layouts use the{' '}

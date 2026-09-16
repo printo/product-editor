@@ -1,3 +1,4 @@
+import re
 import secrets
 import uuid
 from datetime import timedelta
@@ -410,6 +411,18 @@ class RenderJob(models.Model):
         return f"RenderJob {self.id} - {self.status} ({self.queue_name})"
 
 
+def default_display_name_for(name: str) -> str:
+    """
+    Auto-derived display name for a layout that doesn't have an ops-curated
+    one yet — de-underscores and title-cases the identifier. Mirrors
+    formatLayoutDisplayName() in frontend/nextjs/.../editor/layout/[name]/page.tsx
+    exactly (same transform, same result) so a layout never looks different
+    depending on which side computed the fallback.
+    """
+    words = re.sub(r'_+', ' ', name or '').strip().split()
+    return ' '.join(w[:1].upper() + w[1:] for w in words)
+
+
 class LayoutCatalogue(models.Model):
     """
     Single source of truth for layout definitions.
@@ -418,11 +431,27 @@ class LayoutCatalogue(models.Model):
     (was the filesystem stem, e.g. "circle_48mm"). Case-sensitive at the DB
     level — Postgres text columns default to C-collation-compatible comparison
     when using a C-locale database, which matches prod Linux filesystem behaviour.
+
+    `name` is immutable once a row exists (2026-09-16) — enforced in save()
+    below. `display_name` is the ops-editable customer-facing counterpart;
+    see "Layout Identity in LayoutCatalogue" in CLAUDE.md for why the two were
+    split apart.
     """
 
     name = models.CharField(
         max_length=255, unique=True, db_index=True,
-        help_text="Layout identifier (e.g., 'circle_48mm'). Case-sensitive."
+        help_text=(
+            "Layout identifier (e.g., 'circle_48mm'). Case-sensitive. "
+            "Immutable once the row exists — see save()."
+        ),
+    )
+    display_name = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text=(
+            "Ops-editable customer-facing name, independent of `name`. Freely "
+            "editable at any time, unlike the identifier. Blank means no one has "
+            "set one yet — callers should fall back to default_display_name_for(name)."
+        ),
     )
     definition = models.JSONField(
         help_text="Full layout schema — same structure as the former .json files."
@@ -503,6 +532,24 @@ class LayoutCatalogue(models.Model):
             )
 
     def save(self, *args, **kwargs):
+        # `name` is immutable once a row exists. The only two app-level writers
+        # that touch an existing row (LayoutManagementView's update-in-place,
+        # and the historical rename's own soft-delete-and-alias step) both
+        # already leave `name` untouched, so this never fires for legitimate
+        # traffic — it exists to catch a future code path that tries to
+        # resurrect renaming by mutating `.name` directly instead of routing
+        # through the (now-retired) create-new-row flow.
+        if self.pk is not None:
+            try:
+                existing_name = LayoutCatalogue.objects.only('name').get(pk=self.pk).name
+            except LayoutCatalogue.DoesNotExist:
+                existing_name = None
+            if existing_name is not None and existing_name != self.name:
+                raise ValueError(
+                    f"LayoutCatalogue.name is immutable once created "
+                    f"(attempted '{existing_name}' -> '{self.name}'). "
+                    f"Edit display_name instead, or create a new layout."
+                )
         self.full_clean()
         super().save(*args, **kwargs)
 

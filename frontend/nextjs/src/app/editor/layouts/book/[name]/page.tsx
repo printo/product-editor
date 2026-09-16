@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * Ops-only wrapper page that hosts BookLayoutEditor with real load + save +
- * rename plumbing. Mirrors /editor/layouts/calendar/[name]/page.tsx's shape
+ * Ops-only wrapper page that hosts BookLayoutEditor with real load + save
+ * plumbing. Mirrors /editor/layouts/calendar/[name]/page.tsx's shape
  * exactly (BOOK_LAYOUT_PRD.md §6 Phase 5) — no palette/holiday fetches, since
  * books need neither.
  *
@@ -12,6 +12,10 @@
  *
  * All API calls go through `/api/internal/proxy/*` — the server-side proxy
  * gated by the NextAuth session cookie + ops-team check.
+ *
+ * `name` is immutable once a layout exists (2026-09-16) — the editor locks
+ * that field for an existing layout (isExistingLayout prop) and there is no
+ * rename path any more; edit displayName for anything customer-facing.
  */
 
 import { useEffect, useState } from 'react';
@@ -30,6 +34,7 @@ interface ExistingRoleJson {
 
 interface ExistingLayoutJson {
   name: string;
+  displayName?: string;
   productType?: string;
   book?: {
     bleedMm?: number;
@@ -61,6 +66,7 @@ function existingToInitial(layout: ExistingLayoutJson): Partial<BookLayoutDraft>
   };
   return {
     name: layout.name,
+    displayName: layout.displayName ?? '',
     bleedMm: book.bleedMm ?? 3,
     gutterMm: book.gutterMm ?? 10,
     paperThicknessMm: book.paperThicknessMm ?? 0.12,
@@ -97,7 +103,6 @@ export default function BookLayoutEditorPage() {
   }, [isNew, routeName, setTitle, setDescription, setCenterActions, setRightActions]);
 
   const [initial, setInitial] = useState<Partial<BookLayoutDraft> | null>(null);
-  const [originalName, setOriginalName] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -121,7 +126,6 @@ export default function BookLayoutEditorPage() {
             );
           } else {
             setInitial(existingToInitial(existing));
-            setOriginalName(existing.name);
           }
         }
       } catch (e) {
@@ -134,14 +138,14 @@ export default function BookLayoutEditorPage() {
     return () => { cancelled = true; };
   }, [isNew, routeName]);
 
-  async function handleSave(layoutJson: Record<string, unknown>) {
+  async function handleSave(layoutJson: Record<string, unknown>, displayName: string) {
     const name = String(layoutJson.name ?? routeName);
     if (!name) throw new Error('Layout name missing from serialised JSON.');
 
-    const body: Record<string, unknown> = { name, layout_data: layoutJson };
-    if (originalName && originalName !== name) {
-      body.old_name = originalName;
-    }
+    // `name` is immutable once created (2026-09-16) — the editor locks the
+    // identifier input once isExistingLayout is true, so this is always a
+    // create (isNew) or an update to the SAME name, never a rename.
+    const body: Record<string, unknown> = { name, display_name: displayName, layout_data: layoutJson };
 
     const res = await fetch(`/api/internal/proxy/ops/layouts/${encodeURIComponent(name)}`, {
       method: 'POST',
@@ -153,10 +157,8 @@ export default function BookLayoutEditorPage() {
       throw new Error((detail as { detail?: string }).detail || `Save failed (HTTP ${res.status}).`);
     }
 
-    if ((originalName && originalName !== name) || isNew) {
+    if (isNew) {
       router.replace(`/editor/layouts/book/${encodeURIComponent(name)}`);
-    } else {
-      setOriginalName(name);
     }
   }
 
@@ -185,6 +187,7 @@ export default function BookLayoutEditorPage() {
     <BookLayoutEditor
       initial={initial ?? undefined}
       newLayoutName={isNew ? 'untitled_book' : routeName}
+      isExistingLayout={!isNew}
       onSave={handleSave}
       onCancel={() => router.push('/editor/layouts')}
     />

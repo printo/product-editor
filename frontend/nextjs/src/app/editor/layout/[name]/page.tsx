@@ -4313,10 +4313,11 @@ export default function LayoutEditorPage() {
               {/* Layout name display — hidden per CEO request (2026-09-09), restored per
                   management feedback (2026-09-15): the original ask was to drop the raw
                   technical identifier (e.g. "retro_polaroid_-_4.2x3.5_in"), not the name
-                  entirely. formatLayoutDisplayName() already exists for exactly this —
-                  it title-cases and de-underscores the raw name into something readable. */}
+                  entirely. Prefer the ops-curated displayName (2026-09-16) — a real field
+                  ops can write a clean product name into — over formatLayoutDisplayName(),
+                  which is only a mechanical fallback for a layout that predates the field. */}
               <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter truncate">
-                {formatLayoutDisplayName(layout?.name || layoutName)}
+                {layout?.displayName || formatLayoutDisplayName(layout?.name || layoutName)}
               </h1>
             </div>
             {/* Top upload section — hidden when empty (empty state shows primary upload
