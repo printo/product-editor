@@ -446,6 +446,16 @@ class LayoutCatalogue(models.Model):
         default=False, db_index=True,
         help_text="Hidden from public listings but still renderable."
     )
+    renamed_to = models.ForeignKey(
+        'self', to_field='name', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='renamed_from',
+        help_text=(
+            "Set on the OLD row when an ops rename supersedes it. Lets a caller "
+            "still holding the pre-rename name (e.g. a partner's hardcoded embed "
+            "URL) keep resolving via resolve_active() instead of 404ing the "
+            "moment this row is deprecated."
+        ),
+    )
 
     version = models.PositiveIntegerField(
         default=1,
@@ -498,3 +508,33 @@ class LayoutCatalogue(models.Model):
 
     def __str__(self):
         return f"LayoutCatalogue({self.name}, v{self.version})"
+
+    MAX_ALIAS_HOPS = 10
+
+    @classmethod
+    def resolve_active(cls, name, *, require_public=False):
+        """
+        Look up a layout by name, following `renamed_to` when this name was
+        superseded by an ops rename. A caller still holding a name from
+        before the rename (e.g. printo.in's hardcoded embed URL) keeps
+        resolving to whatever the layout is called now, instead of 404ing
+        the moment the old row is deprecated.
+
+        Raises DoesNotExist if the name — or its alias chain — doesn't lead
+        to a live (non-deprecated) layout. A deprecated row with no
+        `renamed_to` (genuinely deleted, not renamed) still 404s, same as
+        before this existed.
+        """
+        layout = cls.objects.get(name=name)
+        seen = {layout.name}
+        hops = 0
+        while layout.is_deprecated:
+            target = layout.renamed_to
+            if target is None or target.name in seen or hops >= cls.MAX_ALIAS_HOPS:
+                raise cls.DoesNotExist(f"'{name}' has no live layout to resolve to")
+            layout = target
+            seen.add(layout.name)
+            hops += 1
+        if require_public and not layout.is_public:
+            raise cls.DoesNotExist(f"'{name}' resolves to a non-public layout")
+        return layout

@@ -972,6 +972,18 @@ A layout's identifier is its **unique `LayoutCatalogue.name` field** (as of 2026
 
 **Why the migration mattered:** When layouts lived on disk, identity and filesystem path were coupled. A mismatch between the stored `name` field and filename (`classic_A4.json` carrying `"name": "classic_a4"`) would make the layout unopenable on production Linux (case-sensitive filesystem) but mysteriously work on Mac (case-insensitive). Moving to the database decouples identity from the OS, making behavior predictable across platforms. Queries now use the `name` column directly, never the definition's internal field.
 
+### Renaming a layout — the alias fallback (2026-09-16)
+
+`LayoutCatalogue.name` is both the ops-editable display name **and** the identifier printo.in hardcodes into their iframe embed URL (`/editor/layout/<name>?token=...`) and their own SKU→layout mapping (which they own — see "Storage Files & Layout Migration" below). A rename here is invisible to them until someone tells them, so it silently 404s their embed until they update on their side. This happened for real on 2026-09-16.
+
+The rename endpoint (`POST /api/ops/layouts/<name>` with `old_name`) has always soft-deleted the old row rather than renaming in place (`name` isn't the PK) — but it used to leave that old row as a dead end. It now also sets `renamed_to` on the old row, pointing at the new one. `LayoutCatalogue.resolve_active(name)` walks that pointer (handles multi-hop chains, guards against cycles) and is what every customer/partner-facing lookup uses instead of a raw `.objects.get(name=...)`: `GetLayoutView`, `ExternalLayoutDetailView`, `EditorInitView`, the qty-policy lookup (`_read_layout_def`), `GenerateLayoutView`'s existence check, and `render_canvas_task`'s render-time load. A stale name now keeps resolving indefinitely — no coordination with printo.in required for future renames.
+
+**This does not retroactively fix a rename that already happened before this shipped** — the old row's `renamed_to` is `NULL` for any rename made before 2026-09-16, so it still 404s until someone manually points it at the new row (one-line `manage.py shell` fix: `old.renamed_to = new; old.save()`).
+
+**Renaming onto a name that's already taken — active, or a deprecated alias-source from an earlier rename — is rejected with a 400**, not a raw `IntegrityError`/500 (`name` is globally unique regardless of `is_deprecated`). There's no "revive" semantics for reusing an old name; pick a different one.
+
+Ops-only endpoints (`GET /api/ops/layouts` and `/api/ops/layouts/<name>`) surface `isDeprecated` and `renamedTo` on each layout so a deprecated row's fate — safely aliased vs. a genuine dead end — is visible without a DB query.
+
 ## Code Style
 
 Use comments sparingly. Only comment complex or non-obvious logic.
