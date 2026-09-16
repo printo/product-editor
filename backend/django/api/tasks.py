@@ -444,14 +444,19 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         canvas = CanvasData.objects.get(id=canvas_data_id)
         storage = get_storage()
 
-        # Load layout from LayoutCatalogue (Postgres)
+        # Load layout from LayoutCatalogue (Postgres). resolve_active follows
+        # a rename alias — canvas.layout_name was snapshotted at submit time
+        # and may since have been renamed away in the ops UI; the render
+        # must not fail just because the identifier moved.
         layout_def = None
         try:
-            layout_obj = LayoutCatalogue.objects.get(
-                name=canvas.layout_name,
-                is_deprecated=False,
-            )
+            layout_obj = LayoutCatalogue.resolve_active(canvas.layout_name)
             layout_def = layout_obj.definition
+            if layout_obj.name != canvas.layout_name:
+                logger.info(
+                    "Layout '%s' resolved via rename alias to '%s' for job %s",
+                    canvas.layout_name, layout_obj.name, job_id,
+                )
         except LayoutCatalogue.DoesNotExist:
             logger.error(
                 "Layout '%s' not found in LayoutCatalogue for job %s",

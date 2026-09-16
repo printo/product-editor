@@ -547,13 +547,13 @@ class GenerateLayoutView(APIView):
 
     @staticmethod
     def _layout_exists(name: str) -> bool:
-        """Does a layout with this name exist in LayoutCatalogue?"""
+        """Does a layout with this name exist in LayoutCatalogue (directly, or via a rename alias)?"""
         from api.models import LayoutCatalogue
         try:
-            return LayoutCatalogue.objects.filter(
-                name=name,
-                is_deprecated=False,
-            ).exists()
+            LayoutCatalogue.resolve_active(name)
+            return True
+        except LayoutCatalogue.DoesNotExist:
+            return False
         except Exception:
             return False
 
@@ -923,13 +923,11 @@ class GetLayoutView(APIView):
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
 
-            # Query LayoutCatalogue from Postgres
+            # Query LayoutCatalogue from Postgres — resolve_active follows a
+            # rename alias so a stale name (e.g. a partner's pre-rename embed
+            # URL) still resolves rather than 404ing.
             try:
-                layout = LayoutCatalogue.objects.get(
-                    name=name,
-                    is_deprecated=False,
-                    is_public=True,
-                )
+                layout = LayoutCatalogue.resolve_active(name, require_public=True)
             except LayoutCatalogue.DoesNotExist:
                 return Response(
                     {"detail": f"Layout '{name}' not found"},
@@ -1262,6 +1260,11 @@ class LayoutManagementView(APIView):
             try:
                 data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
                 data['name'] = layout.name
+                # Surface the alias pointer so ops can tell a renamed-away
+                # layout (still reachable, harmless) from a genuinely deleted
+                # one (dead end) at a glance — see LayoutCatalogue.resolve_active().
+                data['isDeprecated'] = layout.is_deprecated
+                data['renamedTo'] = layout.renamed_to_id
                 response = Response(data)
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
@@ -1276,13 +1279,18 @@ class LayoutManagementView(APIView):
             layouts_data = django_cache.get(CACHE_KEY)
             if layouts_data is None:
                 # Query all layouts (not just public) for ops view
-                rows = LayoutCatalogue.objects.all().values('name', 'definition', 'product_type', 'is_deprecated')
+                rows = LayoutCatalogue.objects.all().values(
+                    'name', 'definition', 'product_type', 'is_deprecated', 'renamed_to'
+                )
                 layouts_data = []
                 for row in rows:
                     data = row['definition'].copy() if isinstance(row['definition'], dict) else {}
                     data['name'] = row['name']
                     data['hasCalendar'] = data.get('productType') == 'calendar'
                     data['isDeprecated'] = row['is_deprecated']
+                    # `renamed_to` is keyed on the target's `name` (to_field='name'),
+                    # so the raw values() column is already the alias target's name.
+                    data['renamedTo'] = row['renamed_to']
                     layouts_data.append(data)
                 django_cache.set(CACHE_KEY, layouts_data, CACHE_TTL)
             response = Response({"layouts": layouts_data})
@@ -1439,6 +1447,22 @@ class LayoutManagementView(APIView):
 
             with db_transaction.atomic():
                 if old_name and old_name != layout_name:
+                    # Renaming onto a name that already exists — active, or a
+                    # deprecated alias-source left over from an earlier rename
+                    # — would otherwise hit the `name` unique constraint deep
+                    # inside .create() below and surface as a raw 500.
+                    if LayoutCatalogue.objects.filter(name=layout_name).exists():
+                        return Response(
+                            {
+                                "detail": (
+                                    f"Cannot rename to '{layout_name}': a layout with "
+                                    "that name already exists (it may be a deprecated "
+                                    "row left over from an earlier rename). Choose a "
+                                    "different name."
+                                )
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
                     # Rename: soft-delete old row, create new row with new name
                     # This preserves audit trail and avoids race conditions
                     try:
@@ -1458,10 +1482,14 @@ class LayoutManagementView(APIView):
                         )
                         logger.info(f"Created renamed layout '{layout_name}' (version {new_layout.version})")
 
-                        # Soft-delete the old row (preserve audit trail)
+                        # Soft-delete the old row, aliased to the new one so a
+                        # caller still holding '{old_name}' (e.g. a partner's
+                        # hardcoded embed URL) keeps resolving instead of
+                        # 404ing — see LayoutCatalogue.resolve_active().
                         old_layout.is_deprecated = True
+                        old_layout.renamed_to = new_layout
                         old_layout.save()
-                        logger.info(f"Soft-deleted old layout '{old_name}' (now deprecated)")
+                        logger.info(f"Soft-deleted old layout '{old_name}' (now deprecated, aliased to '{layout_name}')")
 
                         # Migrate masks on rename
                         from services.storage import S3Storage
@@ -1516,6 +1544,7 @@ class LayoutManagementView(APIView):
                             'category': '',
                             'is_public': True,
                             'is_deprecated': False,  # Un-deprecate if re-creating
+                            'renamed_to': None,  # Clear any stale alias if this name was previously renamed away
                         },
                     )
                     if created:
@@ -1639,12 +1668,10 @@ class ExternalLayoutDetailView(APIView):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Query LayoutCatalogue from Postgres
-            layout = LayoutCatalogue.objects.get(
-                name=name,
-                is_deprecated=False,
-                is_public=True,
-            )
+            # Query LayoutCatalogue from Postgres — resolve_active follows a
+            # rename alias so a stale name (e.g. a partner's pre-rename embed
+            # URL) still resolves rather than 404ing.
+            layout = LayoutCatalogue.resolve_active(name, require_public=True)
         except LayoutCatalogue.DoesNotExist:
             return Response(
                 {"detail": f"Layout '{name}' not found"},
@@ -2145,13 +2172,12 @@ class EditorInitView(APIView):
         layout_data = django_cache.get(cache_key)
 
         if layout_data is None:
-            # Query LayoutCatalogue from Postgres
+            # Query LayoutCatalogue from Postgres — resolve_active follows a
+            # rename alias so a stale name (e.g. a partner's hardcoded embed
+            # URL, or an iframe already open when a rename lands) still
+            # resolves instead of 404ing the customer mid-order.
             try:
-                layout = LayoutCatalogue.objects.get(
-                    name=name,
-                    is_deprecated=False,
-                    is_public=True,
-                )
+                layout = LayoutCatalogue.resolve_active(name, require_public=True)
             except LayoutCatalogue.DoesNotExist:
                 return Response(
                     {'detail': f"Layout '{name}' not found"},
@@ -2237,11 +2263,11 @@ def _read_layout_def(name: str) -> Optional[Dict[str, Any]]:
         return cached
     try:
         from api.models import LayoutCatalogue
-        data = LayoutCatalogue.objects.filter(
-            name=name, is_deprecated=False,
-        ).values_list('definition', flat=True).first()
+        layout = LayoutCatalogue.resolve_active(name)
+        data = layout.definition
     except Exception:
-        # A DB hiccup must not 400 a legitimate order — fail open.
+        # A DB hiccup, missing layout, or dead-end alias must not 400 a
+        # legitimate order — fail open.
         return None
     if not isinstance(data, dict):
         return None
