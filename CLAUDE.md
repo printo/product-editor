@@ -1286,7 +1286,7 @@ Key surfaces added in the resilience/compliance pass — grep these before touch
 
 ## Migrations
 
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0015_embedsession_qty`.
+Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0019_layoutcatalogue_renamed_to`.
 
 | Migration | Change |
 |---|---|
@@ -1305,6 +1305,10 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 | 0013 | `CanvasData.image_paths` gains `default=list`. `CanvasStateView.put` deliberately keeps `image_paths` out of `update_or_create`'s `defaults` (writing `image_paths or []` blanked recorded paths every 2 s — the 0011 erasure bug), but the column is NOT NULL with no default, so INSERT wrote NULL and the **first autosave for any new order 500'd**. No row was created, so every retry took the same path and a new order never persisted its editor state at all. A model default applies on INSERT only, never UPDATE: creates succeed, autosave still can't clobber submit-time paths. |
 | 0014 | `APIRequest.api_key` → nullable `SET_NULL`, plus `APIRequest.auth_source`. The table existed from the initial commit with **nothing ever writing to it**, so `APIRequest.objects.count()` returned 0 for every key forever — which reads as proof a credential was never used and is really proof nothing was recorded. `SET_NULL` keeps history across a key rotation (`CASCADE` erased it) and lets PIA/anonymous ops actions be recorded; `auth_source` denormalises the actor so the row still names it after the key row is gone. See "API audit trail" below. |
 | 0015 | `EmbedSession.qty` (nullable positive integer) — the ordered quantity, moved off the browser-editable `?qty=N` iframe URL param onto the session so `EditorRenderView` can enforce it. Nullable rather than 0-defaulted: "the caller did not send a quantity" and "the caller ordered nothing" must stay distinguishable, and every pre-existing session reads NULL, which means unchecked — the behaviour those sessions already had. See "Order quantity" above. |
+| 0016 | `LayoutCatalogue` model — schema + an idempotent import function (RunPython, `update_or_create`-based so re-running on a populated table is safe). See "Layout Loading (Storage Migration)". |
+| 0017 | Imported all 14 production layouts into `LayoutCatalogue` from the committed `backend/migrations/prod_layouts.json` dump. |
+| 0018 | Renames four `LayoutCatalogue` indexes to Django's auto-generated names. No functional change. |
+| 0019 | `LayoutCatalogue.renamed_to` (self-FK, keyed on `name`, nullable) — set on the OLD row when an ops rename supersedes it. `LayoutCatalogue.resolve_active(name)` walks it so a renamed-away identifier keeps resolving instead of 404ing. See "Renaming a layout — the alias fallback" above. |
 
 **Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.
 
@@ -1578,7 +1582,7 @@ The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0** — §8.1/§8.
 2. **(Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50`** to prod `.env` if you want a non-default ceiling. Default 50 if absent.
 3. **(Optional) Add `CSP_REPORT_ONLY=True`** — already the default; only set explicitly if you want to flip it later.
 4. **Rebuild the backend image.** `requirements.txt` gained `django-csp==3.8` and the Dockerfile is now multi-stage. `deploy.sh` already runs `docker-compose build`, so this happens automatically.
-5. **Check for unapplied migrations.** The backend container self-migrates on boot, so a normal deploy needs nothing here — but confirm with `docker-compose exec backend python manage.py showmigrations api` and compare against the Migrations table (latest is `0015_embedsession_qty`). Only migrate from the `backend` container, never from a worker or beat container.
+5. **Check for unapplied migrations.** The backend container self-migrates on boot, so a normal deploy needs nothing here — but confirm with `docker-compose exec backend python manage.py showmigrations api` and compare against the Migrations table (latest is `0019_layoutcatalogue_renamed_to`). Only migrate from the `backend` container, never from a worker or beat container.
 6. **Verify healthchecks come up green** — `docker-compose ps` should show `(healthy)` next to `proxy`, `backend`, and `frontend`. The proxy probe hits `/nginx-health` on localhost:80; the backend probe hits `/api/health`; the frontend probe hits `/`. `proxy` `depends_on: backend: { condition: service_healthy }` so a slow backend blocks proxy startup until ready.
 7. **Smoke-test login on prod** — bad password should still say "Invalid credentials"; if PIA is reachable, login should succeed. The new error-code distinction (PiaTimeout / PiaServiceUnavailable) only surfaces during actual outages.
 

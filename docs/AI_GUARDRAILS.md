@@ -2,7 +2,7 @@
 
 Development rules and safety guidelines for AI agents working on this project.
 
-**Last verified against the code: 2026-09-11** (`main` @ `b7817c0`). This file is the short list of things that have actually bitten us;
+**Last verified against the code: 2026-09-16** (`main` @ `7b033a5`). This file is the short list of things that have actually bitten us;
 [`../CLAUDE.md`](../CLAUDE.md) is the full architectural reference and wins on
 any disagreement. If you correct a rule here, check whether CLAUDE.md says the
 same thing in its own words.
@@ -48,9 +48,11 @@ same thing in its own words.
 ### Ops Management Flows
 
 - **LayoutManagementView rename**: uses soft-delete-then-create pattern, NOT in-place mutation. Old row is soft-deleted (`is_deprecated=True`) and a new row is created with the new name, preserving audit trail and avoiding race conditions. Masks are migrated atomically within the transaction.
+- **Renames now set `renamed_to` on the old row (2026-09-16), pointing at the new one.** A rename broke printo.in's embed for real on 2026-09-16 — their iframe URL hardcodes the layout name, they weren't told, and every caller-facing lookup filtered `is_deprecated=False` with no fallback, so the old name 404'd instantly and permanently. Every lookup that matters to an external caller or the render pipeline (`GetLayoutView`, `ExternalLayoutDetailView`, `EditorInitView`, the qty-policy lookup, `GenerateLayoutView`'s existence check, `render_canvas_task`) now goes through `LayoutCatalogue.resolve_active(name)` instead of a raw `.objects.get(name=..., is_deprecated=False)`. **Never add a new layout-by-name lookup that bypasses `resolve_active()`** — it silently reintroduces this failure mode. `resolve_active` walks multi-hop chains and guards against cycles; ops-only admin lookups (`LayoutManagementView.get`, the rename's own `old_layout` fetch) deliberately stay literal, since ops needs exact identity including deprecated rows.
+- **A rename onto a name that already exists — active, or a deprecated alias-source from an earlier rename — returns a clean 400.** `name` is globally unique regardless of `is_deprecated`, so without the pre-check this hit the DB constraint deep inside `.create()` and surfaced as a raw 500. There is no "revive with different content" semantics for reusing an old name — pick a different one.
 - **Mask upload S3 routing**: uploads to `masks/{filename}` S3 key, NOT via `save_upload()` which routes to `uploads/_no_order/`. Direct S3 put-object for masks; LocalStorage uses `masks_dir()`.
 - **Asset write functions** (`_write_fonts`, `_write_calendar_style`, `_write_holidays`) all route through `storage.write_calendar_asset()`. Delete operations use `storage.delete_calendar_asset()`. Both methods return the path/key written, are atomic (temp + rename on local; single S3 put on remote), and invalidate caches on success.
-- **Re-creating deprecated layouts**: `update_or_create` now passes `is_deprecated=False` in defaults, so a layout that was soft-deleted can be un-deprecated by re-creating it with the same name. Verifies that "create a deleted layout again" makes it public, not leaves it deprecated.
+- **Re-creating deprecated layouts**: `update_or_create` now passes `is_deprecated=False` in defaults, so a layout that was soft-deleted can be un-deprecated by re-creating it with the same name. Verifies that "create a deleted layout again" makes it public, not leaves it deprecated. It also clears `renamed_to` back to `None` — otherwise a name that once was a rename alias would keep a stale forward pointer after being resurrected as an unrelated layout.
 
 ### Data Integrity
 
