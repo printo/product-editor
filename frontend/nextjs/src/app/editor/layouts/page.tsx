@@ -108,6 +108,7 @@ interface LayoutConfig {
   updatedAt?: string;
   createdBy?: string;
   updatedBy?: string;
+  version?: number;
   metadata?: {
     key: string;
     label: string;
@@ -1181,6 +1182,17 @@ export default function LayoutCreatorPage() {
                         <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
                           <span className="text-slate-400 font-medium">Created At</span>
                           <span className="text-slate-900 font-bold">{layoutObj.createdAt ? new Date(layoutObj.createdAt).toLocaleString() : 'N/A'}</span>
+                        </div>
+                        {/* createdAt/updatedAt/version come straight from LayoutCatalogue's
+                            real columns (LayoutManagementView.get) — unlike the hand-authored
+                            `metadata` block above, these stay accurate across every save. */}
+                        <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                          <span className="text-slate-400 font-medium">Last Updated</span>
+                          <span className="text-slate-900 font-bold">{layoutObj.updatedAt ? new Date(layoutObj.updatedAt).toLocaleString() : 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                          <span className="text-slate-400 font-medium">Version</span>
+                          <span className="text-slate-900 font-bold">{layoutObj.version ?? 'N/A'}</span>
                         </div>
                       </div>
                     )}
