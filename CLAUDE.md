@@ -104,11 +104,14 @@ user — there is nothing else.
 - **Say what you found and left behind.** If another session's work is sitting
   in the tree, name the files rather than silently working around them.
 
-- **Delete the remote branch after a merge:**
-  `git push origin --delete <branch>`. Otherwise every `git pull` on the
-  production server prints the whole accumulated list as `[new branch]`, burying
-  the output that matters. 13 merged branches had piled up by the end of
-  2026-08-08.
+- **Never delete a branch — local or remote — without asking first and getting
+  an explicit yes.** This includes `git branch -d`/`-D`, `git push origin
+  --delete <branch>`, and `gh pr merge --delete-branch`. Branch pileup is a
+  real problem (13 merged branches had accumulated by the end of 2026-08-08,
+  and every `git pull` on the production server prints the whole list as
+  `[new branch]`, burying the output that matters) — but cleaning that up is
+  the user's call every time, not something to do on autopilot right after a
+  merge. Ask ("merged — want me to delete `<branch>`?") and wait for the yes.
 
 - **A PR number is not something to predict.** Use the URL `gh pr create`
   returns. On 2026-08-08 a PR was referenced as "#47" before it existed; #47
