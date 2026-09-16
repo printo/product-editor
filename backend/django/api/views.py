@@ -229,8 +229,8 @@ def _summarize_layout(data):
     """Trim a full layout def down to the fields an external catalog/picker needs.
 
     Handles both layout shapes: root-`canvas` (single-surface) and `surfaces[]`
-    (multi-surface). Only exposes fields that actually exist on disk — there is
-    no displayLabel/thumbnail in the layout JSON, so we don't fabricate them.
+    (multi-surface). `displayName` (2026-09-16) is the one ops-curated field
+    surfaced here; there is still no thumbnail, so we don't fabricate one.
     """
     canvas = data.get("canvas")
     surfaces = data.get("surfaces")
@@ -251,6 +251,7 @@ def _summarize_layout(data):
 
     return {
         "name": data.get("name"),
+        "displayName": data.get("displayName"),
         "productType": data.get("productType"),
         "hasCalendar": data.get("productType") == "calendar",
         "tags": data.get("tags", []),
@@ -275,11 +276,16 @@ class ListLayoutsView(APIView):
         tags=["layouts"],
         summary="List all available layouts",
         description=(
-            "Returns all layout definitions the API key is permitted to use.\n\n"
-            "Pass `?fields=summary` to get a slim catalog (name, productType, "
-            "hasCalendar, tags, surfaceCount, frameCount, dimensions, updatedAt) "
-            "instead of the full layout defs — intended for external systems that "
-            "auto-pull the catalog to render a picker."
+            "Returns all layout definitions the API key is permitted to use. Every "
+            "entry carries `name` (the stable, immutable identifier — safe to embed "
+            "in a URL indefinitely) and `displayName` (ops-editable, for showing a "
+            "customer a friendly product name — use this instead of formatting "
+            "`name` yourself, and re-pull periodically if you cache it since ops "
+            "can change it any time).\n\n"
+            "Pass `?fields=summary` to get a slim catalog (name, displayName, "
+            "productType, hasCalendar, tags, surfaceCount, frameCount, dimensions, "
+            "updatedAt) instead of the full layout defs — intended for external "
+            "systems that auto-pull the catalog to render a picker."
         ),
         parameters=[
             OpenApiParameter(
@@ -299,7 +305,7 @@ class ListLayoutsView(APIView):
     def get(self, request):
         try:
             from django.core.cache import cache as django_cache
-            from api.models import LayoutCatalogue
+            from api.models import LayoutCatalogue, default_display_name_for
 
             CACHE_KEY = "layouts_list_all"
             CACHE_TTL = 120  # 2 minutes — invalidated on layout write
@@ -310,13 +316,14 @@ class ListLayoutsView(APIView):
                 rows = LayoutCatalogue.objects.filter(
                     is_deprecated=False,
                     is_public=True,
-                ).values('name', 'definition', 'product_type', 'category', 'updated_at')
+                ).values('name', 'display_name', 'definition', 'product_type', 'category', 'updated_at')
 
                 layouts_data = []
                 for row in rows:
                     # Merge definition with metadata for response
                     data = row['definition'].copy() if isinstance(row['definition'], dict) else {}
                     data['name'] = row['name']
+                    data['displayName'] = row['display_name'] or default_display_name_for(row['name'])
                     data['category'] = row['category']
                     data['hasCalendar'] = data.get('productType') == 'calendar'
                     layouts_data.append(data)
@@ -886,10 +893,13 @@ class GetLayoutView(APIView):
         tags=["layouts"],
         summary="Get layout by name",
         description=(
-            "Retrieve the full JSON definition for a specific layout. If `name` "
-            "was renamed by ops, this still resolves — the response's `name` "
-            "field reflects the *current* identifier, which may differ from what "
-            "you requested."
+            "Retrieve the full JSON definition for a specific layout. `name` is "
+            "immutable once a layout is created (2026-09-16) — safe to hardcode "
+            "indefinitely. A handful of layouts renamed before that date still "
+            "resolve under their pre-rename identifier; the response's `name` "
+            "then reflects the current one, which may differ from what you "
+            "requested. `displayName` is the ops-curated customer-facing name, "
+            "independent of `name`."
         ),
         parameters=[
             OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
@@ -908,7 +918,7 @@ class GetLayoutView(APIView):
     def get(self, request, name: str):
         try:
             from django.core.cache import cache as django_cache
-            from api.models import LayoutCatalogue
+            from api.models import LayoutCatalogue, default_display_name_for
 
             # Malformed name is a client error; a well-formed name that simply
             # isn't there is a missing resource.
@@ -942,6 +952,7 @@ class GetLayoutView(APIView):
             # Fetch definition from database
             data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
             data['name'] = layout.name
+            data['displayName'] = layout.display_name or default_display_name_for(layout.name)
 
             # Filter surfaces if ?surfaces= param is provided (for multi-surface layouts)
             if surfaces_param and 'surfaces' in data and isinstance(data['surfaces'], list):
@@ -1255,7 +1266,7 @@ class LayoutManagementView(APIView):
     def get(self, request, name=None):
         """List layouts or get a specific layout's JSON."""
         from django.core.cache import cache as django_cache
-        from api.models import LayoutCatalogue
+        from api.models import LayoutCatalogue, default_display_name_for
 
         if name:
             if not self._is_safe_layout_name(name):
@@ -1270,6 +1281,7 @@ class LayoutManagementView(APIView):
             try:
                 data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
                 data['name'] = layout.name
+                data['displayName'] = layout.display_name or default_display_name_for(layout.name)
                 # Surface the alias pointer so ops can tell a renamed-away
                 # layout (still reachable, harmless) from a genuinely deleted
                 # one (dead end) at a glance — see LayoutCatalogue.resolve_active().
@@ -1298,13 +1310,14 @@ class LayoutManagementView(APIView):
             if layouts_data is None:
                 # Query all layouts (not just public) for ops view
                 rows = LayoutCatalogue.objects.all().values(
-                    'name', 'definition', 'product_type', 'is_deprecated', 'renamed_to',
+                    'name', 'display_name', 'definition', 'product_type', 'is_deprecated', 'renamed_to',
                     'created_at', 'updated_at', 'version'
                 )
                 layouts_data = []
                 for row in rows:
                     data = row['definition'].copy() if isinstance(row['definition'], dict) else {}
                     data['name'] = row['name']
+                    data['displayName'] = row['display_name'] or default_display_name_for(row['name'])
                     data['hasCalendar'] = data.get('productType') == 'calendar'
                     data['isDeprecated'] = row['is_deprecated']
                     # `renamed_to` is keyed on the target's `name` (to_field='name'),
@@ -1323,18 +1336,19 @@ class LayoutManagementView(APIView):
 
     @extend_schema(
         tags=["ops"],
-        summary="Create, update or rename a layout",
+        summary="Create or update a layout",
         description=(
-            "Writes a layout JSON file. Ops team only.\n\n"
+            "Writes a layout to LayoutCatalogue. Ops team only.\n\n"
             + LAYOUT_ID_NOTE +
-            "\n\n**Rename:** send `old_name` (or `originalName`) alongside the new "
-            "`name`. The old row is soft-deleted (`is_deprecated=True`) only after "
-            "the new one is created, and is left pointing at the new row via "
-            "`renamed_to` — so requests still using the pre-rename `name` keep "
-            "resolving (`LayoutCatalogue.resolve_active()`) instead of 404ing. "
-            "Renaming onto a name that's already taken — active, or a deprecated "
-            "alias-source left over from an earlier rename — is rejected with 400 "
-            "rather than attempted.\n\n"
+            "\n\n**`name` is immutable once created (2026-09-16).** A second POST "
+            "to the same `name` updates that row in place. Sending `old_name` (or "
+            "`originalName`) that differs from `name` — the old rename mechanism — "
+            "is rejected with 400; edit `display_name` for anything customer-facing "
+            "that needs to change, or create a new layout under a new name. Layouts "
+            "renamed before 2026-09-16 still resolve under their old identifier via "
+            "`LayoutCatalogue.resolve_active()` (a `renamed_to` pointer set at the "
+            "time) — that mechanism stays as a historical safety net even though "
+            "nothing can create a new one going forward.\n\n"
             "**Validation depends on `productType`.** A calendar or book layout is "
             "checked against its own validator; a multi-surface product must give "
             "every surface a canvas width and height; a plain layout must carry a "
@@ -1348,26 +1362,38 @@ class LayoutManagementView(APIView):
             fields={
                 "name": drf_serializers.CharField(
                     required=False,
-                    help_text="Layout identifier. Optional when supplied in the URL path. `A-Za-z0-9_.-` only.",
+                    help_text=(
+                        "Layout identifier. Optional when supplied in the URL path. "
+                        "`A-Za-z0-9_.-` only. **Immutable once the row exists** — a "
+                        "second POST to the same `name` updates it in place; it "
+                        "cannot be changed to a different `name` (use `display_name` "
+                        "for anything customer-facing that ops needs to edit)."
+                    ),
+                ),
+                "display_name": drf_serializers.CharField(
+                    required=False,
+                    help_text=(
+                        "Ops-editable customer-facing name, shown in the embed/dashboard "
+                        "editor heading, the layout list APIs, and the ops Templates grid. "
+                        "Freely editable at any time, unlike `name`. On create, if omitted "
+                        "one is derived from `name`. On update, omitting it leaves the "
+                        "existing value untouched — it is never silently blanked."
+                    ),
                 ),
                 "layout_data": drf_serializers.JSONField(
                     help_text="The layout definition. Also accepted under the key `layout`. A JSON string is parsed.",
-                ),
-                "old_name": drf_serializers.CharField(
-                    required=False,
-                    help_text="Previous identifier, to rename. Also accepted as `originalName`. Ignored if equal to `name`.",
                 ),
             },
         ),
         responses={
             200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The layout as stored."),
-            400: OpenApiResponse(description="Missing name/layout_data, invalid name, malformed JSON, failed product validation, or (on a rename) `name` already belongs to an existing layout."),
+            400: OpenApiResponse(description="Missing name/layout_data, invalid name, malformed JSON, failed product validation, or an `old_name` that differs from `name` (renaming the identifier is retired — see docs above)."),
             403: OpenApiResponse(description="Caller is not on the ops team, or the path resolved outside the layouts directory."),
         },
     )
     def post(self, request, name=None):
         """Create or update a layout in LayoutCatalogue."""
-        from api.models import LayoutCatalogue
+        from api.models import LayoutCatalogue, default_display_name_for
         from django.db import transaction as db_transaction
         from django.core.exceptions import ValidationError as _DjangoValidationError
 
@@ -1380,10 +1406,27 @@ class LayoutManagementView(APIView):
         if not self._is_safe_layout_name(layout_name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Support rename: if old_name is provided and differs from layout_name
+        # `name` is immutable once a row exists (2026-09-16) — a prior rename
+        # (soft-delete + create-under-new-name, aliased via `renamed_to`) broke
+        # printo.in's embed for real because their iframe URL hardcodes it and
+        # they were never told it changed. old_name/originalName are still
+        # accepted so a stale client gets a clear rejection instead of a
+        # generic 400 or, worse, silently renaming again.
         old_name = request.data.get("old_name") or request.data.get("originalName")
-        if old_name and old_name == layout_name:
-            old_name = None  # Not actually a rename
+        if old_name and old_name != layout_name:
+            return Response(
+                {
+                    "detail": (
+                        f"Renaming a layout's identifier is no longer supported "
+                        f"(attempted '{old_name}' -> '{layout_name}'). `name` is "
+                        f"immutable once created — edit `display_name` instead, or "
+                        f"create a new layout under the new name."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        display_name_input = str(request.data.get("display_name") or "").strip()
 
         try:
             # Basic validation: ensure it's a valid JSON dict
@@ -1476,122 +1519,45 @@ class LayoutManagementView(APIView):
             product_type = layout_data.get('productType', 'single_canvas')
 
             with db_transaction.atomic():
-                if old_name and old_name != layout_name:
-                    # Renaming onto a name that already exists — active, or a
-                    # deprecated alias-source left over from an earlier rename
-                    # — would otherwise hit the `name` unique constraint deep
-                    # inside .create() below and surface as a raw 500.
-                    if LayoutCatalogue.objects.filter(name=layout_name).exists():
-                        return Response(
-                            {
-                                "detail": (
-                                    f"Cannot rename to '{layout_name}': a layout with "
-                                    "that name already exists (it may be a deprecated "
-                                    "row left over from an earlier rename). Choose a "
-                                    "different name."
-                                )
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    # Rename: soft-delete old row, create new row with new name
-                    # This preserves audit trail and avoids race conditions
-                    try:
-                        old_layout = LayoutCatalogue.objects.get(name=old_name)
-                        old_version = old_layout.version
-                        old_imported_by = old_layout.imported_by
-
-                        # Create new row with new name (inheriting version context)
-                        new_layout = LayoutCatalogue.objects.create(
-                            name=layout_name,
-                            definition=layout_data,
-                            product_type=product_type,
-                            category='',
-                            is_public=True,
-                            version=old_version + 1,
-                            imported_by=old_imported_by,
-                        )
-                        logger.info(f"Created renamed layout '{layout_name}' (version {new_layout.version})")
-
-                        # Soft-delete the old row, aliased to the new one so a
-                        # caller still holding '{old_name}' (e.g. a partner's
-                        # hardcoded embed URL) keeps resolving instead of
-                        # 404ing — see LayoutCatalogue.resolve_active().
-                        old_layout.is_deprecated = True
-                        old_layout.renamed_to = new_layout
-                        old_layout.save()
-                        logger.info(f"Soft-deleted old layout '{old_name}' (now deprecated, aliased to '{layout_name}')")
-
-                        # Migrate masks on rename
-                        from services.storage import S3Storage
-                        storage = get_storage()
-                        if isinstance(storage, S3Storage):
-                            try:
-                                # Try common extensions for the old mask
-                                for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
-                                    old_mask_key = f"masks/{old_name}_mask{ext}"
-                                    new_mask_key = f"masks/{layout_name}_mask{ext}"
-                                    try:
-                                        if storage.file_exists(old_mask_key):
-                                            storage.copy_object(old_mask_key, new_mask_key)
-                                            storage.delete_file(old_mask_key)
-                                            logger.info(f"Migrated mask: {old_mask_key} → {new_mask_key}")
-                                            break
-                                    except Exception as inner_exc:
-                                        logger.warning(f"Failed to migrate mask {old_mask_key}: {inner_exc}")
-                            except Exception as exc:
-                                logger.warning(f"Mask migration failed on rename: {exc}")
-                        else:
-                            # Local storage: rename mask file if it exists
-                            try:
-                                for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
-                                    old_mask_path = os.path.join(storage.masks_dir(), f"{old_name}_mask{ext}")
-                                    if os.path.exists(old_mask_path):
-                                        new_mask_path = os.path.join(storage.masks_dir(), f"{layout_name}_mask{ext}")
-                                        os.rename(old_mask_path, new_mask_path)
-                                        logger.info(f"Migrated local mask: {old_mask_path} → {new_mask_path}")
-                                        break
-                            except Exception as exc:
-                                logger.warning(f"Local mask migration failed on rename: {exc}")
-
-                    except LayoutCatalogue.DoesNotExist:
-                        # Old layout doesn't exist — create as new
-                        LayoutCatalogue.objects.create(
-                            name=layout_name,
-                            definition=layout_data,
-                            product_type=product_type,
-                            category='',
-                            is_public=True,
-                            version=1,
-                        )
-                        logger.info(f"Created new layout '{layout_name}'")
+                # Preserve an ops-curated display_name across an update that
+                # doesn't send one (an old client build, or the calendar/book
+                # editors, which don't yet have a dedicated display-name field —
+                # see CLAUDE.md). Only a create with none supplied falls back to
+                # an auto-derived one; an existing curated name is never
+                # silently overwritten by that fallback.
+                existing = LayoutCatalogue.objects.filter(name=layout_name).first()
+                if display_name_input:
+                    resolved_display_name = display_name_input
+                elif existing is not None:
+                    resolved_display_name = existing.display_name or default_display_name_for(layout_name)
                 else:
-                    # Create or update (no rename)
-                    obj, created = LayoutCatalogue.objects.update_or_create(
-                        name=layout_name,
-                        defaults={
-                            'definition': layout_data,
-                            'product_type': product_type,
-                            'category': '',
-                            'is_public': True,
-                            'is_deprecated': False,  # Un-deprecate if re-creating
-                            'renamed_to': None,  # Clear any stale alias if this name was previously renamed away
-                        },
-                    )
-                    if created:
-                        obj.version = 1
-                        obj.save()
-                        logger.info(f"Created new layout '{layout_name}'")
-                    else:
-                        obj.version = obj.version + 1
-                        obj.save()
-                        logger.info(f"Updated layout '{layout_name}' (version {obj.version})")
+                    resolved_display_name = default_display_name_for(layout_name)
+
+                obj, created = LayoutCatalogue.objects.update_or_create(
+                    name=layout_name,
+                    defaults={
+                        'definition': layout_data,
+                        'product_type': product_type,
+                        'category': '',
+                        'is_public': True,
+                        'is_deprecated': False,  # Un-deprecate if re-creating
+                        'renamed_to': None,  # Clear any stale alias if this name was previously renamed away
+                        'display_name': resolved_display_name,
+                    },
+                )
+                if created:
+                    obj.version = 1
+                    obj.save()
+                    logger.info(f"Created new layout '{layout_name}' (display_name='{resolved_display_name}')")
+                else:
+                    obj.version = obj.version + 1
+                    obj.save()
+                    logger.info(f"Updated layout '{layout_name}' (version {obj.version})")
 
             # Invalidate caches
             invalidate_layout_caches(layout_name)
-            if old_name and old_name != layout_name:
-                invalidate_layout_caches(old_name)
 
-            return Response({"status": "success", "name": layout_name})
+            return Response({"status": "success", "name": layout_name, "display_name": resolved_display_name})
         except json.JSONDecodeError:
             return Response({"detail": "Invalid JSON data"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
@@ -1674,9 +1640,12 @@ class ExternalLayoutDetailView(APIView):
         description=(
             "Fetch a layout JSON definition via API key auth. "
             "Intended for external server-to-server use (not browser clients). "
-            "If `name` was renamed by ops, this still resolves — the response's "
-            "`name` field reflects the *current* identifier, which may differ "
-            "from what you requested. See docs/INTEGRATION.md."
+            "`name` is immutable once a layout is created (2026-09-16) — safe to "
+            "hardcode indefinitely. A handful of layouts renamed before that date "
+            "still resolve under their pre-rename identifier; the response's "
+            "`name` then reflects the current one, which may differ from what "
+            "you requested. `displayName` is the ops-curated customer-facing "
+            "name, independent of `name`. See docs/INTEGRATION.md."
         ),
         parameters=[
             OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
@@ -1694,7 +1663,7 @@ class ExternalLayoutDetailView(APIView):
         },
     )
     def get(self, request, name):
-        from api.models import LayoutCatalogue
+        from api.models import LayoutCatalogue, default_display_name_for
 
         # 400 for a malformed name, 404 for one that simply isn't there.
         if not GetLayoutView._is_safe_layout_name(name):
@@ -1714,6 +1683,7 @@ class ExternalLayoutDetailView(APIView):
         try:
             data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
             data['name'] = layout.name
+            data['displayName'] = layout.display_name or default_display_name_for(layout.name)
 
             # Filter surfaces if ?surfaces= param is provided (for multi-surface layouts)
             surfaces_param = request.query_params.get('surfaces')
@@ -2161,12 +2131,14 @@ class EditorInitView(APIView):
         summary="Batched editor mount payload",
         description=(
             "Returns the static, cacheable bits the editor needs on mount: "
-            "`{ layout, fonts, order_id, qty }`. If `layout` was renamed by ops, "
-            "this still resolves — the response's `layout.name` reflects the "
-            "*current* identifier, which may differ from the `layout` you "
-            "requested. This is what an embed iframe's URL hits on load, so a "
-            "stale identifier baked into your iframe URL keeps working "
-            "indefinitely rather than 404ing."
+            "`{ layout, fonts, order_id, qty }`. This is what an embed iframe's "
+            "URL hits on load. `layout.name` is immutable once a layout is "
+            "created (2026-09-16) — safe to hardcode in your iframe URL "
+            "indefinitely. A handful of layouts renamed before that date still "
+            "resolve under their pre-rename identifier; the response's "
+            "`layout.name` then reflects the current one, which may differ from "
+            "the `layout` query param you sent. `layout.displayName` is the "
+            "ops-curated customer-facing name, independent of `layout.name`."
         ),
         parameters=[
             OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True),
@@ -2197,7 +2169,7 @@ class EditorInitView(APIView):
     )
     def get(self, request):
         from django.core.cache import cache as django_cache
-        from api.models import LayoutCatalogue
+        from api.models import LayoutCatalogue, default_display_name_for
 
         name = (request.query_params.get('layout') or '').strip()
         if not name:
@@ -2229,6 +2201,7 @@ class EditorInitView(APIView):
             # Fetch definition from database
             layout_data = layout.definition.copy() if isinstance(layout.definition, dict) else {}
             layout_data['name'] = layout.name
+            layout_data['displayName'] = layout.display_name or default_display_name_for(layout.name)
 
             if surfaces_param and 'surfaces' in layout_data and isinstance(layout_data['surfaces'], list):
                 requested_keys = [k.strip().lower() for k in surfaces_param.split(',') if k.strip()]

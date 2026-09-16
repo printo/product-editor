@@ -2,9 +2,10 @@
  * Tests for the CalendarLayoutEditor wrapper page
  * (review fix Gap B — phase 6 integration coverage).
  *
- * Covers the load + save + rename + error states that connect the
- * controlled `CalendarLayoutEditor` to real `/api/internal/proxy/*`
- * endpoints. Uses jest.mock for fetch + next/navigation.
+ * Covers the load + save + error states that connect the controlled
+ * `CalendarLayoutEditor` to real `/api/internal/proxy/*` endpoints, plus the
+ * identifier lock for an existing layout (name is immutable once created —
+ * 2026-09-16). Uses jest.mock for fetch + next/navigation.
  *
  * The page calls useHeader() (wizard step bar lives in the app header), so
  * every render is wrapped in the real HeaderProvider. The editor itself is
@@ -180,7 +181,7 @@ describe('CalendarLayoutEditor wrapper — existing route', () => {
   });
 });
 
-// ─── Save + rename flow ─────────────────────────────────────────────────────
+// ─── Save flow ──────────────────────────────────────────────────────────────
 
 describe('CalendarLayoutEditor wrapper — save flow', () => {
   it('POSTs the serialised JSON to the ops endpoint and redirects on success (new route)', async () => {
@@ -208,12 +209,14 @@ describe('CalendarLayoutEditor wrapper — save flow', () => {
     );
   });
 
-  it('includes old_name in the body when the layout is renamed', async () => {
+  it('locks the identifier for an existing layout and sends display_name instead of a rename', async () => {
+    // `name` became immutable once created on 2026-09-16 — a rename broke
+    // printo.in's embed for real because their iframe URL hardcodes it.
     mockParams.name = 'family_calendar';
     const fetchStub = makeFetchStub({
       'calendar-styles/modern-genz': { body: STYLE_RESPONSE },
       'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
-      'layouts/family_calendar': { body: EXISTING_LAYOUT },
+      'layouts/family_calendar': { body: { ...EXISTING_LAYOUT, displayName: 'Family Calendar' } },
       'ops/layouts': { body: { ok: true } },
     });
     global.fetch = fetchStub;
@@ -222,22 +225,31 @@ describe('CalendarLayoutEditor wrapper — save flow', () => {
       expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument()
     );
 
-    // Rename: clear + retype the name field (step 1), then save (step 4).
-    const nameInput = screen.getByTestId('layout-name');
-    await userEvent.clear(nameInput);
-    await userEvent.type(nameInput, 'family_calendar_v2');
+    // The identifier input is disabled for an existing layout — there is no
+    // way to type into it, let alone rename via it.
+    const nameInput = screen.getByTestId('layout-name') as HTMLInputElement;
+    expect(nameInput).toBeDisabled();
+    expect(nameInput.value).toBe('family_calendar');
+
+    // Display name is the field that's still freely editable.
+    const displayNameInput = screen.getByTestId('layout-display-name') as HTMLInputElement;
+    expect(displayNameInput.value).toBe('Family Calendar');
+    await userEvent.clear(displayNameInput);
+    await userEvent.type(displayNameInput, 'Family Calendar 2026');
+
     await goToReviewStep();
     await userEvent.click(screen.getByTestId('save-btn'));
 
     await waitFor(() => {
       const opsCall = fetchStub.mock.calls.find((args) =>
-        String(args[0]).includes('/ops/layouts/family_calendar_v2')
+        String(args[0]).includes('/ops/layouts/family_calendar')
       );
       expect(opsCall).toBeTruthy();
       const init = opsCall![1] as RequestInit;
       const body = JSON.parse(String(init.body));
-      expect(body.old_name).toBe('family_calendar');
-      expect(body.name).toBe('family_calendar_v2');
+      expect(body.old_name).toBeUndefined();
+      expect(body.name).toBe('family_calendar');
+      expect(body.display_name).toBe('Family Calendar 2026');
     });
   });
 

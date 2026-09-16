@@ -39,6 +39,12 @@ export interface BookRoleDraft {
 
 export interface BookLayoutDraft {
   name: string;
+  /**
+   * Ops-editable customer-facing name (2026-09-16) — independent of `name`,
+   * which is immutable once the layout exists. Optional: an empty value
+   * makes the server auto-derive one from `name` (default_display_name_for).
+   */
+  displayName?: string;
   productType: 'book';
   bleedMm: number;
   gutterMm: number;
@@ -61,8 +67,16 @@ export interface BookLayoutEditorProps {
   initial?: Partial<BookLayoutDraft>;
   /** Override the new-layout name (defaults to "untitled_book"). */
   newLayoutName?: string;
-  /** Called when ops clicks Save. Parent serialises + POSTs. */
-  onSave: (layoutJson: Record<string, unknown>) => void | Promise<void>;
+  /**
+   * True when editing a layout that already exists in LayoutCatalogue —
+   * locks the "Layout name" input, since `name` is immutable once created
+   * (2026-09-16). False (default) for a brand-new layout, where it's still
+   * freely editable up to the first save.
+   */
+  isExistingLayout?: boolean;
+  /** Called when ops clicks Save. Parent serialises + POSTs `layoutJson` as
+   *  `layout_data` and `displayName` as the separate `display_name` field. */
+  onSave: (layoutJson: Record<string, unknown>, displayName: string) => void | Promise<void>;
   /** Called on Cancel button click. Parent navigates away or resets. */
   onCancel?: () => void;
 }
@@ -79,6 +93,7 @@ function defaultRole(widthMm: number, heightMm: number): BookRoleDraft {
 function defaultBookLayout(name: string): BookLayoutDraft {
   return {
     name,
+    displayName: '',
     productType: 'book',
     bleedMm: 3,
     gutterMm: 10,
@@ -348,6 +363,7 @@ function RoleEditor({
 export function BookLayoutEditor({
   initial,
   newLayoutName = 'untitled_book',
+  isExistingLayout = false,
   onSave,
   onCancel,
 }: BookLayoutEditorProps) {
@@ -372,7 +388,7 @@ export function BookLayoutEditor({
     }
     setBusy(true);
     try {
-      await onSave(draftToLayoutJson(draft));
+      await onSave(draftToLayoutJson(draft), draft.displayName ?? '');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
@@ -382,17 +398,37 @@ export function BookLayoutEditor({
 
   return (
     <div className="max-w-4xl mx-auto p-6" data-testid="book-layout-editor">
-      <div className="mb-6">
+      <div className="mb-6 flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-xs max-w-xs">
-          <span className="font-medium text-zinc-700">Layout name</span>
+          <span className="font-medium text-zinc-700">Display name</span>
+          <input
+            type="text"
+            value={draft.displayName ?? ''}
+            onChange={(e) => patch({ displayName: e.target.value })}
+            placeholder="e.g. Classic Photobook"
+            data-testid="book-display-name-input"
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-zinc-900"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs max-w-xs">
+          <span className="font-medium text-zinc-700">Layout name (identifier)</span>
           <input
             type="text"
             value={draft.name}
             onChange={(e) => patch({ name: e.target.value })}
+            disabled={isExistingLayout}
             data-testid="book-name-input"
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm
-                       focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                       focus:outline-none focus:ring-2 focus:ring-zinc-900
+                       disabled:bg-zinc-100 disabled:text-zinc-500"
           />
+          {/* Immutable once created (2026-09-16) — a rename broke printo.in's
+              embed for real because their iframe URL hardcodes it. Edit
+              Display name above instead. */}
+          {isExistingLayout && (
+            <span className="text-[11px] text-zinc-400">Cannot be changed once created — edit Display name instead.</span>
+          )}
         </label>
       </div>
 

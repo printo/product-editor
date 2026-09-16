@@ -2,7 +2,7 @@
 
 /**
  * Ops-only wrapper page that hosts CalendarLayoutEditor with real
- * load + save + rename plumbing.
+ * load + save plumbing.
  *
  * Routes:
  *   /editor/layouts/calendar/new            → blank editor
@@ -13,7 +13,9 @@
  * customer-facing exposure. Mirrors the existing /editor/layouts page's
  * proxy convention.
  *
- * Phase 6 review fixes #7 (rename) + #8 (load existing).
+ * `name` is immutable once a layout exists (2026-09-16) — the editor locks
+ * that field for an existing layout (isExistingLayout prop) and there is no
+ * rename path any more; edit displayName for anything customer-facing.
  */
 
 import { useEffect, useState } from 'react';
@@ -29,6 +31,7 @@ import type {
 
 interface ExistingLayoutJson {
   name: string;
+  displayName?: string;
   productType?: string;
   canvas?: {
     width?: number;
@@ -54,6 +57,7 @@ function existingToInitial(layout: ExistingLayoutJson): Partial<CalendarLayoutDr
   const calCount = layout.calendars?.length ?? 1;
   return {
     name: layout.name,
+    displayName: layout.displayName ?? '',
     mode: count === 1 && calCount === 12 ? 'poster' : 'multi-surface',
     canvasWidthMm: layout.canvas?.widthMm ?? 127,
     canvasHeightMm: layout.canvas?.heightMm ?? 177.8,
@@ -89,7 +93,6 @@ export default function CalendarLayoutEditorPage() {
   }, [isNew, routeName, setTitle, setDescription, setCenterActions, setRightActions]);
 
   const [initial, setInitial] = useState<Partial<CalendarLayoutDraft> | null>(null);
-  const [originalName, setOriginalName] = useState<string | null>(null);
   const [genzPalettes, setGenzPalettes] = useState<GenzPalette[]>([]);
   const [previewHolidays, setPreviewHolidays] = useState<HolidayEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -140,7 +143,6 @@ export default function CalendarLayoutEditorPage() {
             );
           } else {
             setInitial(existingToInitial(layout));
-            setOriginalName(layout.name);
           }
         }
       } catch (e) {
@@ -157,21 +159,18 @@ export default function CalendarLayoutEditorPage() {
     };
   }, [isNew, routeName]);
 
-  async function handleSave(layoutJson: Record<string, unknown>) {
+  async function handleSave(layoutJson: Record<string, unknown>, displayName: string) {
     const name = String(layoutJson.name ?? routeName);
     if (!name) throw new Error('Layout name missing from serialised JSON.');
 
-    // Rename detection (review fix #7): if the user changed the name on an
-    // existing layout, tell the backend to clean up the old file by passing
-    // old_name in the POST body. The backend handles both upsert + rename
-    // semantics in api/views.py::LayoutManagementView.post.
+    // `name` is immutable once created (2026-09-16) — the editor locks the
+    // identifier input once isExistingLayout is true, so this is always a
+    // create (isNew) or an update to the SAME name, never a rename.
     const body: Record<string, unknown> = {
       name,
+      display_name: displayName,
       layout_data: layoutJson,
     };
-    if (originalName && originalName !== name) {
-      body.old_name = originalName;
-    }
 
     const res = await fetch(
       `/api/internal/proxy/ops/layouts/${encodeURIComponent(name)}`,
@@ -188,13 +187,8 @@ export default function CalendarLayoutEditorPage() {
       );
     }
 
-    // After a successful save: if we renamed, jump to the new URL.
-    if (originalName && originalName !== name) {
+    if (isNew) {
       router.replace(`/editor/layouts/calendar/${encodeURIComponent(name)}`);
-    } else if (isNew) {
-      router.replace(`/editor/layouts/calendar/${encodeURIComponent(name)}`);
-    } else {
-      setOriginalName(name);
     }
   }
 
@@ -227,6 +221,7 @@ export default function CalendarLayoutEditorPage() {
     <CalendarLayoutEditor
       initial={initial ?? undefined}
       newLayoutName={isNew ? 'untitled_calendar' : routeName}
+      isExistingLayout={!isNew}
       genzPalettes={genzPalettes}
       previewHolidays={previewHolidays}
       onSave={handleSave}

@@ -477,21 +477,29 @@ layout, which `qty` does not describe — it is ignored there.
 > `qty` sent in the session body is actually enforced. Move it and drop it from
 > the URL.
 
-### Layout renames don't break your iframe URL (as of Sep 16, 2026)
+### The layout identifier in your iframe URL is a permanent, stable key (as of Sep 16, 2026)
 
-The layout identifier in your iframe URL (`circle_48mm` above) can be renamed
-on our side by ops. Before Sep 16, 2026 that broke your embed outright — a
-renamed-away identifier 404'd immediately and permanently, with no way for you
-to know short of a customer complaint. That's fixed now: a rename keeps the
-old identifier resolving indefinitely (`/api/editor/init`, `/api/layouts/<name>`,
-and the render pipeline all follow the alias). **You don't need to do
-anything** — no action, no re-sync, no urgency.
+The layout identifier in your iframe URL (`circle_48mm` above) used to be
+renameable by our ops team — and a rename broke your embed outright, since a
+renamed-away identifier 404'd immediately and permanently with no way for you
+to know short of a customer complaint. That's closed now, in two steps taken
+the same day: first an alias so a rename wouldn't break you, then removing
+the ability to rename a layout's identifier at all. **`name` is immutable
+once a layout is created** — nothing on our side can ever change it out from
+under you again, so an iframe URL you build today is safe to hardcode
+indefinitely. **You don't need to do anything.**
 
-That said, an identifier you've had aliased for a long time is still a stale
-reference. If you periodically re-pull `GET /api/layouts` for the layouts you
-use, the `name` field in the response is always the *current* identifier —
-worth updating your stored mapping to it opportunistically, but never
-time-sensitive.
+Cosmetic product names are now a separate field: every layout response
+(`GET /api/layouts`, `GET /api/layouts/<name>`) also carries `displayName` —
+the human-readable name our ops team curates, independent of `name`. It's
+optional for you: `name` alone is all your iframe URL needs, but if you show
+customers a product name of your own before they reach the iframe, pulling
+`displayName` instead of formatting `name` yourself will match what they see
+once the editor loads.
+
+A handful of layouts were renamed before this closed — those still resolve
+under their pre-rename identifier via a permanent alias, so nothing to fix on
+your end even for those.
 
 ### 5. Firewall
 

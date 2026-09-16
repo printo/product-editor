@@ -204,6 +204,10 @@ export default function LayoutCreatorPage() {
   // Form State
   const [isEditMode, setIsEditMode] = useState(false);
   const [layoutName, setLayoutName] = useState('');
+  // Layout name (identifier) — independently typed, matching Calendar/Book's
+  // editors (2026-09-16). Frozen once a layout exists (`name` is immutable);
+  // free-typed on create, same as the other two editors' "Layout name" field.
+  const [layoutId, setLayoutId] = useState('untitled_layout');
   const [tags, setTags] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   // Tag filter: clicking a chip sets this; '' means "All". Independent of
@@ -233,7 +237,6 @@ export default function LayoutCreatorPage() {
   // Set after scanning a freshly-picked mask File for transparency (see
   // hasTransparentPixels) — warns before save, not enforced server-side.
   const [maskWarning, setMaskWarning] = useState<string | null>(null);
-  const [originalLayoutName, setOriginalLayoutName] = useState<string | null>(null);
 
   // Multi-surface state
   const [layoutType, setLayoutType] = useState<'single' | 'product'>('single');
@@ -459,8 +462,6 @@ export default function LayoutCreatorPage() {
     }
   }, [status, fetchLayouts]);
 
-  const internalId = layoutName.toLowerCase().replace(/\s+/g, '_');
-
   const handleGenerateGrid = () => {
     const newFrames: LayoutFrame[] = [];
     const cellW = (widthMm - (cols + 1) * padding) / cols;
@@ -487,9 +488,19 @@ export default function LayoutCreatorPage() {
 
   const handleCreateLayout = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSaving(true);
     setError(null);
     setSuccess(null);
+
+    // Layout name (identifier) becomes part of the embed iframe URL and the
+    // API path, so it can't carry spaces or characters that need escaping —
+    // same rule Calendar/Book editors already enforce on their own identifier
+    // field. Checked before setIsSaving so a bad id never shows a spinner.
+    if (!/^[a-z0-9_-]+$/i.test(layoutId)) {
+      setError('Layout name (identifier) may contain letters, digits, hyphen, underscore only — no spaces or special characters.');
+      return;
+    }
+
+    setIsSaving(true);
 
     // Validate bounds for active frame set
     const framesToCheck = layoutType === 'product' ? surfaces.flatMap(s => s.frames.map(f => ({ f, w: s.widthMm, h: s.heightMm }))) : frames.map(f => ({ f, w: widthMm, h: heightMm }));
@@ -535,7 +546,7 @@ export default function LayoutCreatorPage() {
       }));
 
       layoutData = {
-        name: internalId,
+        name: layoutId,
         type: 'product',
         tags: tags.split(',').map(t => t.trim()).filter(Boolean),
         frameCaptionsEnabled,
@@ -554,7 +565,7 @@ export default function LayoutCreatorPage() {
       const canvasH = mmToPx(heightMm, dpi);
 
       layoutData = {
-        name: internalId,
+        name: layoutId,
         tags: tags.split(',').map(t => t.trim()).filter(Boolean),
         canvas: {
           width: canvasW,
@@ -578,11 +589,12 @@ export default function LayoutCreatorPage() {
       formData.append('maskOnExport', maskOnExport.toString());
     }
 
-    formData.append('name', internalId);
+    formData.append('name', layoutId);
+    // The dedicated, ops-editable customer-facing name (2026-09-16) — layoutId
+    // above is frozen once a layout exists, so this is the only thing editing
+    // an existing layout can still change about how it's identified to a human.
+    formData.append('display_name', layoutName.trim());
     formData.append('layout', JSON.stringify(layoutData));
-    if (isEditMode && originalLayoutName && originalLayoutName !== internalId) {
-      formData.append('old_name', originalLayoutName);
-    }
 
     try {
       const res = await fetch('/api/internal/proxy/ops/layouts', {
@@ -675,12 +687,14 @@ export default function LayoutCreatorPage() {
     return [];
   };
 
-  const openEditModal = async (layoutId: string) => {
-    const data = await fetchLayoutDetail(layoutId);
+  const openEditModal = async (name: string) => {
+    const data = await fetchLayoutDetail(name);
     if (data) {
-      setLayoutName(data.name.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()));
+      // Prefer the real, ops-curated displayName (2026-09-16); only a layout
+      // that predates the field falls back to a mechanical prettification.
+      setLayoutName(data.displayName || data.name.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()));
+      setLayoutId(name);
       setTags(data.tags?.join(', ') || '');
-      setOriginalLayoutName(layoutId);
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
       setMaskWarning(null);
 
@@ -757,17 +771,21 @@ export default function LayoutCreatorPage() {
     }
   };
 
-  const openCopyModal = async (layoutId: string) => {
-    const data = await fetchLayoutDetail(layoutId);
+  const openCopyModal = async (name: string) => {
+    const data = await fetchLayoutDetail(name);
     if (data) {
       setMaskWarning(null);
       const displayDpi = data.canvas.dpi || 300;
       setDpi(displayDpi);
       setWidthMm(round2(data.canvas.widthMm || pxToMm(data.canvas.width, displayDpi)));
       setHeightMm(round2(data.canvas.heightMm || pxToMm(data.canvas.height, displayDpi)));
-      // Pre-fill name with 'copy_' prefix displayed nicely
-      const copyName = `copy ${layoutId.replace(/_/g, ' ')}`;
+      // Pre-fill from the original's displayName where available, so the
+      // copy's seed text reads like a real product name, not a raw slug.
+      const copyName = `copy ${(data.displayName || name.replace(/_/g, ' '))}`;
       setLayoutName(copyName);
+      // A copy is a brand-new layout — reset the identifier to the same
+      // untyped default as Create, rather than colliding with the source.
+      setLayoutId('untitled_layout');
       setTags(data.tags?.join(', ') || '');
       if (data.frames) {
         const loadedFrames = data.frames.map((f: any) => ({
@@ -785,7 +803,6 @@ export default function LayoutCreatorPage() {
       setMaskOnExport(data.maskOnExport || false);
       setMaskFile(null);
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
-      setOriginalLayoutName(null); // Not a rename — it's a brand new copy, no old file to delete
       setIsEditMode(false); // Treat as new creation so it won't conflict
       setIsModalOpen(true);
     }
@@ -794,6 +811,7 @@ export default function LayoutCreatorPage() {
   const openCreateModal = () => {
     setIsEditMode(false);
     setLayoutName('');
+    setLayoutId('untitled_layout');
     setTags('');
     setWidthMm(101.6);
     setHeightMm(152.4);
@@ -807,7 +825,6 @@ export default function LayoutCreatorPage() {
     setSurfaces([]);
     setActiveSurfaceIdx(0);
     setFrameCaptionsEnabled(false);
-    setOriginalLayoutName(null);
     setIsModalOpen(true);
   };
   // Warn (never block) if a freshly-picked mask PNG has no transparent
@@ -1044,7 +1061,7 @@ export default function LayoutCreatorPage() {
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-slate-900 capitalize tracking-tight">{(layoutStr || '').replace(/_/g, ' ')}</h3>
+                          <h3 className="font-bold text-slate-900 capitalize tracking-tight">{(typeof layoutObj === 'object' && layoutObj.displayName) || (layoutStr || '').replace(/_/g, ' ')}</h3>
                           {isCalendar && (
                             <span
                               data-testid={`calendar-badge-${layoutStr}`}
@@ -1253,7 +1270,7 @@ export default function LayoutCreatorPage() {
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Layout Name</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Display Name</label>
                         <input
                           type="text"
                           required
@@ -1262,7 +1279,6 @@ export default function LayoutCreatorPage() {
                           onChange={(e) => setLayoutName(e.target.value)}
                           className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-slate-900"
                         />
-                        {layoutName && <p className="text-xs text-slate-400 mt-1.5 font-mono">ID: {internalId}</p>}
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Primary Tag</label>
@@ -1275,6 +1291,33 @@ export default function LayoutCreatorPage() {
                           optionClassName="text-sm font-medium"
                         />
                       </div>
+                    </div>
+
+                    {/* Layout name (identifier) — its own field, independently
+                        typed, matching the Calendar/Book editors exactly
+                        (2026-09-16). Becomes part of the embed iframe URL and
+                        the API path, so letters/digits/hyphen/underscore only
+                        — validated on submit in handleCreateLayout. Immutable
+                        once created, so it's frozen (disabled) in edit mode;
+                        edit Display Name instead. */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                        Layout Name (Identifier)
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        disabled={isEditMode}
+                        value={layoutId}
+                        onChange={(e) => setLayoutId(e.target.value)}
+                        placeholder="e.g. classic_print_4x6"
+                        className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-mono text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1.5">
+                        {isEditMode
+                          ? 'Cannot be changed once created — edit Display Name instead.'
+                          : 'Letters, digits, hyphen, underscore only — no spaces or special characters (used in URLs).'}
+                      </p>
                     </div>
 
                     {/* Layout Type Toggle */}
