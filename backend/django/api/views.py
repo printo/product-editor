@@ -1275,6 +1275,14 @@ class LayoutManagementView(APIView):
                 # one (dead end) at a glance — see LayoutCatalogue.resolve_active().
                 data['isDeprecated'] = layout.is_deprecated
                 data['renamedTo'] = layout.renamed_to_id
+                # Real, DB-tracked provenance — set AFTER the definition copy so
+                # these win over any same-named key a layout's JSON happens to
+                # carry. Note there is no "last edited by" column: imported_by
+                # is provenance for the original migration/import only, not
+                # routine ops saves, so it is deliberately not surfaced here.
+                data['createdAt'] = layout.created_at.isoformat()
+                data['updatedAt'] = layout.updated_at.isoformat()
+                data['version'] = layout.version
                 response = Response(data)
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
@@ -1290,7 +1298,8 @@ class LayoutManagementView(APIView):
             if layouts_data is None:
                 # Query all layouts (not just public) for ops view
                 rows = LayoutCatalogue.objects.all().values(
-                    'name', 'definition', 'product_type', 'is_deprecated', 'renamed_to'
+                    'name', 'definition', 'product_type', 'is_deprecated', 'renamed_to',
+                    'created_at', 'updated_at', 'version'
                 )
                 layouts_data = []
                 for row in rows:
@@ -1301,6 +1310,11 @@ class LayoutManagementView(APIView):
                     # `renamed_to` is keyed on the target's `name` (to_field='name'),
                     # so the raw values() column is already the alias target's name.
                     data['renamedTo'] = row['renamed_to']
+                    # Real, DB-tracked provenance — see the detail branch above
+                    # for why there's no "last edited by" field here either.
+                    data['createdAt'] = row['created_at'].isoformat()
+                    data['updatedAt'] = row['updated_at'].isoformat()
+                    data['version'] = row['version']
                     layouts_data.append(data)
                 django_cache.set(CACHE_KEY, layouts_data, CACHE_TTL)
             response = Response({"layouts": layouts_data})
