@@ -78,6 +78,7 @@ export default function CalendarLayoutEditorPage() {
   const routeName = String(params?.name ?? 'new');
   const isNew = routeName === 'new';
 
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
   useEffect(() => {
     setTitle('Calendar Editor');
@@ -189,6 +190,12 @@ export default function CalendarLayoutEditorPage() {
 
     if (isNew) {
       router.replace(`/editor/layouts/calendar/${encodeURIComponent(name)}`);
+    } else {
+      // Show success toast and redirect back to layouts list after 1.5s
+      setSaveSuccess(true);
+      setTimeout(() => {
+        router.push('/editor/layouts');
+      }, 1500);
     }
   }
 
@@ -218,14 +225,26 @@ export default function CalendarLayoutEditorPage() {
   }
 
   return (
-    <CalendarLayoutEditor
-      initial={initial ?? undefined}
-      newLayoutName={isNew ? 'untitled_calendar' : routeName}
-      isExistingLayout={!isNew}
-      genzPalettes={genzPalettes}
-      previewHolidays={previewHolidays}
-      onSave={handleSave}
-      onCancel={() => router.push('/editor/layouts')}
-    />
+    <>
+      {saveSuccess && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-4 right-4 z-50 px-4 py-3 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium shadow-lg"
+          data-testid="save-success-toast"
+        >
+          ✓ Layout saved successfully
+        </div>
+      )}
+      <CalendarLayoutEditor
+        initial={initial ?? undefined}
+        newLayoutName={isNew ? 'untitled_calendar' : routeName}
+        isExistingLayout={!isNew}
+        genzPalettes={genzPalettes}
+        previewHolidays={previewHolidays}
+        onSave={handleSave}
+        onCancel={() => router.push('/editor/layouts')}
+      />
+    </>
   );
 }

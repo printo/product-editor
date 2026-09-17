@@ -411,12 +411,10 @@ function QtyShortfallWarning({ uploaded, needed }: { uploaded: number; needed: n
     <div className="mx-7 mb-5 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
       <div className="flex items-center gap-2 text-sm font-semibold">
         <AlertTriangle className="w-4 h-4 shrink-0" />
-        Fewer photos than your order quantity
+        You have uploaded only {uploaded} out of {needed} photos
       </div>
       <p className="text-xs mt-1 leading-relaxed">
-        Your order is for {needed}, but only {uploaded} {uploaded === 1 ? 'photo is' : 'photos are'} placed &mdash; {short} still
-        missing. You can continue, but only {uploaded} will be printed. Go back to add more photos, or use
-        Auto-fill to repeat the ones you have.
+        Go back to add more or repeat from uploaded ones.
       </p>
     </div>
   );
