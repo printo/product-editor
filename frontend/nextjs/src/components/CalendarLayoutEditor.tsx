@@ -1056,7 +1056,7 @@ export function CalendarLayoutEditor({
             data-testid="save-btn"
             className="px-4 py-1.5 text-sm font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Saving…' : 'Save layout'}
+            {busy ? 'Saving…' : 'Save & Back'}
           </button>
         </div>
       )}

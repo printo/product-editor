@@ -75,15 +75,18 @@ customers. The gate between "written" and "live" is your check-in with the
 user — there is nothing else.
 
 - **BEFORE ANY CODE EDIT: create a branch from freshly-pulled `main`.**
-  **NO EXCEPTIONS.** Do this FIRST, before opening any file to edit:
+  **NO EXCEPTIONS. NO COMMITS ON MAIN.** Do this FIRST, before opening any file to edit:
   ```bash
   git checkout main && git pull && git checkout -b feature/your-name
   ```
+  **THIS IS NOT OPTIONAL.** Even a trivial one-line fix must be branched first.
   Never `git checkout -b` from wherever the tree happens to be. Never edit files
-  on `main`. This checkout is shared with other Claude Code sessions, so local
-  `main` goes stale within minutes — stale base means your PR will conflict or
-  test against wrong code. Twice on 2026-08-08, a `git pull` failed silently and
-  work began against a base 7 commits behind. **Branch first, edit second.**
+  on `main`. Never commit to `main` — all commits go on a feature branch.
+  This checkout is shared with other Claude Code sessions, so local `main` goes
+  stale within minutes — stale base means your PR will conflict or test against
+  wrong code. Twice on 2026-08-08, a `git pull` failed silently and work began
+  against a base 7 commits behind. **Branch first, edit second. Commit only on
+  the branch, never on main.**
 
 - **Never push, open a PR, or merge without checking in first.** A request to do
   the work is not a request to ship it. Do the work, run the checks, then STOP
