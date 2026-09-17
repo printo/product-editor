@@ -748,15 +748,18 @@ export default function LayoutEditorPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
   const { setTitle, setDescription, setCenterActions, setRightActions, headerHeight } = useHeader();
 
-  // position:sticky's `top` offsets the element from its static position even
-  // before it needs to stick (same math as position:relative) — with `top`
-  // permanently set to headerHeight, that adds a phantom headerHeight-sized
-  // gap above the toolbar AND an equal overlap into whatever renders below it,
-  // since the reserved flow space is based on the un-shifted static position.
-  // Fix: only apply the header-clearing offset once the toolbar has actually
-  // scrolled to where it would go under the header — before that, `top: 0`
-  // exactly matches its natural position (main has no top padding), so no
-  // offset is needed at all.
+  // The toolbar switches to `position: fixed` once scrolled up to where it
+  // would go under the fixed dashboard header — driven by this boolean, not
+  // CSS `position: sticky`. Sticky's containing block is the toolbar's own
+  // direct parent (the `.relative` wrapper below), and that parent is sized
+  // to exactly the toolbar's own height — its only other child is a 1px
+  // `absolute` sentinel, contributing none — so a sticky toolbar there can
+  // only stay stuck for about one toolbar-height of scroll before its own
+  // undersized container scrolls out from under it and drags the toolbar
+  // away too, right off-screen under the header instead of stopping below
+  // it. Confirmed by forcing that wrapper tall at runtime: sticky then held
+  // correctly at any scroll depth. `fixed` has no containing-block-height
+  // requirement, so it doesn't hit that trap.
   const toolbarSentinelRef = useRef<HTMLDivElement>(null);
   const [isToolbarStuck, setIsToolbarStuck] = useState(false);
 
@@ -4266,19 +4269,37 @@ export default function LayoutEditorPage() {
         </div>
       )}
 
-      <main className="w-full px-4 md:px-8 pt-0 pb-6 md:pb-8 flex-1 overflow-x-hidden">
+      {/* overflow-x-clip, not overflow-x-hidden: setting only one axis to
+          'hidden' makes the browser force the other axis to 'auto' (the
+          CSS overflow spec's visible/auto pairing rule), silently turning
+          `main` into a scroll container. Since `main` itself never actually
+          scrolls (the window does), that container became the sticky
+          toolbar's positioning reference instead of the viewport, so the
+          toolbar below never pinned below the fixed dashboard header once
+          scrolled — it just slid underneath it. `clip` clips the same
+          horizontal bleed (the toolbar's own -mx-4/-mx-8) without pairing
+          the Y axis into 'auto'. */}
+      <main className="w-full px-4 md:px-8 pt-0 pb-6 md:pb-8 flex-1 overflow-x-clip">
         <div className="max-w-[1440px] mx-auto space-y-6 md:space-y-8">
           {/* Wrapper keeps the sentinel from becoming a real space-y sibling of the
-              sticky toolbar below (which would add an unwanted margin-top to it and
-              throw off the very offset this is trying to fix). The sentinel marks the
-              toolbar's natural resting spot — see the IntersectionObserver above for
-              why `top` only activates once this scrolls near the header. */}
+              toolbar below (which would add an unwanted margin-top to it and throw
+              off its natural resting position). The sentinel marks that resting
+              spot; see the isToolbarStuck comment above for why the toolbar goes
+              `fixed` instead of `sticky` once scrolled past it, and the spacer
+              directly below for how the vacated flow space is replaced. */}
           <div className="relative">
             <div ref={toolbarSentinelRef} className="absolute top-0 inset-x-0 h-px" aria-hidden />
+            {isToolbarStuck && <div style={{ height: toolbarHeight }} aria-hidden />}
             <div
               ref={setToolbarEl}
-              style={{ top: isToolbarStuck ? headerHeight : 0 }}
-              className="sticky z-40 -mx-4 md:-mx-8 px-4 md:px-8 py-3 bg-white/60 backdrop-blur-3xl border-b border-slate-200/50 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4 shadow-sm"
+              style={isToolbarStuck ? {
+                position: 'fixed', top: headerHeight, left: 0, right: 0,
+                maxWidth: 1440, marginLeft: 'auto', marginRight: 'auto',
+              } : undefined}
+              className={clsx(
+                'z-40 px-4 md:px-8 py-3 bg-white/60 backdrop-blur-3xl border-b border-slate-200/50 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4 shadow-sm',
+                !isToolbarStuck && '-mx-4 md:-mx-8',
+              )}
             >
             {/* Heading + Add Files share one row on mobile so the upload box doesn't
                 push the toolbar down a whole extra row; `md:contents` removes this
