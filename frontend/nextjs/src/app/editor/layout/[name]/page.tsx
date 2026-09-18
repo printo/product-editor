@@ -4691,8 +4691,8 @@ export default function LayoutEditorPage() {
                                 onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(0, surface.key); }}
                                 className="p-2 bg-emerald-50/80 text-emerald-600 rounded-xl hover:bg-emerald-100 hover:scale-105 transition-all"
                                 title={surfaceCanvas?.frames.some(f => f.fitMode === 'contain')
-                                  ? 'Showing whole photo — tap to fill the frame (may crop edges)'
-                                  : 'Filling the frame — tap to show the whole photo (may add gaps)'}
+                                  ? 'Switch to Cover'
+                                  : 'Switch to Fit'}
                               >
                                 <Maximize className="w-3.5 h-3.5" />
                               </button>
@@ -4719,8 +4719,8 @@ export default function LayoutEditorPage() {
                                     ? 'bg-indigo-600 text-white'
                                     : 'bg-cyan-50/80 text-cyan-600 hover:bg-cyan-100')}
                                 title={surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
-                                  ? 'Blur fill is on — tap to turn off'
-                                  : 'Fill empty space with a soft blur of the photo'}
+                                  ? 'Remove Blur'
+                                  : 'Add Blur'}
                               >
                                 <Droplets className="w-3.5 h-3.5" />
                               </button>
@@ -4735,7 +4735,7 @@ export default function LayoutEditorPage() {
                                   swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key
                                     ? 'bg-indigo-600 text-white'
                                     : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
-                                title="Swap with another photo (tap this, then tap the other card)"
+                                title="Swap Photo"
                               >
                                 <ArrowLeftRight className="w-3.5 h-3.5" />
                               </button>
@@ -4746,7 +4746,7 @@ export default function LayoutEditorPage() {
                                 <Download className="w-3.5 h-3.5" />
                               </button>
                               */}
-                              <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Remove photo">
+                              <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Remove Photo">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -4859,8 +4859,8 @@ export default function LayoutEditorPage() {
                             onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(idx); }}
                             className="p-2 bg-emerald-50/80 text-emerald-600 rounded-xl hover:bg-emerald-100 hover:scale-105 transition-all"
                             title={canvas.frames.some(f => f.fitMode === 'contain')
-                              ? 'Showing whole photo — tap to fill the frame (may crop edges)'
-                              : 'Filling the frame — tap to show the whole photo (may add gaps)'}
+                              ? 'Switch to Cover'
+                              : 'Switch to Fit'}
                           >
                             <Maximize className="w-3.5 h-3.5" />
                           </button>
@@ -4881,7 +4881,7 @@ export default function LayoutEditorPage() {
                           </div>
                           */}
                           {(layout.frames?.length || 1) === 1 && (
-                            <button onClick={(e) => { e.stopPropagation(); requestReplacePhoto(idx, 0); }} className="p-2 bg-sky-50/80 text-sky-600 rounded-xl hover:bg-sky-100 hover:scale-105 transition-all" title="Replace photo">
+                            <button onClick={(e) => { e.stopPropagation(); requestReplacePhoto(idx, 0); }} className="p-2 bg-sky-50/80 text-sky-600 rounded-xl hover:bg-sky-100 hover:scale-105 transition-all" title="Replace Photo">
                               <ImagePlus className="w-3.5 h-3.5" />
                             </button>
                           )}
@@ -4892,8 +4892,8 @@ export default function LayoutEditorPage() {
                                 ? 'bg-indigo-600 text-white'
                                 : 'bg-cyan-50/80 text-cyan-600 hover:bg-cyan-100')}
                             title={canvas.frames.some(f => f.fillStyle === 'blur')
-                              ? 'Blur fill is on — tap to turn off'
-                              : 'Fill empty space with a soft blur of the photo'}
+                              ? 'Remove Blur'
+                              : 'Add Blur'}
                           >
                             <Droplets className="w-3.5 h-3.5" />
                           </button>
@@ -4908,7 +4908,7 @@ export default function LayoutEditorPage() {
                               swapSource?.idx === idx && swapSource?.surfaceKey === null
                                 ? 'bg-indigo-600 text-white'
                                 : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
-                            title="Swap with another photo (tap this, then tap the other card)"
+                            title="Swap Photo"
                           >
                             <ArrowLeftRight className="w-3.5 h-3.5" />
                           </button>
@@ -4919,7 +4919,7 @@ export default function LayoutEditorPage() {
                             <Download className="w-3.5 h-3.5" />
                           </button>
                           */}
-                          <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(idx); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Remove photo">
+                          <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(idx); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-xl hover:bg-rose-100 hover:scale-105 transition-all" title="Remove Photo">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
