@@ -60,12 +60,23 @@ const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  * font list writable by any authenticated session while the layouts beside it
  * were gated.
  *
+ * `calendar-styles` and `holidays` are the same trap from the other side:
+ * Django mounts `CalendarStylesView` and `HolidaysView` on both the public
+ * read paths and their `ops/` twins, and the write handlers never check which
+ * route they arrived on. So `PUT calendar-styles/<name>` and
+ * `PUT|DELETE holidays/<locale>/<year>` reached the same ops-only handlers as
+ * the `ops/` paths while skipping the namespace check. Django now refuses
+ * writes on those aliases (`api/urls.py`); gating them here too means neither
+ * side depends on the other staying correct.
+ *
  * Django gates these endpoints internally too, but that check cannot help
  * here: it inspects the shared ops-flagged service account this proxy
  * presents, not the human.
  */
 const OPS_OWNED_PATHS: RegExp[] = [
   /^fonts(\/|$)/, // PUT /api/fonts — the ops Fonts list
+  /^calendar-styles(\/|$)/, // alias of ops/calendar-styles/<name>
+  /^holidays(\/|$)/, // alias of ops/holidays/<locale>/<year>
 ];
 
 /**
@@ -73,8 +84,9 @@ const OPS_OWNED_PATHS: RegExp[] = [
  * styles, holidays, fonts — and therefore needs the Ops tier.
  *
  * Method-aware on purpose: `GET ops/layouts` is how the template library and
- * the editor list templates, and `GET fonts` is what the editor loads on
- * mount. Gating reads would break the Editor tier outright.
+ * the editor list templates, and `GET fonts`, `GET calendar-styles/...` and
+ * `GET holidays/...` are what the editor loads on mount. Gating reads would
+ * break the Editor tier outright.
  */
 export function requiresOpsTier(upstreamPath: string, method: string): boolean {
   if (!WRITE_METHODS.has(method.toUpperCase())) return false;

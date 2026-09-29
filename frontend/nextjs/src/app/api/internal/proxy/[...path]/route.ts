@@ -93,21 +93,14 @@ async function handler(
   const hasTrailingSlash = req.nextUrl.pathname.endsWith('/');
   const fullUpstreamPath = hasTrailingSlash ? `${upstreamPath}/` : upstreamPath;
 
-  // 2a. Privilege gate — destructive ops endpoints only.
+  // 2a. Privilege gate — the three-tier role model (lib/roles.ts).
   //
-  // The blanket ops/* gate was removed in PR #24 by product decision: template
-  // management (layouts, calendar styles, holidays, the Fonts list) is open to
-  // any authenticated user. That is intentional and stays.
+  // This is the ONLY thing separating sessions. Django's IsOpsTeam cannot
+  // stand in for it: every request through this proxy arrives as the shared,
+  // ops-flagged INTERNAL_API_KEY service account, so the backend sees one
+  // privileged identity no matter who is logged in. Which paths need which
+  // tier, and why, lives in lib/ops-guard.ts.
   //
-  // But the gate was the ONLY thing separating sessions. Django's IsOpsTeam
-  // cannot stand in for it: every request through this proxy arrives as the
-  // shared, ops-flagged INTERNAL_API_KEY service account, so the backend sees
-  // one privileged identity no matter who is logged in. Removing the gate
-  // wholesale therefore also exposed the DPDP purge endpoint — an irreversible
-  // hard delete of an order's uploads, exports, CanvasData and EmbedSession
-  // rows plus the files on disk — to every authenticated PIA session.
-  //
-  // Re-gate exactly that, and nothing else — see lib/ops-guard.ts.
   // A session minted before someone was deactivated stays valid for its full
   // lifetime, so the active check is re-applied per request, not just at login.
   if (!isRegistrationActive(session)) {

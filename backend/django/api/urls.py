@@ -10,6 +10,15 @@ from .views import (
     EditorRenderView, EditorInitView, CSPReportView,
 )
 
+# For public aliases of views whose write handlers are mounted again under
+# ops/. Those handlers gate on the caller being ops but never check the route,
+# and everything arriving through the internal proxy carries the ops-flagged
+# INTERNAL_API_KEY service account — so the only per-user check is the proxy's
+# ops-tier gate, which keys on the path. Refusing writes here (405, before the
+# handler runs) means a write can only ever land on an ops/ path, including
+# any write method added to these views later.
+READ_ONLY = ["get", "head", "options"]
+
 urlpatterns = [
     # Existing endpoints
     path("layout/generate", GenerateLayoutView.as_view(), name="layout-generate"),
@@ -61,8 +70,8 @@ urlpatterns = [
 
     # Calendar style presets (PRD §10.3 + §6.3 + Phase 3)
     # Public GETs — customer preview page fetches these through the embed proxy.
-    path("calendar-styles/", CalendarStylesView.as_view(), name="calendar-styles-list"),
-    path("calendar-styles/<str:name>", CalendarStylesView.as_view(), name="calendar-styles-detail"),
+    path("calendar-styles/", CalendarStylesView.as_view(http_method_names=READ_ONLY), name="calendar-styles-list"),
+    path("calendar-styles/<str:name>", CalendarStylesView.as_view(http_method_names=READ_ONLY), name="calendar-styles-detail"),
     # Ops mutation path — PUT /api/ops/calendar-styles/<name> (audit fix #5).
     # Mirrors the /api/ops/layouts/<name> and /api/ops/holidays/... convention
     # so the embed proxy allowlist (which allows "calendar-styles" for GETs)
@@ -70,6 +79,6 @@ urlpatterns = [
     path("ops/calendar-styles/<str:name>", CalendarStylesView.as_view(), name="ops-calendar-styles-detail"),
 
     # Holiday data (PRD §11.9 / §11.11 / Phase 3)
-    path("holidays/<str:locale>/<str:year>", HolidaysView.as_view(), name="holidays-detail"),
+    path("holidays/<str:locale>/<str:year>", HolidaysView.as_view(http_method_names=READ_ONLY), name="holidays-detail"),
     path("ops/holidays/<str:locale>/<str:year>", HolidaysView.as_view(), name="holidays-ops-detail"),
 ]

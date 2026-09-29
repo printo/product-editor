@@ -1449,8 +1449,22 @@ a side effect.
 
 **Reads stay open.** `requiresOpsTier()` is method-aware: `GET ops/layouts` is
 how the editor and template library list templates, so gating it would break
-the Editor tier outright. Only POST/PUT/PATCH/DELETE under `ops/` need the Ops
-tier.
+the Editor tier outright. Only POST/PUT/PATCH/DELETE need the Ops tier — under
+`ops/`, plus the ops-owned paths outside it listed in `OPS_OWNED_PATHS`
+(`fonts`, `calendar-styles`, `holidays`).
+
+**A namespace check alone is not enough — views are mounted twice.**
+`CalendarStylesView` and `HolidaysView` serve both the public read paths and
+their `ops/` twins, and their write handlers never check the route. Until
+2026-09-29 the proxy gated only `ops/*` and `fonts`, so an Editor-tier session
+could `PUT calendar-styles/<name>` or `PUT|DELETE holidays/<locale>/<year>` and
+land in the ops-only handlers with the ops-flagged key. Closed on both sides:
+`OPS_OWNED_PATHS` gates the aliases here, and `api/urls.py` mounts the public
+routes with `http_method_names=READ_ONLY` so Django answers 405 to any write on
+them, from anyone. **If you mount a write-capable view on a second, non-`ops/`
+path, do both** — pinned by `lib/__tests__/ops-guard.test.ts`,
+`app/api/internal/proxy/__tests__/ops-tier-gate.test.ts` and
+`services/tests/test_ops_write_routes.py`.
 
 **Why the gate has to be in the proxy.** Everything reaching Django through the
 internal proxy presents the shared, ops-flagged `INTERNAL_API_KEY` service
