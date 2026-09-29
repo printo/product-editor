@@ -1,6 +1,6 @@
 """
 Tests that an ops edit to a calendar asset reaches the print under
-STORAGE_BACKEND=s3, not just the preview.
+STORAGE_BACKEND=s3, not just the preview — and that an ops DELETE sticks.
 
 Two defects stacked here. The render-time readers (holidays, theme style,
 Gen-Z palette) opened files under STORAGE_ROOT directly, while the ops
@@ -9,6 +9,14 @@ built its key with neither the service prefix nor the `.json` suffix that
 `write_calendar_asset` adds, so under S3 no read ever found what a write had
 put: everything silently fell back to local disk, and an ops edit reached
 neither the preview nor the print.
+
+Then a third: the read fell back to the git-seeded local file on ANY S3
+failure. So an ops DELETE of a seeded year (en-IN/2026 etc. — seeds exist on
+prod) was undone by the very next read, in preview and print alike, and an
+S3 outage served the seed as if it were the ops-edited asset. Deletes now
+leave a tombstone, only a genuinely absent key reaches the seed, and an
+outage raises CalendarAssetUnavailable — a 503 in the preview, a retried
+render in the print.
 
 Each case seeds a DIFFERENT local file from the S3 object, so a reader that
 still goes to disk returns the seed and fails. S3 is an in-memory stand-in
@@ -20,117 +28,224 @@ Run stand-alone:
 """
 from __future__ import annotations
 
-import io
-import json
 import os
-import shutil
-import tempfile
+from contextlib import ExitStack
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import django
-from django.conf import settings
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "product_editor.settings")
 os.environ.setdefault("DEBUG", "1")
 django.setup()
 
-from services import asset_store, storage as storage_mod  # noqa: E402
+from django.test import RequestFactory  # noqa: E402
+from django.urls import resolve  # noqa: E402
+
+from services import asset_store  # noqa: E402
+from services.asset_store import AssetNotFoundError, CalendarAssetUnavailable  # noqa: E402
 from services.calendar_holidays import load_holidays_for_year  # noqa: E402
 from services.calendar_layout import _resolve_genz_palette, _resolve_theme_style  # noqa: E402
-
-BUCKET = "test-bucket"
-PREFIX = "product-editor"
-
-
-class _FakeS3Client:
-    def __init__(self):
-        self.objects: dict[str, bytes] = {}
-        self.reads: list[str] = []
-
-    def get_object(self, Bucket, Key):
-        assert Bucket == BUCKET
-        self.reads.append(Key)
-        if Key not in self.objects:
-            raise KeyError(f"NoSuchKey: {Key}")
-        return {"Body": io.BytesIO(self.objects[Key])}
-
-    def upload_fileobj(self, fileobj, bucket, key):
-        assert bucket == BUCKET
-        self.objects[key] = fileobj.read()
-
-    def delete_object(self, Bucket, Key):
-        self.objects.pop(Key, None)
-
-
-class _S3Backend:
-    """Swap the process-wide storage for an S3Storage over the fake client,
-    and STORAGE_ROOT for a temp dir holding the local fallback seeds."""
-
-    def __enter__(self):
-        self.client = _FakeS3Client()
-        self.storage = storage_mod.S3Storage.__new__(storage_mod.S3Storage)
-        self.storage.s3 = self.client
-        self.storage.bucket = BUCKET
-        self.storage.s3_prefix = PREFIX
-        self.storage.cdn_domain = ""
-        self._prev_storage = storage_mod._storage_instance
-        storage_mod._storage_instance = self.storage
-
-        self.root = tempfile.mkdtemp(prefix="pe-cal-s3-")
-        self._prev_root = settings.STORAGE_ROOT
-        settings.STORAGE_ROOT = self.root
-        return self
-
-    def __exit__(self, *exc):
-        storage_mod._storage_instance = self._prev_storage
-        settings.STORAGE_ROOT = self._prev_root
-        shutil.rmtree(self.root, ignore_errors=True)
-
-    def seed_local(self, rel_path: str, payload) -> None:
-        path = os.path.join(self.root, rel_path)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(payload, f)
-
-    def put(self, asset_type: str, name: str, payload) -> None:
-        body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
-        self.storage.write_calendar_asset(asset_type, name, body)
+from services.storage import LocalStorage  # noqa: E402
+from services.tests.fake_s3 import FakeClientError, S3Backend  # noqa: E402
 
 
 def _holidays(*names):
     return {"events": [{"date": f"2031-01-{i + 1:02d}", "name": n} for i, n in enumerate(names)]}
 
 
+def _printed():
+    return [ev["name"] for ev in load_holidays_for_year("en-IN", 2031)]
+
+
+def _raises(exc_type, fn, *args):
+    try:
+        fn(*args)
+    except exc_type:
+        return
+    except Exception as exc:  # noqa: BLE001 — report what was raised instead
+        raise AssertionError(f"{fn.__name__}{args} raised {exc!r}, expected {exc_type.__name__}")
+    raise AssertionError(f"{fn.__name__}{args} did not raise {exc_type.__name__}")
+
+
+# Errors after which S3 cannot say whether the key exists. Each must NOT be
+# answered from the local seed.
+OUTAGES = (
+    ConnectionError("Could not connect to the endpoint URL"),  # no .response, like botocore's
+    FakeClientError("InternalError", 500),
+    FakeClientError("SlowDown", 503),
+    FakeClientError("InvalidAccessKeyId", 403),
+    FakeClientError("RequestTimeTooSkewed", 403),
+)
+
+
+# ── Storage layer ────────────────────────────────────────────────────────────
+
 def test_s3_read_write_and_delete_share_one_key():
-    with _S3Backend() as b:
+    with S3Backend() as b:
         for asset_type, name in (("holidays", "en-IN/2031"),
                                  ("calendar_styles", "modern-minimalist"),
                                  ("calendar_palettes/genz", "butter"),
                                  ("fonts", "fonts")):
-            key = f"{PREFIX}/ops-config/{asset_type}/{name}.json"
+            key = b.key(asset_type, name)
             b.storage.write_calendar_asset(asset_type, name, b"{}")
             assert list(b.client.objects) == [key], b.client.objects
             assert b.storage.read_calendar_asset(asset_type, name) == b"{}"
             b.storage.delete_calendar_asset(asset_type, name)
-            assert b.client.objects == {}, (asset_type, b.client.objects)
+            # Delete leaves a tombstone at the same key, not a gap.
+            assert list(b.client.objects) == [key], (asset_type, b.client.objects)
+            _raises(FileNotFoundError, b.storage.read_calendar_asset, asset_type, name)
+            b.client.objects.clear()
+            b.client.metadata.clear()
 
+
+def test_s3_miss_still_falls_back_to_local_seed():
+    with S3Backend() as b:
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        b.seed_local("calendar_styles/modern-minimalist.json", {"colors": {}})
+        assert _printed() == ["Local Seed"]
+        assert _resolve_theme_style("modern-minimalist") == {"colors": {}}
+
+
+def test_access_denied_reads_as_a_missing_key():
+    # Without s3:ListBucket, S3 answers a GET for a missing key with 403
+    # AccessDenied rather than 404 — so it has to reach the seed too, or every
+    # never-written asset would be unreadable under such a policy.
+    with S3Backend() as b:
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        b.client.get_error = FakeClientError("AccessDenied", 403)
+        assert _printed() == ["Local Seed"]
+
+
+def test_outage_is_not_mistaken_for_a_missing_key():
+    for error in OUTAGES:
+        with S3Backend() as b:
+            b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+            b.client.get_error = error
+            _raises(CalendarAssetUnavailable, b.storage.read_calendar_asset, "holidays", "en-IN/2031")
+            _raises(CalendarAssetUnavailable, asset_store.read_asset_json, "holidays", "en-IN/2031")
+            # Not an AssetNotFoundError — callers treat that one as "no data".
+            assert not issubclass(CalendarAssetUnavailable, FileNotFoundError)
+
+
+def test_body_read_failure_is_an_outage():
+    class _BrokenBody:
+        def read(self):
+            raise ConnectionError("Connection reset by peer")
+
+    with S3Backend() as b:
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        b.client.get_object = lambda Bucket, Key: {"Body": _BrokenBody(), "Metadata": {}}
+        _raises(CalendarAssetUnavailable, b.storage.read_calendar_asset, "holidays", "en-IN/2031")
+
+
+def test_real_botocore_errors_classify_the_same():
+    try:
+        from botocore.exceptions import ClientError, EndpointConnectionError
+    except ImportError:  # pragma: no cover — boto3 is in requirements.txt
+        print("    (botocore not installed — skipped)")
+        return
+
+    def client_error(code, status):
+        return ClientError({"Error": {"Code": code, "Message": code},
+                            "ResponseMetadata": {"HTTPStatusCode": status}}, "GetObject")
+
+    with S3Backend() as b:
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        for error in (client_error("NoSuchKey", 404), client_error("AccessDenied", 403)):
+            b.client.get_error = error
+            assert _printed() == ["Local Seed"], error
+        for error in (client_error("InternalError", 500),
+                      EndpointConnectionError(endpoint_url="https://s3.example")):
+            b.client.get_error = error
+            _raises(CalendarAssetUnavailable, b.storage.read_calendar_asset, "holidays", "en-IN/2031")
+
+
+def test_failed_delete_raises_and_changes_nothing():
+    with S3Backend() as b:
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        b.put("holidays", "en-IN/2031", _holidays("Ops Edit"))
+        b.client.put_error = FakeClientError("InternalError", 500)
+        # Used to return False, which HolidaysView ignored and answered 204.
+        _raises(IOError, b.storage.delete_calendar_asset, "holidays", "en-IN/2031")
+        b.client.put_error = None
+        assert _printed() == ["Ops Edit"]
+
+
+def test_local_backend_uses_the_one_seed_path():
+    # LocalStorage's file and S3Storage's fallback seed are the same path, and
+    # asset_store reads both backends through read_calendar_asset — the '.json'
+    # rule used to be written three different ways.
+    storage = LocalStorage()
+    with S3Backend() as b:  # only for the temp STORAGE_ROOT
+        with patch("services.storage._storage_instance", storage):
+            for asset_type, name, rel in (("holidays", "en-IN/2031", "holidays/en-IN/2031.json"),
+                                          ("calendar_styles", "modern-minimalist",
+                                           "calendar_styles/modern-minimalist.json"),
+                                          ("calendar_palettes/genz", "butter",
+                                           "calendar_palettes/genz/butter.json"),
+                                          # The path backup.sh archives and .gitignore covers.
+                                          ("fonts", "fonts", "fonts.json")):
+                path = storage.write_calendar_asset(asset_type, name, b'{"v": 1}')
+                assert path == os.path.join(b.root, rel), path
+                assert asset_store.read_asset_json(asset_type, name) == {"v": 1}
+                assert storage.delete_calendar_asset(asset_type, name) is True
+                _raises(AssetNotFoundError, asset_store.read_asset, asset_type, name)
+
+
+def test_fonts_seed_is_storage_root_fonts_json_under_s3_too():
+    with S3Backend() as b:
+        b.seed_local("fonts.json", ["Lobster", "Pacifico"])
+        b.seed_local("fonts/fonts.json", ["Wrong Place"])
+        assert asset_store.read_asset_json("fonts", "fonts") == ["Lobster", "Pacifico"]
+        b.put("fonts", "fonts", ["Ops Pick"])
+        assert asset_store.read_asset_json("fonts", "fonts") == ["Ops Pick"]
+        assert list(b.client.objects) == [b.key("fonts", "fonts")]  # S3 key unchanged
+
+
+def test_s3_listing_adds_new_names_and_drops_deleted_ones():
+    with S3Backend() as b:
+        b.client.page_size = 2  # force pagination
+        for name in ("modern-minimalist", "weekday-highlight", "modern-genz"):
+            b.seed_local(f"calendar_styles/{name}.json", {"name": name})
+        b.put("calendar_styles", "festive", {"name": "festive"})
+        b.put("calendar_styles", "modern-minimalist", {"name": "modern-minimalist", "v": 2})
+        b.storage.delete_calendar_asset("calendar_styles", "weekday-highlight")
+        b.put("calendar_palettes/genz", "neon", {"name": "neon"})  # a different prefix
+        assert asset_store.list_assets("calendar_styles") == [
+            "festive", "modern-genz", "modern-minimalist"]
+        assert asset_store.list_assets("calendar_palettes/genz") == ["neon"]
+
+
+def test_s3_listing_without_list_permission_falls_back_to_seeds():
+    with S3Backend() as b:
+        b.seed_local("calendar_styles/modern-minimalist.json", {})
+        b.put("calendar_styles", "festive", {})
+        b.client.list_error = FakeClientError("AccessDenied", 403)
+        assert asset_store.list_assets("calendar_styles") == ["modern-minimalist"]
+        for error in OUTAGES:
+            b.client.list_error = error
+            _raises(CalendarAssetUnavailable, asset_store.list_assets, "calendar_styles")
+
+
+# ── Preview and print ────────────────────────────────────────────────────────
 
 def test_holiday_edit_reaches_print_and_preview_under_s3():
-    with _S3Backend() as b:
+    with S3Backend() as b:
         b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
         b.put("holidays", "en-IN/2031", _holidays("Ops Edit"))
 
-        printed = [ev["name"] for ev in load_holidays_for_year("en-IN", 2031)]
         previewed = [ev["name"] for ev in
                      asset_store.read_asset_json("holidays", "en-IN/2031")["events"]]
-        assert printed == ["Ops Edit"], printed
-        assert previewed == printed, (previewed, printed)
+        assert _printed() == ["Ops Edit"], _printed()
+        assert previewed == _printed(), previewed
 
         b.put("holidays", "en-IN/2031", _holidays("Second Edit"))
-        assert [ev["name"] for ev in load_holidays_for_year("en-IN", 2031)] == ["Second Edit"]
+        assert _printed() == ["Second Edit"]
 
 
 def test_theme_style_edit_reaches_print_under_s3():
-    with _S3Backend() as b:
+    with S3Backend() as b:
         b.seed_local("calendar_styles/modern-minimalist.json", {"colors": {"accent": "#local"}})
         b.put("calendar_styles", "modern-minimalist", {"colors": {"accent": "#s3edit"}})
         style = _resolve_theme_style("modern-minimalist")
@@ -138,23 +253,64 @@ def test_theme_style_edit_reaches_print_under_s3():
 
 
 def test_genz_palette_reaches_print_under_s3():
-    with _S3Backend() as b:
+    with S3Backend() as b:
         b.seed_local("calendar_palettes/genz/butter.json", {"background": "#local"})
         b.put("calendar_palettes/genz", "butter", {"background": "#s3edit"})
         palette = _resolve_genz_palette({"defaultGenzPalette": "butter"})
         assert palette == {"background": "#s3edit"}, palette
 
 
-def test_s3_miss_still_falls_back_to_local_seed():
-    with _S3Backend() as b:
+def test_deleting_an_edited_year_does_not_resurrect_the_seed():
+    with S3Backend() as b:
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        b.put("holidays", "en-IN/2031", _holidays("Ops Edit"))
+        b.storage.delete_calendar_asset("holidays", "en-IN/2031")
+        _raises(AssetNotFoundError, asset_store.read_asset_json, "holidays", "en-IN/2031")
+        assert _printed() == []
+
+
+def test_deleting_a_never_edited_seeded_year_sticks():
+    # Production today: the seeds exist, S3 holds nothing. Deleting a seeded
+    # year used to be a no-op — the next read found no object and served the
+    # seed again.
+    with S3Backend() as b:
         b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
         b.seed_local("calendar_styles/modern-minimalist.json", {"colors": {}})
-        assert [ev["name"] for ev in load_holidays_for_year("en-IN", 2031)] == ["Local Seed"]
-        assert _resolve_theme_style("modern-minimalist") == {"colors": {}}
+        b.seed_local("calendar_palettes/genz/butter.json", {"background": "#local"})
+        b.storage.delete_calendar_asset("holidays", "en-IN/2031")
+        b.storage.delete_calendar_asset("calendar_styles", "modern-minimalist")
+        b.storage.delete_calendar_asset("calendar_palettes/genz", "butter")
+        _raises(AssetNotFoundError, asset_store.read_asset_json, "holidays", "en-IN/2031")
+        assert _printed() == []
+        assert _resolve_theme_style("modern-minimalist") is None
+        assert _resolve_genz_palette({"defaultGenzPalette": "butter"}) is None
 
 
-def test_render_readers_never_raise():
-    with _S3Backend() as b:
+def test_put_after_delete_serves_the_new_data():
+    with S3Backend() as b:
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        b.storage.delete_calendar_asset("holidays", "en-IN/2031")
+        b.put("holidays", "en-IN/2031", _holidays("Re-created"))
+        assert _printed() == ["Re-created"]
+
+
+def test_render_readers_raise_on_outage_so_the_render_retries():
+    # Degrading to []/None here would print a calendar with no holidays (or
+    # default colours) for a year that has them. render_canvas_task retries
+    # any exception, then fails the job visibly.
+    for error in OUTAGES:
+        with S3Backend() as b:
+            b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+            b.seed_local("calendar_styles/modern-minimalist.json", {"colors": {}})
+            b.seed_local("calendar_palettes/genz/butter.json", {"background": "#local"})
+            b.client.get_error = error
+            _raises(CalendarAssetUnavailable, load_holidays_for_year, "en-IN", 2031)
+            _raises(CalendarAssetUnavailable, _resolve_theme_style, "modern-minimalist")
+            _raises(CalendarAssetUnavailable, _resolve_genz_palette, {"defaultGenzPalette": "butter"})
+
+
+def test_render_readers_never_raise_on_missing_or_corrupt():
+    with S3Backend() as b:
         # Nothing anywhere.
         assert load_holidays_for_year("en-IN", 2031) == []
         assert _resolve_theme_style("modern-minimalist") is None
@@ -169,6 +325,8 @@ def test_render_readers_never_raise():
         assert _resolve_genz_palette({"defaultGenzPalette": "butter"}) is None
 
     # Storage backend itself can't be constructed (e.g. S3 env vars missing).
+    # render_canvas_task calls get_storage() itself first, so a render never
+    # gets this far in that state.
     prev = asset_store.get_storage
 
     def _broken():
@@ -184,13 +342,122 @@ def test_render_readers_never_raise():
 
 
 def test_bogus_names_never_reach_storage():
-    with _S3Backend() as b:
+    with S3Backend() as b:
         assert load_holidays_for_year("../etc", 2031) == []
         assert load_holidays_for_year("en-IN/../x", 2031) == []
         assert load_holidays_for_year("en-IN", 3000) == []
         assert _resolve_theme_style("../secrets") is None
         assert _resolve_genz_palette({"defaultGenzPalette": "a/b"}) is None
         assert b.client.reads == [], b.client.reads
+
+
+# ── Through the real URLconf ─────────────────────────────────────────────────
+
+class _DictCache:
+    """Stands in for the Redis cache: the views' get/set/delete only."""
+
+    def __init__(self):
+        self.data = {}
+
+    def get(self, key, default=None):
+        return self.data.get(key, default)
+
+    def set(self, key, value, timeout=None):
+        self.data[key] = value
+
+    def delete(self, key):
+        self.data.pop(key, None)
+
+    def delete_many(self, keys):
+        for key in keys:
+            self.delete(key)
+
+
+_factory = RequestFactory()
+_OPS_USER = SimpleNamespace(is_ops_team=True, is_staff=False, is_authenticated=True)
+
+
+def _dispatch(method, path):
+    request = getattr(_factory, method)(path)
+    match = resolve(path)
+    with ExitStack() as stack:
+        for auth in ("BearerTokenAuthentication", "PIAAuthentication"):
+            stack.enter_context(patch(
+                f"api.authentication.{auth}.authenticate", return_value=(_OPS_USER, None),
+            ))
+        return match.func(request, **match.kwargs)
+
+
+def test_ops_delete_of_a_seeded_year_is_a_404_afterwards():
+    with S3Backend() as b, patch("django.core.cache.cache", _DictCache()):
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        assert _dispatch("get", "/api/holidays/en-IN/2031").status_code == 200
+        assert _dispatch("delete", "/api/ops/holidays/en-IN/2031").status_code == 204
+        response = _dispatch("get", "/api/holidays/en-IN/2031")
+        assert response.status_code == 404, (response.status_code, response.data)
+        assert _printed() == []
+
+
+def test_ops_delete_that_storage_refuses_is_a_500_not_a_204():
+    with S3Backend() as b, patch("django.core.cache.cache", _DictCache()):
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        b.client.put_error = FakeClientError("InternalError", 500)
+        assert _dispatch("delete", "/api/ops/holidays/en-IN/2031").status_code == 500
+
+
+def test_preview_503s_uncached_on_outage():
+    with S3Backend() as b, patch("django.core.cache.cache", _DictCache()) as cache:
+        b.seed_local("holidays/en-IN/2031.json", _holidays("Local Seed"))
+        b.seed_local("calendar_styles/modern-minimalist.json", {"name": "modern-minimalist"})
+        b.client.get_error = FakeClientError("InternalError", 500)
+
+        for path in ("/api/holidays/en-IN/2031",
+                     "/api/calendar-styles/modern-minimalist",
+                     "/api/calendar-styles/"):
+            response = _dispatch("get", path)
+            assert response.status_code == 503, (path, response.status_code)
+            assert "Cache-Control" not in response, path
+
+        # Fonts are read on every editor mount — they degrade to the defaults
+        # instead of failing the editor, but aren't cached as the answer.
+        response = _dispatch("get", "/api/fonts")
+        assert response.status_code == 200, response.status_code
+        assert response.data["fonts"], response.data
+        assert cache.data == {}, cache.data
+
+        # S3 back: the real data, not a cached outage.
+        b.client.get_error = None
+        response = _dispatch("get", "/api/holidays/en-IN/2031")
+        assert response.status_code == 200 and response.data == _holidays("Local Seed")
+
+
+def test_style_list_shows_what_ops_created_and_hides_what_they_deleted():
+    with S3Backend() as b, patch("django.core.cache.cache", _DictCache()):
+        for name in ("modern-minimalist", "weekday-highlight", "modern-genz"):
+            b.seed_local(f"calendar_styles/{name}.json", {"name": name, "label": name})
+        b.seed_local("calendar_palettes/genz/butter.json", {"name": "butter"})
+        b.put("calendar_styles", "festive", {"name": "festive", "label": "Festive"})
+        b.put("calendar_palettes/genz", "neon", {"name": "neon"})
+        b.storage.delete_calendar_asset("calendar_styles", "weekday-highlight")
+
+        listed = [s["name"] for s in _dispatch("get", "/api/calendar-styles/").data["styles"]]
+        assert listed == ["festive", "modern-genz", "modern-minimalist"], listed
+        genz = _dispatch("get", "/api/calendar-styles/modern-genz").data
+        assert [p["name"] for p in genz["palettes"]] == ["butter", "neon"], genz
+
+
+def test_fonts_endpoint_serves_storage_root_fonts_json():
+    with S3Backend() as b, patch("django.core.cache.cache", _DictCache()):
+        b.seed_local("fonts.json", ["Lobster"])
+        assert _dispatch("get", "/api/fonts").data == {"fonts": ["Lobster"]}
+
+
+def test_corrupt_style_is_a_404_not_a_500():
+    for body in (b"[1, 2]", b"\x80not utf-8", b"{not json"):
+        with S3Backend() as b, patch("django.core.cache.cache", _DictCache()):
+            b.put("calendar_styles", "modern-minimalist", body)
+            response = _dispatch("get", "/api/calendar-styles/modern-minimalist")
+            assert response.status_code == 404, (body, response.status_code)
 
 
 if __name__ == "__main__":

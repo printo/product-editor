@@ -16,11 +16,14 @@ When you're ready to migrate to S3:
   4. Done — no application code changes required.
 """
 
+import logging
 import os
 import re
 import shutil
 from typing import BinaryIO, List, Optional
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 # ── Per-order upload layout ──────────────────────────────────────────────────
@@ -156,6 +159,7 @@ class StorageBackend:
 
         Raises:
             FileNotFoundError if the asset doesn't exist
+            CalendarAssetUnavailable if the store couldn't say whether it does
         """
         raise NotImplementedError
 
@@ -184,6 +188,14 @@ class StorageBackend:
 
         Returns:
             True on success, False if the asset didn't exist
+        """
+        raise NotImplementedError
+
+    def list_calendar_assets(self, asset_type: str) -> List[str]:
+        """Sorted names (no '.json') of the assets directly under asset_type,
+        e.g. 'calendar_styles' or 'calendar_palettes/genz'.
+
+        Raises CalendarAssetUnavailable if the store couldn't be listed.
         """
         raise NotImplementedError
 
@@ -256,35 +268,12 @@ class LocalStorage(StorageBackend):
         return masks_path
 
     def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
-        path = os.path.join(settings.STORAGE_ROOT, asset_type, asset_name)
-        try:
-            with open(path, 'rb') as fh:
-                return fh.read()
-        except FileNotFoundError:
-            raise FileNotFoundError(
-                f"Calendar asset not found locally: asset_type={asset_type!r}, asset_name={asset_name!r}"
-            )
+        return _read_local_calendar_asset(asset_type, asset_name)
 
     def write_calendar_asset(self, asset_type: str, asset_name: str, content: bytes) -> str:
         """Write a calendar asset atomically using temp + rename."""
-        asset_dir = os.path.join(settings.STORAGE_ROOT, asset_type)
-        os.makedirs(asset_dir, exist_ok=True)
-
-        # Handle nested paths like 'en-IN/2026' for holidays
-        nested_parts = asset_name.split('/')
-        if len(nested_parts) > 1:
-            for part in nested_parts[:-1]:
-                asset_dir = os.path.join(asset_dir, part)
-            os.makedirs(asset_dir, exist_ok=True)
-            asset_filename = nested_parts[-1]
-        else:
-            asset_filename = asset_name
-
-        # For non-JSON files (like fonts), add .json extension if missing
-        if asset_type in ('fonts', 'calendar_styles', 'holidays') and not asset_filename.endswith('.json'):
-            asset_filename = asset_filename + '.json'
-
-        path = os.path.join(asset_dir, asset_filename)
+        path = _local_calendar_asset_path(asset_type, asset_name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp_path = path + '.tmp'
 
         try:
@@ -302,23 +291,7 @@ class LocalStorage(StorageBackend):
 
     def delete_calendar_asset(self, asset_type: str, asset_name: str) -> bool:
         """Delete a calendar asset. Returns True on success, False if not found."""
-        asset_dir = os.path.join(settings.STORAGE_ROOT, asset_type)
-
-        # Handle nested paths like 'en-IN/2026' for holidays
-        nested_parts = asset_name.split('/')
-        if len(nested_parts) > 1:
-            for part in nested_parts[:-1]:
-                asset_dir = os.path.join(asset_dir, part)
-            asset_filename = nested_parts[-1]
-        else:
-            asset_filename = asset_name
-
-        # For non-JSON files, add .json extension if missing
-        if asset_type in ('fonts', 'calendar_styles', 'holidays') and not asset_filename.endswith('.json'):
-            asset_filename = asset_filename + '.json'
-
-        path = os.path.join(asset_dir, asset_filename)
-
+        path = _local_calendar_asset_path(asset_type, asset_name)
         if os.path.exists(path):
             try:
                 os.remove(path)
@@ -326,6 +299,9 @@ class LocalStorage(StorageBackend):
             except OSError:
                 return False
         return False
+
+    def list_calendar_assets(self, asset_type: str) -> List[str]:
+        return _list_local_calendar_assets(asset_type)
 
 
 class S3Storage(StorageBackend):
@@ -491,24 +467,36 @@ class S3Storage(StorageBackend):
         return self._s3_key(f"ops-config/{asset_type}/{_json_asset_name(asset_name)}")
 
     def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
+        """S3 first; the git-seeded file under STORAGE_ROOT only for a key S3
+        has never held.
+
+        The seed is a default, not a backup. Once ops has written or deleted
+        a key, S3 is the only thing that knows its state, so two cases must
+        NOT reach the seed: a key ops deleted (it holds a tombstone — see
+        delete_calendar_asset) and a read S3 couldn't answer (outage, bad
+        credentials, timeout), which raises CalendarAssetUnavailable instead.
+        This used to fall back on any exception, which undid every ops
+        DELETE of a seeded year and let an outage serve the seed as if it
+        were the ops-edited asset.
+        """
         s3_key = self._calendar_asset_key(asset_type, asset_name)
         try:
             response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+        except Exception as exc:
+            code = _s3_error_code(exc)
+            if code not in _S3_ABSENT_CODES:
+                raise CalendarAssetUnavailable(f"S3 read failed for {s3_key}: {exc}") from exc
+            logger.debug("%s not in S3 (%s); reading the local seed", s3_key, code)
+            return _read_local_calendar_asset(asset_type, asset_name)
+
+        if (response.get('Metadata') or {}).get(_TOMBSTONE_META) == '1':
+            raise FileNotFoundError(
+                f"Calendar asset deleted: asset_type={asset_type!r}, asset_name={asset_name!r}"
+            )
+        try:
             return response['Body'].read()
         except Exception as exc:
-            fallback = os.path.join(settings.STORAGE_ROOT, asset_type, _json_asset_name(asset_name))
-            if os.path.isfile(fallback):
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(
-                    "S3 read failed for %s (%s); serving from local fallback %s.",
-                    s3_key, exc, fallback,
-                )
-                with open(fallback, 'rb') as fh:
-                    return fh.read()
-            raise FileNotFoundError(
-                f"Calendar asset not found: asset_type={asset_type!r}, asset_name={asset_name!r}"
-            ) from exc
+            raise CalendarAssetUnavailable(f"S3 read failed for {s3_key}: {exc}") from exc
 
     def write_calendar_asset(self, asset_type: str, asset_name: str, content: bytes) -> str:
         """Write a calendar asset to S3 atomically."""
@@ -525,21 +513,131 @@ class S3Storage(StorageBackend):
             raise IOError(f"Failed to write calendar asset to S3: {exc}") from exc
 
     def delete_calendar_asset(self, asset_type: str, asset_name: str) -> bool:
-        """Delete a calendar asset from S3. Returns True on success, False if not found."""
+        """Replace the object with a tombstone rather than removing it.
+
+        A removed key reads as "never written", which falls back to the
+        git-seeded file — so a plain DeleteObject resurrected the seed on the
+        next read. A later write replaces the tombstone like any other object.
+
+        Always True: S3 can't cheaply say whether there was anything to
+        delete. A failure raises, so the caller doesn't report a 204 for a
+        delete that never happened.
+        """
         s3_key = self._calendar_asset_key(asset_type, asset_name)
         try:
-            # S3 delete is idempotent — DeleteObject succeeds even if the object doesn't exist
-            # To distinguish, we'd need HeadObject first. For this use case, always return True
-            # since the asset "is gone" after the call, which is the contract.
-            self.s3.delete_object(Bucket=self.bucket, Key=s3_key)
-            return True
-        except Exception:
-            return False
+            self.s3.put_object(
+                Bucket=self.bucket, Key=s3_key, Body=b'', Metadata={_TOMBSTONE_META: '1'},
+            )
+        except Exception as exc:
+            raise IOError(f"Failed to delete calendar asset in S3: {exc}") from exc
+        return True
+
+    def list_calendar_assets(self, asset_type: str) -> List[str]:
+        """The local seeds plus what S3 holds, minus what ops deleted.
+
+        Listing only the seeds (as the style/palette lists used to) hid any
+        asset ops created under a new name, and kept showing deleted ones.
+        Tombstones are recognised by size: a real asset is never empty JSON.
+        """
+        prefix = self._s3_key(f"ops-config/{asset_type}/")
+        live, deleted = set(), set()
+        kwargs = {'Bucket': self.bucket, 'Prefix': prefix, 'Delimiter': '/'}
+        try:
+            while True:
+                page = self.s3.list_objects_v2(**kwargs)
+                for obj in page.get('Contents') or []:
+                    name = obj['Key'][len(prefix):]
+                    if not name.endswith('.json') or '/' in name:
+                        continue
+                    (deleted if obj.get('Size') == 0 else live).add(name[:-len('.json')])
+                if not page.get('IsTruncated'):
+                    break
+                kwargs['ContinuationToken'] = page['NextContinuationToken']
+        except Exception as exc:
+            if _s3_error_code(exc) == 'AccessDenied':
+                # No s3:ListBucket: the seeds are the best we can list; each
+                # name is still read (and a deleted one dropped) by the caller.
+                logger.warning("Can't list %s (AccessDenied); listing local seeds only", prefix)
+                return _list_local_calendar_assets(asset_type)
+            raise CalendarAssetUnavailable(f"S3 list failed for {prefix}: {exc}") from exc
+        return sorted((set(_list_local_calendar_assets(asset_type)) | live) - deleted)
+
+
+class CalendarAssetUnavailable(Exception):
+    """The store couldn't say whether a calendar asset exists.
+
+    Deliberately not a FileNotFoundError: "missing" may fall back to the
+    seed or to "no data", but here the asset may well exist, so a caller
+    that substitutes a default would cache or print it as the real answer.
+    """
+
+
+# S3 user-metadata flag (sent as x-amz-meta-pe-tombstone) marking a deleted
+# calendar asset.
+_TOMBSTONE_META = 'pe-tombstone'
+
+# Error codes meaning "no object at this key". AccessDenied is included
+# because S3 answers a GET for a missing key with 403 AccessDenied instead of
+# 404 when the caller lacks s3:ListBucket on the bucket — the client cannot
+# tell the two apart, and treating it as an outage would make every
+# never-written asset unreadable under such a policy.
+_S3_ABSENT_CODES = frozenset({'NoSuchKey', 'NotFound', '404', 'AccessDenied'})
+
+
+def _s3_error_code(exc: Exception) -> Optional[str]:
+    """The S3 error code of a botocore ClientError; None for anything else
+    (connection errors, timeouts), which carry no response."""
+    response = getattr(exc, 'response', None)
+    if not isinstance(response, dict):
+        return None
+    return (response.get('Error') or {}).get('Code')
 
 
 def _json_asset_name(asset_name: str) -> str:
     """Calendar assets are all JSON files; callers name them without the suffix."""
     return asset_name if asset_name.endswith('.json') else asset_name + '.json'
+
+
+# Assets whose local file predates the <asset_type>/<name>.json layout. The
+# fonts list has always been STORAGE_ROOT/fonts.json — the path backup.sh
+# archives and .gitignore covers — but PR #111 routed it through this helper
+# as fonts/fonts.json, so a local write went somewhere neither backs up nor
+# ignores, and an existing fonts.json was never read. (The S3 key is
+# unaffected: ops-config/fonts/fonts.json.)
+_LOCAL_PATH_OVERRIDES = {('fonts', 'fonts'): 'fonts.json'}
+
+
+def _local_calendar_asset_path(asset_type: str, asset_name: str) -> str:
+    """The one local path for a calendar asset: LocalStorage's file, and the
+    git-seeded default S3Storage falls back to. Names may nest ('en-IN/2026')."""
+    override = _LOCAL_PATH_OVERRIDES.get((asset_type, asset_name))
+    if override:
+        return os.path.join(settings.STORAGE_ROOT, override)
+    return os.path.join(settings.STORAGE_ROOT, asset_type, _json_asset_name(asset_name))
+
+
+def _read_local_calendar_asset(asset_type: str, asset_name: str) -> bytes:
+    try:
+        with open(_local_calendar_asset_path(asset_type, asset_name), 'rb') as fh:
+            return fh.read()
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"Calendar asset not found: asset_type={asset_type!r}, asset_name={asset_name!r}"
+        ) from None
+    except OSError as exc:
+        raise CalendarAssetUnavailable(f"Local calendar asset unreadable: {exc}") from exc
+
+
+def _list_local_calendar_assets(asset_type: str) -> List[str]:
+    asset_dir = os.path.join(settings.STORAGE_ROOT, asset_type)
+    try:
+        filenames = os.listdir(asset_dir)
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise CalendarAssetUnavailable(f"Can't list {asset_dir}: {exc}") from exc
+    return sorted(f[:-len('.json')] for f in filenames
+                  if f.endswith('.json') and os.path.isfile(os.path.join(asset_dir, f)))
 
 
 _storage_instance: Optional[StorageBackend] = None

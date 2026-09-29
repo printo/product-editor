@@ -40,3 +40,10 @@ pillow-heif==0.22.0
 # ~200 MB total docker layer cost. Apache 2.0 throughout.
 mediapipe==0.10.18
 boto3>=1.26.0
+
+# ── Annual holiday refresh (manage.py refresh_holidays) ─────────────────────
+# Offline public-holiday tables, incl. India's gazetted festivals, which
+# Nager.Date doesn't cover. Pinned: dates for moving festivals come from the
+# package's own tables, so a bump can move them — re-run the refresh tests.
+# MIT; only dependency is python-dateutil (already pulled in by botocore).
+holidays==0.105

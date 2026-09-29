@@ -3,7 +3,7 @@ Tests that services.calendar_holidays re-reads holiday files on every call.
 
 The loader used to sit behind a per-process `lru_cache` keyed on path. The
 files are rewritten by `HolidaysView` PUT/DELETE, which runs in gunicorn, and
-by `scripts/refresh-holidays.py` — neither can clear a Celery worker's memory.
+by `manage.py refresh_holidays` — neither can clear a Celery worker's memory.
 So after an ops edit, every worker kept printing the old holidays until it
 recycled, while the preview (via the view's Redis cache) showed the new ones.
 

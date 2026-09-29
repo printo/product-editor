@@ -2594,8 +2594,6 @@ class EditorRenderView(APIView):
 
 # ─── Fonts management ─────────────────────────────────────────────────────────
 
-FONTS_JSON_PATH = os.path.join(settings.STORAGE_ROOT, 'fonts.json')
-
 DEFAULT_FONTS = ['sans-serif', 'serif', 'monospace']
 
 # Shared Redis cache for the on-disk JSON config files. Keys are namespaced so
@@ -2609,7 +2607,7 @@ _STORAGE_CACHE_TTL = 300
 def _read_fonts():
     """Read the fonts config from asset store, with a 5-minute Redis cache."""
     from django.core.cache import cache
-    from services.asset_store import read_asset, AssetNotFoundError
+    from services.asset_store import read_asset_json, AssetNotFoundError, CalendarAssetUnavailable
 
     cached = cache.get(_FONTS_CACHE_KEY)
     if cached is not None:
@@ -2617,9 +2615,14 @@ def _read_fonts():
 
     try:
         # Fonts are stored as 'fonts' asset (no subdirectory)
-        data = json.loads(read_asset('fonts', 'fonts').decode('utf-8'))
+        data = read_asset_json('fonts', 'fonts')
         value = data if isinstance(data, list) else DEFAULT_FONTS
-    except (AssetNotFoundError, json.JSONDecodeError, ValueError):
+    except CalendarAssetUnavailable as exc:
+        # Editor init reads this on every mount, so serve the defaults rather
+        # than fail the editor — but don't cache them as the answer.
+        logger.warning("Fonts unavailable (%s), serving defaults uncached", exc)
+        return DEFAULT_FONTS
+    except (AssetNotFoundError, ValueError):
         logger.warning("Failed to read fonts from asset store, using defaults")
         value = DEFAULT_FONTS
 
@@ -2648,6 +2651,23 @@ def _write_fonts(fonts):
 # destructive methods as requiring no credentials at all. State the truth
 # per-operation instead: public reads carry `auth=[]`, ops writes carry this.
 OPS_WRITE_AUTH = [{"BearerAuth": []}, {"PIAAuth": []}, {"PIASessionCookie": []}]
+
+
+def _asset_unavailable_response():
+    """503 for a calendar-asset read the store couldn't answer (S3 outage).
+
+    Not a 404: the asset may exist, and a 404 is what callers and caches
+    treat as "there is no such data". No Cache-Control, so nothing keeps it.
+    """
+    return Response(
+        {'detail': 'Calendar configuration is temporarily unavailable. Retry shortly.'},
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
+_ASSET_UNAVAILABLE_503 = OpenApiResponse(
+    description="Storage couldn't be read (e.g. an S3 outage). Retry; not cached.",
+)
 
 _OPS_GATE_RESPONSES = {
     401: OpenApiResponse(description="No API key or PIA session presented."),
@@ -2741,8 +2761,6 @@ class FontsView(APIView):
 
 # ── Calendar style presets + Gen-Z palettes (PRD §10.3, §6.3) ───────────────
 
-CALENDAR_STYLES_DIR = os.path.join(settings.STORAGE_ROOT, 'calendar_styles')
-GENZ_PALETTES_DIR = os.path.join(settings.STORAGE_ROOT, 'calendar_palettes', 'genz')
 _CALENDAR_STYLES_CACHE_KEY = 'storage:calendar_styles:list'
 _CALENDAR_STYLE_CACHE_KEY = 'storage:calendar_styles:'  # + name
 
@@ -2750,7 +2768,7 @@ _CALENDAR_STYLE_CACHE_KEY = 'storage:calendar_styles:'  # + name
 def _list_calendar_styles():
     """Return [{name, label}] for every calendar style from asset store."""
     from django.core.cache import cache
-    from services.asset_store import list_assets_in_local_storage
+    from services.asset_store import list_assets, CalendarAssetUnavailable
 
     cached = cache.get(_CALENDAR_STYLES_CACHE_KEY)
     if cached is not None:
@@ -2758,8 +2776,7 @@ def _list_calendar_styles():
 
     out = []
     try:
-        # List from local storage (asset_store handles S3 fallback on read)
-        style_names = list_assets_in_local_storage('calendar_styles')
+        style_names = list_assets('calendar_styles')
         for name in style_names:
             try:
                 style = _read_calendar_style(name)
@@ -2769,8 +2786,13 @@ def _list_calendar_styles():
                         'label': style.get('label') or style.get('name') or name,
                         'description': style.get('description') or '',
                     })
+            except CalendarAssetUnavailable:
+                # Don't cache a list with the unreadable styles silently missing.
+                raise
             except Exception as exc:
                 logger.warning("Failed to read calendar style %s: %s", name, exc)
+    except CalendarAssetUnavailable:
+        raise
     except Exception as exc:
         logger.error("Error listing calendar styles: %s", exc)
 
@@ -2779,7 +2801,11 @@ def _list_calendar_styles():
 
 
 def _read_calendar_style(name):
-    """Read a single calendar style JSON using asset_store. Returns None if missing/invalid."""
+    """Read a single calendar style JSON using asset_store. Returns None if missing/invalid.
+
+    Raises CalendarAssetUnavailable when the store couldn't answer, so the
+    view can 503 rather than cache a 404 for a style that exists.
+    """
     from django.core.cache import cache
     from services.asset_store import read_asset_json, AssetNotFoundError
 
@@ -2792,28 +2818,29 @@ def _read_calendar_style(name):
     if cached is not None:
         return cached
 
+    # Same acceptance rule as the print's calendar_layout._read_calendar_asset:
+    # undecodable or non-object JSON is "no style", not a 500.
     try:
         style = read_asset_json('calendar_styles', name)
-    except (AssetNotFoundError, json.JSONDecodeError):
+    except (AssetNotFoundError, ValueError):
+        return None
+    if not isinstance(style, dict):
         return None
 
     # For Gen-Z, attach the available palettes inline so clients don't
     # have to make a second request to enumerate them.
     if style.get('name') == 'modern-genz':
-        from services.asset_store import read_asset_json, AssetNotFoundError, list_assets_in_local_storage
+        from services.asset_store import list_assets
 
         palettes = []
-        try:
-            palette_names = list_assets_in_local_storage('calendar_palettes/genz')
-            for palette_name in palette_names:
-                try:
-                    palette = read_asset_json('calendar_palettes/genz', palette_name)
-                    palettes.append(palette)
-                except (AssetNotFoundError, json.JSONDecodeError) as exc:
-                    logger.warning("Failed to read palette %s: %s", palette_name, exc)
-                    continue
-        except Exception as exc:
-            logger.warning("Failed to load Gen-Z palettes: %s", exc)
+        for palette_name in list_assets('calendar_palettes/genz'):
+            try:
+                palette = read_asset_json('calendar_palettes/genz', palette_name)
+            except (AssetNotFoundError, ValueError) as exc:
+                logger.warning("Failed to read palette %s: %s", palette_name, exc)
+                continue
+            if isinstance(palette, dict):
+                palettes.append(palette)
 
         style['palettes'] = palettes
 
@@ -2875,16 +2902,27 @@ class CalendarStylesView(APIView):
                 description="`{styles: [{name, label, description}]}` for the list form, or the full preset object.",
             ),
             404: OpenApiResponse(description="No such style preset. Detail form only — the list never 404s."),
+            503: _ASSET_UNAVAILABLE_503,
         },
         auth=[],
     )
     def get(self, request, name=None):
+        from services.asset_store import CalendarAssetUnavailable
+
+        try:
+            if name is None:
+                styles = _list_calendar_styles()
+            else:
+                style = _read_calendar_style(name)
+        except CalendarAssetUnavailable as exc:
+            logger.warning("Calendar styles unavailable: %s", exc)
+            return _asset_unavailable_response()
+
         if name is None:
-            response = Response({'styles': _list_calendar_styles()})
+            response = Response({'styles': styles})
             response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
             return response
 
-        style = _read_calendar_style(name)
         if style is None:
             return Response(
                 {'detail': f"Calendar style '{name}' not found"},
@@ -2965,7 +3003,6 @@ class CalendarStylesView(APIView):
 
 # ── Holiday data (PRD §11.9, §11.11) ────────────────────────────────────────
 
-HOLIDAYS_ROOT = os.path.join(settings.STORAGE_ROOT, 'holidays')
 _HOLIDAYS_CACHE_KEY = 'storage:holidays:'  # + locale:year
 
 
@@ -2986,12 +3023,11 @@ def _safe_locale_year(locale: str, year_str: str) -> tuple[str, int]:
     return locale, year
 
 
-def _holiday_path(locale: str, year: int) -> str:
-    return os.path.join(HOLIDAYS_ROOT, locale, f"{year}.json")
-
-
 def _read_holidays(locale: str, year: int) -> dict | None:
-    """Read holidays from asset store with Redis cache."""
+    """Read holidays from asset store with Redis cache.
+
+    Raises CalendarAssetUnavailable (uncached) when the store couldn't answer.
+    """
     from django.core.cache import cache
     from services.asset_store import read_asset_json, AssetNotFoundError
 
@@ -3004,7 +3040,9 @@ def _read_holidays(locale: str, year: int) -> dict | None:
         # Asset name format: {locale}/{year}
         asset_name = f"{locale}/{year}"
         data = read_asset_json('holidays', asset_name)
-    except (AssetNotFoundError, json.JSONDecodeError) as exc:
+        if not isinstance(data, dict):
+            raise ValueError("holiday file is not a JSON object")
+    except (AssetNotFoundError, ValueError) as exc:
         logger.warning("Failed to read holidays for %s/%d: %s", locale, year, exc)
         cache.set(cache_key, None, _STORAGE_CACHE_TTL)
         return None
@@ -3053,7 +3091,7 @@ class HolidaysView(APIView):
             "A year with no file is **404, not an error condition** — calendars for "
             "that year simply render with no auto-injected holidays, and customers "
             "can still add their own entries. Refreshing the data annually is an "
-            "ops task (`scripts/refresh-holidays.py`).\n\n"
+            "ops task (`manage.py refresh_holidays`).\n\n"
             "Cached hard (1 day, 7-day stale-while-revalidate); the data changes at "
             "most once a year."
         ),
@@ -3064,6 +3102,7 @@ class HolidaysView(APIView):
             ),
             400: OpenApiResponse(description="Malformed locale or a year outside the supported range."),
             404: OpenApiResponse(description="No holiday file for this locale/year."),
+            503: _ASSET_UNAVAILABLE_503,
         },
         auth=[],
     )
@@ -3073,7 +3112,12 @@ class HolidaysView(APIView):
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        data = _read_holidays(locale, year_int)
+        from services.asset_store import CalendarAssetUnavailable
+        try:
+            data = _read_holidays(locale, year_int)
+        except CalendarAssetUnavailable as exc:
+            logger.warning("Holidays %s/%d unavailable: %s", locale, year_int, exc)
+            return _asset_unavailable_response()
         if data is None:
             return Response(
                 {'detail': f"No holiday data for {locale}/{year_int}"},
@@ -3207,8 +3251,10 @@ class HolidaysView(APIView):
         tags=["calendar"],
         summary="Delete a locale-year holiday file (ops only)",
         description=(
-            "Removes the file and drops its cache entry. Idempotent — deleting a "
-            "locale/year that has no file still returns 204.\n\n"
+            "Removes the locale/year's holiday data and drops its cache entry. "
+            "Idempotent — deleting a locale/year that has no data still returns 204.\n\n"
+            "A seeded year stays deleted: the bundled default file does not come "
+            "back. A later PUT (or `manage.py refresh_holidays`) re-creates it.\n\n"
             "Calendars for that year then render with no auto-injected holidays "
             "rather than failing."
         ),
@@ -3216,6 +3262,7 @@ class HolidaysView(APIView):
         responses={
             204: OpenApiResponse(description="Deleted, or there was nothing to delete."),
             400: OpenApiResponse(description="Malformed locale or year."),
+            500: OpenApiResponse(description="Storage refused the delete; nothing changed."),
             **_OPS_GATE_RESPONSES,
         },
         auth=OPS_WRITE_AUTH,
