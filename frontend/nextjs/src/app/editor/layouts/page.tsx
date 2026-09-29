@@ -40,6 +40,7 @@ import { useHeader } from '@/context/HeaderContext';
 import { isAdmin } from '@/lib/roles';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
 import { hasTransparentPixels } from '@/lib/image-utils';
+import { mmToPx as mmToPxExact, pxToMm as pxToMmExact } from '@/lib/units';
 
 // LayoutFabricPreview pulls in Fabric.js (~400 KB gz). Defer its load until
 // the layouts list itself has rendered so the chooser UI paints fast and
@@ -134,11 +135,11 @@ interface SurfaceEditorState {
 // Product-category tags — see src/lib/product-tags.ts (shared with the
 // dashboard's filter chips).
 
-// Pure mm/px helpers — hoisted to module scope so they're stable references
-// across renders.
-const mmToPx = (mm: number, dpiVal: number) => Math.round((mm / 25.4) * dpiVal);
+// Template authoring works in whole pixels and 2-dp millimetres, so these
+// round the shared conversions. Module scope keeps them stable across renders.
 const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
-const pxToMm = (px: number, dpiVal: number) => round2((px / dpiVal) * 25.4);
+const mmToPx = (mm: number, dpiVal: number) => Math.round(mmToPxExact(mm, dpiVal));
+const pxToMm = (px: number, dpiVal: number) => round2(pxToMmExact(px, dpiVal));
 
 const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dpiVal: number) => {
   const canvasW = mmToPx(wMmVal, dpiVal);

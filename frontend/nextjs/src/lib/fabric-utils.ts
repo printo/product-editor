@@ -94,16 +94,6 @@ import {
 } from 'fabric';
 import { getShapePath, getShapeDef } from '@/lib/shape-catalog';
 
-// ─── Unit conversion ─────────────────────────────────────────────────────────
-
-export function mmToPx(mm: number, dpi: number): number {
-  return (mm / 25.4) * dpi;
-}
-
-export function pxToMm(px: number, dpi: number): number {
-  return (px / dpi) * 25.4;
-}
-
 // ─── Canvas lifecycle ────────────────────────────────────────────────────────
 
 export interface InitCanvasOptions {
