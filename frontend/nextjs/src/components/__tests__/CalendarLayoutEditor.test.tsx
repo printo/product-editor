@@ -16,11 +16,13 @@
  *   - Style controls (theme, palette gating, calendarType default, weekStart)
  *   - Holiday source toggle + locale
  *   - Year anchor — current vs fixed
+ *   - Preview holidays — loaded for the years the months fall in, re-loaded
+ *     on year / type / locale change
  *   - draftToLayoutJson serialization → shape matches validate_calendar_layout
  *   - validateDraft catches bounds-out-of-range + override frame-count drift
  *   - Save button gates on validation + fires onSave with serialized JSON
  */
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   CalendarLayoutEditor,
@@ -46,9 +48,18 @@ const PALETTES: GenzPalette[] = [
     dotCycle: ['#DB2777', '#F59E0B', '#10B981'] },
 ];
 
-const HOLIDAYS: HolidayEntry[] = [
-  { date: '2026-01-01', name: 'New Year', color: '#3B82F6' },
-];
+/** Serves one holiday on 1 January of whichever locale + year is asked for. */
+function newYearLoader() {
+  return jest.fn(async (locale: string, year: number): Promise<HolidayEntry[]> => [
+    { date: `${year}-01-01`, name: `New Year (${locale})`, color: '#3B82F6' },
+  ]);
+}
+
+/** Holiday dots on the January preview thumb in the sidebar. */
+function januaryPreviewDots(year: number) {
+  const thumb = screen.getByRole('img', { name: `Preview of January ${year}` });
+  return within(thumb).queryAllByTestId('cell-dot');
+}
 
 function setup(propOverrides: Partial<React.ComponentProps<typeof CalendarLayoutEditor>> = {}) {
   const onSave = jest.fn().mockResolvedValue(undefined);
@@ -56,7 +67,6 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof CalendarLayout
   const utils = render(
     <CalendarLayoutEditor
       genzPalettes={PALETTES}
-      previewHolidays={HOLIDAYS}
       onSave={onSave}
       onCancel={onCancel}
       {...propOverrides}
@@ -297,6 +307,111 @@ describe('CalendarLayoutEditor — year anchor', () => {
   it('previews January of the FY end year in Financial mode (FY 2028–29 → Jan 2029)', async () => {
     setup({ initial: { defaultYear: 2028, style: { calendarType: 'financial' } as CalendarLayoutDraft['style'] } });
     expect(screen.getByText('Preview · January 2029')).toBeInTheDocument();
+  });
+
+  it('Fixed year starts from the year Auto-roll shows, not the browser year', async () => {
+    // 15 Feb 2026 is still FY 2025–26, so Auto-roll previews January 2026.
+    // Seeding the calendar year (2026) instead would jump it to January 2027.
+    const { onSave } = setup({
+      now: new Date(2026, 1, 15, 12, 0, 0),
+      initial: { style: { calendarType: 'financial' } as CalendarLayoutDraft['style'] },
+    });
+    expect(screen.getByText('Preview · January 2026')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('year-fixed-radio'));
+
+    expect(screen.getByTestId('year-fixed-input')).toHaveValue(2025);
+    expect(screen.getByText('Preview · January 2026')).toBeInTheDocument();
+    await goToStep(4);
+    await userEvent.click(screen.getByTestId('save-btn'));
+    expect((onSave.mock.calls[0][0].monthRange as Record<string, unknown>).defaultYear).toBe(2025);
+  });
+});
+
+// ─── Preview holidays ───────────────────────────────────────────────────────
+
+describe('CalendarLayoutEditor — preview holidays', () => {
+  const calls = (loader: ReturnType<typeof newYearLoader>) =>
+    loader.mock.calls.map(([locale, year]) => `${locale}/${year}`);
+
+  it('loads the pinned year, not the current one', async () => {
+    const loadHolidays = newYearLoader();
+    setup({ loadHolidays, initial: { defaultYear: 2028 } });
+    await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
+    expect(calls(loadHolidays)).toEqual(['en-IN/2028']);
+  });
+
+  it('loads both years of a Financial range and dots the January it prints', async () => {
+    const loadHolidays = newYearLoader();
+    setup({
+      loadHolidays,
+      initial: { defaultYear: 2028, style: { calendarType: 'financial' } as CalendarLayoutDraft['style'] },
+    });
+    await waitFor(() => expect(januaryPreviewDots(2029)).toHaveLength(1));
+    expect(calls(loadHolidays)).toEqual(['en-IN/2028', 'en-IN/2029']);
+    // Apr 2028 – Mar 2029 contains 1 Jan 2029 but not 1 Jan 2028.
+    expect(screen.getByText(/1 holidays shown/)).toBeInTheDocument();
+  });
+
+  it('re-loads when the fixed year changes, skipping half-typed years', async () => {
+    const loadHolidays = newYearLoader();
+    setup({ loadHolidays, initial: { defaultYear: 2028 } });
+    await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
+
+    const input = screen.getByTestId('year-fixed-input');
+    await userEvent.clear(input);
+    await userEvent.type(input, '2030');
+
+    await waitFor(() => expect(januaryPreviewDots(2030)).toHaveLength(1));
+    expect(calls(loadHolidays)).toEqual(['en-IN/2028', 'en-IN/2030']);
+  });
+
+  it('re-loads for the new locale', async () => {
+    const loadHolidays = newYearLoader();
+    setup({ loadHolidays, initial: { defaultYear: 2028 } });
+    await goToStep(3);
+    await userEvent.selectOptions(screen.getByTestId('holiday-locale'), 'generic');
+    await waitFor(() => expect(calls(loadHolidays)).toEqual(['en-IN/2028', 'generic/2028']));
+    await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
+  });
+
+  it('loads only the missing year on a calendar-type flip, and nothing on flipping back', async () => {
+    const loadHolidays = newYearLoader();
+    setup({ loadHolidays, initial: { defaultYear: 2028 } });
+    await goToStep(3);
+    await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
+
+    await userEvent.selectOptions(screen.getByTestId('style-calendar-type'), 'financial');
+    await waitFor(() => expect(januaryPreviewDots(2029)).toHaveLength(1));
+    await userEvent.selectOptions(screen.getByTestId('style-calendar-type'), 'english');
+    expect(januaryPreviewDots(2028)).toHaveLength(1);
+
+    expect(calls(loadHolidays)).toEqual(['en-IN/2028', 'en-IN/2029']);
+  });
+
+  it('retries a year whose load failed on the next change', async () => {
+    const loadHolidays = newYearLoader();
+    loadHolidays.mockRejectedValueOnce(new Error('HTTP 502'));
+    setup({ loadHolidays, initial: { defaultYear: 2028 } });
+    await goToStep(3);
+    await waitFor(() => expect(loadHolidays).toHaveBeenCalledTimes(1));
+    expect(januaryPreviewDots(2028)).toHaveLength(0);
+
+    await userEvent.selectOptions(screen.getByTestId('style-calendar-type'), 'financial');
+    await waitFor(() => expect(januaryPreviewDots(2029)).toHaveLength(1));
+    expect(calls(loadHolidays)).toEqual(['en-IN/2028', 'en-IN/2028', 'en-IN/2029']);
+  });
+
+  it('shows no holidays and loads none while auto-load is off, as the print does', async () => {
+    const loadHolidays = newYearLoader();
+    setup({ loadHolidays, initial: { defaultYear: 2028 } });
+    await goToStep(3);
+    await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
+
+    await userEvent.click(screen.getByTestId('holiday-enabled'));
+    expect(januaryPreviewDots(2028)).toHaveLength(0);
+    await userEvent.selectOptions(screen.getByTestId('holiday-locale'), 'generic');
+    expect(calls(loadHolidays)).toEqual(['en-IN/2028']);
   });
 });
 

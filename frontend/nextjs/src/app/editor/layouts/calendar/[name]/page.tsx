@@ -26,6 +26,7 @@ import type {
   LayoutCalendarStyle,
   GenzPalette,
   HolidayEntry,
+  HolidayLocale,
   LayoutCalendar,
 } from '@/types/calendar';
 
@@ -50,6 +51,16 @@ interface ExistingLayoutJson {
   // or re-saving an existing layout would wipe all customisations. Holistic-
   // audit fix.
   surfaceOverrides?: import('@/types/calendar').SurfaceOverrideMap;
+}
+
+/** Preview holidays for one locale + year. A year with no file is a 404 — an
+ *  empty year, not a failure; anything else rejects so the editor retries. */
+async function loadHolidays(locale: HolidayLocale, year: number): Promise<HolidayEntry[]> {
+  const r = await fetch(`/api/internal/proxy/holidays/${encodeURIComponent(locale)}/${year}`);
+  if (r.status === 404) return [];
+  if (!r.ok) throw new Error(`Holidays ${locale}/${year}: HTTP ${r.status}`);
+  const body = (await r.json()) as { events?: HolidayEntry[] };
+  return body.events ?? [];
 }
 
 function existingToInitial(layout: ExistingLayoutJson): Partial<CalendarLayoutDraft> {
@@ -95,12 +106,12 @@ export default function CalendarLayoutEditorPage() {
 
   const [initial, setInitial] = useState<Partial<CalendarLayoutDraft> | null>(null);
   const [genzPalettes, setGenzPalettes] = useState<GenzPalette[]>([]);
-  const [previewHolidays, setPreviewHolidays] = useState<HolidayEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch the existing layout JSON (if any) + Gen-Z palettes + sample holidays
-  // for the live preview thumb.
+  // Fetch the existing layout JSON (if any) + Gen-Z palettes. Preview
+  // holidays depend on the draft's year/type/locale, so the editor asks for
+  // them itself via loadHolidays.
   useEffect(() => {
     let cancelled = false;
     async function bootstrap() {
@@ -110,9 +121,6 @@ export default function CalendarLayoutEditorPage() {
         const tasks: Promise<unknown>[] = [
           fetch('/api/internal/proxy/calendar-styles/modern-genz').then((r) =>
             r.ok ? r.json() : null,
-          ),
-          fetch(`/api/internal/proxy/holidays/en-IN/${new Date().getFullYear()}`).then(
-            (r) => (r.ok ? r.json() : { events: [] }),
           ),
         ];
         if (!isNew) {
@@ -127,13 +135,11 @@ export default function CalendarLayoutEditorPage() {
             ),
           );
         }
-        const [styleRes, holRes, existing] = await Promise.all(tasks);
+        const [styleRes, existing] = await Promise.all(tasks);
         if (cancelled) return;
 
         const palettes = (styleRes as { palettes?: GenzPalette[] } | null)?.palettes ?? [];
         setGenzPalettes(palettes);
-        const events = (holRes as { events?: HolidayEntry[] })?.events ?? [];
-        setPreviewHolidays(events);
 
         if (existing) {
           const layout = existing as ExistingLayoutJson;
@@ -241,7 +247,7 @@ export default function CalendarLayoutEditorPage() {
         newLayoutName={isNew ? 'untitled_calendar' : routeName}
         isExistingLayout={!isNew}
         genzPalettes={genzPalettes}
-        previewHolidays={previewHolidays}
+        loadHolidays={loadHolidays}
         onSave={handleSave}
         onCancel={() => router.push('/editor/layouts')}
       />

@@ -20,11 +20,11 @@
  * still validated server-side as a defence in depth.
  *
  * The component intentionally does NOT call fetch() — the host page wires
- * onSave to `/api/internal/proxy/ops/layouts/<name>` so this stays unit-
- * testable without HTTP mocks.
+ * onSave to `/api/internal/proxy/ops/layouts/<name>` (and loadHolidays to
+ * the holidays endpoint) so this stays unit-testable without HTTP mocks.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   MONTH_NAMES_EN,
@@ -54,6 +54,7 @@ import type {
   GenzPalette,
   HolidayLocale,
   HolidayEntry,
+  HolidaySource,
   LayoutCalendar,
   LayoutCalendarStyle,
   SurfaceOverride,
@@ -153,8 +154,16 @@ export interface CalendarLayoutEditorProps {
   isExistingLayout?: boolean;
   /** Available Gen-Z palettes — host page fetches from /api/calendar-styles/modern-genz. */
   genzPalettes: GenzPalette[];
-  /** Sample holidays to show in the live preview thumb. Host page fetches per locale+year. */
-  previewHolidays?: HolidayEntry[];
+  /**
+   * Loads one locale's holidays for one year, for the preview dots. The
+   * editor asks for exactly the years its months fall in, and asks again
+   * when the year anchor, calendar type or locale changes. Resolve `[]` for
+   * a year with no holiday file; reject on a transient failure and that
+   * year is retried on the next change. Omit it and no dots are shown.
+   */
+  loadHolidays?: (locale: HolidayLocale, year: number) => Promise<HolidayEntry[]>;
+  /** Clock override for tests — pins the year "Auto-roll" resolves to. */
+  now?: Date;
   /** Called when ops clicks Save. Parent serialises + POSTs `layoutJson` as
    *  `layout_data` and `displayName` as the separate `display_name` field. */
   onSave: (layoutJson: Record<string, unknown>, displayName: string) => void | Promise<void>;
@@ -341,7 +350,7 @@ export function validateDraft(draft: CalendarLayoutDraft): string | null {
  * Iteration order matches the Python materialize loop so tile indices are
  * stable across both sides.
  */
-export function surfaceMonthList(
+function surfaceMonthList(
   draft: CalendarLayoutDraft,
   now?: Date,
 ): Array<{
@@ -379,6 +388,52 @@ export function surfaceMonthList(
     }
   }
   return out;
+}
+
+// The year range services/calendar_holidays.py accepts. A half-typed
+// "Fixed year" (2, 20, 202) falls outside it and isn't worth a request.
+const HOLIDAY_YEAR_MIN = 1900;
+const HOLIDAY_YEAR_MAX = 2100;
+
+/**
+ * Holidays for the months the preview shows — the same months the print
+ * carries. Years come from `tiles`, so a Financial range (Apr–Mar) loads
+ * both of its years, and a changed year anchor / type / locale loads
+ * whatever is missing. Loaded years are kept, so flipping back is free.
+ * Disabled auto-load shows none: the print loads none either
+ * (`materialize_surfaces` gates on `holidaySource.enabled`).
+ */
+function usePreviewHolidays(
+  loadHolidays: CalendarLayoutEditorProps['loadHolidays'],
+  source: HolidaySource | undefined,
+  tiles: ReadonlyArray<{ year: number; month: number }>,
+): HolidayEntry[] {
+  const enabled = source?.enabled ?? false;
+  const locale = source?.locale ?? 'en-IN';
+  const [loaded, setLoaded] = useState<Record<string, HolidayEntry[]>>({});
+  const requested = useRef(new Set<string>());
+  const years = useMemo(() => Array.from(new Set(tiles.map((t) => t.year))), [tiles]);
+
+  useEffect(() => {
+    if (!loadHolidays || !enabled) return;
+    for (const year of years) {
+      const key = `${locale}/${year}`;
+      if (year < HOLIDAY_YEAR_MIN || year > HOLIDAY_YEAR_MAX || requested.current.has(key)) continue;
+      requested.current.add(key);
+      loadHolidays(locale, year).then(
+        (events) => setLoaded((prev) => ({ ...prev, [key]: events })),
+        () => { requested.current.delete(key); },
+      );
+    }
+  }, [loadHolidays, enabled, locale, years]);
+
+  return useMemo(() => {
+    if (!enabled) return [];
+    const shown = new Set(tiles.map((t) => `${t.year}-${String(t.month).padStart(2, '0')}-`));
+    return years
+      .flatMap((y) => loaded[`${locale}/${y}`] ?? [])
+      .filter((h) => shown.has(h.date.slice(0, 8)));
+  }, [enabled, locale, years, tiles, loaded]);
 }
 
 // ─── Per-month override modal (P6.2) ────────────────────────────────────────
@@ -835,7 +890,8 @@ export function CalendarLayoutEditor({
   newLayoutName = 'untitled_calendar',
   isExistingLayout = false,
   genzPalettes,
-  previewHolidays = [],
+  loadHolidays,
+  now,
   onSave,
   onCancel,
 }: CalendarLayoutEditorProps) {
@@ -903,16 +959,18 @@ export function CalendarLayoutEditor({
   );
 
   const monthTiles = useMemo(
-    () => surfaceMonthList(draft),
+    () => surfaceMonthList(draft, now),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [draft.mode, draft.style.calendarType, draft.defaultYear],
+    [draft.mode, draft.style.calendarType, draft.defaultYear, now],
   );
+
+  const previewHolidays = usePreviewHolidays(loadHolidays, draft.style.holidaySource, monthTiles);
 
   // The January this layout actually prints — FY 2026–27 prints Jan 2027.
   const previewYear = yearOfMonth(
     1,
     draft.style.calendarType,
-    resolveDefaultYear(draft.defaultYear, draft.style.calendarType),
+    resolveDefaultYear(draft.defaultYear, draft.style.calendarType, now),
   );
 
   const handleSave = async () => {
@@ -1180,7 +1238,13 @@ export function CalendarLayoutEditor({
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input type="radio" checked={draft.defaultYear !== 'current'}
-                    onChange={() => { const y = new Date().getFullYear(); patch({ defaultYear: y }); setYearInputBuffer(String(y)); }}
+                    onChange={() => {
+                      // Pin the year Auto-roll shows right now (IST, FY-aware),
+                      // so switching modes doesn't move the preview.
+                      const y = resolveDefaultYear(draft.defaultYear, draft.style.calendarType, now);
+                      patch({ defaultYear: y });
+                      setYearInputBuffer(String(y));
+                    }}
                     data-testid="year-fixed-radio" />
                   <span>Fixed year:</span>
                   <input
