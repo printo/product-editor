@@ -40,7 +40,7 @@ graphify explain "render_canvas_task"
 graphify explain "CalendarState"
 ```
 
-The graph covers 319 files — **2,974 nodes, 5,345 edges, 213 communities** (rebuilt 2026-09-04 from `main` @ `f3708ba`). **Read the counts out of `graphify-out/GRAPH_REPORT.md`, not from here.** This line claimed 5,282 nodes / 17,271 edges / 321 files until 2026-09-04, when the committed graph actually held 2,297 / 3,977 — those figures came from an older doc-inclusive build and `graphify update .` (AST-only, the form this file tells you to run) does not reproduce them. The report states its own source commit under "Graph Freshness"; compare it to `git rev-parse HEAD` to see whether the graph is stale. Key communities:
+The graph covers 294 files — **3,747 nodes, 6,755 edges, 334 communities** (rebuilt 2026-09-29 from `main` @ `0ae665d`; the 2026-09-04 build held 2,974 / 5,345 / 213). **Read the counts out of `graphify-out/GRAPH_REPORT.md`, not from here.** This line claimed 5,282 nodes / 17,271 edges / 321 files until 2026-09-04, when the committed graph actually held 2,297 / 3,977 — those figures came from an older doc-inclusive build and `graphify update .` (AST-only, the form this file tells you to run) does not reproduce them. The report states its own source commit under "Graph Freshness"; compare it to `git rev-parse HEAD` to see whether the graph is stale. Key communities:
 
 - **Render Pipeline Core** — render_canvas_task, layout_engine/engine.py, _composite_canvas
 - **Book Layout Engine** — services/book_layout.py, materialize_pages, gutter mirroring, pagesToSpreads
@@ -51,9 +51,9 @@ The graph covers 319 files — **2,974 nodes, 5,345 edges, 213 communities** (re
 - **Calendar Cell Upload** — lib/calendar-cell-upload.ts
 - **Data Lifecycle & DPDP** — EXPORT_RETENTION_DAYS, order data purge, UploadedFile.order_id, orphan exports
 
-The 2026-09-04 graph also carries a **Printo Architecture Audit** community. Its source, `docs/printo-architecture-audit/`, was removed on 2026-09-07 (the server lead maintains it), so those nodes point at files that no longer exist. `graphify update .` is AST-only and will not clear doc nodes — ignore that community until someone does a full rebuild.
+The 2026-09-04 graph carried a **Printo Architecture Audit** community. Its source, `docs/printo-architecture-audit/`, was removed on 2026-09-07 (the server lead maintains it). The 2026-09-29 rebuild no longer names that community, but 4 nodes still point at those deleted files — `graphify update .` is AST-only and will not clear doc nodes, so ignore them until someone does a full rebuild. That rebuild also left 51 communities as unnamed `Community N` placeholders (naming needs `graphify label .` with an API key).
 
-God nodes (highest connectivity, 2026-09-04 build): `LayoutEngine` (75 edges), `APIKey` (44), `APIKeyUser` / `ExportedResult` (40), `UploadedFile` (39), `CanvasData` (37), `BearerTokenAuthentication` / `PIAAuthentication` (35). `editor/layout/[name]/page.tsx` and `api/views.py` are the two files most likely to break something else when edited — they topped the older doc-inclusive graph and are still the largest surfaces here.
+God nodes (highest connectivity, 2026-09-29 build): `LayoutEngine` (82 edges), `S3Storage` (58), `LayoutCatalogue` (50), `APIKey` / `LocalStorage` (49), `LayoutManagementView` (43), `APIKeyUser` / `ExportedResult` (41), `UploadedFile` / `CanvasData` (40). The storage backends and `LayoutManagementView` are new to this list since the layouts moved into Postgres. `editor/layout/[name]/page.tsx` and `api/views.py` are the two files most likely to break something else when edited — they topped the older doc-inclusive graph and are still the largest surfaces here.
 
 To update the graph after significant code changes:
 ```bash
