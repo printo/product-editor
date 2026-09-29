@@ -29,6 +29,7 @@ import dynamic from 'next/dynamic';
 import {
   MONTH_NAMES_EN,
   displayLabelFor,
+  printedHolidayLocale,
   resolveDefaultYear,
   resolveSurfaceMonth,
   resolveThemeColors,
@@ -77,6 +78,10 @@ function modeToCounts(mode: CalendarMode): { count: number; calendars: number } 
 
 // ─── Field defaults for "new layout" mode ───────────────────────────────────
 
+// A brand-new layout starts with holidays ON — a product default. An
+// existing layout never inherits it: see holidaySourceAsPrinted.
+const NEW_LAYOUT_HOLIDAY_SOURCE: HolidaySource = { enabled: true, locale: 'en-IN', showInCells: true };
+
 function defaultCalendarLayout(name: string): CalendarLayoutDraft {
   return {
     name,
@@ -92,7 +97,7 @@ function defaultCalendarLayout(name: string): CalendarLayoutDraft {
       themePreset: 'modern-minimalist',
       calendarType: 'english',
       weekStart: 'sunday',
-      holidaySource: { enabled: true, locale: 'en-IN', showInCells: true },
+      holidaySource: { ...NEW_LAYOUT_HOLIDAY_SOURCE },
       defaultGenzPalette: 'butter',
     },
     defaultYear: 'current',
@@ -169,6 +174,35 @@ export interface CalendarLayoutEditorProps {
   onSave: (layoutJson: Record<string, unknown>, displayName: string) => void | Promise<void>;
   /** Called on Cancel button click. Parent navigates away or resets. */
   onCancel?: () => void;
+}
+
+// ─── Holiday source as the print reads it ───────────────────────────────────
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * The holiday settings an EXISTING layout's print actually uses, as a full
+ * block the Holidays controls can show. The print loads holidays only when
+ * `holidaySource` is an object with a truthy `enabled`, with a missing
+ * locale meaning "generic" (`printedHolidayLocale`). So an absent block
+ * reads as OFF here: seeding it from the new-layout default would preview
+ * dots the print lacks, and the first save would switch holidays ON in the
+ * real print. A switched-off block keeps its stored locale, so ticking the
+ * box brings that locale back.
+ */
+export function holidaySourceAsPrinted(style: unknown): HolidaySource {
+  const stored = isRecord(style) && isRecord(style.holidaySource) ? style.holidaySource : {};
+  const printedLocale = printedHolidayLocale(style);
+  const storedLocale = typeof stored.locale === 'string' && stored.locale ? stored.locale : null;
+  return {
+    enabled: printedLocale !== null,
+    locale: printedLocale ?? storedLocale ?? NEW_LAYOUT_HOLIDAY_SOURCE.locale,
+    showInCells: typeof stored.showInCells === 'boolean'
+      ? stored.showInCells
+      : NEW_LAYOUT_HOLIDAY_SOURCE.showInCells,
+  };
 }
 
 // ─── Layout-JSON serializer ─────────────────────────────────────────────────
@@ -400,22 +434,23 @@ const HOLIDAY_YEAR_MAX = 2100;
  * carries. Years come from `tiles`, so a Financial range (Apr–Mar) loads
  * both of its years, and a changed year anchor / type / locale loads
  * whatever is missing. Loaded years are kept, so flipping back is free.
- * Disabled auto-load shows none: the print loads none either
- * (`materialize_surfaces` gates on `holidaySource.enabled`).
+ * Which locale, if any, follows the print's own rule
+ * (`printedHolidayLocale`): disabled or absent auto-load shows none, and a
+ * missing locale means "generic".
  */
 function usePreviewHolidays(
   loadHolidays: CalendarLayoutEditorProps['loadHolidays'],
   source: HolidaySource | undefined,
   tiles: ReadonlyArray<{ year: number; month: number }>,
 ): HolidayEntry[] {
-  const enabled = source?.enabled ?? false;
-  const locale = source?.locale ?? 'en-IN';
+  const locale = printedHolidayLocale({ holidaySource: source });
+  const enabled = locale !== null;
   const [loaded, setLoaded] = useState<Record<string, HolidayEntry[]>>({});
   const requested = useRef(new Set<string>());
   const years = useMemo(() => Array.from(new Set(tiles.map((t) => t.year))), [tiles]);
 
   useEffect(() => {
-    if (!loadHolidays || !enabled) return;
+    if (!loadHolidays || locale === null) return;
     for (const year of years) {
       const key = `${locale}/${year}`;
       if (year < HOLIDAY_YEAR_MIN || year > HOLIDAY_YEAR_MAX || requested.current.has(key)) continue;
@@ -425,7 +460,7 @@ function usePreviewHolidays(
         () => { requested.current.delete(key); },
       );
     }
-  }, [loadHolidays, enabled, locale, years]);
+  }, [loadHolidays, locale, years]);
 
   return useMemo(() => {
     if (!enabled) return [];
@@ -895,11 +930,15 @@ export function CalendarLayoutEditor({
   onSave,
   onCancel,
 }: CalendarLayoutEditorProps) {
-  const [draft, setDraft] = useState<CalendarLayoutDraft>(() => ({
-    ...defaultCalendarLayout(newLayoutName),
-    ...initial,
-    style: { ...defaultCalendarLayout(newLayoutName).style, ...(initial?.style ?? {}) },
-  }));
+  const [draft, setDraft] = useState<CalendarLayoutDraft>(() => {
+    const defaults = defaultCalendarLayout(newLayoutName);
+    const style = { ...defaults.style, ...(initial?.style ?? {}) };
+    // Nested block, so the shallow merge above can't fill it in.
+    style.holidaySource = isExistingLayout
+      ? holidaySourceAsPrinted(initial?.style)
+      : { ...defaults.style.holidaySource, ...(initial?.style?.holidaySource ?? {}) };
+    return { ...defaults, ...initial, style };
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<WizardStep>(1);

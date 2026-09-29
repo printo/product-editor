@@ -15,6 +15,8 @@
  *   - Mode toggle: multi-surface (12×1) vs poster (1×12) JSON shape
  *   - Style controls (theme, palette gating, calendarType default, weekStart)
  *   - Holiday source toggle + locale
+ *   - Existing layouts open with the holiday settings their print uses
+ *     (absent block → off, missing locale → "generic")
  *   - Year anchor — current vs fixed
  *   - Preview holidays — loaded for the years the months fall in, re-loaded
  *     on year / type / locale change
@@ -22,14 +24,18 @@
  *   - validateDraft catches bounds-out-of-range + override frame-count drift
  *   - Save button gates on validation + fires onSave with serialized JSON
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   CalendarLayoutEditor,
   draftToLayoutJson,
+  holidaySourceAsPrinted,
   validateDraft,
   type CalendarLayoutDraft,
 } from '@/components/CalendarLayoutEditor';
+import { printedHolidayLocale } from '@/lib/calendar';
 import type { GenzPalette, HolidayEntry } from '@/types/calendar';
 
 // Step 2 mounts the Fabric.js canvas preview via next/dynamic. Fabric can't
@@ -273,6 +279,132 @@ describe('CalendarLayoutEditor — holiday source', () => {
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
     expect(((json.calendar as Record<string, unknown>).holidaySource as Record<string, unknown>).locale).toBe('generic');
+  });
+});
+
+// ─── Existing layouts: holidays as the print reads them ─────────────────────
+
+describe('CalendarLayoutEditor — an existing layout opens with the holidays its print uses', () => {
+  /** An existing layout's `calendar` block, as the host page passes it. */
+  const existingStyle = (holidaySource?: unknown) => ({
+    themePreset: 'modern-minimalist',
+    calendarType: 'english',
+    weekStart: 'sunday',
+    ...(holidaySource === undefined ? {} : { holidaySource }),
+  }) as unknown as CalendarLayoutDraft['style'];
+
+  const openExisting = (style: CalendarLayoutDraft['style'] | undefined) => {
+    const loadHolidays = newYearLoader();
+    const utils = setup({
+      isExistingLayout: true,
+      loadHolidays,
+      initial: { name: 'existing_calendar', defaultYear: 2028, style },
+    });
+    return { ...utils, loadHolidays };
+  };
+
+  const saveAndReadCalendar = async (onSave: jest.Mock) => {
+    await goToStep(4);
+    await userEvent.click(screen.getByTestId('save-btn'));
+    return onSave.mock.calls[0][0].calendar as Record<string, unknown>;
+  };
+
+  it('shows an absent holidaySource as off, with no preview dots and nothing loaded', async () => {
+    const { loadHolidays } = openExisting(existingStyle());
+    await goToStep(3);
+    expect(screen.getByTestId('holiday-enabled')).not.toBeChecked();
+    expect(screen.getByTestId('holiday-locale')).toHaveValue('en-IN');
+    expect(januaryPreviewDots(2028)).toHaveLength(0);
+    expect(loadHolidays).not.toHaveBeenCalled();
+  });
+
+  it('saving a layout with no holidaySource does not switch holidays on in the print', async () => {
+    const { onSave } = openExisting(existingStyle());
+    const calendar = await saveAndReadCalendar(onSave);
+    expect((calendar.holidaySource as Record<string, unknown>).enabled).toBe(false);
+    expect(printedHolidayLocale(calendar)).toBeNull();
+  });
+
+  it('treats a layout with no calendar block at all as holidays off', async () => {
+    const { onSave } = openExisting(undefined);
+    await goToStep(3);
+    expect(screen.getByTestId('holiday-enabled')).not.toBeChecked();
+    expect(printedHolidayLocale(await saveAndReadCalendar(onSave))).toBeNull();
+  });
+
+  it('gives a partial block the locale the print falls back to (generic), in the select, preview and save', async () => {
+    const { onSave, loadHolidays } = openExisting(existingStyle({ enabled: true }));
+    await goToStep(3);
+    expect(screen.getByTestId('holiday-enabled')).toBeChecked();
+    expect(screen.getByTestId('holiday-locale')).toHaveValue('generic');
+    await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
+    expect(loadHolidays.mock.calls.map(([l, y]) => `${l}/${y}`)).toEqual(['generic/2028']);
+
+    const calendar = await saveAndReadCalendar(onSave);
+    expect(calendar.holidaySource).toEqual({ enabled: true, locale: 'generic', showInCells: true });
+  });
+
+  it('keeps a switched-off block\'s locale and pill setting, so ticking it back restores them', async () => {
+    const { loadHolidays } = openExisting(
+      existingStyle({ enabled: false, locale: 'generic', showInCells: false }),
+    );
+    await goToStep(3);
+    expect(screen.getByTestId('holiday-enabled')).not.toBeChecked();
+    expect(screen.getByTestId('holiday-locale')).toHaveValue('generic');
+    expect(screen.getByTestId('holiday-show-in-cells')).not.toBeChecked();
+    expect(loadHolidays).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId('holiday-enabled'));
+    await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
+    expect(loadHolidays.mock.calls.map(([l, y]) => `${l}/${y}`)).toEqual(['generic/2028']);
+  });
+
+  it('round-trips a complete, enabled block unchanged', async () => {
+    const block = { enabled: true, locale: 'en-IN', showInCells: true };
+    const { onSave } = openExisting(existingStyle(block));
+    await goToStep(3);
+    expect(screen.getByTestId('holiday-enabled')).toBeChecked();
+    expect(screen.getByTestId('holiday-locale')).toHaveValue('en-IN');
+    expect((await saveAndReadCalendar(onSave)).holidaySource).toEqual(block);
+  });
+
+  it('a brand-new layout still defaults holidays on (en-IN)', async () => {
+    const { onSave } = setup();
+    await goToStep(3);
+    expect(screen.getByTestId('holiday-enabled')).toBeChecked();
+    expect(screen.getByTestId('holiday-locale')).toHaveValue('en-IN');
+    expect((await saveAndReadCalendar(onSave)).holidaySource)
+      .toEqual({ enabled: true, locale: 'en-IN', showInCells: true });
+  });
+
+  it('a new layout seeded with a partial block fills in the new-layout defaults', async () => {
+    setup({ initial: { style: existingStyle({ enabled: true }) } });
+    await goToStep(3);
+    expect(screen.getByTestId('holiday-enabled')).toBeChecked();
+    expect(screen.getByTestId('holiday-locale')).toHaveValue('en-IN');
+    expect(screen.getByTestId('holiday-show-in-cells')).toBeChecked();
+  });
+});
+
+// The same fixture pins the print (services/calendar_layout.py) and the
+// customer preview (printedHolidayLocale), so the ops editor is held to it too.
+describe('holidaySourceAsPrinted vs the shared calendar-holidays fixture', () => {
+  const cases = (JSON.parse(fs.readFileSync(
+    path.resolve(__dirname, '..', '..', '..', '..', '..', 'storage', 'parity-fixtures', 'calendar-holidays.json'),
+    'utf-8',
+  )) as { cases: Array<{ name: string; calendar: unknown; expectedLocale: string | null }> }).cases;
+
+  it('loads the shared holiday fixtures', () => {
+    expect(cases.length).toBeGreaterThan(0);
+  });
+
+  it.each(cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    const source = holidaySourceAsPrinted(c.calendar);
+    expect(source.enabled).toBe(c.expectedLocale !== null);
+    expect(source.locale).toEqual(expect.any(String));
+    expect(source.locale).not.toBe('');
+    // Saving what the editor shows must print exactly what was stored.
+    expect(printedHolidayLocale({ holidaySource: source })).toBe(c.expectedLocale);
   });
 });
 
