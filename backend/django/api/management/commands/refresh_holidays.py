@@ -1,7 +1,7 @@
 """
-Annual ops task (PRD §11.9): pull a locale/year's public holidays from
-Nager.Date and merge them into the stored holiday data, keeping custom
-entries (Holi, Diwali, Eid, ops additions).
+Annual ops task (PRD §11.9): merge a locale/year's public holidays (from
+the offline `holidays` package — India's gazetted festivals included) into
+the stored holiday data, keeping custom entries (Pongal, ops additions).
 
     docker-compose exec backend python manage.py refresh_holidays             # en-IN, next year
     docker-compose exec backend python manage.py refresh_holidays --year 2031
@@ -19,13 +19,13 @@ from services.holiday_refresh import refresh
 
 
 class Command(BaseCommand):
-    help = "Refresh a locale/year's holidays from Nager.Date, merged with the stored data."
+    help = "Merge a locale/year's public holidays into the stored holiday data."
 
     def add_arguments(self, parser):
         parser.add_argument("--locale", default="en-IN",
                             help="Our internal locale code (default: en-IN).")
         parser.add_argument("--country", default=None,
-                            help="Nager.Date country code (e.g. IN). Auto-resolved from --locale by default.")
+                            help="ISO country code (e.g. IN). Auto-resolved from --locale by default.")
         parser.add_argument("--year", type=int, default=None,
                             help="Year to refresh. Defaults to next calendar year.")
         parser.add_argument("--dry-run", action="store_true",
