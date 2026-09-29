@@ -26,6 +26,7 @@ All under `$STORAGE_ROOT` and assembled via `os.path.join(settings.STORAGE_ROOT,
 | `storage/holidays/<locale>/<year>.json` | `services/calendar_holidays.py::_HOLIDAYS_ROOT` | Auto-loaded holidays |
 | `storage/fonts.json` | `api/views.py::FONTS_JSON_PATH` | Bundled font list (NB: font *.ttf files ship with the image under `services/fonts_assets/`, not under STORAGE_ROOT — correct, fonts are immutable assets) |
 | `storage/parity-fixtures/calendar-grid.json` | `services/tests/test_calendar_renderer.py` | Test fixture, dev-only |
+| `storage/parity-fixtures/calendar-year.json` | `services/tests/test_calendar_year_parity.py` | Test fixture, dev-only |
 
 ## Engine output paths
 
