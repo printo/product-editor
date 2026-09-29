@@ -151,7 +151,7 @@ describe('CalendarLayoutEditor — initial render', () => {
   it('shows Gen-Z palette picker when theme is modern-genz', async () => {
     setup({ initial: { style: {
       themePreset: 'modern-genz', calendarType: 'english', weekStart: 'sunday',
-      holidaySource: { enabled: true, locale: 'en-IN', showInCells: true },
+      holidaySource: { enabled: true, locale: 'en-IN' },
       defaultGenzPalette: 'butter',
     } } });
     await goToStep(3);
@@ -182,7 +182,7 @@ describe('CalendarLayoutEditor — mode toggle', () => {
       style: {
         themePreset: 'modern-minimalist',
         calendarType: 'english', weekStart: 'sunday',
-        holidaySource: { enabled: true, locale: 'en-IN', showInCells: true },
+        holidaySource: { enabled: true, locale: 'en-IN' },
       },
       defaultYear: 2026,
     };
@@ -207,7 +207,7 @@ describe('CalendarLayoutEditor — mode toggle', () => {
       style: {
         themePreset: 'modern-minimalist',
         calendarType: 'english', weekStart: 'sunday',
-        holidaySource: { enabled: true, locale: 'en-IN', showInCells: true },
+        holidaySource: { enabled: true, locale: 'en-IN' },
       },
       defaultYear: 2026,
     });
@@ -341,17 +341,14 @@ describe('CalendarLayoutEditor — an existing layout opens with the holidays it
     expect(loadHolidays.mock.calls.map(([l, y]) => `${l}/${y}`)).toEqual(['generic/2028']);
 
     const calendar = await saveAndReadCalendar(onSave);
-    expect(calendar.holidaySource).toEqual({ enabled: true, locale: 'generic', showInCells: true });
+    expect(calendar.holidaySource).toEqual({ enabled: true, locale: 'generic' });
   });
 
-  it('keeps a switched-off block\'s locale and pill setting, so ticking it back restores them', async () => {
-    const { loadHolidays } = openExisting(
-      existingStyle({ enabled: false, locale: 'generic', showInCells: false }),
-    );
+  it('keeps a switched-off block\'s locale, so ticking it back restores it', async () => {
+    const { loadHolidays } = openExisting(existingStyle({ enabled: false, locale: 'generic' }));
     await goToStep(3);
     expect(screen.getByTestId('holiday-enabled')).not.toBeChecked();
     expect(screen.getByTestId('holiday-locale')).toHaveValue('generic');
-    expect(screen.getByTestId('holiday-show-in-cells')).not.toBeChecked();
     expect(loadHolidays).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByTestId('holiday-enabled'));
@@ -360,12 +357,26 @@ describe('CalendarLayoutEditor — an existing layout opens with the holidays it
   });
 
   it('round-trips a complete, enabled block unchanged', async () => {
-    const block = { enabled: true, locale: 'en-IN', showInCells: true };
+    const block = { enabled: true, locale: 'en-IN' };
     const { onSave } = openExisting(existingStyle(block));
     await goToStep(3);
     expect(screen.getByTestId('holiday-enabled')).toBeChecked();
     expect(screen.getByTestId('holiday-locale')).toHaveValue('en-IN');
     expect((await saveAndReadCalendar(onSave)).holidaySource).toEqual(block);
+  });
+
+  // `showInCells` came from a retired checkbox that nothing ever read, so a
+  // stored false never hid anything. Opening such a layout must not start
+  // hiding holidays now, and saving it drops the leftover field.
+  it.each([true, false])('a stored showInCells: %s still previews and prints holidays, and is dropped on save', async (showInCells) => {
+    const { onSave } = openExisting(existingStyle({ enabled: true, locale: 'en-IN', showInCells }));
+    await goToStep(3);
+    expect(screen.getByTestId('holiday-enabled')).toBeChecked();
+    await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
+
+    const calendar = await saveAndReadCalendar(onSave);
+    expect(calendar.holidaySource).toEqual({ enabled: true, locale: 'en-IN' });
+    expect(printedHolidayLocale(calendar)).toBe('en-IN');
   });
 
   it('a brand-new layout still defaults holidays on (en-IN)', async () => {
@@ -374,15 +385,16 @@ describe('CalendarLayoutEditor — an existing layout opens with the holidays it
     expect(screen.getByTestId('holiday-enabled')).toBeChecked();
     expect(screen.getByTestId('holiday-locale')).toHaveValue('en-IN');
     expect((await saveAndReadCalendar(onSave)).holidaySource)
-      .toEqual({ enabled: true, locale: 'en-IN', showInCells: true });
+      .toEqual({ enabled: true, locale: 'en-IN' });
   });
 
   it('a new layout seeded with a partial block fills in the new-layout defaults', async () => {
-    setup({ initial: { style: existingStyle({ enabled: true }) } });
+    const { onSave } = setup({ initial: { style: existingStyle({ enabled: true, showInCells: false }) } });
     await goToStep(3);
     expect(screen.getByTestId('holiday-enabled')).toBeChecked();
     expect(screen.getByTestId('holiday-locale')).toHaveValue('en-IN');
-    expect(screen.getByTestId('holiday-show-in-cells')).toBeChecked();
+    expect((await saveAndReadCalendar(onSave)).holidaySource)
+      .toEqual({ enabled: true, locale: 'en-IN' });
   });
 });
 
@@ -560,7 +572,7 @@ describe('validateDraft', () => {
     style: {
       themePreset: 'modern-minimalist',
       calendarType: 'english', weekStart: 'sunday',
-      holidaySource: { enabled: true, locale: 'en-IN', showInCells: true },
+      holidaySource: { enabled: true, locale: 'en-IN' },
     },
     defaultYear: 'current',
   };
@@ -684,30 +696,25 @@ describe('CalendarLayoutEditor — review fix #4 (defensive calendars[0])', () =
   });
 });
 
-describe('CalendarLayoutEditor — review fix #6 (showInCells toggle)', () => {
-  it('renders the toggle, defaulting to checked', async () => {
+// "Show holiday pills on cells" was retired on 2026-09-29: nothing read it,
+// and a cell is the only place holidays are ever drawn, so there was no
+// other placement for it to choose. Auto-load is the one holiday switch.
+describe('CalendarLayoutEditor — no holiday-pill checkbox', () => {
+  it('offers only the auto-load switch and the locale for holidays', async () => {
     setup();
     await goToStep(3);
-    const cb = screen.getByTestId('holiday-show-in-cells') as HTMLInputElement;
-    expect(cb.checked).toBe(true);
+    const section = screen.getByTestId('holiday-source');
+    expect(within(section).queryByTestId('holiday-show-in-cells')).toBeNull();
+    expect(within(section).queryByText(/pills on cells/i)).toBeNull();
+    expect(within(section).getAllByRole('checkbox')).toEqual([screen.getByTestId('holiday-enabled')]);
   });
 
-  it('serialises showInCells: false when toggled off', async () => {
+  it('does not write showInCells on a new layout', async () => {
     const { onSave } = setup();
-    await goToStep(3);
-    await userEvent.click(screen.getByTestId('holiday-show-in-cells'));
     await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
     const json = onSave.mock.calls[0][0];
-    const src = (json.calendar as Record<string, unknown>).holidaySource as Record<string, unknown>;
-    expect(src.showInCells).toBe(false);
-  });
-
-  it('disables the toggle when holiday auto-load is disabled', async () => {
-    setup();
-    await goToStep(3);
-    await userEvent.click(screen.getByTestId('holiday-enabled'));
-    expect(screen.getByTestId('holiday-show-in-cells')).toBeDisabled();
+    expect((json.calendar as Record<string, unknown>).holidaySource).not.toHaveProperty('showInCells');
   });
 });
 
@@ -781,7 +788,7 @@ describe('CalendarLayoutEditor — review L1 (frame bounds validation)', () => {
       style: {
         themePreset: 'modern-minimalist',
         calendarType: 'english', weekStart: 'sunday',
-        holidaySource: { enabled: true, locale: 'en-IN', showInCells: true },
+        holidaySource: { enabled: true, locale: 'en-IN' },
       },
       defaultYear: 'current',
     });
@@ -1039,7 +1046,7 @@ describe('CalendarLayoutEditor — P6.2 remediation: override-bounds validation 
       style: {
         themePreset: 'modern-minimalist',
         calendarType: 'english', weekStart: 'sunday',
-        holidaySource: { enabled: true, locale: 'en-IN', showInCells: true },
+        holidaySource: { enabled: true, locale: 'en-IN' },
       },
       defaultYear: 'current',
       surfaceOverrides: overrides,

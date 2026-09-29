@@ -68,12 +68,13 @@ export interface LayoutCalendar {
 /**
  * Holiday auto-load configuration per layout (PRD §11.11).
  * Customer can never override these — ops sets at layout creation.
+ *
+ * Stored layouts may also carry `showInCells`, from a retired ops checkbox
+ * that nothing ever read. It has no effect; don't gate on it.
  */
 export interface HolidaySource {
   enabled: boolean;
   locale: HolidayLocale;
-  /** When true, holidays appear as auto-loaded entries in cells. */
-  showInCells: boolean;
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "purpose": "Shared ground truth for whether a calendar product carries holidays, and which locale's. The print decides in backend/django/services/calendar_layout.py (materialize_surfaces loads holidays only when calendar.holidaySource is an object with a truthy 'enabled', defaulting the locale to 'generic'); the customer preview decides with printedHolidayLocale in frontend/nextjs/src/lib/calendar.ts. If either side drifts, the customer previews holiday dots the print will not carry (or misses ones it will). 'calendar' is the layout's calendar block; null means the layout has none. expectedLocale null means no holidays.",
+    "purpose": "Shared ground truth for whether a calendar product carries holidays, and which locale's. The print decides in backend/django/services/calendar_layout.py (materialize_surfaces loads holidays only when calendar.holidaySource is an object with a truthy 'enabled', defaulting the locale to 'generic'); the customer preview decides with printedHolidayLocale in frontend/nextjs/src/lib/calendar.ts. If either side drifts, the customer previews holiday dots the print will not carry (or misses ones it will). 'calendar' is the layout's calendar block; null means the layout has none. expectedLocale null means no holidays. 'showInCells' is a retired ops setting that nothing reads; stored layouts may still carry it, and it must never change the answer.",
     "loaded_by": {
       "python": "backend/django/services/tests/test_calendar_holidays_parity.py",
       "typescript": "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts"
@@ -16,6 +16,11 @@
       "name": "enabled with generic",
       "calendar": { "holidaySource": { "enabled": true, "locale": "generic", "showInCells": true } },
       "expectedLocale": "generic"
+    },
+    {
+      "name": "a stored showInCells false still carries holidays (retired, never read)",
+      "calendar": { "holidaySource": { "enabled": true, "locale": "en-IN", "showInCells": false } },
+      "expectedLocale": "en-IN"
     },
     {
       "name": "switched off keeps its locale but loads nothing",
