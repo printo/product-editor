@@ -45,7 +45,7 @@ const IST_TIMEZONE = 'Asia/Kolkata';
 // ─── Year + month resolution (§10.4 + §11.1) ────────────────────────────────
 
 /** Returns today's date in IST as { year, month (1-12), day }. */
-export function todayInIST(now?: Date): { year: number; month: number; day: number } {
+function todayInIST(now?: Date): { year: number; month: number; day: number } {
   const d = now ?? new Date();
   // toLocaleString with timeZone gives us a string in IST that we then re-parse.
   // sv-SE locale is the trick to get YYYY-MM-DD HH:MM:SS regardless of the
@@ -67,7 +67,7 @@ export function todayInIST(now?: Date): { year: number; month: number; day: numb
  *   english   → today.year
  *   financial → today.year if today.month >= 4 else today.year − 1
  */
-export function resolveBaseYear(calendarType: CalendarType, now?: Date): number {
+function resolveBaseYear(calendarType: CalendarType, now?: Date): number {
   const today = todayInIST(now);
   if (calendarType === 'financial') {
     return today.month >= 4 ? today.year : today.year - 1;
@@ -99,7 +99,7 @@ export function resolveDefaultYear(
 }
 
 /** 1 for English (January), 4 for Financial (April). */
-export function startMonthFor(calendarType: CalendarType): number {
+function startMonthFor(calendarType: CalendarType): number {
   return calendarType === 'financial' ? 4 : 1;
 }
 
