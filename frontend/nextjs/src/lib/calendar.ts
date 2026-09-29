@@ -79,23 +79,41 @@ export function resolveBaseYear(calendarType: CalendarType, now?: Date): number 
  * Resolve a `monthRange.defaultYear` value (`"current"` or an int) into a
  * concrete year using the calendar type's auto-roll rule. Falls back to
  * the auto-rolled year on garbage input — defensive.
+ *
+ * This is the base year the PRINT uses (`materialize_surfaces` →
+ * `resolve_default_year`). Anything customer- or ops-facing that shows
+ * months must go through it, not `resolveBaseYear`, or a year ops pinned
+ * in the template shows as today's year in the preview. Pinned by the
+ * shared fixture `storage/parity-fixtures/calendar-year.json`.
  */
 export function resolveDefaultYear(
-  defaultYear: number | 'current' | null | undefined,
+  defaultYear: unknown,
   calendarType: CalendarType,
+  now?: Date,
 ): number {
-  if (defaultYear === 'current' || defaultYear == null) {
-    return resolveBaseYear(calendarType);
-  }
-  if (typeof defaultYear === 'number' && Number.isFinite(defaultYear)) {
+  // Integers only, and never a bool — matches the Python twin exactly.
+  if (typeof defaultYear === 'number' && Number.isInteger(defaultYear)) {
     return defaultYear;
   }
-  return resolveBaseYear(calendarType);
+  return resolveBaseYear(calendarType, now);
 }
 
 /** 1 for English (January), 4 for Financial (April). */
 export function startMonthFor(calendarType: CalendarType): number {
   return calendarType === 'financial' ? 4 : 1;
+}
+
+/**
+ * The year `month` (1-12) falls in within a 12-month product starting at
+ * `baseYear`. English: always `baseYear`. Financial: Apr–Dec are
+ * `baseYear`, Jan–Mar are `baseYear + 1` (FY 2027–28 prints Feb 2028).
+ */
+export function yearOfMonth(
+  month: number,
+  calendarType: CalendarType,
+  baseYear: number,
+): number {
+  return month >= startMonthFor(calendarType) ? baseYear : baseYear + 1;
 }
 
 /**

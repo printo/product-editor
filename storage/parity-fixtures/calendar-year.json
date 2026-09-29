@@ -1,0 +1,95 @@
+{
+  "_meta": {
+    "purpose": "Shared ground truth for which year a calendar product covers: monthRange.defaultYear + calendarType + today -> base year and month labels. The print resolves it in backend/django/services/calendar_layout.py (resolve_default_year via materialize_surfaces, whose displayLabel names the ZIP files); the customer preview, leap-day toast and ops editor resolve it with resolveDefaultYear / yearOfMonth in frontend/nextjs/src/lib/calendar.ts. If either side drifts, the preview shows different months from the print and customer per-day entries land on dates the print never draws. 'today' is a date in IST. expectedFebruaryLabel is the February the product prints (the year the leap-day toast must check).",
+    "loaded_by": {
+      "python": "backend/django/services/tests/test_calendar_year_parity.py",
+      "typescript": "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts"
+    }
+  },
+  "cases": [
+    {
+      "name": "current_english_mid_year",
+      "defaultYear": "current", "calendarType": "english", "today": "2026-05-21",
+      "expectedBaseYear": 2026,
+      "expectedFirstLabel": "January 2026", "expectedLastLabel": "December 2026",
+      "expectedFebruaryLabel": "February 2026"
+    },
+    {
+      "name": "current_financial_mid_year",
+      "defaultYear": "current", "calendarType": "financial", "today": "2026-05-21",
+      "expectedBaseYear": 2026,
+      "expectedFirstLabel": "April 2026", "expectedLastLabel": "March 2027",
+      "expectedFebruaryLabel": "February 2027"
+    },
+    {
+      "name": "current_financial_before_april_rolls_back",
+      "defaultYear": "current", "calendarType": "financial", "today": "2026-02-14",
+      "expectedBaseYear": 2025,
+      "expectedFirstLabel": "April 2025", "expectedLastLabel": "March 2026",
+      "expectedFebruaryLabel": "February 2026"
+    },
+    {
+      "name": "current_english_before_april",
+      "defaultYear": "current", "calendarType": "english", "today": "2026-02-14",
+      "expectedBaseYear": 2026,
+      "expectedFirstLabel": "January 2026", "expectedLastLabel": "December 2026",
+      "expectedFebruaryLabel": "February 2026"
+    },
+    {
+      "name": "null_means_current",
+      "defaultYear": null, "calendarType": "english", "today": "2026-05-21",
+      "expectedBaseYear": 2026,
+      "expectedFirstLabel": "January 2026", "expectedLastLabel": "December 2026",
+      "expectedFebruaryLabel": "February 2026"
+    },
+    {
+      "name": "pinned_future_english",
+      "defaultYear": 2028, "calendarType": "english", "today": "2026-05-21",
+      "expectedBaseYear": 2028,
+      "expectedFirstLabel": "January 2028", "expectedLastLabel": "December 2028",
+      "expectedFebruaryLabel": "February 2028"
+    },
+    {
+      "name": "pinned_future_financial",
+      "defaultYear": 2028, "calendarType": "financial", "today": "2026-05-21",
+      "expectedBaseYear": 2028,
+      "expectedFirstLabel": "April 2028", "expectedLastLabel": "March 2029",
+      "expectedFebruaryLabel": "February 2029"
+    },
+    {
+      "name": "pinned_financial_not_rolled_back_before_april",
+      "defaultYear": 2027, "calendarType": "financial", "today": "2026-02-14",
+      "expectedBaseYear": 2027,
+      "expectedFirstLabel": "April 2027", "expectedLastLabel": "March 2028",
+      "expectedFebruaryLabel": "February 2028"
+    },
+    {
+      "name": "pinned_past_english",
+      "defaultYear": 2025, "calendarType": "english", "today": "2026-09-29",
+      "expectedBaseYear": 2025,
+      "expectedFirstLabel": "January 2025", "expectedLastLabel": "December 2025",
+      "expectedFebruaryLabel": "February 2025"
+    },
+    {
+      "name": "garbage_numeric_string_falls_back",
+      "defaultYear": "2028", "calendarType": "english", "today": "2026-05-21",
+      "expectedBaseYear": 2026,
+      "expectedFirstLabel": "January 2026", "expectedLastLabel": "December 2026",
+      "expectedFebruaryLabel": "February 2026"
+    },
+    {
+      "name": "garbage_boolean_falls_back",
+      "defaultYear": true, "calendarType": "english", "today": "2026-05-21",
+      "expectedBaseYear": 2026,
+      "expectedFirstLabel": "January 2026", "expectedLastLabel": "December 2026",
+      "expectedFebruaryLabel": "February 2026"
+    },
+    {
+      "name": "garbage_fractional_falls_back_with_financial_rule",
+      "defaultYear": 2028.5, "calendarType": "financial", "today": "2026-02-14",
+      "expectedBaseYear": 2025,
+      "expectedFirstLabel": "April 2025", "expectedLastLabel": "March 2026",
+      "expectedFebruaryLabel": "February 2026"
+    }
+  ]
+}

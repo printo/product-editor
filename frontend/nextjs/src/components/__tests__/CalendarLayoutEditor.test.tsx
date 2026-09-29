@@ -288,6 +288,16 @@ describe('CalendarLayoutEditor — year anchor', () => {
     const json = onSave.mock.calls[0][0];
     expect((json.monthRange as Record<string, unknown>).defaultYear).toBe(2027);
   });
+
+  it('previews the January the print contains for a pinned year', async () => {
+    setup({ initial: { defaultYear: 2028 } });
+    expect(screen.getByText('Preview · January 2028')).toBeInTheDocument();
+  });
+
+  it('previews January of the FY end year in Financial mode (FY 2028–29 → Jan 2029)', async () => {
+    setup({ initial: { defaultYear: 2028, style: { calendarType: 'financial' } as CalendarLayoutDraft['style'] } });
+    expect(screen.getByText('Preview · January 2029')).toBeInTheDocument();
+  });
 });
 
 // ─── validateDraft helper ───────────────────────────────────────────────────

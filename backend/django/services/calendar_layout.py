@@ -84,24 +84,29 @@ def resolve_base_year(calendar_type: str, today: Optional[date] = None) -> int:
     return today.year
 
 
-def resolve_default_year(default_year, calendar_type: str) -> int:
+def resolve_default_year(default_year, calendar_type: str, today: Optional[date] = None) -> int:
     """
     Resolve a layout's `monthRange.defaultYear` to a concrete year.
 
     `"current"` triggers auto-roll via today + calendar_type (PRD §10.4);
     any concrete integer year is passed through. Invalid values fall back
-    to today's calendar year — defensive only; validator should have
+    to the auto-rolled year — defensive only; validator should have
     rejected them at save time.
+
+    TS twin: `resolveDefaultYear` in frontend/nextjs/src/lib/calendar.ts,
+    which drives the customer preview. Both are pinned by the shared
+    fixture storage/parity-fixtures/calendar-year.json.
     """
     if default_year == "current" or default_year is None:
-        return resolve_base_year(calendar_type)
-    if isinstance(default_year, int):
+        return resolve_base_year(calendar_type, today)
+    # bool is an int subclass; the TS twin treats true as garbage.
+    if isinstance(default_year, int) and not isinstance(default_year, bool):
         return default_year
     logger.warning(
         "Unexpected monthRange.defaultYear=%r — falling back to current year",
         default_year,
     )
-    return resolve_base_year(calendar_type)
+    return resolve_base_year(calendar_type, today)
 
 
 # ── Surface-index → (year, month) (§11.1) ───────────────────────────────────
