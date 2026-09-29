@@ -1,0 +1,66 @@
+{
+  "_meta": {
+    "purpose": "Shared ground truth for whether a calendar product carries holidays, and which locale's. The print decides in backend/django/services/calendar_layout.py (materialize_surfaces loads holidays only when calendar.holidaySource is an object with a truthy 'enabled', defaulting the locale to 'generic'); the customer preview decides with printedHolidayLocale in frontend/nextjs/src/lib/calendar.ts. If either side drifts, the customer previews holiday dots the print will not carry (or misses ones it will). 'calendar' is the layout's calendar block; null means the layout has none. expectedLocale null means no holidays.",
+    "loaded_by": {
+      "python": "backend/django/services/tests/test_calendar_holidays_parity.py",
+      "typescript": "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts"
+    }
+  },
+  "cases": [
+    {
+      "name": "enabled with en-IN",
+      "calendar": { "holidaySource": { "enabled": true, "locale": "en-IN", "showInCells": true } },
+      "expectedLocale": "en-IN"
+    },
+    {
+      "name": "enabled with generic",
+      "calendar": { "holidaySource": { "enabled": true, "locale": "generic", "showInCells": true } },
+      "expectedLocale": "generic"
+    },
+    {
+      "name": "switched off keeps its locale but loads nothing",
+      "calendar": { "holidaySource": { "enabled": false, "locale": "en-IN", "showInCells": true } },
+      "expectedLocale": null
+    },
+    {
+      "name": "enabled with no locale falls back to generic, not en-IN",
+      "calendar": { "holidaySource": { "enabled": true } },
+      "expectedLocale": "generic"
+    },
+    {
+      "name": "enabled with an empty locale falls back to generic",
+      "calendar": { "holidaySource": { "enabled": true, "locale": "" } },
+      "expectedLocale": "generic"
+    },
+    {
+      "name": "block without an enabled flag loads nothing",
+      "calendar": { "holidaySource": { "locale": "en-IN" } },
+      "expectedLocale": null
+    },
+    {
+      "name": "absent holidaySource loads nothing",
+      "calendar": { "themePreset": "modern-minimalist" },
+      "expectedLocale": null
+    },
+    {
+      "name": "null holidaySource loads nothing",
+      "calendar": { "holidaySource": null },
+      "expectedLocale": null
+    },
+    {
+      "name": "non-object holidaySource loads nothing",
+      "calendar": { "holidaySource": true },
+      "expectedLocale": null
+    },
+    {
+      "name": "list holidaySource loads nothing",
+      "calendar": { "holidaySource": [{ "enabled": true }] },
+      "expectedLocale": null
+    },
+    {
+      "name": "no calendar block at all loads nothing",
+      "calendar": null,
+      "expectedLocale": null
+    }
+  ]
+}

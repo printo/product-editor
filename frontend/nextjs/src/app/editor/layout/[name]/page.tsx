@@ -73,7 +73,7 @@ import { CalendarProductPreview } from '@/components/CalendarProductPreview';
 import { CalendarEditPanel } from '@/components/CalendarEditPanel';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/types/calendar';
-import { resolveDefaultYear } from '@/lib/calendar';
+import { printedHolidayLocale, resolveDefaultYear } from '@/lib/calendar';
 import {
   uploadCalendarCellImage,
   CalendarCellUploadError,
@@ -214,6 +214,10 @@ const MAX_SKELETON_CARDS = 24;
  *  once this old, so a second tab on the same order keeps the photos it has
  *  just added (they are referenced only by that tab's unsaved state). */
 const ORPHAN_FILE_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Stable empty list, so a calendar without holidays doesn't hand the
+ *  preview a fresh array every render. */
+const NO_HOLIDAYS: HolidayEntry[] = [];
 
 function cardCountHintKey(orderId: string): string {
   return `${CARD_COUNT_HINT_PREFIX}${orderId}`;
@@ -773,6 +777,9 @@ export default function LayoutEditorPage() {
   const [genzPalette, setGenzPalette] = useState<string | undefined>(undefined);
   const [genzPalettes, setGenzPalettes] = useState<GenzPalette[]>([]);
   const [calendarHolidays, setCalendarHolidays] = useState<HolidayEntry[]>([]);
+  // The print carries holidays only when the layout opts in; gated here as
+  // well as at fetch time so a previous layout's holidays can never show.
+  const printedHolidays = layout?.holidayLocale ? calendarHolidays : NO_HOLIDAYS;
   // Under-DPI frames for the low-resolution print warning (Phase 2 item 4).
   // Non-blocking: shows card pills + a pre-submit notice, never stops submit.
   const [lowDpiFrames, setLowDpiFrames] = useState<LowDpiFrame[]>([]);
@@ -978,7 +985,8 @@ export default function LayoutEditorPage() {
           updatedBy: item.updatedBy || 'System',
           metadata: item.metadata || [],
           weekStart: item.calendar?.weekStart || 'sunday',
-          holidayLocale: item.calendar?.holidaySource?.locale || 'en-IN',
+          // null when the print carries no holidays (holidaySource off/absent).
+          holidayLocale: printedHolidayLocale(item.calendar),
           calendarDefaultYear: item.monthRange?.defaultYear ?? 'current',
         });
       } catch {
@@ -1765,18 +1773,13 @@ export default function LayoutEditorPage() {
 
   // ── Calendar: fetch Gen-Z palettes + holidays on layout mount ────────────
   // Only runs for productType='calendar' layouts. Gen-Z palettes are needed
-  // for the palette swatch picker. Holidays are fetched for every year the
+  // for the palette swatch picker. Holidays are fetched only when the print
+  // will carry them (`holidayLocale` is null otherwise), for every year the
   // print could cover: the layout's defaultYear resolved like the print, for
   // either calendar type (the customer can flip it), plus the following year
   // for FY ranges straddling two calendar years.
   useEffect(() => {
     if (!isCalendarProduct || !layout) return;
-    const locale = layout.holidayLocale || 'en-IN';
-    const holidayYears = Array.from(new Set(
-      (['english', 'financial'] as const)
-        .map(t => resolveDefaultYear(layout.calendarDefaultYear, t))
-        .flatMap(y => [y, y + 1]),
-    ));
 
     // Apply layout-level ops defaults for customer-controllable fields.
     const rawCalendar = (normalizedLayoutState as any)?._raw?.calendar;
@@ -1789,12 +1792,21 @@ export default function LayoutEditorPage() {
       .then(d => { if (d?.palettes?.length) setGenzPalettes(d.palettes); })
       .catch(() => {});
 
+    const locale: string | null = layout.holidayLocale;
+    if (!locale) return;
+    const holidayYears = Array.from(new Set(
+      (['english', 'financial'] as const)
+        .map(t => resolveDefaultYear(layout.calendarDefaultYear, t))
+        .flatMap(y => [y, y + 1]),
+    ));
+    let cancelled = false;
     Promise.all(holidayYears.map(yr =>
-      fetch(`${apiBase}/holidays/${locale}/${yr}`, { headers: getAuthHeaders() })
+      fetch(`${apiBase}/holidays/${encodeURIComponent(locale)}/${yr}`, { headers: getAuthHeaders() })
         .then(r => r.ok ? r.json() : null)
         .then(d => (d?.events as HolidayEntry[]) || [])
         .catch(() => [] as HolidayEntry[])
-    )).then(perYear => setCalendarHolidays(perYear.flat()));
+    )).then(perYear => { if (!cancelled) setCalendarHolidays(perYear.flat()); });
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCalendarProduct, layout?.id]);
 
@@ -4986,7 +4998,7 @@ export default function LayoutEditorPage() {
                 onCalendarTypeChange={setCalendarType}
                 onMonthTileClick={handleCalendarMonthTileClick}
                 cells={calendarCells}
-                holidays={calendarHolidays}
+                holidays={printedHolidays}
                 weekStart={layout?.weekStart as any || 'sunday'}
                 defaultYear={layout?.calendarDefaultYear ?? 'current'}
               />
@@ -4995,7 +5007,7 @@ export default function LayoutEditorPage() {
                   <CalendarEditPanel
                     iso={selectedCalendarCell.iso}
                     cellEntries={calendarCellEntries(selectedCalendarCell.iso)}
-                    holidaysForCell={calendarHolidays.filter(h => h.date === selectedCalendarCell.iso)}
+                    holidaysForCell={printedHolidays.filter(h => h.date === selectedCalendarCell.iso)}
                     imagePreviewUrl={calendarCellImagePreviews[selectedCalendarCell.iso]}
                     imageExpired={
                       calendarCellEntries(selectedCalendarCell.iso).some(o => o.type === 'image') &&

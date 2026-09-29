@@ -140,6 +140,27 @@ export function displayLabelFor(year: number, month: number): string {
   return `${MONTH_NAMES_EN[month - 1]} ${year}`;
 }
 
+// ─── Holidays ────────────────────────────────────────────────────────────────
+
+function isObjectRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * The holiday locale the PRINT loads for a layout's `calendar` block, or
+ * null when the print carries no holidays at all. Mirrors the gate in
+ * `materialize_surfaces`: holidays load only when `holidaySource` is an
+ * object with a truthy `enabled` — an absent block means none — and a
+ * missing locale means `"generic"`. Anything customer-facing that shows
+ * holidays must gate on this, or it previews dots the print won't have.
+ * Pinned by the shared fixture `storage/parity-fixtures/calendar-holidays.json`.
+ */
+export function printedHolidayLocale(calendar: unknown): string | null {
+  const source = isObjectRecord(calendar) ? calendar.holidaySource : undefined;
+  if (!isObjectRecord(source) || !source.enabled) return null;
+  return typeof source.locale === 'string' && source.locale ? source.locale : 'generic';
+}
+
 // ─── Month grid construction ────────────────────────────────────────────────
 
 /** A single date cell in the rendered grid. */
