@@ -3,13 +3,17 @@ Disk-backed holiday loader for the server-side calendar renderer
 (CALENDAR_FEATURE_PRD.md §11.9 + §11.11).
 
 Reads `storage/holidays/<locale>/<year>.json` and returns the parsed
-events list, with a per-process cache so 12 surfaces in a single render
-job don't all read the same file 12 times.
+events list. Used at render time by `materialize_surfaces`, inside the
+Celery worker.
 
-Stays decoupled from Django's REST layer — both `materialize_surfaces`
-(at render time, no HTTP) and `HolidaysView` (the public endpoint)
-can call into this. The HTTP-layer Redis cache lives in the view; this
-module's in-process cache is independent and process-local.
+Deliberately uncached. This used to sit behind a per-process
+`lru_cache` keyed on path, but the files are rewritten in place by
+`HolidaysView` PUT/DELETE (in gunicorn) and `scripts/refresh-holidays.py`
+— neither of which can reach a worker process's memory. Each worker kept
+printing the old holidays until it recycled, while the preview (served
+through the view's Redis cache, which PUT/DELETE do clear) showed the new
+ones. `materialize_surfaces` already loads each year once per render, so
+at most two ~2 KB reads per job; the cache saved nothing worth that.
 
 Falls back to an empty list on any disk-read error (file missing, JSON
 broken, etc.) per PRD §11.9 — calendars rolling to a year without a
@@ -21,8 +25,6 @@ import json
 import logging
 import os
 import re
-import threading
-from functools import lru_cache
 from typing import Optional
 
 from django.conf import settings
@@ -31,11 +33,6 @@ logger = logging.getLogger(__name__)
 
 _LOCALE_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _HOLIDAYS_ROOT = os.path.join(settings.STORAGE_ROOT, "holidays")
-
-# Process-local cache. Holiday files are small (10-30 events × ~100 bytes)
-# and change at most once a year, so we can hold every (locale, year) we
-# touch for the lifetime of the worker. Bounded by the underlying lru_cache.
-_CACHE_LOCK = threading.Lock()
 
 
 def _safe_path(locale: str, year: int) -> Optional[str]:
@@ -52,27 +49,20 @@ def _safe_path(locale: str, year: int) -> Optional[str]:
     return candidate
 
 
-@lru_cache(maxsize=128)
-def _read_holiday_file(path: str) -> tuple:
-    """LRU-cached disk read. Returns a tuple so the value is hashable / immutable."""
+def _read_holiday_file(path: str) -> list[dict]:
     try:
         with open(path, "r") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("Holiday file %s unreadable: %s", path, exc)
-        return ()
-    events = data.get("events") or []
+        return []
+    events = data.get("events") if isinstance(data, dict) else None
     if not isinstance(events, list):
-        return ()
-    # Freeze each event into an immutable dict-like shape (we use a frozenset
-    # of items to make tuples hashable, but consumers want dicts back). We
-    # serialise to JSON tuples here and rebuild dicts on the way out so the
-    # cache stays cheap to lookup.
-    out = tuple(
-        json.dumps(ev, sort_keys=True) for ev in events
+        return []
+    return [
+        ev for ev in events
         if isinstance(ev, dict) and ev.get("date") and ev.get("name")
-    )
-    return out
+    ]
 
 
 def load_holidays_for_year(locale: str, year: int) -> list[dict]:
@@ -91,14 +81,4 @@ def load_holidays_for_year(locale: str, year: int) -> list[dict]:
     path = _safe_path(locale, year)
     if not path or not os.path.exists(path):
         return []
-    # The cache stores JSON strings; deserialise per call. JSON-decoding ~20
-    # short objects is well under a millisecond — cheaper than holding
-    # mutable dicts in the cache and risking external mutation.
-    raw = _read_holiday_file(path)
-    return [json.loads(s) for s in raw]
-
-
-def invalidate_cache() -> None:
-    """Clear the holiday-file cache. Called after PUT/DELETE in HolidaysView."""
-    with _CACHE_LOCK:
-        _read_holiday_file.cache_clear()
+    return _read_holiday_file(path)
