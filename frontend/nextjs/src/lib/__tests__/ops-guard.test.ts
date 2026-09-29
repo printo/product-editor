@@ -58,11 +58,37 @@ describe('requiresOpsTier', () => {
     expect(requiresOpsTier('fonts', 'PUT')).toBe(true);
   });
 
+  it.each([
+    ['calendar-styles/modern-genz', 'PUT'],
+    ['calendar-styles/modern-genz', 'DELETE'],
+    ['calendar-styles/', 'PUT'],
+    ['holidays/en-IN/2026', 'PUT'],
+    ['holidays/en-IN/2026', 'DELETE'],
+    ['holidays/en-IN/2026', 'POST'],
+  ])('gates %s %s — the non-ops alias of an ops-owned view', (path, method) => {
+    // Django routes calendar-styles/<name> and holidays/<locale>/<year> to the
+    // same views as their ops/ twins, and those views' write handlers never
+    // look at which route they arrived on. Through this proxy the request is
+    // presented with the ops-flagged service account, so Django's own check
+    // passes — this gate is the only thing standing between an Editor-tier
+    // session and ops config.
+    expect(requiresOpsTier(path, method)).toBe(true);
+  });
+
   it('leaves reads open, or the Editor tier cannot work at all', () => {
     // Listing templates and loading fonts is what the editor does on mount.
     expect(requiresOpsTier('ops/layouts', 'GET')).toBe(false);
     expect(requiresOpsTier('fonts', 'GET')).toBe(false);
     expect(requiresOpsTier('ops/layouts/classic_a4', 'HEAD')).toBe(false);
+  });
+
+  it('leaves calendar-style and holiday reads open — the editor loads them', () => {
+    // editor/layout/[name]/page.tsx and the ops calendar page fetch these on
+    // mount for Gen-Z palettes and auto-injected holidays.
+    expect(requiresOpsTier('calendar-styles/', 'GET')).toBe(false);
+    expect(requiresOpsTier('calendar-styles/modern-genz', 'GET')).toBe(false);
+    expect(requiresOpsTier('holidays/en-IN/2026', 'GET')).toBe(false);
+    expect(requiresOpsTier('holidays/en-IN/2026', 'HEAD')).toBe(false);
   });
 
   it('does not gate the editor and upload paths an Editor needs', () => {
@@ -74,5 +100,10 @@ describe('requiresOpsTier', () => {
 
   it('is not fooled by a path that merely starts with the letters ops', () => {
     expect(requiresOpsTier('opsomething', 'POST')).toBe(false);
+  });
+
+  it('matches the calendar aliases on whole segments only', () => {
+    expect(requiresOpsTier('calendar-stylesheet', 'PUT')).toBe(false);
+    expect(requiresOpsTier('holidaysx/en-IN/2026', 'PUT')).toBe(false);
   });
 });

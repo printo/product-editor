@@ -2844,7 +2844,10 @@ class CalendarStylesView(APIView):
     """
     GET  /api/calendar-styles/             → list summary [{name, label, description}]
     GET  /api/calendar-styles/<name>       → full style JSON (with palettes for genz)
-    PUT  /api/calendar-styles/<name>       → ops-team only; replaces a style preset
+    PUT  /api/ops/calendar-styles/<name>   → ops-team only; replaces a style preset
+
+    The public routes are read-only at the URLconf (api/urls.py READ_ONLY);
+    put() does not check the route itself.
 
     Public read so the customer preview page can fetch styles without an
     auth round-trip. Cached 5 min with stale-while-revalidate so the
@@ -3031,6 +3034,9 @@ class HolidaysView(APIView):
     GET    /api/holidays/<locale>/<year>           → public, cached 1 day / swr 7 days
     PUT    /api/ops/holidays/<locale>/<year>       → ops-team only; replaces year file
     DELETE /api/ops/holidays/<locale>/<year>       → ops-team only
+
+    The public route is read-only at the URLconf (api/urls.py READ_ONLY);
+    put()/delete() do not check the route themselves.
 
     Per PRD §11.9 + §11.11. Calendar layouts that opt into a locale auto-load
     the matching year's holiday file; years without a file render with no
