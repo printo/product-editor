@@ -52,6 +52,7 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof CalendarProduc
       calendarType="english"
       onCalendarTypeChange={onCalendarTypeChange}
       onMonthTileClick={onMonthTileClick}
+      defaultYear="current"
       now={FIXED_NOW}
       {...propOverrides}
     />
@@ -181,6 +182,78 @@ describe('CalendarProductPreview — month tile order', () => {
   });
 });
 
+// ─── Ops-pinned monthRange.defaultYear ──────────────────────────────────────
+// The print resolves its year via services/calendar_layout.py
+// resolve_default_year(monthRange.defaultYear, calendarType): a concrete year
+// set by ops wins over "today". The preview must show the same months, or
+// customers write per-day entries on dates the print never draws.
+
+describe('CalendarProductPreview — ops-pinned defaultYear', () => {
+  it('lists Jan..Dec 2028 when ops pinned 2028 (today = May 2026)', () => {
+    setup({ calendarType: 'english', defaultYear: 2028 });
+    const tiles = within(screen.getByTestId('month-tiles-grid')).getAllByRole('button');
+    expect(tiles[0]).toHaveAttribute('data-month-label', 'January 2028');
+    expect(tiles[11]).toHaveAttribute('data-month-label', 'December 2028');
+    expect(screen.getByTestId('year-badge')).toHaveTextContent('2028');
+  });
+
+  it('lists Apr 2028..Mar 2029 in Financial mode when ops pinned 2028', () => {
+    setup({ calendarType: 'financial', defaultYear: 2028 });
+    const tiles = within(screen.getByTestId('month-tiles-grid')).getAllByRole('button');
+    expect(tiles[0]).toHaveAttribute('data-month-label', 'April 2028');
+    expect(tiles[11]).toHaveAttribute('data-month-label', 'March 2029');
+    expect(screen.getByTestId('year-badge')).toHaveTextContent('FY 2028–29');
+  });
+
+  it('does not roll a pinned year back in Jan–Mar (financial rule is for "current" only)', () => {
+    setup({ calendarType: 'financial', defaultYear: 2027, now: new Date(2026, 1, 14, 12, 0, 0) });
+    expect(screen.getByTestId('year-badge')).toHaveTextContent('FY 2027–28');
+  });
+
+  it('opens the cell editor on the pinned year, not today’s', async () => {
+    const { onMonthTileClick } = setup({ calendarType: 'english', defaultYear: 2028 });
+    const tiles = within(screen.getByTestId('month-tiles-grid')).getAllByRole('button');
+    await userEvent.click(tiles[0]);
+    expect(onMonthTileClick).toHaveBeenCalledWith(0, 2028, 1);
+  });
+
+  it('skips the leap-day toast when the pinned year is a leap year', () => {
+    setup({
+      calendarType: 'english',
+      defaultYear: 2028,
+      cells: { '2028-02-29': [{ type: 'text', text: 'Bday' }] },
+      now: new Date(2025, 4, 21, 12, 0, 0),
+    });
+    expect(screen.queryByTestId('leap-day-toast')).not.toBeInTheDocument();
+  });
+
+  it('shows the leap-day toast for a non-leap pinned year even when today is a leap year', () => {
+    setup({
+      calendarType: 'english',
+      defaultYear: 2027,
+      cells: { '2024-02-29': [{ type: 'text', text: 'Bday' }] },
+      now: new Date(2024, 4, 21, 12, 0, 0),
+    });
+    expect(screen.getByText(/1 entry on Feb 29 won't appear in 2027/)).toBeInTheDocument();
+  });
+
+  it('counts flip orphans against the pinned year', async () => {
+    // Jan–Dec 2028 → Apr 2028–Mar 2029: May survives, February orphans.
+    const { onCalendarTypeChange } = setup({
+      calendarType: 'english',
+      defaultYear: 2028,
+      cells: {
+        '2028-05-10': [{ type: 'text', text: 'keeps' }],
+        '2028-02-10': [{ type: 'text', text: 'orphans' }],
+      },
+    });
+    await userEvent.click(within(screen.getByTestId('calendar-type-toggle'))
+      .getByRole('button', { name: /financial/i }));
+    expect(onCalendarTypeChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('flip-warning-modal')).toHaveTextContent('1 entry');
+  });
+});
+
 // ─── yearBadgeText pure function ────────────────────────────────────────────
 
 describe('yearBadgeText (pure helper)', () => {
@@ -207,26 +280,26 @@ describe('countOrphanedEntries', () => {
   }
 
   it('returns 0 when no cell entries exist', () => {
-    expect(countOrphanedEntries({}, 'financial', FIXED_NOW)).toBe(0);
+    expect(countOrphanedEntries({}, 'financial', 'current', FIXED_NOW)).toBe(0);
   });
 
   it('returns 0 when every entry stays within the new range', () => {
     // April–Dec entries survive English→Financial in 2026.
     const cells = withEntries(['2026-04-15', '2026-08-01', '2026-12-31']);
-    expect(countOrphanedEntries(cells, 'financial', FIXED_NOW)).toBe(0);
+    expect(countOrphanedEntries(cells, 'financial', 'current', FIXED_NOW)).toBe(0);
   });
 
   it('counts entries that fall outside the new Financial range', () => {
     // Jan–Mar 2026 entries orphan under Financial (range Apr 2026 → Mar 2027).
     const cells = withEntries(['2026-01-07', '2026-02-14', '2026-03-21']);
-    expect(countOrphanedEntries(cells, 'financial', FIXED_NOW)).toBe(3);
+    expect(countOrphanedEntries(cells, 'financial', 'current', FIXED_NOW)).toBe(3);
   });
 
   it('counts entries that fall outside the new English range', () => {
     // Jan–Mar 2027 entries (visible under FY 2026-27) orphan when flipping
     // back to English 2026.
     const cells = withEntries(['2027-01-05', '2027-02-22', '2027-03-30']);
-    expect(countOrphanedEntries(cells, 'english', FIXED_NOW)).toBe(3);
+    expect(countOrphanedEntries(cells, 'english', 'current', FIXED_NOW)).toBe(3);
   });
 
   it('counts each override in a cell separately (3 entries on one day = 3)', () => {
@@ -238,7 +311,7 @@ describe('countOrphanedEntries', () => {
       ],
     };
     // 2026-01-07 is in English 2026 but NOT Financial 2026-27 → 3 orphans.
-    expect(countOrphanedEntries(cells, 'financial', FIXED_NOW)).toBe(3);
+    expect(countOrphanedEntries(cells, 'financial', 'current', FIXED_NOW)).toBe(3);
   });
 });
 
@@ -253,13 +326,13 @@ describe('countLeapDayOrphans', () => {
   }
 
   it('returns 0 when the render year IS a leap year', () => {
-    const { count, renderYear } = countLeapDayOrphans(cellsWithFeb29(), 'english', LEAP_NOW);
+    const { count, renderYear } = countLeapDayOrphans(cellsWithFeb29(), 'english', 'current', LEAP_NOW);
     expect(count).toBe(0);
     expect(renderYear).toBe(2024);
   });
 
   it('returns the entry count when the render year is non-leap', () => {
-    const { count, renderYear } = countLeapDayOrphans(cellsWithFeb29(), 'english', NONLEAP_NOW);
+    const { count, renderYear } = countLeapDayOrphans(cellsWithFeb29(), 'english', 'current', NONLEAP_NOW);
     expect(count).toBe(1);
     expect(renderYear).toBe(2025);
   });
@@ -272,7 +345,7 @@ describe('countLeapDayOrphans', () => {
         { type: 'text', text: 'C' },
       ],
     };
-    expect(countLeapDayOrphans(cells, 'english', NONLEAP_NOW).count).toBe(3);
+    expect(countLeapDayOrphans(cells, 'english', 'current', NONLEAP_NOW).count).toBe(3);
   });
 
   it('matches only "YYYY-02-29" exactly — not "02-29" inside other dates', () => {
@@ -281,7 +354,7 @@ describe('countLeapDayOrphans', () => {
       'not-an-iso-02-29': [{ type: 'text', text: 'X' }],
       '2025-02-29-extra': [{ type: 'text', text: 'Y' }],
     };
-    expect(countLeapDayOrphans(cells, 'english', NONLEAP_NOW).count).toBe(0);
+    expect(countLeapDayOrphans(cells, 'english', 'current', NONLEAP_NOW).count).toBe(0);
   });
 
   it('counts Feb 29 entries across multiple years', () => {
@@ -289,24 +362,23 @@ describe('countLeapDayOrphans', () => {
       '2020-02-29': [{ type: 'text', text: 'A' }],
       '2024-02-29': [{ type: 'text', text: 'B' }],
     };
-    expect(countLeapDayOrphans(cells, 'english', NONLEAP_NOW).count).toBe(2);
+    expect(countLeapDayOrphans(cells, 'english', 'current', NONLEAP_NOW).count).toBe(2);
   });
 
   it('returns 0 for an empty cells map', () => {
-    expect(countLeapDayOrphans({}, 'english', NONLEAP_NOW).count).toBe(0);
+    expect(countLeapDayOrphans({}, 'english', 'current', NONLEAP_NOW).count).toBe(0);
   });
 
-  it('treats financial year (Apr→Mar spans 2 years) using the resolved baseYear', () => {
-    // baseYear in financial = current FY start year. In 2025, that's
-    // either 2024 (Apr 2024 – Mar 2025) or 2025 depending on month.
-    // We just need the helper to use resolveBaseYear consistently — assert
-    // the count flips to 0 if THAT year happens to be a leap year.
-    const { count, renderYear } = countLeapDayOrphans(cellsWithFeb29(), 'financial', NONLEAP_NOW);
-    if (renderYear % 4 === 0 && renderYear % 100 !== 0) {
-      expect(count).toBe(0);
-    } else {
-      expect(count).toBeGreaterThanOrEqual(0);
-    }
+  it('checks the February a financial year actually prints (FY start year + 1)', () => {
+    // FY 2025–26 prints Feb 2026 (non-leap) → the entry is flagged.
+    expect(countLeapDayOrphans(cellsWithFeb29(), 'financial', 'current', NONLEAP_NOW))
+      .toEqual({ count: 1, renderYear: 2026 });
+    // FY 2027–28 prints Feb 2028 (leap) → nothing to flag, even though the
+    // FY start year 2027 is not a leap year.
+    expect(countLeapDayOrphans(cellsWithFeb29(), 'financial', 'current', new Date(2027, 4, 21, 12, 0, 0)))
+      .toEqual({ count: 0, renderYear: 2028 });
+    expect(countLeapDayOrphans(cellsWithFeb29(), 'financial', 2027, NONLEAP_NOW))
+      .toEqual({ count: 0, renderYear: 2028 });
   });
 });
 

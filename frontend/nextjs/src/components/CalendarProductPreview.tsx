@@ -18,7 +18,9 @@
  *   - GenZPaletteSwatches — 4 palette swatches, visible ONLY when theme = genz
  *   - CalendarTypeToggle — 2-way segmented (English / Financial)
  *
- * Year is auto-populated, read-only (§10.4):
+ * Year is read-only for the customer: the layout's `monthRange.defaultYear`
+ * resolved exactly as the print resolves it (`resolveDefaultYear`). A year
+ * pinned by ops wins; `"current"` auto-rolls per §10.4:
  *   English   → today.year
  *   Financial → today.month >= 4 ? today.year : today.year − 1
  */
@@ -26,10 +28,11 @@
 import { useMemo, useState } from 'react';
 import {
   MONTH_NAMES_EN,
-  resolveBaseYear,
+  resolveDefaultYear,
   displayLabelFor,
   resolveSurfaceMonth,
   resolveThemeColors,
+  yearOfMonth,
 } from '@/lib/calendar';
 import { MonthTileThumb } from '@/components/MonthTileThumb';
 import type {
@@ -38,6 +41,7 @@ import type {
   CalendarCellOverride,
   GenzPalette,
   HolidayEntry,
+  MonthRange,
   WeekStart,
 } from '@/types/calendar';
 
@@ -187,8 +191,9 @@ export function CalendarTypeToggle({ value, onChange }: CalendarTypeToggleProps)
 
 /**
  * Returns the number of customer entries pinned to an ISO date of
- * "YYYY-02-29" where the current render year (resolved via
- * `resolveBaseYear` for the active calendarType) is NOT a leap year.
+ * "YYYY-02-29" where the February this product prints (the layout's
+ * `defaultYear` resolved like the print, then Jan–Mar shifted +1 for a
+ * financial year) is NOT a leap year.
  *
  * PRD §11.8 — when a calendar auto-rolls from 2024 (leap) to 2025
  * (non-leap), Feb 29 entries survive in editor_state.cells but won't
@@ -200,9 +205,10 @@ export function CalendarTypeToggle({ value, onChange }: CalendarTypeToggleProps)
 export function countLeapDayOrphans(
   cells: Readonly<Record<string, CalendarCellOverride[]>>,
   calendarType: CalendarType,
+  defaultYear: MonthRange['defaultYear'],
   now?: Date,
 ): { count: number; renderYear: number } {
-  const renderYear = resolveBaseYear(calendarType, now);
+  const renderYear = yearOfMonth(2, calendarType, resolveDefaultYear(defaultYear, calendarType, now));
   // Standard Gregorian leap-year rule.
   const isLeap = (renderYear % 4 === 0 && renderYear % 100 !== 0) || renderYear % 400 === 0;
   if (isLeap) return { count: 0, renderYear };
@@ -232,9 +238,10 @@ export function countLeapDayOrphans(
 export function countOrphanedEntries(
   cells: Readonly<Record<string, CalendarCellOverride[]>>,
   nextCalendarType: CalendarType,
+  defaultYear: MonthRange['defaultYear'],
   now?: Date,
 ): number {
-  const nextBaseYear = resolveBaseYear(nextCalendarType, now);
+  const nextBaseYear = resolveDefaultYear(defaultYear, nextCalendarType, now);
   const visibleMonths = new Set<string>();
   for (let i = 0; i < 12; i++) {
     const { year, month } = resolveSurfaceMonth(i, 0, nextCalendarType, nextBaseYear);
@@ -371,8 +378,15 @@ export interface CalendarProductPreviewProps {
   weekStart?: WeekStart;
 
   /**
+   * The layout's `monthRange.defaultYear` — `"current"` or a year ops
+   * pinned. Required so no caller can silently fall back to today's year
+   * while the print renders the pinned one.
+   */
+  defaultYear: MonthRange['defaultYear'];
+
+  /**
    * Optional override of "today" for deterministic tests. Production
-   * passes nothing and `resolveBaseYear` reads `new Date()`.
+   * passes nothing and `resolveDefaultYear` reads `new Date()`.
    */
   now?: Date;
 }
@@ -389,6 +403,7 @@ export function CalendarProductPreview({
   cells,
   holidays,
   weekStart = 'sunday',
+  defaultYear,
   now,
 }: CalendarProductPreviewProps) {
   // Resolve theme colours + dot cycle once per render — every tile uses
@@ -404,8 +419,8 @@ export function CalendarProductPreview({
     [themePreset, activePaletteObj],
   );
   const baseYear = useMemo(
-    () => resolveBaseYear(calendarType, now),
-    [calendarType, now],
+    () => resolveDefaultYear(defaultYear, calendarType, now),
+    [defaultYear, calendarType, now],
   );
 
   // ── Flip warning modal state (PRD §11.4) ────────────────────────────────
@@ -417,7 +432,7 @@ export function CalendarProductPreview({
 
   const handleCalendarTypeClick = (next: CalendarType) => {
     if (next === calendarType) return;
-    const orphans = cells ? countOrphanedEntries(cells, next, now) : 0;
+    const orphans = cells ? countOrphanedEntries(cells, next, defaultYear, now) : 0;
     if (orphans > 0) {
       setPendingFlip(next);
       return;
@@ -427,7 +442,7 @@ export function CalendarProductPreview({
 
   const pendingOrphanCount =
     pendingFlip && cells
-      ? countOrphanedEntries(cells, pendingFlip, now)
+      ? countOrphanedEntries(cells, pendingFlip, defaultYear, now)
       : 0;
 
   // 12-month tile metadata. Each tile resolves to its real (year, month)
@@ -455,9 +470,9 @@ export function CalendarProductPreview({
   // the PRD intent ("Customer can roll back to a leap year to see them").
   const leapDayOrphans = useMemo(
     () => cells
-      ? countLeapDayOrphans(cells, calendarType, now)
+      ? countLeapDayOrphans(cells, calendarType, defaultYear, now)
       : { count: 0, renderYear: 0 },
-    [cells, calendarType, now],
+    [cells, calendarType, defaultYear, now],
   );
   const [leapDayToastDismissed, setLeapDayToastDismissed] = useState(false);
   // Re-arm the toast when the orphan count changes to >0 (e.g. customer adds an

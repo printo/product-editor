@@ -69,6 +69,7 @@ import { CalendarProductPreview } from '@/components/CalendarProductPreview';
 import { CalendarEditPanel } from '@/components/CalendarEditPanel';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/types/calendar';
+import { resolveDefaultYear } from '@/lib/calendar';
 import {
   uploadCalendarCellImage,
   CalendarCellUploadError,
@@ -927,6 +928,7 @@ export default function LayoutEditorPage() {
           metadata: item.metadata || [],
           weekStart: item.calendar?.weekStart || 'sunday',
           holidayLocale: item.calendar?.holidaySource?.locale || 'en-IN',
+          calendarDefaultYear: item.monthRange?.defaultYear ?? 'current',
         });
       } catch {
         setError('Failed to load layout.');
@@ -1726,14 +1728,18 @@ export default function LayoutEditorPage() {
 
   // ── Calendar: fetch Gen-Z palettes + holidays on layout mount ────────────
   // Only runs for productType='calendar' layouts. Gen-Z palettes are needed
-  // for the palette swatch picker. Holidays are fetched for the resolved
-  // year range (current year + next year covers FY mode straddling years).
+  // for the palette swatch picker. Holidays are fetched for every year the
+  // print could cover: the layout's defaultYear resolved like the print, for
+  // either calendar type (the customer can flip it), plus the following year
+  // for FY ranges straddling two calendar years.
   useEffect(() => {
     if (!isCalendarProduct || !layout) return;
     const locale = layout.holidayLocale || 'en-IN';
-    const today = new Date();
-    const yr1 = today.getFullYear();
-    const yr2 = yr1 + 1;
+    const holidayYears = Array.from(new Set(
+      (['english', 'financial'] as const)
+        .map(t => resolveDefaultYear(layout.calendarDefaultYear, t))
+        .flatMap(y => [y, y + 1]),
+    ));
 
     // Apply layout-level ops defaults for customer-controllable fields.
     const rawCalendar = (normalizedLayoutState as any)?._raw?.calendar;
@@ -1746,14 +1752,12 @@ export default function LayoutEditorPage() {
       .then(d => { if (d?.palettes?.length) setGenzPalettes(d.palettes); })
       .catch(() => {});
 
-    // Fetch holidays for current + next year so FY calendars (Apr..Mar) have
-    // holiday data for both calendar years in their range.
-    Promise.all([yr1, yr2].map(yr =>
+    Promise.all(holidayYears.map(yr =>
       fetch(`${apiBase}/holidays/${locale}/${yr}`, { headers: getAuthHeaders() })
         .then(r => r.ok ? r.json() : null)
         .then(d => (d?.events as HolidayEntry[]) || [])
         .catch(() => [] as HolidayEntry[])
-    )).then(([h1, h2]) => setCalendarHolidays([...h1, ...h2]));
+    )).then(perYear => setCalendarHolidays(perYear.flat()));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCalendarProduct, layout?.id]);
 
@@ -4947,6 +4951,7 @@ export default function LayoutEditorPage() {
                 cells={calendarCells}
                 holidays={calendarHolidays}
                 weekStart={layout?.weekStart as any || 'sunday'}
+                defaultYear={layout?.calendarDefaultYear ?? 'current'}
               />
               {selectedCalendarCell && (
                 <div className="fixed inset-y-0 right-0 z-[50000] flex">

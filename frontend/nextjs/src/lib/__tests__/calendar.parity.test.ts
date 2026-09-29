@@ -12,8 +12,14 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildMonthGrid } from '@/lib/calendar';
-import type { WeekStart } from '@/types/calendar';
+import {
+  buildMonthGrid,
+  displayLabelFor,
+  resolveDefaultYear,
+  resolveSurfaceMonth,
+  yearOfMonth,
+} from '@/lib/calendar';
+import type { CalendarType, WeekStart } from '@/types/calendar';
 
 // ── Load shared fixtures ────────────────────────────────────────────────────
 
@@ -120,5 +126,46 @@ describe('buildMonthGrid (TS) vs services/calendar_renderer.py::build_month_grid
     const c = fixtures.cases.find(x => x.name === 'may_2026_six_row_month')!;
     const grid = buildMonthGrid(c.year, c.month, c.weekStart);
     expect(grid.length).toBe(c.expectedGridSize);
+  });
+});
+
+// ── Year resolution: monthRange.defaultYear → months covered ────────────────
+// Shared with backend/django/services/tests/test_calendar_year_parity.py,
+// which asserts the same cases through materialize_surfaces (the print).
+
+interface YearCase {
+  name: string;
+  defaultYear: unknown;
+  calendarType: CalendarType;
+  /** A date in IST, "YYYY-MM-DD". */
+  today: string;
+  expectedBaseYear: number;
+  expectedFirstLabel: string;
+  expectedLastLabel: string;
+  expectedFebruaryLabel: string;
+}
+
+const yearCases = (JSON.parse(
+  fs.readFileSync(path.resolve(path.dirname(FIXTURES_PATH), 'calendar-year.json'), 'utf-8'),
+) as { cases: YearCase[] }).cases;
+
+describe('resolveDefaultYear (TS) vs services/calendar_layout.py::resolve_default_year', () => {
+  it('loads the shared year fixtures', () => {
+    expect(yearCases.length).toBeGreaterThan(0);
+  });
+
+  it.each(yearCases.map(c => [c.name, c] as const))('%s', (_name, c) => {
+    // Noon IST pins the IST calendar date whatever the runner's timezone.
+    const now = new Date(`${c.today}T12:00:00+05:30`);
+    const baseYear = resolveDefaultYear(c.defaultYear, c.calendarType, now);
+    expect(baseYear).toBe(c.expectedBaseYear);
+
+    const labels = Array.from({ length: 12 }, (_, i) => {
+      const { year, month } = resolveSurfaceMonth(i, 0, c.calendarType, baseYear);
+      return displayLabelFor(year, month);
+    });
+    expect(labels[0]).toBe(c.expectedFirstLabel);
+    expect(labels[11]).toBe(c.expectedLastLabel);
+    expect(displayLabelFor(yearOfMonth(2, c.calendarType, baseYear), 2)).toBe(c.expectedFebruaryLabel);
   });
 });

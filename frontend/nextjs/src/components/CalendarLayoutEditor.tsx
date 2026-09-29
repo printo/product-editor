@@ -29,9 +29,10 @@ import dynamic from 'next/dynamic';
 import {
   MONTH_NAMES_EN,
   displayLabelFor,
-  resolveBaseYear,
+  resolveDefaultYear,
   resolveSurfaceMonth,
   resolveThemeColors,
+  yearOfMonth,
 } from '@/lib/calendar';
 import { MonthTileThumb } from '@/components/MonthTileThumb';
 
@@ -352,9 +353,7 @@ export function surfaceMonthList(
   label: string;
 }> {
   const calendarType = draft.style.calendarType;
-  const baseYear = draft.defaultYear === 'current'
-    ? resolveBaseYear(calendarType, now)
-    : draft.defaultYear;
+  const baseYear = resolveDefaultYear(draft.defaultYear, calendarType, now);
   const { count, calendars } = modeToCounts(draft.mode);
 
   const out: Array<{
@@ -909,9 +908,12 @@ export function CalendarLayoutEditor({
     [draft.mode, draft.style.calendarType, draft.defaultYear],
   );
 
-  const previewYear = draft.defaultYear === 'current'
-    ? new Date().getFullYear()
-    : draft.defaultYear;
+  // The January this layout actually prints — FY 2026–27 prints Jan 2027.
+  const previewYear = yearOfMonth(
+    1,
+    draft.style.calendarType,
+    resolveDefaultYear(draft.defaultYear, draft.style.calendarType),
+  );
 
   const handleSave = async () => {
     setError(null);

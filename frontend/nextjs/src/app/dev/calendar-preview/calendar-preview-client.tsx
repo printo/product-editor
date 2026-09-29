@@ -193,6 +193,7 @@ export default function CalendarPreviewClient() {
           cells={calendarCells}
           holidays={HOLIDAYS_2026}
           weekStart="sunday"
+          defaultYear="current"
           onMonthTileClick={(surfaceIndex, year, month) => {
             // For the dev route, "open editor" = jump to the first day of
             // the month, then the side panel handles per-cell edits.
