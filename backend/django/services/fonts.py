@@ -28,7 +28,9 @@ first-touch insert. Reads are lock-free.
 """
 from __future__ import annotations
 
+import functools
 import logging
+import struct
 import threading
 from pathlib import Path
 from typing import Optional
@@ -44,6 +46,12 @@ _FONT_PATH = Path(__file__).parent / "fonts_assets" / "Inter-Variable.ttf"
 # Variable-axis tag for weight. Inter exposes "wght" continuously over
 # 100..900 — we clamp callers to {400, 500, 600, 700} since the editor
 # only emits those four.
+#
+# Inter also has an "opsz" (optical size) axis, and it comes FIRST in the
+# font's fvar table: [opsz, wght]. Pillow's set_variation_by_axes is
+# positional, so passing [weight] alone wrote the weight into opsz and
+# left wght at 400 — every weight printed as Regular. Axes are therefore
+# set by tag (see _axis_values), never by assumed position.
 _WGHT_AXIS = "wght"
 _ALLOWED_WEIGHTS = (400, 500, 600, 700)
 
@@ -54,6 +62,9 @@ _CACHE_LOCK = threading.Lock()
 # Sentinel used when the .ttf is missing — we cache the PIL default font
 # once so we don't log the "font missing" warning on every render.
 _FALLBACK_LOGGED = False
+# Same, for a runtime that can't apply variation axes. The calendar's
+# autofit binary-searches font sizes, so this would otherwise log per size.
+_VARIATION_FAILURE_LOGGED = False
 
 
 def get_font(size_px: int, weight: int = 400) -> ImageFont.ImageFont:
@@ -96,9 +107,67 @@ def get_font(size_px: int, weight: int = 400) -> ImageFont.ImageFont:
         return font
 
 
+@functools.lru_cache(maxsize=None)
+def _read_axis_records(font_path: str) -> tuple[tuple[str, float, float, float], ...]:
+    """
+    Return the font's variation axes as (tag, min, default, max), in fvar
+    order — the order set_variation_by_axes expects its values in.
+
+    Pillow's get_variation_axes() reports each axis's display name but not
+    its tag, and that name is a localisable, encoding-dependent string, so
+    the tags are read from the fvar table directly. Returns () for a static
+    font or anything unparseable; the caller then leaves the font's default
+    instance untouched.
+    """
+    try:
+        data = Path(font_path).read_bytes()
+        num_tables = struct.unpack_from(">H", data, 4)[0]
+        for i in range(num_tables):
+            tag, _checksum, offset, _length = struct.unpack_from(">4sIII", data, 12 + 16 * i)
+            if tag != b"fvar":
+                continue
+            _major, _minor, axes_offset, _reserved, axis_count, axis_size = (
+                struct.unpack_from(">6H", data, offset)
+            )
+            records = []
+            for j in range(axis_count):
+                axis_tag, min_v, default_v, max_v = struct.unpack_from(
+                    ">4siii", data, offset + axes_offset + j * axis_size,
+                )
+                # Fixed 16.16 → float.
+                records.append((
+                    axis_tag.decode("ascii"),
+                    min_v / 65536, default_v / 65536, max_v / 65536,
+                ))
+            return tuple(records)
+    except (OSError, struct.error, UnicodeDecodeError) as exc:
+        logger.warning("Could not read variation axes from %s: %s", font_path, exc)
+    return ()
+
+
+def _axis_values(
+    records: tuple[tuple[str, float, float, float], ...], weight: int,
+) -> Optional[list[float]]:
+    """
+    Build the positional value list for set_variation_by_axes: the requested
+    weight on "wght", every other axis at its default. Returns None when the
+    font has no weight axis, so the caller leaves it alone.
+
+    Holding opsz at its default (14 for Inter, the "text" design) matches the
+    editor preview, which requests Inter from Google Fonts with only a wght
+    axis and so always renders the default optical size.
+    """
+    if not any(tag == _WGHT_AXIS for tag, *_ in records):
+        return None
+    return [
+        min(max_v, max(min_v, float(weight))) if tag == _WGHT_AXIS else default_v
+        for tag, min_v, default_v, max_v in records
+    ]
+
+
 def _load_font(size_px: int, weight: int) -> ImageFont.ImageFont:
     """Construct a fresh ImageFont. Falls back to PIL default on miss."""
-    global _FALLBACK_LOGGED
+    global _FALLBACK_LOGGED, _VARIATION_FAILURE_LOGGED
 
     if not _FONT_PATH.exists():
         if not _FALLBACK_LOGGED:
@@ -114,13 +183,23 @@ def _load_font(size_px: int, weight: int) -> ImageFont.ImageFont:
     try:
         font = ImageFont.truetype(str(_FONT_PATH), size=size_px)
         # Set the variable-axis weight if Pillow's build supports it.
-        # set_variation_by_axes was added in Pillow 9.4. If the runtime
-        # has an older Pillow, we silently get the .ttf's default weight
-        # (which Inter ships at 400) — acceptable fallback.
-        try:
-            font.set_variation_by_axes([weight])
-        except (AttributeError, OSError):
-            pass
+        # set_variation_by_axes was added in Pillow 9.4, and raises
+        # NotImplementedError when FreeType is older than 2.9.1. Either
+        # way we get the .ttf's default instance (Inter ships it at 400)
+        # — acceptable fallback, but logged, since it silently un-bolds
+        # every heading in print.
+        values = _axis_values(_read_axis_records(str(_FONT_PATH)), weight)
+        if values is not None:
+            try:
+                font.set_variation_by_axes(values)
+            except (AttributeError, NotImplementedError, OSError) as exc:
+                if not _VARIATION_FAILURE_LOGGED:
+                    logger.warning(
+                        "Could not set font weight on %s (%s) — all text will "
+                        "render at the font's default weight.",
+                        _FONT_PATH, exc,
+                    )
+                    _VARIATION_FAILURE_LOGGED = True
         return font
     except (OSError, ValueError) as exc:
         logger.warning(
