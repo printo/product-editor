@@ -340,6 +340,49 @@ export async function deleteOrder(orderId: string): Promise<void> {
   }
 }
 
+/**
+ * Delete this order's records that `referenced` does not name and that are at
+ * least `minAgeMs` old. Returns how many were deleted.
+ *
+ * The age floor is what makes this safe with the order open in a second tab:
+ * that tab's newest photos are referenced only by its own in-memory state,
+ * which this tab cannot see.
+ */
+export async function pruneUnreferencedFiles(
+  orderId: string,
+  referenced: ReadonlySet<string>,
+  minAgeMs: number,
+): Promise<number> {
+  const cutoff = Date.now() - minAgeMs;
+  const isOrphan = (rec: FileRecord) =>
+    !referenced.has(rec.fileId) && (rec.createdAt || 0) <= cutoff;
+  let deleted = 0;
+  memFiles.forEach((rec, id) => {
+    if (rec.orderId === orderId && isOrphan(rec)) {
+      memFiles.delete(id);
+      deleted += 1;
+    }
+  });
+  try {
+    const store = await tx("readwrite");
+    return await new Promise((resolve, reject) => {
+      const req = store.index("orderId").openCursor(IDBKeyRange.only(orderId));
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return resolve(deleted);
+        if (isOrphan(cursor.value as FileRecord)) {
+          cursor.delete();
+          deleted += 1;
+        }
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return deleted; // memory-mode: already pruned above
+  }
+}
+
 export async function deleteFile(fileId: string): Promise<void> {
   memFiles.delete(fileId);
   try {

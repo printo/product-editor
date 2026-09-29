@@ -32,7 +32,11 @@ import {
 import { convertHeicFileIfNeeded, convertAndPartitionFiles, isHeicFile, createServerHeicConverter } from '@/lib/heic-convert';
 import { pdfDerivedFiles } from '@/lib/pdf-import';
 import { usePdfPageImport } from '@/components/use-pdf-page-import';
-import { saveFile, getFilesForOrder, pruneStaleOrders, FileStoreQuotaError, getPersistenceMode } from '@/lib/file-store';
+import {
+  saveFile, deleteFile, getFilesForOrder, pruneStaleOrders, pruneUnreferencedFiles,
+  FileStoreQuotaError, getPersistenceMode,
+} from '@/lib/file-store';
+import { collectFileIds, unreferencedFileIds } from './file-refs';
 import { LazyImg } from '@/components/LazyImg';
 import CanvasCardSkeleton from '@/components/CanvasCardSkeleton';
 import { normalizeLayout, filterSurfaces, getCanvasSpec, getFrames, type NormalizedLayout } from '@/lib/layout-utils';
@@ -205,6 +209,11 @@ function formatLayoutDisplayName(rawName: string): string {
 const CARD_COUNT_HINT_PREFIX = 'pe:cards:';
 /** Upper bound on placeholders, so a corrupt hint can't render 10k nodes. */
 const MAX_SKELETON_CARDS = 24;
+
+/** Stored photos the restored design doesn't use are deleted on restore only
+ *  once this old, so a second tab on the same order keeps the photos it has
+ *  just added (they are referenced only by that tab's unsaved state). */
+const ORPHAN_FILE_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
 function cardCountHintKey(orderId: string): string {
   return `${CARD_COUNT_HINT_PREFIX}${orderId}`;
@@ -721,6 +730,40 @@ export default function LayoutEditorPage() {
   const bookHiddenPagesRef = useRef(bookHiddenPages);
   useEffect(() => { bookHiddenPagesRef.current = bookHiddenPages; }, [bookHiddenPages]);
 
+  // ── Stored-photo bookkeeping (file-store.ts) ─────────────────────────────
+  // The persist effect patches fileIds into surfaceStates only, and the
+  // canvases → surfaceStates sync copies the active surface's canvases (which
+  // never got them) back over it on the next edit. Keyed by File, the same
+  // photo gets its existing id back instead of being stored again — once per
+  // edit before this, and once per frame for a qty auto-fill.
+  const fileIdByFileRef = useRef(new WeakMap<File, string>());
+  const fileSaveInFlightRef = useRef(new WeakMap<File, Promise<string>>());
+  // Records this tab saved or restored: the only ones it may delete. Another
+  // tab's records are invisible to it and so never deleted from here.
+  const sessionFilesRef = useRef(new Map<string, File>());
+  // A photo brought back after its record was deleted (modal undo) still
+  // carries the old id; the persist effect stores it again.
+  const deletedFileIdsRef = useRef(new Set<string>());
+
+  /** Delete the records this tab owns that neither the design just saved nor
+   *  the current state uses. Runs after a successful autosave, so the server's
+   *  copy of the design never names a deleted photo. */
+  const reclaimUnusedFiles = useCallback((savedState: unknown) => {
+    const idOfFile = (b: Blob) => (b instanceof File ? fileIdByFileRef.current.get(b) : undefined);
+    const unused = unreferencedFileIds(
+      sessionFilesRef.current.keys(),
+      [savedState, surfaceStatesRef.current, bookHiddenPagesRef.current],
+      idOfFile,
+    );
+    for (const id of unused) {
+      const file = sessionFilesRef.current.get(id);
+      sessionFilesRef.current.delete(id);
+      if (file && fileIdByFileRef.current.get(file) === id) fileIdByFileRef.current.delete(file);
+      deletedFileIdsRef.current.add(id);
+      void deleteFile(id);
+    }
+  }, []);
+
   // ── Calendar product state (PRD §10.3 / audit fix #1) ────────────────────
   // These only matter when layout.productType === 'calendar'. Initialised
   // with the layout-level defaults; customer overrides are tracked here.
@@ -1135,6 +1178,7 @@ export default function LayoutEditorPage() {
           // Reset indicator to idle after 3 s; tracked so unmount can cancel it.
           if (saveIdleTimeoutRef.current) clearTimeout(saveIdleTimeoutRef.current);
           saveIdleTimeoutRef.current = setTimeout(() => setIsSaving('idle'), 3000);
+          reclaimUnusedFiles(editorState);
         } else {
           setIsSaving('idle');
         }
@@ -1142,7 +1186,7 @@ export default function LayoutEditorPage() {
         setIsSaving('idle');
       }
     }, 2000);
-  }, [apiBase, orderId, layoutName, getAuthHeaders, serializeCanvasState]);
+  }, [apiBase, orderId, layoutName, getAuthHeaders, serializeCanvasState, reclaimUnusedFiles]);
 
   const cancelAutosave = useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -1274,17 +1318,25 @@ export default function LayoutEditorPage() {
         // serialise but persist the raw blob client-side keyed by `fileId`,
         // so refreshing the page recovers everything needed to re-render.
         const fileMap = await getFilesForOrder(restoreId).catch(() => new Map<string, File>());
+        const restoredFile = (fileId: string): File | undefined => {
+          const file = fileMap.get(fileId);
+          if (file) {
+            fileIdByFileRef.current.set(file, fileId);
+            sessionFilesRef.current.set(fileId, file);
+          }
+          return file;
+        };
         const hydrate = (canvases: CanvasItem[]): CanvasItem[] =>
           canvases.map(c => ({
             ...c,
             frames: c.frames.map(f => {
               if (!f.fileId) return f;
-              const file = fileMap.get(f.fileId);
+              const file = restoredFile(f.fileId);
               return file ? { ...f, originalFile: file } : f;
             }),
             overlays: c.overlays.map(o => {
               if (o.type !== 'image' || !o.fileId) return o;
-              const file = fileMap.get(o.fileId);
+              const file = restoredFile(o.fileId);
               if (!file) return o;
               // Re-create the blob URL since the saved one was revoked when
               // the previous browser session ended. getFileUrl caches by File
@@ -1408,6 +1460,13 @@ export default function LayoutEditorPage() {
           // offsets for USER toggles (fitModeUserToggledRef).
           setGlobalFitMode(activeSaved.globalFitMode ?? 'contain');
         }
+
+        // Delete this order's older stored photos the restored design doesn't
+        // use: ones dropped in a session that closed before its next save, and
+        // everything the editor stored before it cleaned up after itself.
+        // Only here, once a saved design was actually applied — never on a
+        // failed or empty restore, where "unused" would mean every photo.
+        void pruneUnreferencedFiles(restoreId, collectFileIds(data.editor_state), ORPHAN_FILE_MIN_AGE_MS);
       } catch {
         // Restore failures are silent — user just starts fresh.
       } finally {
@@ -1442,16 +1501,17 @@ export default function LayoutEditorPage() {
     if (!orderId) return;
     type Pending = { surfaceKey: string; canvasIdx: number; kind: 'frame' | 'overlay'; idx: number; file: File };
     const pending: Pending[] = [];
+    const needsId = (fileId?: string) => !fileId || deletedFileIdsRef.current.has(fileId);
 
     surfaceStates.forEach(s => {
       s.canvases.forEach((c, ci) => {
         c.frames.forEach((f, fi) => {
-          if (f.originalFile && !f.fileId) {
+          if (f.originalFile && needsId(f.fileId)) {
             pending.push({ surfaceKey: s.key, canvasIdx: ci, kind: 'frame', idx: fi, file: f.originalFile });
           }
         });
         c.overlays.forEach((o, oi) => {
-          if (o.type === 'image' && o.source === 'local' && o.originalFile && !o.fileId) {
+          if (o.type === 'image' && o.source === 'local' && o.originalFile && needsId(o.fileId)) {
             pending.push({ surfaceKey: s.key, canvasIdx: ci, kind: 'overlay', idx: oi, file: o.originalFile });
           }
         });
@@ -1460,11 +1520,31 @@ export default function LayoutEditorPage() {
 
     if (!pending.length) return;
 
+    // One stored copy per File: reuse the id it already has, or join a save
+    // already in flight (a re-run of this effect cancels the previous run's
+    // patch, not its saves).
+    const persistFile = (file: File): Promise<string> => {
+      const known = fileIdByFileRef.current.get(file);
+      if (known && !deletedFileIdsRef.current.has(known)) return Promise.resolve(known);
+      let saving = fileSaveInFlightRef.current.get(file);
+      if (!saving) {
+        saving = saveFile(orderId, file).then(id => {
+          fileIdByFileRef.current.set(file, id);
+          sessionFilesRef.current.set(id, file);
+          return id;
+        });
+        fileSaveInFlightRef.current.set(file, saving);
+        const settle = () => { fileSaveInFlightRef.current.delete(file); };
+        saving.then(settle, settle);
+      }
+      return saving;
+    };
+
     let cancelled = false;
     (async () => {
       const results = await Promise.all(pending.map(async (p) => {
         try {
-          const fileId = await saveFile(orderId, p.file);
+          const fileId = await persistFile(p.file);
           return { ...p, fileId };
         } catch (e) {
           // Quota exhaustion must be VISIBLE (Phase 3): the photo still works
