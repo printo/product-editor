@@ -179,15 +179,53 @@ def test_local_backend_uses_the_one_seed_path():
     storage = LocalStorage()
     with S3Backend() as b:  # only for the temp STORAGE_ROOT
         with patch("services.storage._storage_instance", storage):
-            for asset_type, name in (("holidays", "en-IN/2031"),
-                                     ("calendar_styles", "modern-minimalist"),
-                                     ("calendar_palettes/genz", "butter"),
-                                     ("fonts", "fonts")):
+            for asset_type, name, rel in (("holidays", "en-IN/2031", "holidays/en-IN/2031.json"),
+                                          ("calendar_styles", "modern-minimalist",
+                                           "calendar_styles/modern-minimalist.json"),
+                                          ("calendar_palettes/genz", "butter",
+                                           "calendar_palettes/genz/butter.json"),
+                                          # The path backup.sh archives and .gitignore covers.
+                                          ("fonts", "fonts", "fonts.json")):
                 path = storage.write_calendar_asset(asset_type, name, b'{"v": 1}')
-                assert path == os.path.join(b.root, asset_type, f"{name}.json"), path
+                assert path == os.path.join(b.root, rel), path
                 assert asset_store.read_asset_json(asset_type, name) == {"v": 1}
                 assert storage.delete_calendar_asset(asset_type, name) is True
                 _raises(AssetNotFoundError, asset_store.read_asset, asset_type, name)
+
+
+def test_fonts_seed_is_storage_root_fonts_json_under_s3_too():
+    with S3Backend() as b:
+        b.seed_local("fonts.json", ["Lobster", "Pacifico"])
+        b.seed_local("fonts/fonts.json", ["Wrong Place"])
+        assert asset_store.read_asset_json("fonts", "fonts") == ["Lobster", "Pacifico"]
+        b.put("fonts", "fonts", ["Ops Pick"])
+        assert asset_store.read_asset_json("fonts", "fonts") == ["Ops Pick"]
+        assert list(b.client.objects) == [b.key("fonts", "fonts")]  # S3 key unchanged
+
+
+def test_s3_listing_adds_new_names_and_drops_deleted_ones():
+    with S3Backend() as b:
+        b.client.page_size = 2  # force pagination
+        for name in ("modern-minimalist", "weekday-highlight", "modern-genz"):
+            b.seed_local(f"calendar_styles/{name}.json", {"name": name})
+        b.put("calendar_styles", "festive", {"name": "festive"})
+        b.put("calendar_styles", "modern-minimalist", {"name": "modern-minimalist", "v": 2})
+        b.storage.delete_calendar_asset("calendar_styles", "weekday-highlight")
+        b.put("calendar_palettes/genz", "neon", {"name": "neon"})  # a different prefix
+        assert asset_store.list_assets("calendar_styles") == [
+            "festive", "modern-genz", "modern-minimalist"]
+        assert asset_store.list_assets("calendar_palettes/genz") == ["neon"]
+
+
+def test_s3_listing_without_list_permission_falls_back_to_seeds():
+    with S3Backend() as b:
+        b.seed_local("calendar_styles/modern-minimalist.json", {})
+        b.put("calendar_styles", "festive", {})
+        b.client.list_error = FakeClientError("AccessDenied", 403)
+        assert asset_store.list_assets("calendar_styles") == ["modern-minimalist"]
+        for error in OUTAGES:
+            b.client.list_error = error
+            _raises(CalendarAssetUnavailable, asset_store.list_assets, "calendar_styles")
 
 
 # ── Preview and print ────────────────────────────────────────────────────────
@@ -391,6 +429,27 @@ def test_preview_503s_uncached_on_outage():
         b.client.get_error = None
         response = _dispatch("get", "/api/holidays/en-IN/2031")
         assert response.status_code == 200 and response.data == _holidays("Local Seed")
+
+
+def test_style_list_shows_what_ops_created_and_hides_what_they_deleted():
+    with S3Backend() as b, patch("django.core.cache.cache", _DictCache()):
+        for name in ("modern-minimalist", "weekday-highlight", "modern-genz"):
+            b.seed_local(f"calendar_styles/{name}.json", {"name": name, "label": name})
+        b.seed_local("calendar_palettes/genz/butter.json", {"name": "butter"})
+        b.put("calendar_styles", "festive", {"name": "festive", "label": "Festive"})
+        b.put("calendar_palettes/genz", "neon", {"name": "neon"})
+        b.storage.delete_calendar_asset("calendar_styles", "weekday-highlight")
+
+        listed = [s["name"] for s in _dispatch("get", "/api/calendar-styles/").data["styles"]]
+        assert listed == ["festive", "modern-genz", "modern-minimalist"], listed
+        genz = _dispatch("get", "/api/calendar-styles/modern-genz").data
+        assert [p["name"] for p in genz["palettes"]] == ["butter", "neon"], genz
+
+
+def test_fonts_endpoint_serves_storage_root_fonts_json():
+    with S3Backend() as b, patch("django.core.cache.cache", _DictCache()):
+        b.seed_local("fonts.json", ["Lobster"])
+        assert _dispatch("get", "/api/fonts").data == {"fonts": ["Lobster"]}
 
 
 def test_corrupt_style_is_a_404_not_a_500():

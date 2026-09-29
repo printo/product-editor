@@ -37,9 +37,11 @@ class FakeS3Client:
         self.objects: dict[str, bytes] = {}
         self.metadata: dict[str, dict] = {}
         self.reads: list[str] = []
-        # Set to an exception instance to make every get_object / put_object raise it.
+        # Set to an exception instance to make every get / put / list raise it.
         self.get_error: Exception | None = None
         self.put_error: Exception | None = None
+        self.list_error: Exception | None = None
+        self.page_size = 1000
 
     def get_object(self, Bucket, Key):
         assert Bucket == BUCKET
@@ -63,6 +65,20 @@ class FakeS3Client:
     def put_object(self, Bucket, Key, Body=b"", Metadata=None):
         assert Bucket == BUCKET
         self._store(Key, Body, Metadata)
+
+    def list_objects_v2(self, Bucket, Prefix, Delimiter=None, ContinuationToken=None):
+        assert Bucket == BUCKET
+        if self.list_error is not None:
+            raise self.list_error
+        keys = sorted(k for k in self.objects if k.startswith(Prefix)
+                      and not (Delimiter and Delimiter in k[len(Prefix):]))
+        start = int(ContinuationToken or 0)
+        end = start + self.page_size
+        page = {"Contents": [{"Key": k, "Size": len(self.objects[k])} for k in keys[start:end]],
+                "IsTruncated": end < len(keys)}
+        if page["IsTruncated"]:
+            page["NextContinuationToken"] = str(end)
+        return page
 
     def delete_object(self, Bucket, Key):
         self.objects.pop(Key, None)

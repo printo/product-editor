@@ -18,13 +18,8 @@ Callers must keep two failures apart:
 """
 
 import json
-import logging
-import os
 from typing import Literal
-from django.conf import settings
 from services.storage import CalendarAssetUnavailable, get_storage  # noqa: F401 — re-exported
-
-logger = logging.getLogger(__name__)
 
 
 AssetType = Literal['calendar_styles', 'holidays', 'calendar_palettes/genz', 'fonts']
@@ -76,27 +71,13 @@ def read_asset_json(asset_type: AssetType, asset_name: str):
     return json.loads(content.decode('utf-8'))
 
 
-def list_assets_in_local_storage(asset_type: AssetType) -> list:
+def list_assets(asset_type: AssetType) -> list:
     """
-    List all assets of a given type in local storage.
-    Useful for ops UIs that populate dropdowns.
+    Sorted names (without '.json') of the assets of one type, from the
+    configured storage backend — under S3, the local seeds plus whatever ops
+    created in S3, minus what ops deleted. Used by the ops UIs' dropdowns.
 
-    Args:
-        asset_type: Type of asset to list
-
-    Returns:
-        List of asset names (without .json extension)
+    Raises:
+        CalendarAssetUnavailable: the store couldn't be listed.
     """
-    asset_dir = os.path.join(settings.STORAGE_ROOT, asset_type)
-    if not os.path.isdir(asset_dir):
-        return []
-
-    items = []
-    try:
-        for filename in os.listdir(asset_dir):
-            if filename.endswith('.json'):
-                items.append(os.path.splitext(filename)[0])
-    except Exception as exc:
-        logger.error(f"Error listing assets in {asset_dir}: {exc}")
-
-    return sorted(items)
+    return get_storage().list_calendar_assets(asset_type)

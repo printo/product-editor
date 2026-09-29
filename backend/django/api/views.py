@@ -2594,8 +2594,6 @@ class EditorRenderView(APIView):
 
 # ─── Fonts management ─────────────────────────────────────────────────────────
 
-FONTS_JSON_PATH = os.path.join(settings.STORAGE_ROOT, 'fonts.json')
-
 DEFAULT_FONTS = ['sans-serif', 'serif', 'monospace']
 
 # Shared Redis cache for the on-disk JSON config files. Keys are namespaced so
@@ -2763,8 +2761,6 @@ class FontsView(APIView):
 
 # ── Calendar style presets + Gen-Z palettes (PRD §10.3, §6.3) ───────────────
 
-CALENDAR_STYLES_DIR = os.path.join(settings.STORAGE_ROOT, 'calendar_styles')
-GENZ_PALETTES_DIR = os.path.join(settings.STORAGE_ROOT, 'calendar_palettes', 'genz')
 _CALENDAR_STYLES_CACHE_KEY = 'storage:calendar_styles:list'
 _CALENDAR_STYLE_CACHE_KEY = 'storage:calendar_styles:'  # + name
 
@@ -2772,7 +2768,7 @@ _CALENDAR_STYLE_CACHE_KEY = 'storage:calendar_styles:'  # + name
 def _list_calendar_styles():
     """Return [{name, label}] for every calendar style from asset store."""
     from django.core.cache import cache
-    from services.asset_store import list_assets_in_local_storage, CalendarAssetUnavailable
+    from services.asset_store import list_assets, CalendarAssetUnavailable
 
     cached = cache.get(_CALENDAR_STYLES_CACHE_KEY)
     if cached is not None:
@@ -2780,8 +2776,7 @@ def _list_calendar_styles():
 
     out = []
     try:
-        # List from local storage (asset_store handles S3 fallback on read)
-        style_names = list_assets_in_local_storage('calendar_styles')
+        style_names = list_assets('calendar_styles')
         for name in style_names:
             try:
                 style = _read_calendar_style(name)
@@ -2835,10 +2830,10 @@ def _read_calendar_style(name):
     # For Gen-Z, attach the available palettes inline so clients don't
     # have to make a second request to enumerate them.
     if style.get('name') == 'modern-genz':
-        from services.asset_store import list_assets_in_local_storage
+        from services.asset_store import list_assets
 
         palettes = []
-        for palette_name in list_assets_in_local_storage('calendar_palettes/genz'):
+        for palette_name in list_assets('calendar_palettes/genz'):
             try:
                 palette = read_asset_json('calendar_palettes/genz', palette_name)
             except (AssetNotFoundError, ValueError) as exc:
@@ -3008,7 +3003,6 @@ class CalendarStylesView(APIView):
 
 # ── Holiday data (PRD §11.9, §11.11) ────────────────────────────────────────
 
-HOLIDAYS_ROOT = os.path.join(settings.STORAGE_ROOT, 'holidays')
 _HOLIDAYS_CACHE_KEY = 'storage:holidays:'  # + locale:year
 
 
@@ -3027,10 +3021,6 @@ def _safe_locale_year(locale: str, year_str: str) -> tuple[str, int]:
     if not (1900 <= year <= 2100):
         raise ValueError(f"year {year} outside the supported range 1900..2100")
     return locale, year
-
-
-def _holiday_path(locale: str, year: int) -> str:
-    return os.path.join(HOLIDAYS_ROOT, locale, f"{year}.json")
 
 
 def _read_holidays(locale: str, year: int) -> dict | None:
