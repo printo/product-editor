@@ -67,6 +67,7 @@ same thing in its own words.
 
 - **Never `git reset --hard` or `git checkout -- storage/` on the prod box.** `storage/layouts/`, `storage/masks/` and `storage/fonts.json` are git-tracked *and* rewritten by the ops UI, and prod has diverged: 20 tracked layouts show as deleted with 11 untracked replacements under new names. Either command resurrects the obsolete catalogue alongside the live one, so a customer can open the wrong product. Scope any checkout to a single explicit file path.
 - **Don't raise `DATA_UPLOAD_MAX_MEMORY_SIZE` to make canvas autosave succeed.** 37% of autosaves currently 400 because `editor_state` embeds base64 previews averaging 16 MB. Raising the limit makes gunicorn buffer those per concurrent request on a 2-core box with a 2 GB worker cap — silent save failures become OOM. Shrink the payload; the limit is correct.
+- **Every canvas autosave goes through `scheduleAutosave`, gated on `restoreSettled`.** Autosave writes empty state on purpose, so a write that fires before the restore GET lands wipes the saved design. It happened twice: the 2026-08-09 guard (`restorePending`) was keyed on `?order_id=` in the URL, which the embed iframe never has, and the calendar/book writers skipped it entirely (fixed in PR #166). Don't gate on `restorePending`, and don't PUT `canvas-state` from anywhere else.
 
 ### API reference schema (drf-spectacular → Scalar at `/docs/api/`)
 
