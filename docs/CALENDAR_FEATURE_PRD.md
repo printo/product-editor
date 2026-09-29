@@ -682,7 +682,7 @@ Schema | `{ year, locale, events: [{ date, name, type, color }] }` (see PRD §4.
 Seed (v1.13 ship) | 5 years (`2026–2030`) × 2 locales (`en-IN`, `generic`) sourced from [Nager.Date](https://date.nager.at/) at backend image build time
 Ops endpoints | `GET /api/ops/holidays/`, `PUT /api/ops/holidays/<locale>/<year>` (upload / replace), `DELETE /api/ops/holidays/<locale>/<year>`
 Customer endpoint | `GET /api/holidays/<locale>/<year>` (public, cached `Cache-Control: public, max-age=86400, swr=604800`)
-Layout opt-in | `calendar.holidaySource = { enabled: true, locale: 'en-IN', showInCells: true }`
+Layout opt-in | `calendar.holidaySource = { enabled: true, locale: 'en-IN', showInCells: true }` *(Amended 2026-09-29: `showInCells` shipped as an ops checkbox that nothing read and was removed. `enabled` + `locale` is the whole switch. See CLAUDE.md.)*
 Editor behaviour | When customer picks year/month, frontend fetches holidays for that (locale, year) and auto-injects matching cells as `source: 'holiday'` entries. User cannot delete holiday entries (would re-inject); can override the whole cell with an image to hide them.
 
 **c. Three style presets**

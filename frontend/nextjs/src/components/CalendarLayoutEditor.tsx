@@ -80,7 +80,7 @@ function modeToCounts(mode: CalendarMode): { count: number; calendars: number } 
 
 // A brand-new layout starts with holidays ON — a product default. An
 // existing layout never inherits it: see holidaySourceAsPrinted.
-const NEW_LAYOUT_HOLIDAY_SOURCE: HolidaySource = { enabled: true, locale: 'en-IN', showInCells: true };
+const NEW_LAYOUT_HOLIDAY_SOURCE: HolidaySource = { enabled: true, locale: 'en-IN' };
 
 function defaultCalendarLayout(name: string): CalendarLayoutDraft {
   return {
@@ -190,7 +190,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * reads as OFF here: seeding it from the new-layout default would preview
  * dots the print lacks, and the first save would switch holidays ON in the
  * real print. A switched-off block keeps its stored locale, so ticking the
- * box brings that locale back.
+ * box brings that locale back. A stored `showInCells` (see HolidaySource)
+ * is left out, so the next save drops it.
  */
 export function holidaySourceAsPrinted(style: unknown): HolidaySource {
   const stored = isRecord(style) && isRecord(style.holidaySource) ? style.holidaySource : {};
@@ -199,9 +200,6 @@ export function holidaySourceAsPrinted(style: unknown): HolidaySource {
   return {
     enabled: printedLocale !== null,
     locale: printedLocale ?? storedLocale ?? NEW_LAYOUT_HOLIDAY_SOURCE.locale,
-    showInCells: typeof stored.showInCells === 'boolean'
-      ? stored.showInCells
-      : NEW_LAYOUT_HOLIDAY_SOURCE.showInCells,
   };
 }
 
@@ -933,10 +931,15 @@ export function CalendarLayoutEditor({
   const [draft, setDraft] = useState<CalendarLayoutDraft>(() => {
     const defaults = defaultCalendarLayout(newLayoutName);
     const style = { ...defaults.style, ...(initial?.style ?? {}) };
-    // Nested block, so the shallow merge above can't fill it in.
+    // Nested block, so the shallow merge above can't fill it in. Built field
+    // by field so a stored `showInCells` isn't carried into the save.
+    const seeded = initial?.style?.holidaySource;
     style.holidaySource = isExistingLayout
       ? holidaySourceAsPrinted(initial?.style)
-      : { ...defaults.style.holidaySource, ...(initial?.style?.holidaySource ?? {}) };
+      : {
+          enabled: seeded?.enabled ?? defaults.style.holidaySource.enabled,
+          locale: seeded?.locale ?? defaults.style.holidaySource.locale,
+        };
     return { ...defaults, ...initial, style };
   });
   const [busy, setBusy] = useState(false);
@@ -1580,7 +1583,7 @@ export function CalendarLayoutEditor({
 
             <section data-testid="holiday-source">
               <h2 className="text-lg font-semibold text-zinc-900 mb-1">Holidays</h2>
-              <p className="text-xs text-zinc-500 mb-3">Auto-loaded from storage. Shown as coloured dots on matching dates.</p>
+              <p className="text-xs text-zinc-500 mb-3">Auto-loaded from storage. Printed on matching dates as a pill with the holiday&apos;s name (a coloured dot in the small previews).</p>
               <div className="flex flex-wrap gap-4 items-center">
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={draft.style.holidaySource.enabled}
@@ -1597,13 +1600,6 @@ export function CalendarLayoutEditor({
                     <option value="en-IN">en-IN (India)</option>
                     <option value="generic">generic (universal)</option>
                   </select>
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={draft.style.holidaySource.showInCells}
-                    disabled={!draft.style.holidaySource.enabled}
-                    onChange={(e) => patchStyle({ holidaySource: { ...draft.style.holidaySource, showInCells: e.target.checked } })}
-                    data-testid="holiday-show-in-cells" />
-                  <span>Show holiday pills on cells</span>
                 </label>
               </div>
             </section>
