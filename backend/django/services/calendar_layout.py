@@ -349,42 +349,24 @@ def materialize_surfaces(
 
 def _resolve_theme_style(name: str) -> Optional[dict]:
     """
-    Load a theme preset's JSON from `storage/calendar_styles/<name>.json`.
+    Load a theme preset's JSON from the `calendar_styles/<name>` asset.
 
-    Same conventions as _resolve_genz_palette below: path-traversal guard,
-    default_storage for S3-readiness, warn-and-return-None on any failure so
-    a missing/corrupt style file degrades to renderer defaults instead of
-    failing the render.
+    Same conventions as _resolve_genz_palette below: name guard, read
+    through asset_store, warn-and-return-None on any failure so a
+    missing/corrupt style degrades to renderer defaults instead of failing
+    the render.
     """
-    import json
-    import os
     import re
 
     if not name or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
         logger.warning("Bogus theme preset name %r — falling back to defaults", name)
         return None
-
-    # Resolved under settings.STORAGE_ROOT like every other storage reader
-    # (api/views.py CALENDAR_STYLES_DIR). default_storage is NOT rooted at
-    # STORAGE_ROOT in this project — see _resolve_genz_palette's fix below.
-    from django.conf import settings
-    path = os.path.join(settings.STORAGE_ROOT, "calendar_styles", f"{name}.json")
-    if not os.path.isfile(path):
-        logger.warning(
-            "Theme style file missing: %s — renderer will use built-in defaults", path,
-        )
-        return None
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to load theme style %s: %s", path, exc)
-        return None
+    return _read_calendar_asset("calendar_styles", name, "Theme style")
 
 
 def _resolve_genz_palette(style: dict) -> Optional[dict]:
     """
-    Load the active Gen-Z palette JSON from disk.
+    Load the active Gen-Z palette JSON.
 
     Args:
         style: layout's `calendar` style block. Reads `defaultGenzPalette`
@@ -392,38 +374,39 @@ def _resolve_genz_palette(style: dict) -> Optional[dict]:
             field will sit on top of this.
 
     Returns:
-        The full palette dict from `storage/calendar_palettes/genz/<name>.json`,
-        or None if the file can't be read. Caller (renderer) treats None
+        The full palette dict from the `calendar_palettes/genz/<name>` asset,
+        or None if it can't be read. Caller (renderer) treats None
         as "fall through to theme defaults" — never crashes.
     """
-    import json
-    import os
     import re
-    from django.conf import settings
 
     name = style.get("defaultGenzPalette") or "butter"
     # Path-traversal guard mirrors api/views.py::_safe_locale_year.
     if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
         logger.warning("Bogus genz palette name %r — falling back to defaults", name)
         return None
+    return _read_calendar_asset("calendar_palettes/genz", name, "Gen-Z palette")
 
-    # Phase 2 fix: this previously read via django default_storage with a
-    # STORAGE_ROOT-relative path, but default_storage is rooted at MEDIA_ROOT
-    # (unset → /app), so the palette file was NEVER found at render time and
-    # Gen-Z prints silently fell back to default colours. Resolve under
-    # settings.STORAGE_ROOT like api/views.py GENZ_PALETTES_DIR does. The S3
-    # migration (docs/CALENDAR_S3_READINESS.md) should swap this to a storage
-    # instance explicitly rooted at STORAGE_ROOT.
-    from django.conf import settings
-    path = os.path.join(settings.STORAGE_ROOT, "calendar_palettes", "genz", f"{name}.json")
-    if not os.path.isfile(path):
-        logger.warning(
-            "Gen-Z palette file missing: %s — renderer will use theme defaults", path,
-        )
-        return None
+
+def _read_calendar_asset(asset_type: str, name: str, what: str) -> Optional[dict]:
+    """
+    Read through asset_store — the same function the ops/preview endpoints
+    use (api/views.py `_read_calendar_style`, CalendarStylesView) — so the
+    print resolves the same local-or-S3 source as the preview. These used
+    to open files under STORAGE_ROOT directly, which under S3 would have
+    printed stale styles while the preview showed the ops edit.
+    """
+    from services.asset_store import AssetNotFoundError, read_asset_json
+
     try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to load palette %s: %s", path, exc)
+        data = read_asset_json(asset_type, name)
+    except AssetNotFoundError:
+        logger.warning("%s %s/%s missing — renderer will use defaults", what, asset_type, name)
         return None
+    except Exception as exc:
+        logger.warning("Failed to load %s %s/%s: %s", what.lower(), asset_type, name, exc)
+        return None
+    if not isinstance(data, dict):
+        logger.warning("%s %s/%s is not a JSON object — ignoring", what, asset_type, name)
+        return None
+    return data

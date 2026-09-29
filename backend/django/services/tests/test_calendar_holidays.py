@@ -45,15 +45,12 @@ class _TempHolidays:
     def __enter__(self):
         self.root = tempfile.mkdtemp(prefix="pe-holidays-")
         self._storage_root = settings.STORAGE_ROOT
-        self._holidays_root = calendar_holidays._HOLIDAYS_ROOT
         settings.STORAGE_ROOT = self.root
-        calendar_holidays._HOLIDAYS_ROOT = os.path.join(self.root, "holidays")
         self.storage = LocalStorage()
         return self
 
     def __exit__(self, *exc):
         settings.STORAGE_ROOT = self._storage_root
-        calendar_holidays._HOLIDAYS_ROOT = self._holidays_root
         shutil.rmtree(self.root, ignore_errors=True)
 
     @property
