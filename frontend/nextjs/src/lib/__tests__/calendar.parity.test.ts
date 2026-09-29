@@ -15,6 +15,7 @@ import path from 'node:path';
 import {
   buildMonthGrid,
   displayLabelFor,
+  printedHolidayLocale,
   resolveDefaultYear,
   resolveSurfaceMonth,
   yearOfMonth,
@@ -167,5 +168,31 @@ describe('resolveDefaultYear (TS) vs services/calendar_layout.py::resolve_defaul
     expect(labels[0]).toBe(c.expectedFirstLabel);
     expect(labels[11]).toBe(c.expectedLastLabel);
     expect(displayLabelFor(yearOfMonth(2, c.calendarType, baseYear), 2)).toBe(c.expectedFebruaryLabel);
+  });
+});
+
+interface HolidayCase {
+  name: string;
+  /** The layout's `calendar` block; null when the layout has none. */
+  calendar: unknown;
+  /** The locale the print loads holidays for; null when it loads none. */
+  expectedLocale: string | null;
+}
+
+const holidayCases = (JSON.parse(
+  fs.readFileSync(path.resolve(path.dirname(FIXTURES_PATH), 'calendar-holidays.json'), 'utf-8'),
+) as { cases: HolidayCase[] }).cases;
+
+describe('printedHolidayLocale (TS) vs the holidaySource gate in services/calendar_layout.py::materialize_surfaces', () => {
+  it('loads the shared holiday fixtures', () => {
+    expect(holidayCases.length).toBeGreaterThan(0);
+  });
+
+  it.each(holidayCases.map(c => [c.name, c] as const))('%s', (_name, c) => {
+    expect(printedHolidayLocale(c.calendar)).toBe(c.expectedLocale);
+  });
+
+  it('treats an undefined calendar block like a missing one', () => {
+    expect(printedHolidayLocale(undefined)).toBeNull();
   });
 });
