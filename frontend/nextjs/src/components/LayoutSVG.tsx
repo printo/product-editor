@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { mmToPx } from '@/lib/units';
 
 interface LayoutSVGProps {
   layout: any;
@@ -33,8 +34,7 @@ export const LayoutSVG = ({ layout, className = "w-full h-full", surfaceKey, mas
 
   const viewBox = `0 0 ${canvas.width} ${canvas.height}`;
   const dpi = canvas.dpi || 300;
-  const mmToPx = (mm: number) => (mm / 25.4) * dpi;
-  const borderRadiusPx = mmToPx(borderRadiusMm);
+  const borderRadiusPx = mmToPx(borderRadiusMm, dpi);
 
   return (
     <svg viewBox={viewBox} className={className} xmlns="http://www.w3.org/2000/svg">
@@ -53,9 +53,9 @@ export const LayoutSVG = ({ layout, className = "w-full h-full", surfaceKey, mas
         const w = frame.width * canvas.width;
         const h = frame.height * canvas.height;
         const bleedMm = Number(frame.bleedMm || 0);
-        const bleedPx = mmToPx(bleedMm);
+        const bleedPx = mmToPx(bleedMm, dpi);
         const frameRadiusMm = frame.borderRadiusMm || borderRadiusMm;
-        const frameRadiusPx = mmToPx(frameRadiusMm);
+        const frameRadiusPx = mmToPx(frameRadiusMm, dpi);
 
         return (
           <g key={i}>
