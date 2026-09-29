@@ -395,14 +395,20 @@ def _read_calendar_asset(asset_type: str, name: str, what: str) -> Optional[dict
     print resolves the same local-or-S3 source as the preview. These used
     to open files under STORAGE_ROOT directly, which under S3 would have
     printed stale styles while the preview showed the ops edit.
+
+    CalendarAssetUnavailable propagates rather than degrading to defaults:
+    the store couldn't say whether the asset exists, so the render retries
+    instead of printing default colours over an ops-set theme.
     """
-    from services.asset_store import AssetNotFoundError, read_asset_json
+    from services.asset_store import AssetNotFoundError, CalendarAssetUnavailable, read_asset_json
 
     try:
         data = read_asset_json(asset_type, name)
     except AssetNotFoundError:
         logger.warning("%s %s/%s missing — renderer will use defaults", what, asset_type, name)
         return None
+    except CalendarAssetUnavailable:
+        raise
     except Exception as exc:
         logger.warning("Failed to load %s %s/%s: %s", what.lower(), asset_type, name, exc)
         return None

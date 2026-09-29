@@ -1097,6 +1097,8 @@ S3_BUCKET=...
 
 The code defaults to `STORAGE_BACKEND=local`, but **production runs `STORAGE_BACKEND=s3`** — verified from the running `backend` and `celery-worker-standard` containers on 2026-09-29 (the S3 `ops-config/` folder marker dates from 2026-09-04). So the S3 code paths are live, not future; don't reason about prod from the default. Until 2026-09-29 calendar-asset reads never actually hit S3 (key mismatch — see the amendment in [docs/CALENDAR_S3_READINESS.md](docs/CALENDAR_S3_READINESS.md)), so an ops edit to holidays, calendar styles or fonts would have been written to S3 and silently never read back. None had been attempted: the audit trail held zero writes to those endpoints and `ops-config/` held only the empty marker.
 
+Under S3 the git-seeded files under `STORAGE_ROOT` (`holidays/`, `calendar_styles/`, `calendar_palettes/`) are a **default for keys S3 has never held**, nothing more. Two things must never reach them, both enforced in `S3Storage.read_calendar_asset`: a key ops deleted (`delete_calendar_asset` writes an empty tombstone object flagged `x-amz-meta-pe-tombstone: 1` rather than removing the key — a removed key read as "never written" and resurrected the seed), and a read S3 couldn't answer (outage, bad credentials), which raises `CalendarAssetUnavailable` instead of guessing. That exception is a **503, uncached**, on the preview endpoints, the **defaults, uncached** for the fonts list, and a **retried render** in the print — never "no holidays". Only `NoSuchKey` and `AccessDenied` count as absent (S3 returns 403 for a missing key when the caller lacks `s3:ListBucket`). Pinned by `services/tests/test_calendar_assets_s3.py`.
+
 ### These files are git-tracked AND written by the running app
 
 That combination is the source of a recurring deploy failure and a standing
@@ -1148,7 +1150,7 @@ All under `STORAGE_ROOT` (env-driven). See [docs/CALENDAR_S3_READINESS.md](docs/
 
 | Path | Owner | Purpose |
 |---|---|---|
-| `storage/holidays/<locale>/<year>.json` | `services/calendar_holidays.py` | Auto-loaded holidays. Locales seeded: `en-IN`, `generic`. Years seeded: 2026–2030. Refresh script: `scripts/refresh-holidays.py` (annual ops task). |
+| `storage/holidays/<locale>/<year>.json` | `services/calendar_holidays.py` | Auto-loaded holidays. Locales seeded: `en-IN`, `generic`. Years seeded: 2026–2030. Refresh: `manage.py refresh_holidays` (annual ops task; reads and writes through storage — S3 on prod — keeping custom entries). **Nager.Date does not cover India** (HTTP 204), so it cannot refresh `en-IN`; those years need hand-curating via `PUT /api/ops/holidays/en-IN/<year>`. |
 | `storage/calendar_palettes/genz/<name>.json` | `services/calendar_layout.py::_resolve_genz_palette` | Gen-Z palette swatches. Customer picks ONE per render. |
 | `storage/calendar_styles/<name>.json` | `api/views.py::CalendarStylesView` | Theme preset metadata (modern-minimalist / modern-genz / weekday-highlight). |
 
