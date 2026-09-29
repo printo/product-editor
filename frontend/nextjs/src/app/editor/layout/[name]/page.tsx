@@ -539,6 +539,14 @@ export default function LayoutEditorPage() {
   const [restorePending, setRestorePending] = useState<boolean>(
     () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('order_id')
   );
+  // The autosave gate — deliberately NOT restorePending. That one only starts
+  // true when `order_id` is already in the URL, and the embed iframe URL never
+  // carries it (the id is adopted from the session after mount), so in the
+  // customer flow it started false and autosave could PUT pre-restore state
+  // over a saved design. This starts false for everyone and flips once, in the
+  // restore effect's `finally`. The ref mirrors it for the debounced writer.
+  const [restoreSettled, setRestoreSettled] = useState(false);
+  const restoreSettledRef = useRef(false);
   // Card count from the last visit, so the placeholder count is right on the
   // first paint rather than snapping when the payload lands. Purely cosmetic —
   // any failure just falls back to a default.
@@ -1035,30 +1043,42 @@ export default function LayoutEditorPage() {
     return renderCanvasCore(canvasItem, options.layoutOverride || layoutRef.current, getFileUrl, options);
   }, [getFileUrl]);
 
-  // ── Auto-save: debounce 2 s after canvases change ────────────────────────
+  // ── Auto-save: one debounced writer, three triggers ──────────────────────
+  // The triggers below (active surface's canvases, calendar choices, book page
+  // count) all go through scheduleAutosave, so they share one timer, one
+  // payload and one restore guard. Don't add a trigger that PUTs canvas-state
+  // any other way: the calendar and book triggers used to carry their own copy
+  // of the save with no restore guard, and a layout-load default (ops theme
+  // preset, template page count) fired it mid-restore, overwriting the saved
+  // design with pre-restore state.
+  //
+  // Calendar/book values are read when the timer FIRES rather than when it was
+  // armed, so whichever trigger re-armed it last can't write another's state as
+  // of an older render.
+  const autosaveProductRef = useRef({
+    isCalendarProduct, isBookProduct, calendarTheme, calendarType, genzPalette, calendarCells, bookPageCount,
+  });
   useEffect(() => {
-    // Don't save before the layout is known or before the orderId is set.
-    if (!orderId || !layout) return;
-    // Never write while a restore is still in flight. `canvases` is empty on
-    // mount and the save below is deliberately allowed to write an empty state
-    // (see "delete all" note), so without this guard a canvas-state GET slower
-    // than the 2 s debounce loses the race and PUTs an empty design over the
-    // customer's saved one — silently and unrecoverably. Production responses
-    // are ~400 ms, but this app is used mostly on phones and tablets where a
-    // >2 s response is ordinary. Cleared on every exit path of the restore
-    // effect, so nothing can strand the editor in a non-saving state.
-    if (restorePending) return;
-    // Skip the first save that fires as a side-effect of restoring state —
-    // we'd just be writing back the exact data we loaded from the server.
-    if (isRestoringRef.current) { isRestoringRef.current = false; return; }
-    // Allow saving even when canvases is empty — this covers the "delete all"
-    // case so that a refresh after clearing doesn't restore the old design.
+    autosaveProductRef.current = {
+      isCalendarProduct, isBookProduct, calendarTheme, calendarType, genzPalette, calendarCells, bookPageCount,
+    };
+  }, [isCalendarProduct, isBookProduct, calendarTheme, calendarType, genzPalette, calendarCells, bookPageCount]);
+
+  const scheduleAutosave = useCallback(() => {
+    // Never write while a restore is still in flight. State is empty on mount
+    // and an empty save is deliberately allowed (see "delete all" below), so a
+    // canvas-state GET slower than the 2 s debounce would otherwise lose the
+    // race and PUT an empty design over the customer's saved one — silently.
+    // Production responses are ~400 ms, but this app is used mostly on phones
+    // and tablets where a >2 s response is ordinary.
+    if (!restoreSettledRef.current) return;
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     setIsSaving('saving');
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
+        const product = autosaveProductRef.current;
         // Read from refs so the timeout always uses the latest surface data,
         // even if other surfaces were updated during the 2 s debounce window.
         const latestSurfaces = surfaceStatesRef.current;
@@ -1076,12 +1096,12 @@ export default function LayoutEditorPage() {
         };
         // Calendar products persist the customer's theme/type/palette/cell
         // choices so they survive page refresh (PRD §10.3 / audit fix #1).
-        if (isCalendarProduct) {
+        if (product.isCalendarProduct) {
           editorState.calendarState = {
-            themePreset: calendarTheme,
-            calendarType,
-            genzPalette,
-            cells: calendarCells,
+            themePreset: product.calendarTheme,
+            calendarType: product.calendarType,
+            genzPalette: product.genzPalette,
+            cells: product.calendarCells,
           };
         }
         // Book products persist the customer's page count AND the pages held
@@ -1090,10 +1110,10 @@ export default function LayoutEditorPage() {
         // an active page by `_extract_canvases_meta`/`_extract_book_state`
         // (which only look at `canvases`) even though editor_state is never
         // read by the render path anyway (render_state is submit-time only).
-        if (isBookProduct) {
+        if (product.isBookProduct) {
           editorState.bookState = {
-            pageCount: bookPageCount,
-            hiddenSurfaces: Object.entries(bookHiddenPages).map(([key, s]) => ({
+            pageCount: product.bookPageCount,
+            hiddenSurfaces: Object.entries(bookHiddenPagesRef.current).map(([key, s]) => ({
               key,
               canvases: serializeCanvasState(s.canvases),
               globalFitMode: s.globalFitMode,
@@ -1122,14 +1142,51 @@ export default function LayoutEditorPage() {
         setIsSaving('idle');
       }
     }, 2000);
+  }, [apiBase, orderId, layoutName, getAuthHeaders, serializeCanvasState]);
 
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
+  const cancelAutosave = useCallback(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+  }, []);
+
+  // Trigger: the active surface's canvases, and the restore settling.
+  useEffect(() => {
+    // Don't save before the layout is known or before the orderId is set.
+    if (!orderId || !layout) return;
+    // Checked here as well as in scheduleAutosave so the restore-suppression
+    // flag below is never consumed before the restore has landed.
+    // `restoreSettled` must stay in the deps: work done while the restore was
+    // in flight is saved by the re-run it triggers.
+    if (!restoreSettled) return;
+    // Skip the first save that fires as a side-effect of restoring state —
+    // we'd just be writing back the exact data we loaded from the server.
+    if (isRestoringRef.current) { isRestoringRef.current = false; return; }
+    // Allow saving even when canvases is empty — this covers the "delete all"
+    // case so that a refresh after clearing doesn't restore the old design.
+    scheduleAutosave();
+    return cancelAutosave;
     // surfaceStates/activeSurfaceKey are intentionally read via refs so this
     // effect only re-runs when the active surface's canvases actually change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvases, orderId, layout, restorePending]);
+  }, [canvases, orderId, layout, restoreSettled]);
+
+  // Trigger: calendar choices. Theme / type / palette / cell edits never touch
+  // `canvases`, so without this they would never auto-save.
+  useEffect(() => {
+    if (!isCalendarProduct || !orderId || !layout) return;
+    scheduleAutosave();
+    return cancelAutosave;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calendarTheme, calendarType, genzPalette, calendarCells]);
+
+  // Trigger: book page count. A pure count change (no photo edits) doesn't
+  // touch `canvases` either. bookHiddenPages changes together with the count,
+  // so it needs no trigger of its own — the writer reads it via ref.
+  useEffect(() => {
+    if (!isBookProduct || !orderId || !layout) return;
+    scheduleAutosave();
+    return cancelAutosave;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookPageCount]);
 
   // ── Regenerate canvas previews (autosave-payload-bloat fix) ──────────────
   // After restore, regenerate base64 previews that were stripped to reduce
@@ -1358,6 +1415,8 @@ export default function LayoutEditorPage() {
         // a thrown fetch, or success. Leaving this set would strand the
         // skeletons on screen in place of the upload prompt.
         setRestorePending(false);
+        restoreSettledRef.current = true;
+        setRestoreSettled(true);
       }
     })();
     // Run exactly once when layout becomes available.
@@ -1447,108 +1506,6 @@ export default function LayoutEditorPage() {
 
     return () => { cancelled = true; };
   }, [surfaceStates, orderId]);
-
-  // ── Calendar auto-save: trigger save when calendar state changes ─────────
-  // The main auto-save effect keys on `canvases`. For calendar products the
-  // primary interaction (changing theme / adding cell entries) never touches
-  // `canvases`, so cell edits would never auto-save without this separate
-  // effect. We set canvases to a dummy value increment to piggyback on the
-  // main debounce — simpler than duplicating the full save logic.
-   
-  useEffect(() => {
-    if (!isCalendarProduct || !orderId || !layout) return;
-    // Touch the save trigger by calling the existing save path directly.
-    // We do this by firing the saveTimeoutRef path — same debounce, same logic.
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    setIsSaving('saving');
-    saveTimeoutRef.current = setTimeout(async () => {
-      try {
-        const latestSurfaces = surfaceStatesRef.current;
-        const latestActiveKey = activeSurfaceKeyRef.current;
-        const editorState: Record<string, any> = {
-          surfaces: latestSurfaces.map(s => ({
-            key: s.key,
-            canvases: serializeCanvasState(s.canvases),
-            globalFitMode: s.globalFitMode,
-          })),
-          activeSurfaceKey: latestActiveKey,
-          layoutName,
-          calendarState: {
-            themePreset: calendarTheme,
-            calendarType,
-            genzPalette,
-            cells: calendarCells,
-          },
-        };
-        const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
-          method: 'PUT',
-          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ layout_name: layoutName, editor_state: editorState }),
-        });
-        if (res.ok) {
-          setIsSaving('saved');
-          if (saveIdleTimeoutRef.current) clearTimeout(saveIdleTimeoutRef.current);
-          saveIdleTimeoutRef.current = setTimeout(() => setIsSaving('idle'), 3000);
-        } else {
-          setIsSaving('idle');
-        }
-      } catch { setIsSaving('idle'); }
-    }, 2000);
-  // Calendar state changes trigger this save; layout/orderId guard against
-  // firing before the session is ready.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calendarTheme, calendarType, genzPalette, calendarCells]);
-
-  // ── Book auto-save: trigger save when page count changes ─────────────────
-  // The main auto-save effect keys on `canvases` (the active surface only).
-  // Changing the page count alone doesn't touch `canvases`, so — same
-  // reasoning as the calendar effect above — it needs its own trigger, or a
-  // pure count change (no photo edits) would never survive a refresh.
-   
-  useEffect(() => {
-    if (!isBookProduct || !orderId || !layout) return;
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    setIsSaving('saving');
-    saveTimeoutRef.current = setTimeout(async () => {
-      try {
-        const latestSurfaces = surfaceStatesRef.current;
-        const latestActiveKey = activeSurfaceKeyRef.current;
-        const editorState: Record<string, any> = {
-          surfaces: latestSurfaces.map(s => ({
-            key: s.key,
-            canvases: serializeCanvasState(s.canvases),
-            globalFitMode: s.globalFitMode,
-          })),
-          activeSurfaceKey: latestActiveKey,
-          layoutName,
-          bookState: {
-            pageCount: bookPageCount,
-            hiddenSurfaces: Object.entries(bookHiddenPagesRef.current).map(([key, s]) => ({
-              key,
-              canvases: serializeCanvasState(s.canvases),
-              globalFitMode: s.globalFitMode,
-            })),
-          },
-        };
-        const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
-          method: 'PUT',
-          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ layout_name: layoutName, editor_state: editorState }),
-        });
-        if (res.ok) {
-          setIsSaving('saved');
-          if (saveIdleTimeoutRef.current) clearTimeout(saveIdleTimeoutRef.current);
-          saveIdleTimeoutRef.current = setTimeout(() => setIsSaving('idle'), 3000);
-        } else {
-          setIsSaving('idle');
-        }
-      } catch { setIsSaving('idle'); }
-    }, 2000);
-  // bookPageCount changes trigger this save; bookHiddenPages is read via ref
-  // (same rationale as surfaceStatesRef) since a shrink and its own autosave
-  // fire together and don't need to double-trigger.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookPageCount]);
 
   // The template's {min,max,step,default} page-count grid, for the page-count
   // control below. `null` until the (book) layout has loaded.
