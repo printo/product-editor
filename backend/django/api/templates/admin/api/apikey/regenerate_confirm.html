@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a> &rsaquo;
+  <a href="{% url 'admin:api_apikey_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a> &rsaquo;
+  <a href="{{ change_url }}">{{ original }}</a> &rsaquo; Regenerate
+</div>
+{% endblock %}
+{% block content %}
+<h2>Regenerate the key for “{{ original.name }}”?</h2>
+<ul>
+  <li>The current key (<code>{{ key_preview }}</code>) <strong>stops working the moment you confirm</strong>.
+    Anything still using it — the partner's backend, their webhook signature check — will fail until they switch to the new key.</li>
+  <li>Customers already inside the editor may see errors for up to 2 hours unless the frontend is restarted
+    (<code>docker-compose restart frontend</code>), because it caches the key per editing session.</li>
+  <li>Orders, uploads, saved designs and download links are <strong>not</strong> affected — this changes the key only.</li>
+  <li>The new key is shown <strong>once</strong>. Copy it before leaving the next page.</li>
+</ul>
+<form method="post">{% csrf_token %}
+  <input type="submit" value="Yes, regenerate the key" class="default" style="float:none">
+  <a href="{{ change_url }}" class="button cancel-link">No, go back</a>
+</form>
+{% endblock %}

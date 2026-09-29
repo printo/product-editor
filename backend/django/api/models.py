@@ -80,6 +80,32 @@ class APIKey(models.Model):
         api_key.save()
         return api_key
 
+    # Rows entrypoint.sh re-seeds from .env on every web boot
+    # (update_or_create keyed on name). Regenerating one in the admin would be
+    # silently reverted on the next deploy, so rotate these by changing .env.
+    ENV_SEEDED_NAMES = frozenset({"DIRECT", "EXTERNAL", "TESTING", "INTERNAL"})
+
+    @property
+    def is_env_seeded(self) -> bool:
+        return self.name in self.ENV_SEEDED_NAMES
+
+    def regenerate(self) -> str:
+        """Replace the key in place and return the new value.
+
+        Rotating in place rather than delete + create matters: UploadedFile,
+        ExportedResult, EmbedSession and CanvasData all CASCADE from this row,
+        so deleting it would wipe every live order made with the key.
+        The old value stops authenticating immediately.
+        """
+        if self.is_env_seeded:
+            raise ValueError(
+                f"'{self.name}' is seeded from .env on every boot; "
+                "rotate it by changing .env instead."
+            )
+        self.key = APIKey.generate_key(self.name)
+        self.save(update_fields=["key", "updated_at"])
+        return self.key
+
 
 class APIRequest(models.Model):
     """Model to track all API requests for auditing and analytics."""
