@@ -59,6 +59,8 @@ class APIKeyRegenerateTest(TestCase):
         self.key.refresh_from_db()
         self.assertNotEqual(self.key.key, self.old)
         self.assertContains(resp, self.key.key)
+        self.assertContains(resp, 'id="copy-api-key"')
+        self.assertContains(resp, 'admin/api/apikey_copy')
         self.assertIn('no-store', resp['Cache-Control'])
         self.assertTrue(LogEntry.objects.filter(
             object_id=str(self.key.pk), change_message='Regenerated API key').exists())

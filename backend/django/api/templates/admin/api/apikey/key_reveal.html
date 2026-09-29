@@ -1,4 +1,5 @@
 {% extends "admin/base_site.html" %}
+{% load static %}
 {% block breadcrumbs %}
 <div class="breadcrumbs">
   <a href="{% url 'admin:index' %}">Home</a> &rsaquo;
@@ -9,7 +10,11 @@
 {% block content %}
 <h2>{% if created %}Key created for{% else %}New key for{% endif %} “{{ original.name }}”</h2>
 <p><strong>Copy this now. It will not be shown again</strong> — after you leave this page only the last 4 characters are visible.</p>
-<p><input type="text" readonly value="{{ new_key }}" size="80" style="font-family:monospace"></p>
+<p>
+  <input type="text" id="new-api-key" readonly value="{{ new_key }}" size="80" style="font-family:monospace">
+  <button type="button" id="copy-api-key" class="button" style="margin-left:8px">Copy</button>
+</p>
 <p>Send it to the key's owner over a private channel, not email or group chat.</p>
 <p><a href="{{ change_url }}" class="button">I've copied it — back to the key</a></p>
+<script src="{% static 'admin/api/apikey_copy.js' %}"></script>
 {% endblock %}
