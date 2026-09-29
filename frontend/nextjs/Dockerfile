@@ -36,6 +36,10 @@ ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
+# next.config.mjs's headers() reads this during `pnpm build` and bakes the CSP
+# header into the build — setting it on the running container does nothing.
+ARG CSP_REPORT_ONLY=True
+ENV CSP_REPORT_ONLY=$CSP_REPORT_ONLY
 
 # Build the app. Persist .next/cache between builds so SWC + Webpack module
 # graph survive across `docker compose build` runs. Cuts incremental

@@ -386,14 +386,18 @@ SECURE_BROWSER_XSS_FILTER = True
 # frontend/nextjs/next.config.mjs's headers()), which is what actually needs
 # validating against Fabric.js / embed-iframe behaviour before either side
 # flips CSP_REPORT_ONLY=False. Change both sides together — flipping only one
-# leaves the two apps enforcing different policies.
+# leaves the two apps enforcing different policies. The frontend half reads the
+# flag when its image is BUILT (docker-compose passes it as a build arg), so a
+# flip needs a frontend rebuild — deploy.sh does one; a restart does not.
 CSP_DEFAULT_SRC = ("'self'",)
 # 'unsafe-eval' for Fabric.js; accounts.google.com for the login page's Google
 # Identity Services (GIS) "Sign in with Google" script.
 CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'", "https://accounts.google.com")
-CSP_STYLE_SRC = ("'self'", "'unsafe-inline'", "https://accounts.google.com")  # GIS injects its own stylesheet
+# GIS injects its own stylesheet; the Google Fonts entries (here and in
+# CSP_FONT_SRC) mirror next.config.mjs, whose pages load Google fonts.
+CSP_STYLE_SRC = ("'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com")
 CSP_IMG_SRC = ("'self'", "data:", "blob:", "https:")
-CSP_FONT_SRC = ("'self'", "data:", "https://fonts.scalar.com")  # Scalar's API docs page (/docs/api/) self-hosts its JS but loads its webfonts from this CDN
+CSP_FONT_SRC = ("'self'", "data:", "https://fonts.scalar.com", "https://fonts.gstatic.com")  # Scalar's API docs page (/docs/api/) self-hosts its JS but loads its webfonts from this CDN
 CSP_CONNECT_SRC = ("'self'", "https:")
 CSP_FRAME_SRC = ("'self'", "https://accounts.google.com")  # GIS opens its sign-in flow in a framed popup
 CSP_FRAME_ANCESTORS = ("'self'", "https://printo.in", "https://*.printo.in")

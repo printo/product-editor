@@ -66,6 +66,10 @@ const nextConfig = {
     // from this policy and left to the separate, always-enforcing rule below:
     // it's already validated and load-bearing, independent of whatever this
     // broader report-only rollout is doing.
+    // Read at BUILD time, not runtime: Next.js bakes headers() into
+    // routes-manifest.json during `next build`, and the standalone server
+    // serves that manifest whatever the container's env says. The Dockerfile
+    // takes it as a build arg; flipping it means rebuilding this image.
     const reportOnlyEnv = (process.env.CSP_REPORT_ONLY ?? 'True').toLowerCase();
     const isReportOnly = !['false', '0', 'no'].includes(reportOnlyEnv);
     const cspDirectives = [
@@ -73,9 +77,12 @@ const nextConfig = {
       // 'unsafe-eval' for Fabric.js; accounts.google.com for the /login
       // page's Google Identity Services (GIS) "Sign in with Google" script.
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com",
-      "style-src 'self' 'unsafe-inline' https://accounts.google.com", // GIS injects its own stylesheet
+      // GIS injects its own stylesheet; fonts.googleapis.com serves the
+      // stylesheet behind every Google font (GoogleFontLinks).
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
       "img-src 'self' data: blob: https:",
-      "font-src 'self' data:",
+      // fonts.gstatic.com serves the font files that stylesheet points at.
+      "font-src 'self' data: https://fonts.gstatic.com",
       "connect-src 'self' https:",
       "frame-src 'self' https://accounts.google.com", // GIS opens its sign-in flow in a framed popup
       // Relative path: nginx routes all of /api/* to the Django backend
