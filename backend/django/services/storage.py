@@ -480,13 +480,23 @@ class S3Storage(StorageBackend):
             Key=dest_key,
         )
 
+    def _calendar_asset_key(self, asset_type: str, asset_name: str) -> str:
+        """The one S3 key for a calendar asset — read, write and delete all use it.
+
+        Read used to build its own key with neither the service prefix nor the
+        `.json` suffix, so it never found an object write had put there and
+        every read silently fell back to local disk: under S3, an ops edit
+        reached neither the preview nor the print.
+        """
+        return self._s3_key(f"ops-config/{asset_type}/{_json_asset_name(asset_name)}")
+
     def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
-        s3_key = f"ops-config/{asset_type}/{asset_name}"
+        s3_key = self._calendar_asset_key(asset_type, asset_name)
         try:
             response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
             return response['Body'].read()
         except Exception as exc:
-            fallback = os.path.join(settings.STORAGE_ROOT, asset_type, asset_name)
+            fallback = os.path.join(settings.STORAGE_ROOT, asset_type, _json_asset_name(asset_name))
             if os.path.isfile(fallback):
                 import logging
                 logger = logging.getLogger(__name__)
@@ -502,11 +512,7 @@ class S3Storage(StorageBackend):
 
     def write_calendar_asset(self, asset_type: str, asset_name: str, content: bytes) -> str:
         """Write a calendar asset to S3 atomically."""
-        # For non-JSON files, add .json extension if missing
-        if asset_type in ('fonts', 'calendar_styles', 'holidays') and not asset_name.endswith('.json'):
-            asset_name = asset_name + '.json'
-
-        s3_key = self._s3_key(f"ops-config/{asset_type}/{asset_name}")
+        s3_key = self._calendar_asset_key(asset_type, asset_name)
         try:
             import io
             self.s3.upload_fileobj(
@@ -520,11 +526,7 @@ class S3Storage(StorageBackend):
 
     def delete_calendar_asset(self, asset_type: str, asset_name: str) -> bool:
         """Delete a calendar asset from S3. Returns True on success, False if not found."""
-        # For non-JSON files, add .json extension if missing
-        if asset_type in ('fonts', 'calendar_styles', 'holidays') and not asset_name.endswith('.json'):
-            asset_name = asset_name + '.json'
-
-        s3_key = self._s3_key(f"ops-config/{asset_type}/{asset_name}")
+        s3_key = self._calendar_asset_key(asset_type, asset_name)
         try:
             # S3 delete is idempotent — DeleteObject succeeds even if the object doesn't exist
             # To distinguish, we'd need HeadObject first. For this use case, always return True
@@ -533,6 +535,11 @@ class S3Storage(StorageBackend):
             return True
         except Exception:
             return False
+
+
+def _json_asset_name(asset_name: str) -> str:
+    """Calendar assets are all JSON files; callers name them without the suffix."""
+    return asset_name if asset_name.endswith('.json') else asset_name + '.json'
 
 
 _storage_instance: Optional[StorageBackend] = None

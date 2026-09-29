@@ -1095,7 +1095,7 @@ AWS_SECRET_ACCESS_KEY=...
 S3_BUCKET=...
 ```
 
-Currently defaults to `STORAGE_BACKEND=local` for safety.
+The code defaults to `STORAGE_BACKEND=local`, but **production runs `STORAGE_BACKEND=s3`** — verified from the running `backend` and `celery-worker-standard` containers on 2026-09-29 (the S3 `ops-config/` folder marker dates from 2026-09-04). So the S3 code paths are live, not future; don't reason about prod from the default. Until 2026-09-29 calendar-asset reads never actually hit S3 (key mismatch — see the amendment in [docs/CALENDAR_S3_READINESS.md](docs/CALENDAR_S3_READINESS.md)), so an ops edit to holidays, calendar styles or fonts would have been written to S3 and silently never read back. None had been attempted: the audit trail held zero writes to those endpoints and `ops-config/` held only the empty marker.
 
 ### These files are git-tracked AND written by the running app
 
