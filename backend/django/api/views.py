@@ -736,6 +736,20 @@ class RenderStatusView(APIView):
         return Response(response_data)
 
 
+def _jobs_per_day_status():
+    """Jobs submitted per day, dashboard vs embed, for the ops monitoring endpoint.
+
+    Degrades to an `error` key like `_disk_status`: a failed audit query must
+    cost one field, not the whole endpoint.
+    """
+    from services.jobs_per_day import jobs_per_day
+    try:
+        return jobs_per_day()
+    except Exception as exc:
+        logger.warning("jobs_per_day failed: %s", exc)
+        return {'error': str(exc)}
+
+
 def _disk_status():
     """Live disk usage for EXPORTS_DIR, for the ops monitoring endpoint.
 
@@ -781,7 +795,17 @@ class CeleryMonitoringView(APIView):
             "this field. **Alert on both.**\n\n"
             "`disk` is read live at request time, not lifted from the last sweep's "
             "stats — at the moment it matters most (nothing sweeping) those stats "
-            "are absent or stale. `pressure` trips at the same 80% line the GC uses."
+            "are absent or stale. `pressure` trips at the same 80% line the GC uses.\n\n"
+            "`jobs_per_day` counts accepted `POST /api/editor/render` submissions for "
+            "the last 14 IST days (oldest first, every day present, zero-filled), split "
+            "into `dashboard` and `embed`. It reads the API audit trail, which is kept "
+            "for `API_AUDIT_RETENTION_DAYS` (default 90) — `jobs` above cannot answer "
+            "this, since a RenderJob is deleted with its canvas after the export "
+            "retention window. A `0` before audit logging began is a missing record, "
+            "not a quiet day. `dashboard` is the `DIRECT`/`INTERNAL` keys and `embed` "
+            "is every other key; while prod has no separate INTERNAL key, `DIRECT` "
+            "also carries QA embed sessions, so `dashboard` is an upper bound. "
+            "`by_source` breaks the window down by key name so that can be checked."
         ),
         responses={
             200: inline_serializer(
@@ -801,6 +825,12 @@ class CeleryMonitoringView(APIView):
                     ),
                     "disk": drf_serializers.DictField(
                         help_text="{total_gb, used_gb, free_gb, used_percent, pressure} for the exports volume.",
+                    ),
+                    "jobs_per_day": drf_serializers.DictField(
+                        help_text=(
+                            "{timezone, days[{date, dashboard, embed, total}], by_source{}} — "
+                            "or {error} if the audit query failed."
+                        ),
                     ),
                 },
             ),
@@ -882,6 +912,7 @@ class CeleryMonitoringView(APIView):
             # stale. Production reached 89% unnoticed twice for exactly that
             # reason. `pressure` mirrors the >80% threshold the GC itself uses.
             'disk': _disk_status(),
+            'jobs_per_day': _jobs_per_day_status(),
         })
 
 
