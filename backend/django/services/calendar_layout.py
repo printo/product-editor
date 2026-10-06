@@ -381,7 +381,7 @@ def _resolve_genz_palette(style: dict) -> Optional[dict]:
     import re
 
     name = style.get("defaultGenzPalette") or "butter"
-    # Path-traversal guard mirrors api/views.py::_safe_locale_year.
+    # Path-traversal guard mirrors api/views/calendar_assets.py::_safe_locale_year.
     if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
         logger.warning("Bogus genz palette name %r — falling back to defaults", name)
         return None
@@ -391,7 +391,7 @@ def _resolve_genz_palette(style: dict) -> Optional[dict]:
 def _read_calendar_asset(asset_type: str, name: str, what: str) -> Optional[dict]:
     """
     Read through asset_store — the same function the ops/preview endpoints
-    use (api/views.py `_read_calendar_style`, CalendarStylesView) — so the
+    use (api/views/calendar_assets.py `_read_calendar_style`, CalendarStylesView) — so the
     print resolves the same local-or-S3 source as the preview. These used
     to open files under STORAGE_ROOT directly, which under S3 would have
     printed stale styles while the preview showed the ops edit.

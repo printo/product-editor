@@ -67,8 +67,8 @@ def _dispatch(method, path, body=None):
 def _storage_mocks():
     stack = ExitStack()
     mocks = {
-        'write_style': stack.enter_context(patch('api.views._write_calendar_style')),
-        'write_holidays': stack.enter_context(patch('api.views._write_holidays')),
+        'write_style': stack.enter_context(patch('api.views.calendar_assets._write_calendar_style')),
+        'write_holidays': stack.enter_context(patch('api.views.calendar_assets._write_holidays')),
         'get_storage': stack.enter_context(patch('services.storage.get_storage')),
         'cache': stack.enter_context(patch('django.core.cache.cache', MagicMock())),
     }
@@ -139,9 +139,9 @@ def test_ops_holiday_route_still_accepts_writes():
 def test_public_aliases_still_serve_reads():
     # The customer editor and the ops calendar page fetch these on mount —
     # restricting methods must not cost the reads.
-    with patch('api.views._list_calendar_styles', return_value=[]), \
-         patch('api.views._read_calendar_style', return_value={'name': 'modern-genz'}), \
-         patch('api.views._read_holidays', return_value={'events': []}):
+    with patch('api.views.calendar_assets._list_calendar_styles', return_value=[]), \
+         patch('api.views.calendar_assets._read_calendar_style', return_value={'name': 'modern-genz'}), \
+         patch('api.views.calendar_assets._read_holidays', return_value={'events': []}):
         assert _dispatch('get', '/api/calendar-styles/').status_code == 200
         assert _dispatch('get', '/api/calendar-styles/modern-genz').status_code == 200
         assert _dispatch('get', '/api/holidays/en-IN/2026').status_code == 200
