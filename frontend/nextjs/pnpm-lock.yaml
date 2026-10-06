@@ -18,9 +18,6 @@ importers:
       '@sentry/nextjs':
         specifier: ^10.0.0
         version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.202.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(next@16.2.0(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(react-dom@19.0.0(react@19.0.0))(react@19.0.0))(react@19.0.0)(webpack@5.109.2(postcss@8.4.49))
-      '@types/pica':
-        specifier: ^9.0.5
-        version: 9.0.5
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -91,15 +88,15 @@ importers:
       '@types/node':
         specifier: 25.4.0
         version: 25.4.0
+      '@types/pica':
+        specifier: ^9.0.5
+        version: 9.0.5
       '@types/react':
         specifier: 19.2.14
         version: 19.2.14
       autoprefixer:
         specifier: 10.4.20
         version: 10.4.20(postcss@8.4.49)
-      class-variance-authority:
-        specifier: 0.7.1
-        version: 0.7.1
       eslint:
         specifier: ^9.39.4
         version: 9.39.4(jiti@1.21.7)
@@ -1883,9 +1880,6 @@ packages:
 
   cjs-module-lexer@2.2.0:
     resolution: {integrity: sha512-4bHTS2YuzUvtoLjdy+98ykbNB5jS0+07EvFNXerqZQJ89F7DI6ET7OQo/HJuW6K0aVsKA9hj9/RVb2kQVOrPDQ==}
-
-  class-variance-authority@0.7.1:
-    resolution: {integrity: sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==}
 
   client-only@0.0.1:
     resolution: {integrity: sha512-IV3Ou0jSMzZrd3pZ48nLkT9DA7Ag1pnPzaiQhpW7c3RbcqqzvzzVu+L8gfqMp/8IM2MQtSiqaCxrrcfu8I8rMA==}
@@ -6197,10 +6191,6 @@ snapshots:
   cjs-module-lexer@1.4.3: {}
 
   cjs-module-lexer@2.2.0: {}
-
-  class-variance-authority@0.7.1:
-    dependencies:
-      clsx: 2.1.1
 
   client-only@0.0.1: {}
 

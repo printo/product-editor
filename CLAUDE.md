@@ -1178,7 +1178,6 @@ All under `STORAGE_ROOT` (env-driven). See [docs/CALENDAR_S3_READINESS.md](docs/
   - `backend/django/api/validators.py::validate_calendar_layout` — server-side schema validation. Mirrors `validateDraft` in `CalendarLayoutEditor.tsx`.
 - **Client**:
   - `frontend/nextjs/src/lib/calendar.ts` — shared month-grid math (TypeScript twin of the Python renderer's grid logic, with parity tests).
-  - `frontend/nextjs/src/lib/fabric-calendar.ts` — `buildCalendarFabricGroup()` for in-editor preview.
   - `frontend/nextjs/src/lib/calendar-cell-upload.ts` — cell-image upload orchestrator (chunked upload + IDB persist + optional auto-orient, Phase 8).
   - `frontend/nextjs/src/components/CalendarProductPreview.tsx` — customer-facing 12-tile grid with theme/palette/calendarType controls. Draws whatever `holidays` it is given; the editor page passes an empty list unless `printedHolidayLocale` says the print carries them.
   - `frontend/nextjs/src/components/CalendarEditPanel.tsx` — per-cell editor (text/image/hide overrides). Renders as side rail on `md+`, bottom sheet on narrow viewports (P9.3).
