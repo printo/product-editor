@@ -17,3 +17,7 @@
 # If a vendored bundle is ever added elsewhere, add it here too rather than
 # letting it swamp the graph again.
 backend/django/api/static/scalar/standalone.js
+
+# Django migrations: 60 low-value nodes (20 identical `Migration` classes). The
+# per-migration history is documented in CLAUDE.md's Migrations table instead.
+backend/django/*/migrations/
