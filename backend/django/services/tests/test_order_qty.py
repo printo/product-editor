@@ -249,7 +249,7 @@ def test_qty_summary_records_an_acknowledged_shortfall():
 
 def test_qty_summary_text_for_unacknowledged_and_full_orders():
     assert qty_summary(8, 12, SINGLE, None)['summary'] == (
-        'Customer submitted 8 photos instead of the 12 ordered (acknowledgement not recorded).')
+        'Customer submitted 8 photos instead of the 12 ordered (acknowledgement not received).')
     assert qty_summary(12, 12, SINGLE, True)['summary'] == 'Customer submitted all 12 ordered photos.'
 
 

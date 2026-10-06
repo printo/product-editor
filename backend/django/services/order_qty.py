@@ -229,4 +229,4 @@ def _qty_summary_text(placed: int, ordered: int, shortfall: int, acked: bool) ->
         return (f'Customer agreed to proceed with {placed} photos '
                 f'instead of the {ordered} ordered.')
     return (f'Customer submitted {placed} photos instead of the {ordered} ordered '
-            '(acknowledgement not recorded).')
+            '(acknowledgement not received).')

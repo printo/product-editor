@@ -65,7 +65,7 @@ otherwise (no qty sent, two-sided products, calendars, books), so guard for null
 | `ordered_qty` | The `qty` you set on the session |
 | `placed_photos` | Photos actually placed for print, counted by our server from the submission (one photo repeated into 3 slots counts as 3) |
 | `shortfall` | `ordered_qty − placed_photos`, never below 0 |
-| `summary` | One ready-to-display line for your production notes. Exactly one of: *"Customer agreed to proceed with 8 photos instead of the 12 ordered."* · *"Customer submitted 8 photos instead of the 12 ordered (acknowledgement not recorded)."* · *"Customer submitted all 12 ordered photos."* Use the numeric fields for logic, this for humans |
+| `summary` | One ready-to-display line for your production notes. Exactly one of: *"Customer agreed to proceed with 8 photos instead of the 12 ordered."* · *"Customer submitted 8 photos instead of the 12 ordered (acknowledgement not received)."* · *"Customer submitted all 12 ordered photos."* Use the numeric fields for logic, this for humans |
 | `customer_acknowledged_shortfall` | `true` when the customer was shown "You have uploaded only X out of Y photos" and chose to submit anyway. Always `false` when `shortfall` is 0 |
 
 Use it as the production reference: e.g. *"Customer agreed to print 8 instead of
