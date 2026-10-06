@@ -45,9 +45,35 @@ This handler is what completes step 3.
   "expires_at":           "2026-06-04T14:39:11.123456+00:00",
   "file_count":           15,
   "layout_name":          "classic_4x6",
-  "export_format":        "png"
+  "export_format":        "png",
+  "qty_summary": {
+    "ordered_qty":                     12,
+    "placed_photos":                   8,
+    "shortfall":                       4,
+    "customer_acknowledged_shortfall": true,
+    "summary":                         "Customer agreed to proceed with 8 photos instead of the 12 ordered."
+  }
 }
 ```
+
+**`qty_summary` — what the customer actually sent for print.** Present when the
+embed session was created with `qty` on a single-surface product; **`null`**
+otherwise (no qty sent, two-sided products, calendars, books), so guard for null.
+
+| Field | Meaning |
+|---|---|
+| `ordered_qty` | The `qty` you set on the session |
+| `placed_photos` | Photos actually placed for print, counted by our server from the submission (one photo repeated into 3 slots counts as 3) |
+| `shortfall` | `ordered_qty − placed_photos`, never below 0 |
+| `summary` | One ready-to-display line for your production notes. Exactly one of: *"Customer agreed to proceed with 8 photos instead of the 12 ordered."* · *"Customer submitted 8 photos instead of the 12 ordered (acknowledgement not received)."* · *"Customer submitted all 12 ordered photos."* Use the numeric fields for logic, this for humans |
+| `customer_acknowledged_shortfall` | `true` when the customer was shown "You have uploaded only X out of Y photos" and chose to submit anyway. Always `false` when `shortfall` is 0 |
+
+Use it as the production reference: e.g. *"Customer agreed to print 8 instead of
+the 12 ordered."* The counts come from our server, not the browser. Only the
+acknowledgement flag reflects the editor UI; a shortfall with
+`customer_acknowledged_shortfall: false` means the submission didn't come
+through the current editor. It is included in the signed body, so verify the
+signature before trusting it like any other field.
 
 **Which URL should you use?** All four point at the same completed job and take
 the same Bearer auth. They differ only in what the ZIP contains:
@@ -171,6 +197,14 @@ router.post('/api/internal/pe-callback', async (req: Request, res: Response) => 
     file_count?: number;
     layout_name?: string;
     export_format?: 'png' | 'pdf';
+    // null unless the session set qty on a single-surface product.
+    qty_summary?: {
+      ordered_qty: number;
+      placed_photos: number;
+      shortfall: number;
+      customer_acknowledged_shortfall: boolean;
+      summary: string;
+    } | null;
     error?: string;
   };
   try {
@@ -292,6 +326,8 @@ def pe_callback(request):
         # rendered before this shipped. uploads_download_url may be None.
         print_url = payload.get('print_download_url') or payload['download_url']
         mock_url = payload.get('mock_download_url')
+        # e.g. "Customer agreed to print 8 instead of 12" — None when no qty.
+        qty_summary = payload.get('qty_summary')
         # Fetch out-of-band — Product Editor has a 10s webhook timeout.
         fetch_and_attach_rendered_files.delay(
             order_id=order_id,
@@ -463,7 +499,7 @@ an order that has a `qty` set on its session.
 Under-upload is deliberately not blocked, on the server either: `qty` comes from
 you, and treating it as a hard gate in both directions would let one wrong value
 strand a real order at checkout. **If your storefront needs a guaranteed count,
-re-check `file_count` on the completion webhook before accepting the order** —
+read `qty_summary` on the completion webhook before accepting the order** —
 that is still the only guarantee, and it always will be.
 
 Applies to **single-surface products only** (photo prints, magnets, coasters).
@@ -528,6 +564,7 @@ const body = JSON.stringify({
   file_count: 1,
   layout_name: 'classic_4x6',
   export_format: 'png',
+  qty_summary: { ordered_qty: 12, placed_photos: 8, shortfall: 4, customer_acknowledged_shortfall: true, summary: 'Customer agreed to proceed with 8 photos instead of the 12 ordered.' },
 });
 const sig = crypto
   .createHmac('sha256', process.env.PRODUCT_EDITOR_API_KEY!)

@@ -29,6 +29,7 @@ from services.order_qty import (
     MAX_ORDER_QTY,
     count_placed_photos,
     parse_order_qty,
+    qty_summary,
     qty_violation,
 )
 from .permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts, CanListLayouts, CanAccessExports, IsOpsTeam
@@ -1863,8 +1864,12 @@ class EmbedSessionView(APIView):
             "submission with 400 even if the editor is bypassed.\n"
             "- **Fewer than `qty`** — allowed, with an auto-fill prompt and a "
             "pre-submit warning. Deliberate, and true on the server too: a wrong "
-            "`qty` must not strand a real order at checkout. Re-check `file_count` on "
-            "the completion webhook if you need a guaranteed count.\n"
+            "`qty` must not strand a real order at checkout. The completion webhook "
+            "carries `qty_summary` — `{ordered_qty, placed_photos, shortfall, "
+            "customer_acknowledged_shortfall, summary}`, counted by the server — so you can "
+            "record when a customer knowingly submitted fewer photos than ordered. "
+            "It is `null` when no `qty` was set or the product is multi-surface, "
+            "calendar or book.\n"
             "- Applies to **single-surface products only**. Two-sided products, "
             "calendars and books have a surface count fixed by the layout.\n\n"
             "The legacy `?qty=N` URL parameter still works as a fallback for callers "
@@ -2404,7 +2409,10 @@ class EditorRenderView(APIView):
             "posted here directly with your own key. Fewer is accepted — the "
             "asymmetry is deliberate, so a wrong `qty` cannot strand an order. "
             "Single-surface products only; calendars, books and multi-surface "
-            "products are not quantity-checked."
+            "products are not quantity-checked.\n\n"
+            "A short submission is recorded in the job's `qty_summary` and forwarded "
+            "on the completion webhook. The photo counts there are recomputed by the "
+            "server; only `qty_shortfall_acknowledged` comes from this body."
         ),
         request=inline_serializer(
             name="EditorRender",
@@ -2427,6 +2435,17 @@ class EditorRenderView(APIView):
                         "`cover` or `contain`."
                     ),
                     child=drf_serializers.DictField(),
+                ),
+                "qty_shortfall_acknowledged": drf_serializers.BooleanField(
+                    required=False, default=False,
+                    help_text=(
+                        "`true` when the customer was shown the under-quantity notice "
+                        "and chose to submit anyway. Forwarded as "
+                        "`qty_summary.customer_acknowledged_shortfall` on the completion "
+                        "webhook, and only when the server-counted photos really are "
+                        "fewer than the session's `qty`. Anything but a literal `true` "
+                        "reads as not acknowledged."
+                    ),
                 ),
             },
         ),
@@ -2534,18 +2553,23 @@ class EditorRenderView(APIView):
             .values_list('qty', flat=True)
             .first()
         )
+        order_qty_summary = None
         if order_qty is not None:
-            over = qty_violation(
-                count_placed_photos(canvases_payload),
-                order_qty,
-                _read_layout_def(layout_name),
-            )
+            placed = count_placed_photos(canvases_payload)
+            layout_def = _read_layout_def(layout_name)
+            over = qty_violation(placed, order_qty, layout_def)
             if over:
                 logger.warning(
                     "EditorRenderView: rejected over-quantity submission for "
                     "order_id=%s layout=%s (qty=%s)", order_id, layout_name, order_qty,
                 )
                 return Response({'detail': over}, status=status.HTTP_400_BAD_REQUEST)
+            # Under-quantity is accepted; record it so the webhook can tell the
+            # caller the customer knowingly submitted fewer photos.
+            order_qty_summary = qty_summary(
+                placed, order_qty, layout_def,
+                request.data.get('qty_shortfall_acknowledged'),
+            )
 
         # ── Collect + validate all upload_ids ───────────────────────────────
         all_upload_ids = []
@@ -2601,6 +2625,7 @@ class EditorRenderView(APIView):
             'image_paths': image_paths,
             'format_version': 1,
             'include_uploads': include_uploads,
+            'qty_summary': order_qty_summary,
         }
 
         # ── Submit via shared render submission service ──────────────────────

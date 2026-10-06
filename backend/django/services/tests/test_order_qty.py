@@ -30,6 +30,7 @@ from services.order_qty import (
     is_qty_enforceable,
     layout_surface_count,
     parse_order_qty,
+    qty_summary,
     qty_violation,
 )
 
@@ -236,6 +237,37 @@ def test_matches_the_browser_verdicts_it_mirrors():
         )
         rejected = qty_violation(placed, qty, layout) is not None
         assert rejected is (verdict == 'over'), (placed, qty, surfaces, verdict)
+
+
+def test_qty_summary_records_an_acknowledged_shortfall():
+    assert qty_summary(8, 12, SINGLE, True) == {
+        'ordered_qty': 12, 'placed_photos': 8, 'shortfall': 4,
+        'customer_acknowledged_shortfall': True,
+        'summary': 'Customer agreed to proceed with 8 photos instead of the 12 ordered.',
+    }
+
+
+def test_qty_summary_text_for_unacknowledged_and_full_orders():
+    assert qty_summary(8, 12, SINGLE, None)['summary'] == (
+        'Customer submitted 8 photos instead of the 12 ordered (acknowledgement not received).')
+    assert qty_summary(12, 12, SINGLE, True)['summary'] == 'Customer submitted all 12 ordered photos.'
+
+
+def test_qty_summary_only_a_literal_true_acknowledges():
+    for ack in (None, False, 'true', 1):
+        assert qty_summary(8, 12, SINGLE, ack)['customer_acknowledged_shortfall'] is False
+
+
+def test_qty_summary_no_shortfall_means_nothing_to_acknowledge():
+    s = qty_summary(12, 12, SINGLE, True)
+    assert s['shortfall'] == 0 and s['customer_acknowledged_shortfall'] is False
+
+
+def test_qty_summary_absent_without_an_enforceable_qty():
+    assert qty_summary(8, None, SINGLE, True) is None
+    assert qty_summary(8, 0, SINGLE, True) is None
+    two_sided = {'type': 'product', 'surfaces': [{'key': 'a'}, {'key': 'b'}]}
+    assert qty_summary(1, 12, two_sided, True) is None
 
 
 if __name__ == "__main__":

@@ -337,7 +337,7 @@ All exports go through one unified server-side pipeline. The previous client-sid
 3. Backend creates `CanvasData` + `RenderJob`, dispatches `render_canvas_task` to Celery.
 4. Celery worker: `LayoutEngine` consumes the submit-time `CanvasData.render_state` snapshot (falling back to `editor_state` only for pre-migration jobs) → Pillow renders at 300 DPI (PNG by default; PDF when `export_format='pdf'`).
 5. After render, files sit on disk under `EXPORTS_DIR/<job_id>/`, ready to be served by `GET /api/jobs/<job_id>/download/`.
-6. **Delivery — embed flow:** if `EmbedSession.callback_url` was set at session creation, `notify_caller_webhook_task` POSTs `{ order_id, job_id, status, download_url, print_download_url, mock_download_url, uploads_download_url, expires_at, file_count, layout_name, export_format }` to that URL plus an `X-Signature: sha256=<hmac>` header signed with the api_key. The caller fetches the ZIP(s) it wants using their api_key as Bearer auth — the combined archive, or the three single-part archives. *No internal OMS push exists.*
+6. **Delivery — embed flow:** if `EmbedSession.callback_url` was set at session creation, `notify_caller_webhook_task` POSTs `{ order_id, job_id, status, download_url, print_download_url, mock_download_url, uploads_download_url, expires_at, file_count, layout_name, export_format, qty_summary }` to that URL plus an `X-Signature: sha256=<hmac>` header signed with the api_key. The caller fetches the ZIP(s) it wants using their api_key as Bearer auth — the combined archive, or the three single-part archives. *No internal OMS push exists.*
 7. **Delivery — dashboard flow:** no webhook task fires. The browser polls `/api/render-status/{job_id}/` with exponential backoff, then fetches the ZIP from `/api/jobs/{job_id}/download/` directly.
 8. Frontend behaviour after submit:
    - **Embed**: fires `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` so the parent's UI can show "your design is being prepared". The actual file delivery happens via the webhook (above), not via postMessage.
@@ -702,9 +702,12 @@ Neither `order_id` nor `callback_url` ever appears in the iframe URL — they fl
   "expires_at":    "<ISO 8601>",
   "file_count":    12,
   "layout_name":   "circle_48mm",
-  "export_format": "png"
+  "export_format": "png",
+  "qty_summary":   { "ordered_qty": 12, "placed_photos": 8, "shortfall": 4, "customer_acknowledged_shortfall": true, "summary": "Customer agreed to proceed with 8 photos instead of the 12 ordered." }
 }
 ```
+
+`qty_summary` is `null` unless the session set an enforceable `qty`. Counts are server-derived (`services/order_qty.qty_summary`, snapshotted into `render_state` at submit); only `customer_acknowledged_shortfall` comes from the editor (`qty_shortfall_acknowledged` in the render body, true when `QtyShortfallWarning` was showing at submit).
 
 Headers: `Content-Type: application/json`, `X-Signature: sha256=<hex>`. Caller verifies with `hmac.compare_digest(hmac.new(api_key, raw_body, sha256).hexdigest(), signature)`. Then fetches whichever URL it needs with their api_key as `Authorization: Bearer <key>` to get the ZIP.
 
@@ -828,8 +831,11 @@ prefers the session value (`/editor/init` echoes it as `qty`) and falls back to
 the URL when the session carries none, so callers that haven't moved the value
 into the session body keep working. Nothing server-side honours the URL param —
 a caller that wants the cap enforced must send `qty` in the session body.
-A caller that needs a guaranteed count can still re-check `file_count` on the
-completion webhook.
+The completion webhook reports the outcome in `qty_summary` (`ordered_qty`,
+`placed_photos`, `shortfall`, `customer_acknowledged_shortfall`) — server-counted
+placements, with only the acknowledgement taken from the editor's
+`qty_shortfall_acknowledged` render-body flag. `file_count` counts output files,
+not photos, so don't use it as the photo count.
 
 ### postMessage Contract
 
