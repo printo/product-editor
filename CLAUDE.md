@@ -393,7 +393,7 @@ flowchart TD
 - `src/types/` — TypeScript interfaces for layouts, surfaces, frames
 
 ### Backend Structure
-- `api/views.py` — `GenerateLayoutView`, `RenderStatusView`, `EditorRenderView` (chunked-upload render submission), `ChunkedUploadInitView/ChunkView/CompleteView`, `EmbedSessionView/ValidateView`, `RenderJobDownloadView`, `HealthView` (`GET /api/health`, public, used by Docker healthchecks)
+- `api/views/` — the API views, a package being split by area ([docs/LARGE_FILE_SPLIT_PLAN.md](docs/LARGE_FILE_SPLIT_PLAN.md)). `__init__.py` re-exports every view, so `from api.views import X` (urls.py, tests, management commands) keeps working. Split out so far: `system.py` (`HealthView` — `GET /api/health`, public, used by Docker healthchecks — plus `ConfigView`, `CSPReportView`), `ops.py` (`CeleryMonitoringView`, `OrderDataPurgeView`), `media.py` (`OrientationDetectView`, `HeicConvertView`). Still in `__init__.py`: `GenerateLayoutView`, `RenderStatusView`, `EditorRenderView` (chunked-upload render submission), `ChunkedUploadInitView/ChunkView/CompleteView`, `EmbedSessionView/ValidateView`, `RenderJobDownloadView`, and the layout and calendar-asset views. **A test that patches a name must patch the module the view lives in** (`api.views.system.logger`, not `api.views.logger`): the package re-export is a second reference, so patching it changes nothing the view sees.
 - `api/tasks.py` — `render_canvas_task` (calls `_extract_frame_transforms` + `_extract_overlays_per_canvas` + `_build_uploaded_files_map` → `LayoutEngine`), `notify_caller_webhook_task` (only dispatched when `canvas.callback_url` is set; signs payload with HMAC-SHA256 of api_key), `garbage_collector_task` (has `soft_time_limit=3300` / `time_limit=3600`)
 - `api/models.py` — `APIKey`, `EmbedSession` (+ `order_id` + `callback_url` + `qty` fields), `CanvasData` (+ `editor_state` JSON, + `callback_url` propagated from EmbedSession), `RenderJob`, `UploadedFile` (+ `upload_session_id`), `ExportedResult`
 - `api/validators.py` — `MAX_FILE_SIZE_MB` reads from `settings.MAX_UPLOAD_FILE_SIZE_MB` (single source via env)
@@ -411,7 +411,7 @@ flowchart TD
 
 The public API reference is [Scalar](https://scalar.com) rendering the OpenAPI
 document that drf-spectacular generates from the `@extend_schema` decorators in
-`api/views.py`. Schema JSON is at `/api/schema/`; the page itself is
+the `api/views/` package. Schema JSON is at `/api/schema/`; the page itself is
 `api/templates/scalar.html`, served outside `/api/` because it is a docs page.
 
 **The schema is generated, so it can only be as good as the decorators.** Two
