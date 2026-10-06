@@ -1,16 +1,16 @@
-# Graph Report - g  (2026-09-29)
+# Graph Report - product-editor  (2026-10-06)
 
 ## Corpus Check
-- 313 files · ~402,430 words
+- 315 files · ~403,725 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 3952 nodes · 7249 edges · 333 communities (236 shown, 97 thin omitted)
-- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 917 edges (avg confidence: 0.56)
+- 3972 nodes · 7289 edges · 340 communities (243 shown, 97 thin omitted)
+- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 918 edges (avg confidence: 0.56)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f098f3f3`
+- Built from commit: `1a6d41f7`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -318,6 +318,7 @@
 - [[_COMMUNITY_Community 319|Community 319]]
 - [[_COMMUNITY_Community 320|Community 320]]
 - [[_COMMUNITY_Community 321|Community 321]]
+- [[_COMMUNITY_Community 322|Community 322]]
 - [[_COMMUNITY_Community 323|Community 323]]
 - [[_COMMUNITY_Community 324|Community 324]]
 - [[_COMMUNITY_Community 325|Community 325]]
@@ -326,6 +327,12 @@
 - [[_COMMUNITY_Community 328|Community 328]]
 - [[_COMMUNITY_Community 329|Community 329]]
 - [[_COMMUNITY_Community 330|Community 330]]
+- [[_COMMUNITY_Community 334|Community 334]]
+- [[_COMMUNITY_Community 335|Community 335]]
+- [[_COMMUNITY_Community 336|Community 336]]
+- [[_COMMUNITY_Community 337|Community 337]]
+- [[_COMMUNITY_Community 338|Community 338]]
+- [[_COMMUNITY_Community 339|Community 339]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `LayoutEngine` - 82 edges
@@ -348,8 +355,8 @@
   STORAGE_MIGRATION_COMPLETE.md → backend/django/api/models.py
 - `Direct partner generation` --references--> `GenerateLayoutView`  [EXTRACTED]
   README.md → backend/django/api/views.py
-- `Property 2: rename atomicity` --rationale_for--> `LayoutManagementView`  [EXTRACTED]
-  .kiro/specs/layout-storage-migration/design.md → backend/django/api/views.py
+- `Phase 4: MaskDownloadView presigned URLs + mask upload` --references--> `LayoutManagementView`  [EXTRACTED]
+  STORAGE_MIGRATION_COMPLETE.md → backend/django/api/views.py
 
 ## Import Cycles
 - None detected.
@@ -374,19 +381,19 @@
 - **CSP staged report-only to enforcement rollout** — csp_monitoring_plan_csp_report_only, csp_monitoring_plan_enforcement_switch, csp_monitoring_plan_test_results, product_editor_settings_py [INFERRED 0.75]
 - **CI test jobs split by dependency needs (DB-free vs DB-backed)** — workflows_ci_backend_job, workflows_ci_backend_db_job, services_tests_standalone_modules, api_tests_suite, workflows_ci_postgres_service_container, workflows_ci_redis_service_container [EXTRACTED 0.90]
 
-## Communities (333 total, 97 thin omitted)
+## Communities (340 total, 97 thin omitted)
 
 ### Community 0 - "Calendar Feature (PRD + Editor UI)"
-Cohesion: 0.21
-Nodes (21): Auto-fit text via ImageFont.getbbox() binary search, fabric-renderer.ts buildCalendarFabricGroup, services/calendar_renderer.py — render_calendar(), date-fns for month-grid date math, Reuse of storage/fonts.json + FontsView (original proposal), services/fonts.py — cached PIL.ImageFont factory, Month-grid algorithm (identical client + server math), lib/calendar.ts — shared month-grid math (TS twin) (+13 more)
+Cohesion: 0.31
+Nodes (10): Auto-fit text via ImageFont.getbbox() binary search, fabric-renderer.ts buildCalendarFabricGroup, services/calendar_renderer.py — render_calendar(), date-fns for month-grid date math, Month-grid algorithm (identical client + server math), lib/calendar.ts — shared month-grid math (TS twin), Out-of-month filler cells — date number only, Phase 4 — Calendar renderer client + server (~5 d) (+2 more)
 
 ### Community 1 - "Book Layout Materializer (Python)"
 Cohesion: 0.06
 Nodes (71): apply_gutter(), _as_float(), _canvas_width_mm(), display_label_for(), gutter_shift_fraction(), gutter_side_for(), materialize_pages(), page_count_bounds() (+63 more)
 
 ### Community 2 - "Calendar Layout Materializer (Python)"
-Cohesion: 0.05
-Nodes (77): date, display_label_for(), materialize_surfaces(), Server-side helpers for the calendar product type (CALENDAR_FEATURE_PRD.md §10 +, 1 for English (Jan), 4 for Financial (Apr)., Resolve a (year, month) pair for a given (surface, primitive) position.      The, ZIP-filename-friendly month/year label (PRD §11.6)., Expand a calendar template into a list of concrete surfaces.      Args: (+69 more)
+Cohesion: 0.11
+Nodes (33): display_label_for(), materialize_surfaces(), 1 for English (Jan), 4 for Financial (Apr)., Resolve a (year, month) pair for a given (surface, primitive) position.      The, ZIP-filename-friendly month/year label (PRD §11.6)., Expand a calendar template into a list of concrete surfaces.      Args:, resolve_surface_month(), start_month_for() (+25 more)
 
 ### Community 3 - "API Surface Separation (Render Submission)"
 Cohesion: 0.24
@@ -394,7 +401,7 @@ Nodes (10): CanvasData, Commit 3070706, create_render_job(), image_paths list, P
 
 ### Community 4 - "Core Django Models"
 Cohesion: 0.09
-Nodes (76): APIKeyUser, BearerTokenAuthentication, Custom authentication class for bearer token validation.     Validates API keys, CanvasData, EmbedSession, Short-lived session token for embedding the editor in external sites.      Exter, Persisted canvas design for async rendering and editor state recovery., Async rendering job status and results. (+68 more)
+Nodes (66): APIKeyUser, BearerTokenAuthentication, Custom authentication class for bearer token validation.     Validates API keys, CanvasData, EmbedSession, Short-lived session token for embedding the editor in external sites.      Exter, Persisted canvas design for async rendering and editor state recovery., Async rendering job status and results. (+58 more)
 
 ### Community 5 - "Embed Webhook Delivery & Archive Fetch"
 Cohesion: 0.06
@@ -409,52 +416,52 @@ Cohesion: 0.06
 Nodes (29): APIRequestAdmin, ExportedResultAdmin, Requests are created automatically., Only superusers can delete., Display file size in human readable format., Files are tracked automatically., Display file size in human readable format., Display generation time. (+21 more)
 
 ### Community 8 - "Lazy Image & PDF Page Picker"
-Cohesion: 0.07
-Nodes (31): LazyImg, LazyImgProps, PdfPagePickerModal(), PdfPagePickerModalProps, QueueItem, derivedPageFileName(), ensureMainThreadPdfJs(), fileExtension() (+23 more)
+Cohesion: 0.06
+Nodes (33): CalendarPreviewClient(), LazyImg, LazyImgProps, PdfPagePickerModal(), PdfPagePickerModalProps, QueueItem, usePdfPageImport(), derivedPageFileName() (+25 more)
 
 ### Community 9 - "Calendar Cell Upload (Frontend)"
-Cohesion: 0.13
-Nodes (14): ALLOWED_MIMES, CalendarCellUploadError, uploadCalendarCellImage(), UploadCalendarCellImageResult, validateCellImageFile(), createServerHeicConverter(), detectFileOrientation(), fingerprint() (+6 more)
+Cohesion: 0.25
+Nodes (6): detectFileOrientation(), fingerprint(), inflight, memo, OrientationOutcome, OrientationResult
 
 ### Community 10 - "Layout Cache Invalidation"
-Cohesion: 0.05
-Nodes (36): invalidate_layout_caches(), Create or update a layout in LayoutCatalogue., Drop every cache entry that can serve a stale copy of a layout.      Three famil, Property 1: cache invalidation completeness, Property 2: rename atomicity, Req 6: LayoutManagementView writes to DB, Req 7: atomic cache invalidation, Soft_Delete via is_deprecated (+28 more)
+Cohesion: 0.06
+Nodes (33): invalidate_layout_caches(), Drop every cache entry that can serve a stale copy of a layout.      Three famil, Error Handling, Property 1: cache invalidation completeness, Req 7: atomic cache invalidation, Atomic layout cache invalidation, CacheInvalidationTest, Integration tests for cache invalidation logic.  Tests cover: - Atomic cache key (+25 more)
 
 ### Community 11 - "CSP Policy & Enforcement Plan"
-Cohesion: 0.09
-Nodes (36): api.tests Django TestCase suite, deploy.sh, backend service (Django/Gunicorn), celery-beat service, Removed 'priority' Celery worker (v1.8 retirement), celery-worker-standard service, db service (postgres:16-alpine), x-default-logging YAML anchor (+28 more)
+Cohesion: 0.24
+Nodes (16): backend service (Django/Gunicorn), celery-beat service, Removed 'priority' Celery worker (v1.8 retirement), celery-worker-standard service, db service (postgres:16-alpine), .env file (compose env_file), frontend service (Next.js), Loopback-only port binding (Phase 4) (+8 more)
 
 ### Community 12 - "Layout Rename Alias Resolution"
 Cohesion: 0.09
-Nodes (12): LayoutCatalogueModelTest, Unit tests for LayoutCatalogue model and storage migration.  Tests cover: - Layo, Test that product_type is inferred from definition., Test filtering public layouts., Test category field for grouping., Test LayoutCatalogue model behavior., Create a basic layout for testing., Test creating a new layout. (+4 more)
+Nodes (13): TestCase, LayoutCatalogueModelTest, Unit tests for LayoutCatalogue model and storage migration.  Tests cover: - Layo, Test that product_type is inferred from definition., Test filtering public layouts., Test category field for grouping., Test LayoutCatalogue model behavior., Create a basic layout for testing. (+5 more)
 
 ### Community 13 - "Backend-DB Test Harness & Deploy Image"
 Cohesion: 0.18
 Nodes (11): Canvas Editor UI (community), CanvasEditorModal, Fabric.js, Fabric object state assertion via React fiber, FabricEditor, happy-dom, frontend/nextjs/jest.config.ts, jsdom (+3 more)
 
 ### Community 14 - "Calendar Layout Validator"
-Cohesion: 0.07
-Nodes (78): _check_overlays(), File validators for upload validation. Validates file size, type, and content fo, Overlays (template + per-surface/per-page) use PERCENT coords (0-100),     not t, Validate the calendar-specific fields on a layout JSON.      Invoked from Layout, Validate the book-specific fields on a layout JSON.      Invoked from LayoutMana, validate_book_layout(), validate_calendar_layout(), _validate_canvas_block() (+70 more)
+Cohesion: 0.11
+Nodes (42): Validate the calendar-specific fields on a layout JSON.      Invoked from Layout, validate_calendar_layout(), _assert_raises(), _good_layout(), _poster_layout(), Unit tests for api.validators.validate_calendar_layout (CALENDAR_FEATURE_PRD.md, x=0.8 + width=0.5 → 1.3 lands past the canvas's right edge., y=0.7 + height=0.5 → 1.2 lands past the canvas's bottom edge. (+34 more)
 
 ### Community 15 - "Upload & Overlay Validators"
-Cohesion: 0.06
-Nodes (61): Load a theme preset's JSON from the `calendar_styles/<name>` asset.      Same co, Load the active Gen-Z palette JSON.      Args:         style: layout's `calendar, Read through asset_store — the same function the ops/preview endpoints     use (, _read_calendar_asset(), _resolve_genz_palette(), _resolve_theme_style(), FakeClientError, FakeS3Client (+53 more)
+Cohesion: 0.11
+Nodes (39): Load a theme preset's JSON from the `calendar_styles/<name>` asset.      Same co, Load the active Gen-Z palette JSON.      Args:         style: layout's `calendar, _resolve_genz_palette(), _resolve_theme_style(), Swap the process-wide storage for an S3Storage over the fake client,     and STO, S3Backend, _DictCache, _dispatch() (+31 more)
 
 ### Community 16 - "Layout Read Views (Get/Init/Manage)"
 Cohesion: 0.15
-Nodes (13): GetLayoutView, MaskDownloadView, View to serve layout mask images from S3 or local storage., Get layout JSON - requires API key., Ensure path is within allowed directory (prevents path traversal)., Data Flow Diagrams, Layout Read (post-migration, `STORAGE_BACKEND=s3`), Layout Write (post-migration, ops UI) (+5 more)
+Nodes (13): GetLayoutView, MaskDownloadView, Ensure path is within allowed directory (prevents path traversal)., View to serve layout mask images from S3 or local storage., Get layout JSON - requires API key., Data Flow Diagrams, Layout Read (post-migration, `STORAGE_BACKEND=s3`), Layout Write (post-migration, ops UI) (+5 more)
 
 ### Community 17 - "Calendar Layout Editor (Ops UI)"
-Cohesion: 0.08
-Nodes (19): CalendarFabricPreview, CalendarLayoutDraft, CalendarLayoutEditor(), CalendarMode, draftToLayoutJson(), holidaySourceAsPrinted(), isRecord(), modeToCounts() (+11 more)
+Cohesion: 0.07
+Nodes (29): CalendarFabricPreview, CalendarLayoutDraft, CalendarLayoutEditorProps, CalendarMode, draftToLayoutJson(), holidaySourceAsPrinted(), isRecord(), modeToCounts() (+21 more)
 
 ### Community 18 - "Image Metadata Utilities (Frontend)"
-Cohesion: 0.07
-Nodes (30): detectJpegColorSpace(), getImageMetadata(), getImageSize(), hasTransparentPixels(), isImageComplete(), loadImageElement(), metadataCache, CanvasLike (+22 more)
+Cohesion: 0.06
+Nodes (33): detectJpegColorSpace(), getImageMetadata(), getImageSize(), hasTransparentPixels(), isImageComplete(), loadImageElement(), metadataCache, CanvasSpec (+25 more)
 
 ### Community 19 - "Calendar Styles & Holidays Views"
-Cohesion: 0.11
-Nodes (14): PIAAuthentication, PIAUser, Custom authentication class for PIA token validation.     Verifies tokens agains, HolidaysView, Write fonts config via storage abstraction and invalidate the cache., Persist a calendar style via storage abstraction and invalidate cache., Validate path-traversal-safe locale + year before touching disk.      Returns (l, Persist a holiday file via storage abstraction and invalidate cache. (+6 more)
+Cohesion: 0.10
+Nodes (17): PIAAuthentication, PIAUser, Custom authentication class for PIA token validation.     Verifies tokens agains, HolidaysView, Write fonts config via storage abstraction and invalidate the cache., Persist a calendar style via storage abstraction and invalidate cache., Validate path-traversal-safe locale + year before touching disk.      Returns (l, Persist a holiday file via storage abstraction and invalidate cache. (+9 more)
 
 ### Community 20 - "Order Quantity Enforcement (Server)"
 Cohesion: 0.09
@@ -465,8 +472,8 @@ Cohesion: 0.10
 Nodes (23): CalBlock, CalendarFabricPreviewProps, CalFrame, MONTH_SHORT, ALIGN_BUTTONS, LayoutFabricPreviewProps, LayoutFrame, AligningGuidelinesOptions (+15 more)
 
 ### Community 22 - "Book Layout TS Parity Twin"
-Cohesion: 0.06
-Nodes (42): applyGutter(), asFloat(), BookBlock, BookCanvasSpec, BookFrameSpec, BookLayoutLike, BookOverlaySpec, BookRole (+34 more)
+Cohesion: 0.09
+Nodes (28): applyGutter(), asFloat(), BookBlock, BookCanvasSpec, BookFrameSpec, BookLayoutLike, BookOverlaySpec, BookRole (+20 more)
 
 ### Community 23 - "Reconcile No-Order Uploads"
 Cohesion: 0.11
@@ -474,11 +481,11 @@ Nodes (23): Command, _haystack(), _human(), Trace storage/uploads/_no_order/ fil
 
 ### Community 24 - "LayoutEngine Frame Compositing"
 Cohesion: 0.09
-Nodes (20): Image, ImageDraw, Pre-shrink source image to 2× the frame dimensions before compositing., Parse '#rrggbb' / '#rgb' / 'rrggbb' into an (r, g, b) tuple. Falls back, Corner radius in px for a frame, matching the browser preview exactly         (f, Clip a frame-sized RGBA layer in place to the frame's rounded/circular         s, Paint the customer's paper/mat colour over the whole canvas EXCEPT the         f, Paint a contain-mode fill behind the photo, covering the whitespace a         co (+12 more)
+Nodes (24): Image, Pre-shrink source image to 2× the frame dimensions before compositing., Parse '#rrggbb' / '#rgb' / 'rrggbb' into an (r, g, b) tuple. Falls back, Corner radius in px for a frame, matching the browser preview exactly         (f, Clip a frame-sized RGBA layer in place to the frame's rounded/circular         s, Paint the customer's paper/mat colour over the whole canvas EXCEPT the         f, Paint a contain-mode fill behind the photo, covering the whitespace a         co, Draw a centred caption near the bottom of the frame, above the photo.         Si (+16 more)
 
 ### Community 25 - "SSRF Guard for Webhook URLs"
-Cohesion: 0.19
-Nodes (16): Validate a customer webhook URL and return its resolved public IPs.     Raises d, validate_public_https_url(), _addrinfo(), Tests for the SSRF guard on customer webhook URLs (Phase 4).  Run stand-alone:, When a host publishes several public records (e.g. Cloudflare-fronted     printo, The pin must route the target host's resolution to the validated IP     (closing, test_accepts_public_hostname(), test_accepts_public_ipv6() (+8 more)
+Cohesion: 0.15
+Nodes (20): _is_public_ip(), SSRF guard for customer-supplied webhook URLs (Phase 4).  EmbedSession.callback_, Resolve every A/AAAA record; raise ValidationError unless ALL are public., Validate a customer webhook URL and return its resolved public IPs.     Raises d, resolve_public_ips(), validate_public_https_url(), _addrinfo(), Tests for the SSRF guard on customer webhook URLs (Phase 4).  Run stand-alone: (+12 more)
 
 ### Community 26 - "HEIC Decoding"
 Cohesion: 0.20
@@ -486,7 +493,7 @@ Nodes (14): decode_heic_to_jpeg(), Decode HEIC/HEIF bytes to JPEG bytes.      Re
 
 ### Community 27 - "GC Status Tracking Tests"
 Cohesion: 0.14
-Nodes (22): Tests for the durable GC last-run record (services/gc_status.py).  The point of, Point STORAGE_ROOT at a throwaway dir — these tests must never touch real storag, _TempStorage, test_a_second_run_overwrites_the_first(), test_a_string_error_is_accepted(), test_failure_after_success_sets_failing_even_while_not_yet_stale(), test_failure_is_recorded_with_type_and_message(), test_failure_write_failure_returns_false_and_never_raises() (+14 more)
+Nodes (23): Tests for the durable GC last-run record (services/gc_status.py).  The point of, Point STORAGE_ROOT at a throwaway dir — these tests must never touch real storag, _TempStorage, test_a_second_run_overwrites_the_first(), test_a_string_error_is_accepted(), test_failure_after_success_sets_failing_even_while_not_yet_stale(), test_failure_is_recorded_with_type_and_message(), test_failure_with_no_prior_success_is_stale_and_failing() (+15 more)
 
 ### Community 28 - "API Key & PIA User Auth Wrappers"
 Cohesion: 0.07
@@ -497,16 +504,16 @@ Cohesion: 0.16
 Nodes (18): _canvas_state_put_source(), _purge_source(), Contract tests for DPDP erasure — see docs/DPDP_ERASURE_GAP_PRD.md.  Two defects, test_autosave_does_not_put_image_paths_in_unconditional_defaults(), test_autosave_writes_image_paths_only_when_supplied(), test_purge_queries_uploads_by_order_id(), test_purge_removes_the_orders_upload_directory(), test_purge_reports_whether_erasure_was_complete() (+10 more)
 
 ### Community 30 - "Canvas State Autosave View"
-Cohesion: 0.07
-Nodes (25): default_display_name_for(), Auto-derived display name for a layout that doesn't have an ops-curated     one, _disk_status(), LayoutManagementView, View to manage layout JSON files - requires Ops Team permissions., Guard against obviously malformed layout names., List layouts or get a specific layout's JSON., Soft-delete a layout from LayoutCatalogue. (+17 more)
+Cohesion: 0.08
+Nodes (22): LayoutManagementView, Guard against obviously malformed layout names — says nothing about existence., View to manage layout JSON files - requires Ops Team permissions., Guard against obviously malformed layout names., List layouts or get a specific layout's JSON., Create or update a layout in LayoutCatalogue., Soft-delete a layout from LayoutCatalogue., Read a layout definition for a *policy* decision, never for rendering.      Retu (+14 more)
 
 ### Community 31 - "Header Layout Context (Frontend)"
-Cohesion: 0.12
-Nodes (17): AppWrapper(), HeaderSpacer(), useHasHydrated(), Header(), HeaderBrand(), HeaderUserMenu(), HeaderUserMenuProps, HeaderContext (+9 more)
+Cohesion: 0.11
+Nodes (20): AppWrapper(), HeaderSpacer(), useHasHydrated(), Header(), HeaderBrand(), HeaderUserMenu(), HeaderUserMenuProps, HeaderContext (+12 more)
 
 ### Community 32 - "Calendar Product Preview (Customer-Facing)"
-Cohesion: 0.10
-Nodes (25): surfaceMonthList(), CAL_TYPE_OPTIONS, CalendarProductPreviewProps, CalendarTypeToggleProps, countLeapDayOrphans(), countOrphanedEntries(), FlipWarningModalProps, GenZPaletteSwatchesProps (+17 more)
+Cohesion: 0.07
+Nodes (39): CalendarLayoutEditor(), surfaceMonthList(), usePreviewHolidays(), CAL_TYPE_OPTIONS, CalendarProductPreview(), CalendarProductPreviewProps, CalendarTypeToggleProps, countLeapDayOrphans() (+31 more)
 
 ### Community 33 - "Holiday Refresh Script"
 Cohesion: 0.17
@@ -514,10 +521,10 @@ Nodes (13): mediapipe==0.10.18, Path, _angle_to_rotation(), detect_rotation(), _
 
 ### Community 34 - "File Store (IndexedDB Persistence)"
 Cohesion: 0.12
-Nodes (26): UploadCalendarCellImageOptions, cropMemo, CropResult, deleteFile(), deleteOrder(), estimateUsage(), FileRecord, FileStoreQuotaError (+18 more)
+Nodes (25): cropMemo, CropResult, deleteFile(), deleteOrder(), estimateUsage(), FileRecord, FileStoreQuotaError, getCachedCrop() (+17 more)
 
 ### Community 35 - "Imposition Sheet Layout"
-Cohesion: 0.16
+Cohesion: 0.15
 Nodes (18): canvasSpecToInches(), computeImpositionLayout(), CropMarkGeometry, cropMarkLengthsFor(), cropMarkOffsetIn(), emptyResult(), ImpositionMode, ImpositionResult (+10 more)
 
 ### Community 36 - "Django Admin SSO Signed Identity"
@@ -525,8 +532,8 @@ Cohesion: 0.12
 Nodes (29): DjangoAdminSSOMiddleware, identity_payload(), Single sign-on for the Django admin, off the PIA/Google session.  `/django-admin, Validate a signed identity, returning the trusted fields or None.      None on e, Log a verified PIA superuser into the Django admin.      Runs only for `ADMIN_PA, Derive the purpose-bound signing key, or None when no secret is configured., The exact bytes that get signed.      Newline-joined with the fields in a fixed, Hex HMAC-SHA256 over the identity payload, or None with no secret. (+21 more)
 
 ### Community 37 - "S3 Storage Backend"
-Cohesion: 0.05
-Nodes (28): _asset_unavailable_response(), CalendarStylesView, _list_calendar_styles(), 503 for a calendar-asset read the store couldn't answer (S3 outage).      Not a, Return [{name, label}] for every calendar style from asset store., Read a single calendar style JSON using asset_store. Returns None if missing/inv, GET  /api/calendar-styles/             → list summary [{name, label, description, _read_calendar_style() (+20 more)
+Cohesion: 0.14
+Nodes (20): _asset_unavailable_response(), CalendarStylesView, _list_calendar_styles(), 503 for a calendar-asset read the store couldn't answer (S3 outage).      Not a, Return [{name, label}] for every calendar style from asset store., Read a single calendar style JSON using asset_store. Returns None if missing/inv, GET  /api/calendar-styles/             → list summary [{name, label, description, _read_calendar_style() (+12 more)
 
 ### Community 38 - "Frontend TS Config"
 Cohesion: 0.09
@@ -534,7 +541,7 @@ Nodes (22): compilerOptions, allowJs, esModuleInterop, forceConsistentCasingInFi
 
 ### Community 39 - "Calendar Grid Renderer Tests"
 Cohesion: 0.09
-Nodes (39): build_month_grid(), _hex_to_rgba(), Build 35- or 42-cell month grid. Each cell: {iso, year, month, day,     dayOfWee, Merge layout style block + active Gen-Z palette + defaults.     Result has every, Returns a 3-slot cycle for user-entry dot colours., Parse "#rgb" / "#rrggbb" / "#rrggbbaa" → (r, g, b, a)., _resolve_colors(), _resolve_dot_cycle() (+31 more)
+Nodes (36): build_month_grid(), _merge_cell_pills(), Build 35- or 42-cell month grid. Each cell: {iso, year, month, day,     dayOfWee, Apply §11.14 user-first + §11.10 hard cap.     Returns up to 3 pills: [{text, do, _case(), _load_parity_fixtures(), Unit tests for services.calendar_renderer + services.calendar_holidays (CALENDAR, User entries fill first; holidays take any remaining slots (§11.14). (+28 more)
 
 ### Community 40 - "Orphan Export Sweep Tests"
 Cohesion: 0.28
@@ -545,12 +552,12 @@ Cohesion: 0.19
 Nodes (11): Pick the render contract source and image paths for a render job.      The contr, _resolve_render_inputs(), Tests for the editor_state / render_state split (Phase 2 — "submit must not over, Old render_state rows written without image_paths degrade gracefully., GenerateLayoutView rows have neither blob — engine falls back to fit_mode., A queued job renders from the submit snapshot even after autosaves., Jobs enqueued before the 0008 deploy hold the payload in editor_state., test_direct_api_caller_with_neither_field() (+3 more)
 
 ### Community 42 - "Book Layout Editor (Ops UI)"
-Cohesion: 0.13
-Nodes (17): BookFrameDraft, BookLayoutDraft, BookLayoutEditor(), BookLayoutEditorProps, BookRoleDraft, defaultBookLayout(), defaultRole(), draftToLayoutJson() (+9 more)
+Cohesion: 0.16
+Nodes (12): BookFrameDraft, BookLayoutDraft, BookLayoutEditor(), BookLayoutEditorProps, BookRoleDraft, defaultBookLayout(), defaultRole(), draftToLayoutJson() (+4 more)
 
 ### Community 43 - "Canvas Editor Modal & Color Picker"
-Cohesion: 0.08
-Nodes (31): ColorPicker(), ColorPickerProps, ServerHeicConverter, AlignmentToolbar(), AlignmentToolbarProps, H_ITEMS, HAlign, V_ITEMS (+23 more)
+Cohesion: 0.16
+Nodes (16): ColorPicker(), ColorPickerProps, ServerHeicConverter, CanvasEditorModal(), FabricEditor, ADD_TABS, CanvasEditorSidebar(), CanvasEditorSidebarProps (+8 more)
 
 ### Community 44 - "Header Brand & Role Labels"
 Cohesion: 0.16
@@ -565,20 +572,20 @@ Cohesion: 0.24
 Nodes (9): Property 3: migration idempotency, Req 2: Migration 0016 schema + idempotent import, import_layouts_from_filesystem(), _infer_product_type(), Migration, noop_reverse(), Intentional NOP.      Rows stay in Postgres to avoid accidental data loss during, RunPython forward: load prod_layouts.json into LayoutCatalogue.      Idempotent (+1 more)
 
 ### Community 47 - "Google Font Loading (Frontend)"
-Cohesion: 0.08
-Nodes (32): GENERIC_FAMILIES, GoogleFontLinks(), useGoogleFonts(), LayoutSVG(), LayoutSVGProps, LayoutConfig, LayoutCreatorPage(), LayoutFabricPreview (+24 more)
+Cohesion: 0.12
+Nodes (21): GENERIC_FAMILIES, GoogleFontLinks(), useGoogleFonts(), LayoutSVG(), LayoutSVGProps, LayoutConfig, LayoutCreatorPage(), LayoutFabricPreview (+13 more)
 
 ### Community 48 - "Calendar Month Tile Thumbnail"
-Cohesion: 0.16
-Nodes (15): DotInfo, MonthTileThumb(), ThumbColors, buildMonthGrid(), mergeCellEntries(), weekdayHeaderLabels(), appendPill(), buildCalendarFabricGroup() (+7 more)
+Cohesion: 0.11
+Nodes (28): HOLIDAYS_2026, SEED_CELLS, STUB_PALETTES, CalendarEditPanel(), CalendarEditPanelProps, formatLongDate(), ThemePresetToggleProps, DotInfo (+20 more)
 
 ### Community 49 - "Calendar Renderer Cell Drawing"
 Cohesion: 0.09
 Nodes (20): FileNotFoundError, CalendarAssetUnavailable, _json_asset_name(), _list_local_calendar_assets(), _local_calendar_asset_path(), Storage abstraction layer.  Switch between local-disk and cloud (S3 / GCS) by se, Write a calendar asset atomically using temp + rename., Delete a calendar asset. Returns True on success, False if not found. (+12 more)
 
 ### Community 50 - "LayoutEngine Render Pipeline"
-Cohesion: 0.12
-Nodes (23): _draw_shape(), _draw_text(), _parse_color(), _paste_image(), Server-side overlay renderer (Phase 1 of CALENDAR_FEATURE_PRD.md §5).  Fixes a p, Render a `TextOverlay` onto canvas (assumed RGBA mode)., Render a `ShapeOverlay` onto canvas (assumed RGBA mode)., Render an `ImageOverlay` onto canvas (assumed RGBA mode). (+15 more)
+Cohesion: 0.25
+Nodes (10): _make_sample_canvas(), _make_sample_image_overlay_file(), Smoke test for services.overlay_renderer (CALENDAR_FEATURE_PRD.md §5, Phase 1)., Regression guard: confirm `_composite_canvas` skips the new overlay path     ent, Synthetic 5×7 @ 300 DPI canvas with a soft gradient background., Drop a tiny RGBA sticker to disk so the image overlay path exercises., test_engine_short_circuits_when_overlays_none(), test_no_overlays_is_a_noop() (+2 more)
 
 ### Community 51 - "Storage Backend Abstract Interface"
 Cohesion: 0.08
@@ -596,10 +603,6 @@ Nodes (16): Architecture Diagram, Author Notes, Data Flow Example: Render, Execu
 Cohesion: 0.20
 Nodes (18): Any, BaseException, datetime, _parse_stamp(), Durable record of the last garbage-collector sweep.  Why this exists: on 2026-08, Persist that a sweep ATTEMPT failed, and why.      The first version of this mod, Report on the last recorded sweep, for the ops monitoring endpoint.      Two fie, Resolved at call time, not import time, so tests can point STORAGE_ROOT elsewher (+10 more)
 
-### Community 55 - "Calendar Preview Client"
-Cohesion: 0.16
-Nodes (14): NotFound(), CalendarPreviewClient(), HOLIDAYS_2026, SEED_CELLS, STUB_PALETTES, Page(), CalendarEditPanel(), CalendarEditPanelProps (+6 more)
-
 ### Community 56 - "Frontend Runtime Dependencies"
 Cohesion: 0.11
 Nodes (19): dependencies, clsx, exifreader, fabric, framer-motion, heic2any, jose, jszip (+11 more)
@@ -613,8 +616,8 @@ Cohesion: 0.11
 Nodes (13): ApiConfig, BearerTokenAuthenticationScheme, PIAAuthenticationScheme, ProductEditorAutoSchema, drf-spectacular extensions — how the OpenAPI schema (and therefore the Scalar re, Gives collection and detail routes of the same view distinct operationIds., `Authorization: Bearer <api-key>` — a row in the APIKey table., PIA staff session — `Authorization: Bearer <pia-jwt>` **or** the `access` cookie (+5 more)
 
 ### Community 59 - "Tasks"
-Cohesion: 0.19
-Nodes (13): _extract_backgrounds_per_canvas(), _extract_calendar_state(), _extract_frame_transforms(), _extract_overlays_per_canvas(), Pull the customer's calendar-product choices out of editor_state for     a produ, Flatten per-frame transforms from CanvasData.editor_state into a list     ordere, Extract per-canvas overlay lists from CanvasData.editor_state for the     server, Extract per-canvas background + paper colours from CanvasData.editor_state     f (+5 more)
+Cohesion: 0.12
+Nodes (21): _build_uploaded_files_map(), _extract_backgrounds_per_canvas(), _extract_book_state(), _extract_calendar_state(), _extract_canvases_meta(), _extract_frame_transforms(), _extract_overlays_per_canvas(), Celery tasks for asynchronous image generation. (+13 more)
 
 ### Community 60 - "Test Audit Middleware"
 Cohesion: 0.07
@@ -637,16 +640,16 @@ Cohesion: 0.16
 Nodes (12): Command, Annual ops task (PRD §11.9): merge a locale/year's public holidays (from the off, _date_conflicts(), fetch_public_holidays(), merge_events(), Annual holiday refresh (PRD §11.9) — the logic behind `manage.py refresh_holiday, Merge fetched events into existing, keyed by (date, name).      Custom existing, Names the stored year has on a day the source doesn't — usually a     wrong date (+4 more)
 
 ### Community 65 - "Data Lifecycle"
-Cohesion: 0.14
-Nodes (17): garbage_collector_task(), Periodic task to clean up expired export files.      Runs daily at 02:00 UTC. Re, Async Render Output Artifact, CanvasData.image_paths, Chunk Staging Artifact, Design State Artifact (CanvasData), Embed Sessions Artifact, EmbedSession row GC (closed gap) (+9 more)
+Cohesion: 0.10
+Nodes (22): garbage_collector_task(), Periodic task to clean up expired export files.      Runs daily at 02:00 UTC. Re, API Audit Trail Artifact (APIRequest), APIRequest unbounded growth (closed gap), Async Render Output Artifact, AUDIT_EXEMPT_PREFIXES, CanvasData.image_paths, Chunk Staging Artifact (+14 more)
 
 ### Community 66 - "Asset Store"
 Cohesion: 0.27
 Nodes (9): _names(), Tests that services.calendar_holidays re-reads holiday files on every call.  The, Point both the writer and the loader at a throwaway storage root., _TempHolidays, test_deleted_then_recreated_file_is_reread(), test_malformed_files_fall_back_to_empty(), test_returned_events_are_not_shared_between_calls(), test_rewrite_with_identical_size_and_mtime_is_reread() (+1 more)
 
 ### Community 67 - "Test Engine Filenames"
-Cohesion: 0.05
-Nodes (57): Replace filesystem-unsafe characters in a label; trim & collapse spaces., Resolve an explicitly-placed caption's box (px, top-left origin) from the, _sanitize_for_filename(), Parity tests for LayoutEngine._resolve_caption_box — the Python mirror of the br, test_defaults_match_legacy_bottom_centre(), test_explicit_overrides_used_verbatim(), test_explicit_width_recenters_default_x(), test_explicit_zero_is_kept_not_defaulted() (+49 more)
+Cohesion: 0.15
+Nodes (18): Replace filesystem-unsafe characters in a label; trim & collapse spaces., _sanitize_for_filename(), _blank_back_cover_surface(), Tests for layout_engine.engine output filename resolution + partial-failure clea, test_a_book_cover_role_with_empty_frames_still_raises(), test_a_non_book_surface_with_empty_frames_still_raises(), test_blank_returns_empty(), test_cleanup_continues_after_individual_failure() (+10 more)
 
 ### Community 68 - "PRD Success Metrics"
 Cohesion: 0.09
@@ -673,8 +676,8 @@ Cohesion: 0.15
 Nodes (16): Business Impact, Vistaprint & Printstop (Competitors), 3 PM Courier Cutoff, Current Production Workflow (As-Is), Customer Experience Impact, Design Preflight Team, Executive Summary, Express Delivery Order Type (+8 more)
 
 ### Community 74 - "Calendar"
-Cohesion: 0.28
-Nodes (8): displayLabelFor(), FixtureCase, FixtureFile, FIXTURES_PATH, HolidayCase, YearCase, CalendarType, WeekStart
+Cohesion: 0.16
+Nodes (36): _check_overlays(), File validators for upload validation. Validates file size, type, and content fo, Overlays (template + per-surface/per-page) use PERCENT coords (0-100),     not t, Validate the book-specific fields on a layout JSON.      Invoked from LayoutMana, validate_book_layout(), _validate_canvas_block(), _assert_raises(), _good_layout() (+28 more)
 
 ### Community 75 - "Book Pages"
 Cohesion: 0.14
@@ -689,8 +692,8 @@ Cohesion: 0.11
 Nodes (18): 11.10 No overflow indicator — hard cap of 3 total entries per cell, 11.11 `generic` locale — flexible holiday source, 11.12 Out-of-month cells — date number only, no entries, 11.13 Server-side renderer timezone — IST-only for v1, 11.14 MAX_ENTRIES precedence — user-first, 11.15 Validator — reject banned fields in `surfaceOverrides`, 11.16 Layout versioning — fresh load on every embed, 11.17 v2 readiness — S3 download path (+10 more)
 
 ### Community 78 - "Views"
-Cohesion: 0.18
-Nodes (11): 3-slot dotCycle per theme / palette, generic holiday locale (universal observances), Global holiday auto-load (holidaySource), scripts/refresh-holidays.py — annual ops task, Hard cap of 3 entries per cell, no '+N more', Design principle — minimal customer-facing controls ('templates, not configurators'), Nager.Date holiday source, Pill-style cell entries (date always visible, entries stack below) (+3 more)
+Cohesion: 0.09
+Nodes (26): ImageDraw, _draw_cell_image(), _draw_pill(), _hex_to_rgba(), Server-side calendar grid renderer (CALENDAR_FEATURE_PRD.md §5 Phase 4).  Draws, Merge layout style block + active Gen-Z palette + defaults.     Result has every, Returns a 3-slot cycle for user-entry dot colours., Draw a customer's image override into a cell (PRD §4.2.2 — replaces the     whol (+18 more)
 
 ### Community 79 - "Start Production"
 Cohesion: 0.21
@@ -701,32 +704,32 @@ Cohesion: 0.18
 Nodes (12): CaptionAlign, CaptionBoxOverrides, CaptionMmFields, hasCaptionPlacement(), resolveCaptionBox(), ResolvedCaptionBox, FrameDisplayOptions, FrameFillStyle (+4 more)
 
 ### Community 81 - "Canvas Merge"
-Cohesion: 0.26
-Nodes (6): canvasHasRealEdits(), ClaimEntry, countCanvasesLosingEdits(), planCanvasReuse(), ReusePlan, FrameState
+Cohesion: 0.23
+Nodes (7): CanvasCarry, canvasHasRealEdits(), ClaimEntry, countCanvasesLosingEdits(), planCanvasReuse(), ReusePlan, FrameState
 
 ### Community 82 - "PRD Solution Tracks A & B"
 Cohesion: 0.15
 Nodes (14): A1: Customer-Facing Preview Before Checkout, B4: Server-Side Upload + Render for Large Batches, Chunked Upload API, Superseded CMYK/RGB Colour-Space Warning, Current vs Automated Flow Comparison, POST /api/editor/render, services/image_loader.py Colour Management, Low-Resolution Detection Warning (+6 more)
 
 ### Community 83 - "Admin Sso"
-Cohesion: 0.14
-Nodes (14): _merge_cell_pills(), Apply §11.14 user-first + §11.10 hard cap.     Returns up to 3 pills: [{text, do, User entries fill first; holidays take any remaining slots (§11.14)., Anything past MAX_ENTRIES_PER_CELL is silently suppressed (§11.10)., If user has 3 entries on a holiday day, holiday is suppressed entirely., Holiday without `color` falls back to monthText / black., Whitespace-only / missing text user entries don't consume a slot., test_merge_pills_hard_cap_of_three() (+6 more)
+Cohesion: 0.25
+Nodes (18): _calendar_layout(), _generate(), _near(), Tests for Phase 2 item 6 — calendar print/preview parity:    (a) theme preset co, Render into a temp exports dir; returns (engine, outputs, workdir)., overlays_per_canvas[3] must print on month 4 only (per-surface slicing)., _solid(), test_customer_overlays_land_on_their_own_month() (+10 more)
 
 ### Community 84 - "Calendar Holidays"
 Cohesion: 0.22
 Nodes (10): _asset_name(), load_holidays_for_year(), Holiday loader for the server-side calendar renderer (CALENDAR_FEATURE_PRD.md §1, Return the asset name for (locale, year), or None if inputs are unsafe., Public API: return the events list for (locale, year), or [] on miss.      Args:, _valid_events(), test_load_holidays_bogus_locale_returns_empty(), test_load_holidays_en_in_2026_returns_seed() (+2 more)
 
 ### Community 85 - "Test Calendar Renderer"
-Cohesion: 0.12
-Nodes (17): 1. TL;DR, 2. Use cases, 3.1 Product types today, 3.2 What already generalises, 3.3 Constraints that must hold, 3. Current state — what we build on, 5.1 Schema sketch, 5.2 New server module (+9 more)
+Cohesion: 0.08
+Nodes (26): 1. TL;DR, 2. Use cases, 3.1 Product types today, 3.2 What already generalises, 3.3 Constraints that must hold, 3. Current state — what we build on, 4. Open design decisions, 5.1 Schema sketch (+18 more)
 
 ### Community 86 - "Calendar"
-Cohesion: 0.15
-Nodes (15): CalendarLayoutEditorProps, MonthOverrideModalProps, ExistingLayoutJson, CalendarState, CalendarStylePresetFile, DotCycle, GenzPalette, HolidayLocale (+7 more)
+Cohesion: 0.14
+Nodes (11): Dashboard(), AVAILABLE_TAGS, ubuntu, Dropdown(), DropdownOption, DropdownProps, SearchInput(), SearchInputProps (+3 more)
 
 ### Community 87 - "Models"
-Cohesion: 0.16
-Nodes (14): LayoutCatalogue, Single source of truth for layout definitions.      Replaces storage/layouts/*.j, Co-validate imported_at / imported_by — both set or both blank., EditorInitView, ListLayoutsView, GET /api/editor/init?layout=<name>[&surfaces=<csv>]      Returns the static, cac, List available layouts - requires API key., Design: cache key reference (unchanged) (+6 more)
+Cohesion: 0.09
+Nodes (17): LayoutCatalogue, Single source of truth for layout definitions.      Replaces storage/layouts/*.j, Co-validate imported_at / imported_by — both set or both blank., EditorInitView, ListLayoutsView, GET /api/editor/init?layout=<name>[&surfaces=<csv>]      Returns the static, cac, List available layouts - requires API key., Architecture (+9 more)
 
 ### Community 88 - "Storage"
 Cohesion: 0.18
@@ -773,8 +776,8 @@ Cohesion: 0.17
 Nodes (12): scripts, build, clean, dev, dev:clean, lint, lint:fix, start (+4 more)
 
 ### Community 99 - "Test Frame Shape"
-Cohesion: 0.09
-Nodes (29): convertAndPartitionFiles(), convertHeicFileIfNeeded(), convertHeicFiles(), decodeHeicViaBrowser(), fileExtension(), HEIC_EXTENSIONS, HEIC_MIME_TYPES, HeicConversionError (+21 more)
+Cohesion: 0.07
+Nodes (38): ALLOWED_MIMES, CalendarCellUploadError, uploadCalendarCellImage(), UploadCalendarCellImageOptions, UploadCalendarCellImageResult, validateCellImageFile(), convertAndPartitionFiles(), convertHeicFileIfNeeded() (+30 more)
 
 ### Community 100 - "Test Surface Slicing"
 Cohesion: 0.13
@@ -785,8 +788,8 @@ Cohesion: 0.22
 Nodes (11): Gutter / Spine Margin, Book/Booklet/Photobook Product Type, book_layout.py Materializer, book-layout.ts Frontend Twin, Customer-Variable Page Count, Book Layout Parity Tests, _extract_book_state, pagesToSpreads (+3 more)
 
 ### Community 102 - "Layout SVG Preview"
-Cohesion: 0.12
-Nodes (15): Cache Key Reference (unchanged), Components and Interfaces, Current State, Data Models, Deployment Runbook, Error Handling, Existing models — no schema changes, Files Modified (+7 more)
+Cohesion: 0.11
+Nodes (18): 4.1 `MaskDownloadView` — updated for S3 presigned URLs, 4.2 Mask upload within `LayoutManagementView.post`, 4.3 Mask rename / copy within `_migrate_masks_on_rename`, Cache Key Reference (unchanged), Components and Interfaces, Current State, Data Models, Deployment Runbook (+10 more)
 
 ### Community 103 - "Fabric Renderer"
 Cohesion: 0.39
@@ -821,16 +824,16 @@ Cohesion: 0.36
 Nodes (8): CanvasGroup, collectLowDpiFrames(), computeEffectiveDpi(), FrameLike, frameSizePx(), LowDpiFrame, pxPerInchForLayout(), BASE
 
 ### Community 111 - "Dropdown"
-Cohesion: 0.14
-Nodes (14): 1. Summary, 2.1 Autosave blanks `image_paths` every 2 seconds, 2.2 What the purge can still see, 2.3 A second, independent gap, 2. Evidence, 3. Impact, 5. Phasing, 6. Verification for whichever option ships (+6 more)
+Cohesion: 0.11
+Nodes (19): 1. Summary, 2.1 Autosave blanks `image_paths` every 2 seconds, 2.2 What the purge can still see, 2.3 A second, independent gap, 2. Evidence, 3. Impact, 4. Options, 5. Phasing (+11 more)
 
 ### Community 112 - "Shape Catalog"
 Cohesion: 0.36
 Nodes (5): SHAPE_CATALOG, ShapeDef, CATEGORIES, ShapesPickerProps, ShapeOverlay
 
 ### Community 113 - "Surface Allocation"
-Cohesion: 0.31
-Nodes (5): allocateFilesToSurfaces(), planFrameSlots(), surfaceFrameCount(), totalSurfaceCapacity(), slotsForSurfaces()
+Cohesion: 0.18
+Nodes (16): bucket_counts(), jobs_per_day(), Jobs submitted per day, split dashboard vs embed, for `CeleryMonitoringView`.  T, The last `days` calendar days ending on `now`'s IST date, oldest first., Fold (day, auth_source, count) rows into one entry per day of the window.      E, Query the audit trail and return the monitor block., window_days(), Tests for the jobs-per-day monitor block (services/jobs_per_day.py).  The query (+8 more)
 
 ### Community 114 - "Frontend Package Audit"
 Cohesion: 0.20
@@ -841,12 +844,12 @@ Cohesion: 0.29
 Nodes (9): _classify(), _dir_size_bytes(), _is_uuid(), _known_export_dir_names(), Path-based reclamation of export directories the database has lost track of.  Ev, Return a keep-reason, or None when the directory is a reclaimable orphan.      E, Find (and in `delete` mode remove) export dirs no DB row accounts for.      mode, Everything the database can account for, in three bulk queries.      Per-directo (+1 more)
 
 ### Community 116 - "Ops Guard"
-Cohesion: 0.15
-Nodes (12): _build_uploaded_files_map(), _extract_book_state(), _extract_canvases_meta(), notify_caller_webhook_task(), Celery tasks for asynchronous image generation., Per-payload-canvas metadata for the engine's per-surface grouping     (Phase 3):, Pull the customer's page-count choice + ops per-page overrides out of     editor, Build { upload_id → server file path } for image overlays referenced     by this (+4 more)
+Cohesion: 0.24
+Nodes (16): _india(), _names(), _on(), Tests that the annual holiday refresh (`manage.py refresh_holidays`) merges into, _run(), test_a_stored_holiday_on_the_wrong_day_is_flagged_and_kept(), test_bogus_locale_or_year_never_reaches_storage(), test_dry_run_and_failed_fetch_write_nothing() (+8 more)
 
 ### Community 117 - "Ml Orientation"
-Cohesion: 0.24
-Nodes (5): _layout_def(), POST /api/ops/layouts/<name> no longer performs a rename (2026-09-16) —     `nam, Updating an existing layout's definition without sending display_name         (e, A deprecated, aliased row (the historical shape, built directly since         th, RenameEndpointRetiredTest
+Cohesion: 0.16
+Nodes (8): _layout_def(), LayoutNameImmutabilityTest, Tests for LayoutCatalogue.resolve_active() — the rename-alias fallback.  Context, POST /api/ops/layouts/<name> no longer performs a rename (2026-09-16) —     `nam, Updating an existing layout's definition without sending display_name         (e, A deprecated, aliased row (the historical shape, built directly since         th, Model-level guard: LayoutCatalogue.name cannot change on an existing row., RenameEndpointRetiredTest
 
 ### Community 118 - "Prd"
 Cohesion: 0.28
@@ -858,11 +861,11 @@ Nodes (12): GET /api/embed/session/validate, docs/INTEGRATION.md, INTERNAL_API_K
 
 ### Community 120 - "Smoke Test Embed"
 Cohesion: 0.42
-Nodes (7): smoke-test-embed.sh script, bad(), curl(), ok(), resolve_render_layout(), skip(), step()
+Nodes (7): bad(), curl(), ok(), resolve_render_layout(), skip(), step(), smoke-test-embed.sh script
 
 ### Community 121 - "Views"
 Cohesion: 0.32
-Nodes (5): Download a generated export file securely., Check if file path is safe (no traversal attempts)., Verify full path is within allowed directory.         Defense in depth against t, Secure file serving endpoint for exports.     Requires authentication and checks, SecureExportDownloadView
+Nodes (5): Secure file serving endpoint for exports.     Requires authentication and checks, Download a generated export file securely., Check if file path is safe (no traversal attempts)., Verify full path is within allowed directory.         Defense in depth against t, SecureExportDownloadView
 
 ### Community 122 - "Layout"
 Cohesion: 0.32
@@ -876,17 +879,21 @@ Nodes (8): /api/auth/csrf, AUTH_SECRET, /api/auth/session, /api/auth/signout, au
 Cohesion: 0.25
 Nodes (8): B2: Async Image Generation Queue, Cache Eviction Risk Metric, Celery + Redis Async Queue, Daily 02:00 UTC Garbage Collection Task, Priority Worker (Dormant), GET /api/render-status/{job_id}/ Polling, Large-Batch Server Render Time Metric, Standard Worker
 
+### Community 125 - "Prd"
+Cohesion: 0.13
+Nodes (12): Closed, Data Lifecycle & Retention, Known gaps (recommended follow-ups), On-demand erasure — `DELETE /api/ops/orders/<order_id>/purge`, 2026-07-11 — `c2babbe` (Darwin arm64, dev Docker stack), Load Baselines, Conventions, Current — safe to act on (+4 more)
+
 ### Community 126 - "Reset Db"
 Cohesion: 0.46
-Nodes (7): reset-db.sh script, print_action(), print_error(), print_header(), print_info(), print_status(), print_warning()
+Nodes (7): print_action(), print_error(), print_header(), print_info(), print_status(), print_warning(), reset-db.sh script
 
 ### Community 127 - "Smoke Test Book"
 Cohesion: 0.39
-Nodes (5): smoke-test-book.sh script, bad(), ok(), skip(), step()
+Nodes (5): bad(), ok(), skip(), step(), smoke-test-book.sh script
 
 ### Community 128 - "Smoke Test Calendar"
 Cohesion: 0.54
-Nodes (7): smoke-test-calendar.sh script, bad(), check_proxy_path(), curl(), ok(), skip(), step()
+Nodes (7): bad(), check_proxy_path(), curl(), ok(), skip(), step(), smoke-test-calendar.sh script
 
 ### Community 129 - "Chunk Staging"
 Cohesion: 0.36
@@ -913,12 +920,12 @@ Cohesion: 0.52
 Nodes (6): log_error(), log_header(), log_info(), log_success(), log_warning(), fresh-install.sh script
 
 ### Community 135 - "Alignmenttoolbar"
-Cohesion: 0.18
-Nodes (19): Gen-Z palettes (Butter & Purple, Mint & Hot Pink, Lilac & Coral, Sky & Lemon), modern-genz preset (4 coordinated palettes), modern-minimalist preset, Phase 3 — Style presets + holiday data (~1.5 d), v2 readiness — signed S3 download URL, Three style presets (JSON in storage/calendar_styles/), weekday-highlight preset (Sunday stands out), services/blob_store.py shim (proposed) (+11 more)
+Cohesion: 0.15
+Nodes (22): v2 readiness — signed S3 download URL, services/blob_store.py shim (proposed), Calendar feature — S3-readiness audit (Phase 9, PRD §11.17), storage/calendar_palettes/genz/<name>.json, Calendar-specific paths, storage/calendar_styles/<name>.json (CALENDAR_STYLES_DIR), Conclusion, Engine output paths (+14 more)
 
 ### Community 136 - "Iconbrowser"
-Cohesion: 0.17
-Nodes (12): Common mistakes to avoid, Contract, Drop-in handler — Node.js / TypeScript (Express, NestJS, etc.), Drop-in handler — Python / Django (DRF), `pe:back` — customer tapped the editor's Back button, printo.in storefront — `pe-callback` integration guide, Reference, Testing locally (+4 more)
+Cohesion: 0.11
+Nodes (19): 1. Env vars, 2. Route registration, 3. Tell Product Editor where to call you, 4. Restrict uploads to the ordered quantity, 5. Firewall, Common mistakes to avoid, Contract, Drop-in handler — Node.js / TypeScript (Express, NestJS, etc.) (+11 more)
 
 ### Community 138 - "Claude"
 Cohesion: 0.33
@@ -950,7 +957,7 @@ Nodes (5): notify_caller_webhook_task, render_canvas_task, Never Mix autoretry_f
 
 ### Community 145 - "Readme"
 Cohesion: 0.22
-Nodes (9): notify_caller_render_failed_task(), Notify the embed caller that a RENDER failed, so their order flow does not     s, Response, _is_public_ip(), post_webhook_safely(), SSRF guard for customer-supplied webhook URLs (Phase 4).  EmbedSession.callback_, Resolve every A/AAAA record; raise ValidationError unless ALL are public., POST to a customer webhook with full SSRF protection. Resolve+validate the     h (+1 more)
+Nodes (9): notify_caller_render_failed_task(), notify_caller_webhook_task(), Notify the embed caller (e.g. printo.in storefront) that rendering has     compl, Notify the embed caller that a RENDER failed, so their order flow does not     s, INTEGRATION.md, README webhook delivery section, Response, post_webhook_safely() (+1 more)
 
 ### Community 146 - "Claude"
 Cohesion: 0.40
@@ -961,8 +968,8 @@ Cohesion: 0.40
 Nodes (5): APIKey (god node), APIKeyUser, Auth & API Key System (community), BearerTokenAuthentication, PIAAuthentication
 
 ### Community 149 - "Data Lifecycle"
-Cohesion: 0.40
-Nodes (5): API Audit Trail Artifact (APIRequest), APIRequest unbounded growth (closed gap), AUDIT_EXEMPT_PREFIXES, Migration 0014 (APIRequest audit retention), services/tests/test_audit_middleware.py
+Cohesion: 0.19
+Nodes (15): date, Server-side helpers for the calendar product type (CALENDAR_FEATURE_PRD.md §10 +, Read through asset_store — the same function the ops/preview endpoints     use (, Return today's date in IST. v1 customers are India-only (§11.13)., Implement the PRD §10.4 baseYear formula.      Args:         calendar_type: 'eng, Resolve a layout's `monthRange.defaultYear` to a concrete year.      `"current"`, _read_calendar_asset(), resolve_base_year() (+7 more)
 
 ### Community 150 - "Printo Logo"
 Cohesion: 0.40
@@ -985,8 +992,8 @@ Cohesion: 0.50
 Nodes (4): product_editor/celery.py, Explicit Task Routing Rule, No Hardcoded Broker/Backend URLs Rule, Priority Queue Safety-Net, Not QoS Rule
 
 ### Community 156 - "Not Found"
-Cohesion: 0.25
-Nodes (4): CalendarProductPreview(), yearBadgeText(), FIXED_NOW, PALETTES
+Cohesion: 0.14
+Nodes (4): boto3>=1.26.0, Design: S3Storage backend, Production storage backend using Amazon S3.      Layouts: served from Postgres (, S3Storage
 
 ### Community 157 - "Claude"
 Cohesion: 0.50
@@ -1034,7 +1041,7 @@ Nodes (11): Data Lifecycle & DPDP (community), docs/AI_GUARDRAILS.md, Code Wins 
 
 ### Community 271 - "Readme"
 Cohesion: 0.22
-Nodes (9): Cache Performance, Database Queries, Error Logs, Known Limitations (Phase 6), Monitoring, Overview, Storage Migration Deployment Runbook, Success Criteria (+1 more)
+Nodes (9): Deployment, Known Limitations (Phase 6), Overview, Step 1: Push to Main, Step 2: Run Deploy Script, Step 3: Verify Migration Completed, Storage Migration Deployment Runbook, Success Criteria (+1 more)
 
 ### Community 272 - "Readme"
 Cohesion: 0.18
@@ -1053,16 +1060,16 @@ Cohesion: 0.22
 Nodes (10): B5 — Stale .next/ cache, CI backend job, CI frontend job, .github/workflows/ci.yml, frontend/nextjs, GitHub Free Actions billing lock, next.config.mjs, pnpm dev:clean (+2 more)
 
 ### Community 281 - "Init"
-Cohesion: 0.20
-Nodes (10): Backend CSP Headers ✅, Configuration, CSP Violations Monitoring & Enforcement Plan, Current State, Editor Testing ✅, Files to Monitor, Findings - Final Validation Complete ✅, Notes (+2 more)
+Cohesion: 0.14
+Nodes (14): Backend CSP Headers ✅, Configuration, CSP Violations Monitoring & Enforcement Plan, Current State, Editor Testing ✅, Enforcement Switch, Files to Monitor, Findings - Final Validation Complete ✅ (+6 more)
 
 ### Community 283 - "Community 283"
 Cohesion: 0.20
 Nodes (10): 4.0 Design principle — minimal customer-facing controls, 4.1 Architectural shape, 4.2.1 Layout-level `calendar` (in layout JSON), 4.2.2 Per-canvas `calendarState` (in `editor_state`), 4.2 New data types, 4.3 Rendering algorithm (client + server, identical math), 4.4 Library research summary (validated against npm + Pillow ecosystem), 4.5 Reuse vs build new (+2 more)
 
 ### Community 284 - "Community 284"
-Cohesion: 0.17
-Nodes (12): defaultYear: 'current' — auto-rolling year, CalendarProductPreview.tsx — 12-month customer preview, Calendar type — English (Jan..Dec) vs Financial (Apr..Mar), Calendar type flip warning modal (orphaned entries hidden, not deleted), ZIP filenames from displayLabel ('January 2026.png'), Feb 29 entries on non-leap years — one-time toast, entries kept, Per-day entries as one flat { iso_date: [CellOverride] } map, Cells keyed by ISO date, no cell IDs (+4 more)
+Cohesion: 0.09
+Nodes (45): defaultYear: 'current' — auto-rolling year, Validator rejects banned fields in surfaceOverrides, CalendarProductPreview.tsx — 12-month customer preview, Calendar type — English (Jan..Dec) vs Financial (Apr..Mar), Calendar type flip warning modal (orphaned entries hidden, not deleted), calendars: [] (plural) with monthOffset, Constraint: monthRange.count × calendars.length === 12, ZIP filenames from displayLabel ('January 2026.png') (+37 more)
 
 ### Community 285 - "Community 285"
 Cohesion: 0.20
@@ -1093,16 +1100,16 @@ Cohesion: 0.22
 Nodes (9): AI Guardrails — Product Editor, API reference schema (drf-spectacular → Scalar at `/docs/api/`), Async Task Rules (Celery), Backend Guardrails (Django), Data Consistency, Data Integrity, Frontend Guardrails (Next.js/Fabric.js), General Rules (+1 more)
 
 ### Community 292 - "Community 292"
-Cohesion: 0.22
-Nodes (9): 4. Open design decisions, D1 — Page model: leaves or sides? ← *highest impact* — ✅ **ANSWERED 2026-08-14**, D2 — Is page count fixed by the template or chosen by the customer? — ✅ **ANSWERED 2026-08-14**, D2a — What does the ops author actually author? — ✅ **ANSWERED 2026-08-14**, D3 — Photo → page mapping — ✅ **ANSWERED 2026-08-14**, D4 — Cover treatment — ✅ **ANSWERED 2026-08-14**, D5 — Gutter / safe area on inner edges — ✅ **ANSWERED 2026-08-14**, D6 — Does the customer editor show single pages or spreads? — ✅ **ANSWERED 2026-08-14** (+1 more)
+Cohesion: 0.17
+Nodes (11): CanvasLike, checkOrderQty(), collectDuplicateFills(), collectEmptySurfaces(), DuplicateFill, duplicateFingerprint(), EmptySurface, fingerprint() (+3 more)
 
 ### Community 293 - "Community 293"
 Cohesion: 0.22
 Nodes (9): 10.1 Calendar as a Multi-Surface Product, 10.2.1 Per-surface overrides (sparse, optional), 10.2 Single-template authoring + 12-surface auto-gen, 10.3 Ops vs Customer control split (updated), 10.4 Auto-rolling year (no manual maintenance), 10.5 Photobook and other future product types, 10.6 Resolved open questions (May 21, 2026), 10.7 Revised effort — superseded by the §5 replan (+1 more)
 
 ### Community 294 - "Community 294"
-Cohesion: 0.25
-Nodes (9): CalendarCellOverride (text | image | hide), CalendarEditPanel.tsx — per-cell customer editor, Cell-image expiry — 'Image expired, please re-upload', Cell images reuse smartcrop + cover-fit + auto-orientation, Phase 10 — Smoke tests & QA (~1 d), Phase 8 — Cell-image upload pipeline (~1 d), Phase 9 — Polish, safeguards, docs (~2 d), Reuse-vs-build cheat-sheet (+1 more)
+Cohesion: 0.24
+Nodes (10): CalendarCellOverride (text | image | hide), CalendarEditPanel.tsx — per-cell customer editor, Cell-image expiry — 'Image expired, please re-upload', Cell images reuse smartcrop + cover-fit + auto-orientation, Phase 10 — Smoke tests & QA (~1 d), Phase 5 — Customer-facing preview (~3 d), Phase 8 — Cell-image upload pipeline (~1 d), Phase 9 — Polish, safeguards, docs (~2 d) (+2 more)
 
 ### Community 295 - "Community 295"
 Cohesion: 0.36
@@ -1117,8 +1124,8 @@ Cohesion: 0.36
 Nodes (7): CSP_REPORT_ONLY setting, CSP_SCRIPT_SRC directive, frame-ancestors CSP directive, CSP Test Results (2026-09-10), Fabric.js, frontend/nextjs/next.config.mjs, backend/django/product_editor/settings.py
 
 ### Community 298 - "Community 298"
-Cohesion: 0.25
-Nodes (8): Calendar feature — S3-readiness audit (Phase 9, PRD §11.17), Calendar-specific paths, Conclusion, Engine output paths, No hardcoded paths outside STORAGE_ROOT, S3 transition path (when ready), Storage roots (all env-driven), ZIP delivery
+Cohesion: 0.17
+Nodes (13): _AnyContentTypeParser, DRF parser that matches any Content-Type without consuming the body.      Return, BaseParser, Pillow==10.3.0, pillow-heif==0.22.0, Exception, HeicDecodeError, HeicUnavailableError (+5 more)
 
 ### Community 300 - "Community 300"
 Cohesion: 0.33
@@ -1137,16 +1144,16 @@ Cohesion: 0.29
 Nodes (7): 3.1 Existing layout JSON schema, 3.2 Existing overlay system (preview-only today), 3.3 Existing z-order conventions (FabricEditor.tsx), 3.4 Existing editor UI, 3.5 Existing fonts plumbing, 3.6 Existing canvas state persistence, 3. Current state — what we have to work with
 
 ### Community 304 - "Community 304"
-Cohesion: 0.38
-Nodes (7): Validator rejects banned fields in surfaceOverrides, calendars: [] (plural) with monthOffset, Constraint: monthRange.count × calendars.length === 12, Phase 2 — Calendar product type schema (~3 d), Multi-calendar single-surface (year-on-one-poster) mode, Surface index → (year, month) resolution formula, api/validators.py calendar-block validation
+Cohesion: 0.23
+Nodes (10): SurfaceDefinition, blankSurfaceState(), ReconcileResult, roleForSurfaceKey(), toSurfaceDefinition(), CanvasEditorModalProps, FitMode, SurfaceState (+2 more)
 
 ### Community 305 - "Community 305"
-Cohesion: 0.29
-Nodes (7): 1. Env vars, 2. Route registration, 3. Tell Product Editor where to call you, 4. Restrict uploads to the ordered quantity, 5. Firewall, The layout identifier in your iframe URL is a permanent, stable key (as of Sep 16, 2026), Wiring
+Cohesion: 0.19
+Nodes (4): FakeClientError, FakeS3Client, In-memory stand-in for the boto3 S3 client, plus a context manager that swaps th, Same shape as botocore.exceptions.ClientError.
 
 ### Community 306 - "Community 306"
-Cohesion: 0.25
-Nodes (4): TestCase, LayoutNameImmutabilityTest, Tests for LayoutCatalogue.resolve_active() — the rename-alias fallback.  Context, Model-level guard: LayoutCatalogue.name cannot change on an existing row.
+Cohesion: 0.27
+Nodes (10): _engine(), _near(), Tests for frame-shape clipping + contain-mode bleed in layout_engine.engine._com, A full-circle frame (borderRadiusMm big enough) is RED at the centre and     WHI, borderRadiusMm=0 -> no clipping; corners stay RED (regression guard for     the, A contain-mode image zoomed past its frame must not paint into the     neighbour, _solid(), test_circle_frame_clips_corners_to_background() (+2 more)
 
 ### Community 307 - "Community 307"
 Cohesion: 0.33
@@ -1157,16 +1164,16 @@ Cohesion: 0.33
 Nodes (6): Post-Deployment Verification, Step 1: Verify Layout Count, Step 2: Check Cache Invalidation Logic, Step 3: Test Ops Management, Step 4: Test Embed Flow, Step 5: Run Smoke Tests
 
 ### Community 309 - "Community 309"
-Cohesion: 0.08
-Nodes (20): Replace the key in place and return the new value.          Rotating in place ra, render_canvas_task(), Pillow==10.3.0, pillow-heif==0.22.0, LayoutEngine, Load a mask image from its URL path, or return None., Convert normalized (0–1) frame coordinates to pixels.          JSON-defined layo, Extract a single-surface definition from a legacy (non-product) layout JSON. (+12 more)
+Cohesion: 0.11
+Nodes (14): Replace the key in place and return the new value.          Rotating in place ra, render_canvas_task(), LayoutEngine, Load a mask image from its URL path, or return None., Convert normalized (0–1) frame coordinates to pixels.          JSON-defined layo, Extract a single-surface definition from a legacy (non-product) layout JSON., Write image data to disk atomically using .tmp → rename pattern., Yield (batch, n) for each image batch in this surface.         n is 1-indexed an (+6 more)
 
 ### Community 310 - "Community 310"
 Cohesion: 0.33
 Nodes (6): Backend, Cleanup, Documentation, Frontend / Next.js Proxies, Required Changes, Tests
 
 ### Community 311 - "Community 311"
-Cohesion: 0.33
-Nodes (6): Conventions, Current — safe to act on, Not started — plans, Product Editor — documentation index, Removed, Shipped — historical design records
+Cohesion: 0.31
+Nodes (11): _dark_ys(), _full_frame_surface(), _near(), Integration test for overlays flowing through the compositor (layout_engine.engi, Return the set of y rows in [y0, y1) that contain a dark pixel., Text is placed with the editor's originY:'center', so it must STRADDLE     its y, _solid(), test_image_overlay_renders_from_uploaded_files() (+3 more)
 
 ### Community 312 - "Community 312"
 Cohesion: 0.40
@@ -1185,8 +1192,8 @@ Cohesion: 0.40
 Nodes (5): 1. Editor Page (`/editor/layout/[name]`), 2. Embed Iframe Test, 3. Admin/Dashboard Pages, 4. CSP Report Verification, Monitoring Checklist
 
 ### Community 316 - "Community 316"
-Cohesion: 0.40
-Nodes (5): 4. Options, Option A — stop autosave clobbering `image_paths` *(small)*, Option B — give `UploadedFile` an order linkage *(migration)*, Option C — filesystem sweep in the purge *(belt and braces)*, Recommendation
+Cohesion: 0.39
+Nodes (10): _centre(), _generate(), _near(), Tests for per-surface payload grouping in multi-surface products (Phase 3 — cros, _solid(), test_meta_routes_each_photo_to_its_own_surface(), test_omitted_surface_prints_blank_not_the_other_photo(), test_transforms_follow_their_surface() (+2 more)
 
 ### Community 317 - "Community 317"
 Cohesion: 0.40
@@ -1205,12 +1212,16 @@ Cohesion: 0.50
 Nodes (4): All Render Paths Load from LayoutCatalogue, Audit Trail (2026-09-04), Critical: LayoutEngine Constructor, Layout Loading (Storage Migration)
 
 ### Community 321 - "Community 321"
-Cohesion: 0.50
-Nodes (4): Enforcement Switch, GC_ORPHAN_SWEEP armed to delete (closed gap), Orphaned Export Dirs Artifact, services/orphan_exports.py
+Cohesion: 0.29
+Nodes (10): api.tests Django TestCase suite, services/tests/test_*.py standalone modules, CI backend-db job, CI backend job, CI concurrency group (cancel-in-progress), mediapipe excluded from CI deps, OpenAPI schema validation step, CI postgres:16-alpine service container (+2 more)
+
+### Community 322 - "Community 322"
+Cohesion: 0.31
+Nodes (8): Resolve an explicitly-placed caption's box (px, top-left origin) from the, Parity tests for LayoutEngine._resolve_caption_box — the Python mirror of the br, test_defaults_match_legacy_bottom_centre(), test_explicit_overrides_used_verbatim(), test_explicit_width_recenters_default_x(), test_explicit_zero_is_kept_not_defaulted(), test_none_and_empty_string_fall_back_to_defaults(), test_px_per_mm_scales_mm_values()
 
 ### Community 323 - "Community 323"
-Cohesion: 0.50
-Nodes (4): Deployment, Step 1: Push to Main, Step 2: Run Deploy Script, Step 3: Verify Migration Completed
+Cohesion: 0.39
+Nodes (7): _cases(), _layout(), _materialize(), TS ↔ Python parity for whether a calendar product carries holidays, and which lo, Run the print's materializer, recording which locales it loaded., test_fixture_has_cases(), test_print_holiday_gate_matches_fixture()
 
 ### Community 324 - "Community 324"
 Cohesion: 0.50
@@ -1221,16 +1232,40 @@ Cohesion: 0.50
 Nodes (4): 4.8.1 Foundation phase — server-side overlay rendering (v1.12), 4.8.2 Calendar phase (v1.13), 4.8.3 Z-order summary (post-feature), 4.8 Render pipeline changes
 
 ### Community 326 - "Community 326"
-Cohesion: 0.50
-Nodes (4): Closed, Data Lifecycle & Retention, Known gaps (recommended follow-ups), On-demand erasure — `DELETE /api/ops/orders/<order_id>/purge`
+Cohesion: 0.38
+Nodes (4): default_display_name_for(), Auto-derived display name for a layout that doesn't have an ops-curated     one, DefaultDisplayNameTest, default_display_name_for() must match the frontend's formatLayoutDisplayName() e
 
 ### Community 327 - "Community 327"
 Cohesion: 0.50
 Nodes (4): 1.1 Model (`api/models.py`), 1.2 Migration (`api/migrations/0016_import_layout_catalogue.py`), 1.3 Export Script (`backend/scripts/export_layout_catalogue.py`), Phase 1: `LayoutCatalogue` Model and Migration 0016
 
 ### Community 328 - "Community 328"
+Cohesion: 0.29
+Nodes (6): AlignmentToolbar(), AlignmentToolbarProps, H_ITEMS, HAlign, V_ITEMS, VAlign
+
+### Community 334 - "Community 334"
+Cohesion: 0.33
+Nodes (5): IconBrowser(), IconBrowserProps, IconResult, INITIAL_ICONS, ImageOverlay
+
+### Community 335 - "Community 335"
+Cohesion: 0.48
+Nodes (6): _cases(), _layout(), TS ↔ Python parity for the calendar's year: monthRange.defaultYear + calendarTyp, test_fixture_has_cases(), test_print_month_labels_match_fixture(), test_resolve_default_year_matches_fixture()
+
+### Community 336 - "Community 336"
+Cohesion: 0.40
+Nodes (5): _disk_status(), _jobs_per_day_status(), Jobs submitted per day, dashboard vs embed, for the ops monitoring endpoint., Live disk usage for EXPORTS_DIR, for the ops monitoring endpoint.      Returns a, Get Celery worker and queue statistics.
+
+### Community 337 - "Community 337"
+Cohesion: 0.33
+Nodes (6): deploy.sh, x-default-logging YAML anchor, nginx.conf single-file bind mount gotcha, nginx_logs volume, proxy service (nginx), web network
+
+### Community 338 - "Community 338"
 Cohesion: 0.50
-Nodes (4): 4.1 `MaskDownloadView` — updated for S3 presigned URLs, 4.2 Mask upload within `LayoutManagementView.post`, 4.3 Mask rename / copy within `_migrate_masks_on_rename`, Phase 4: Mask Serving and Upload
+Nodes (4): Cache Performance, Database Queries, Error Logs, Monitoring
+
+### Community 339 - "Community 339"
+Cohesion: 0.50
+Nodes (4): pnpm lint (CI), pnpm test -- --ci, pnpm typecheck (CI), CI frontend job
 
 ## Knowledge Gaps
 - **919 isolated node(s):** `Migration`, `Migration`, `Migration`, `Migration`, `Migration` (+914 more)
@@ -1240,12 +1275,12 @@ Nodes (4): 4.1 `MaskDownloadView` — updated for S3 presigned URLs, 4.2 Mask up
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `LayoutEngine` connect `Community 309` to `Calendar Feature (PRD + Editor UI)`, `Book Layout Materializer (Python)`, `Calendar Layout Materializer (Python)`, `Core Django Models`, `Colour-Managed Image Loader (ICC to sRGB)`, `Alignmenttoolbar`, `Layout Read Views (Get/Init/Manage)`, `Calendar Styles & Holidays Views`, `LayoutEngine Frame Compositing`, `Community 284`, `Canvas State Autosave View`, `S3 Storage Backend`, `Test Smart Downscale Zoom`, `Test Engine Filenames`, `Render Submission`, `Submit Guards`, `Test Canvas Colors`, `Models`, `Views`?**
-  _High betweenness centrality (0.088) - this node is a cross-community bridge._
+- **Why does `LayoutEngine` connect `Community 309` to `Book Layout Materializer (Python)`, `Core Django Models`, `Colour-Managed Image Loader (ICC to sRGB)`, `Alignmenttoolbar`, `Layout Read Views (Get/Init/Manage)`, `Calendar Styles & Holidays Views`, `LayoutEngine Frame Compositing`, `Community 284`, `Canvas State Autosave View`, `S3 Storage Backend`, `Community 298`, `Community 306`, `Community 311`, `Community 316`, `Test Smart Downscale Zoom`, `Community 322`, `Test Engine Filenames`, `Render Submission`, `Submit Guards`, `Test Canvas Colors`, `Admin Sso`, `Models`, `Views`?**
+  _High betweenness centrality (0.085) - this node is a cross-community bridge._
+- **Why does `render_canvas_task()` connect `Community 309` to `Test Queue Guards`, `Django Admin: API Key & Request`, `Render Payload Extraction Helpers`, `Backfill Exported Results`, `Calendar Renderer Cell Drawing`, `Calendar Styles & Holidays Views`, `Tasks`, `Community 284`?**
+  _High betweenness centrality (0.041) - this node is a cross-community bridge._
 - **Why does `PRD: Product Editor — End-to-End Production Automation` connect `Prd` to `Test Surface Slicing`, `PRD Success Metrics`, `PRD Business Impact`, `PRD Solution Tracks A & B`, `Prd`, `Community 317`, `PRD Open Items — API Surface`, `PRD Gap Items B1/B7`?**
-  _High betweenness centrality (0.053) - this node is a cross-community bridge._
-- **Why does `LayoutManagementView` connect `Canvas State Autosave View` to `Core Django Models`, `S3 Storage Backend`, `Render Submission`, `Django Admin: API Key & Request`, `Layout Cache Invalidation`, `Test Caption Layout`, `Calendar Layout Validator`, `Layout Read Views (Get/Init/Manage)`, `Calendar Styles & Holidays Views`, `Community 309`, `Models`?**
-  _High betweenness centrality (0.052) - this node is a cross-community bridge._
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
 - **Are the 31 inferred relationships involving `LayoutEngine` (e.g. with `render_canvas_task()` and `_AnyContentTypeParser`) actually correct?**
   _`LayoutEngine` has 31 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 30 inferred relationships involving `S3Storage` (e.g. with `_AnyContentTypeParser` and `CalendarStylesView`) actually correct?**
