@@ -7,7 +7,7 @@
   "backend/django/api/admin.py": {
     "mtime": 1790694529.5950336,
     "ast_hash": "22f752ca5f1d4676e0884d494e13b907",
-    "semantic_hash": ""
+    "semantic_hash": "22f752ca5f1d4676e0884d494e13b907"
   },
   "backend/django/api/apps.py": {
     "mtime": 1788450865.9065063,
@@ -82,7 +82,7 @@
   "backend/django/api/models.py": {
     "mtime": 1790694529.5957367,
     "ast_hash": "fac5b96969d0e5e1dc1b6779f9c8f7f9",
-    "semantic_hash": ""
+    "semantic_hash": "fac5b96969d0e5e1dc1b6779f9c8f7f9"
   },
   "backend/django/api/permissions.py": {
     "mtime": 1780143284.539341,
@@ -97,7 +97,7 @@
   "backend/django/api/urls.py": {
     "mtime": 1790694530.6101234,
     "ast_hash": "776706e59f76764df0a5bf18b8bf7f67",
-    "semantic_hash": ""
+    "semantic_hash": "776706e59f76764df0a5bf18b8bf7f67"
   },
   "backend/django/api/validators.py": {
     "mtime": 1786714653.5965464,
@@ -107,7 +107,7 @@
   "backend/django/api/views.py": {
     "mtime": 1791305279.4816868,
     "ast_hash": "65a529378ef9a10015e5f588e81de179",
-    "semantic_hash": ""
+    "semantic_hash": "65a529378ef9a10015e5f588e81de179"
   },
   "backend/django/entrypoint.sh": {
     "mtime": 1787631578.6883132,
@@ -152,7 +152,7 @@
   "backend/django/product_editor/settings.py": {
     "mtime": 1790694530.6118698,
     "ast_hash": "2c9fc9c5591887206b4b5727b8fedcca",
-    "semantic_hash": ""
+    "semantic_hash": "2c9fc9c5591887206b4b5727b8fedcca"
   },
   "backend/django/product_editor/urls.py": {
     "mtime": 1786615176.1614635,
@@ -172,12 +172,12 @@
   "backend/django/services/calendar_holidays.py": {
     "mtime": 1790701435.795716,
     "ast_hash": "28424dc536abaa19b6c4f8333b1ea35e",
-    "semantic_hash": ""
+    "semantic_hash": "28424dc536abaa19b6c4f8333b1ea35e"
   },
   "backend/django/services/calendar_layout.py": {
     "mtime": 1790701435.7966294,
     "ast_hash": "f6b935baaffb51b63da34372f5369828",
-    "semantic_hash": ""
+    "semantic_hash": "f6b935baaffb51b63da34372f5369828"
   },
   "backend/django/services/calendar_renderer.py": {
     "mtime": 1784128613.1285641,
@@ -187,7 +187,7 @@
   "backend/django/services/fonts.py": {
     "mtime": 1790694529.5994525,
     "ast_hash": "d6b24f15c37068efc54f46a1e5220b62",
-    "semantic_hash": ""
+    "semantic_hash": "d6b24f15c37068efc54f46a1e5220b62"
   },
   "backend/django/services/orientation.py": {
     "mtime": 1780143284.6122088,
@@ -202,7 +202,7 @@
   "backend/django/services/storage.py": {
     "mtime": 1790701435.797455,
     "ast_hash": "bce51eb7494cc1ae5e2ea94483031ae8",
-    "semantic_hash": ""
+    "semantic_hash": "bce51eb7494cc1ae5e2ea94483031ae8"
   },
   "backend/django/services/tests/__init__.py": {
     "mtime": 1780143284.6125796,
@@ -277,7 +277,7 @@
   "frontend/nextjs/next.config.mjs": {
     "mtime": 1790694530.6203198,
     "ast_hash": "d70033b130ca84afa1f7c6b615228400",
-    "semantic_hash": ""
+    "semantic_hash": "d70033b130ca84afa1f7c6b615228400"
   },
   "frontend/nextjs/package.json": {
     "mtime": 1789543270.8434029,
@@ -307,7 +307,7 @@
   "frontend/nextjs/src/app/api/internal/proxy/[...path]/route.ts": {
     "mtime": 1790694530.6211462,
     "ast_hash": "19edd152f388c02162fa30addc946fab",
-    "semantic_hash": ""
+    "semantic_hash": "19edd152f388c02162fa30addc946fab"
   },
   "frontend/nextjs/src/app/api/upload-layout/route.ts": {
     "mtime": 1780143284.6183875,
@@ -317,7 +317,7 @@
   "frontend/nextjs/src/app/dashboard/page.tsx": {
     "mtime": 1789617784.3363786,
     "ast_hash": "40e77e5e5f0dd6909e7ce1dd0e7b0ba4",
-    "semantic_hash": ""
+    "semantic_hash": "40e77e5e5f0dd6909e7ce1dd0e7b0ba4"
   },
   "frontend/nextjs/src/app/dev/calendar-preview/page.tsx": {
     "mtime": 1784128613.148764,
@@ -372,7 +372,7 @@
   "frontend/nextjs/src/app/editor/layout/[name]/page.tsx": {
     "mtime": 1790701435.8047833,
     "ast_hash": "1853828c3be3a79d4bdff1aae89acad0",
-    "semantic_hash": ""
+    "semantic_hash": "1853828c3be3a79d4bdff1aae89acad0"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/types.ts": {
     "mtime": 1786101590.6505976,
@@ -387,17 +387,17 @@
   "frontend/nextjs/src/app/editor/layouts/calendar/[name]/__tests__/page.test.tsx": {
     "mtime": 1789617784.3386924,
     "ast_hash": "8be5b606b4b5b9bb6026302c537904b8",
-    "semantic_hash": ""
+    "semantic_hash": "8be5b606b4b5b9bb6026302c537904b8"
   },
   "frontend/nextjs/src/app/editor/layouts/calendar/[name]/page.tsx": {
     "mtime": 1790701435.8059213,
     "ast_hash": "65293197958d09767bea155622926a8f",
-    "semantic_hash": ""
+    "semantic_hash": "65293197958d09767bea155622926a8f"
   },
   "frontend/nextjs/src/app/editor/layouts/page.tsx": {
     "mtime": 1790697734.683592,
     "ast_hash": "12b2d71ba19b74f09878d915b3314aa2",
-    "semantic_hash": ""
+    "semantic_hash": "12b2d71ba19b74f09878d915b3314aa2"
   },
   "frontend/nextjs/src/app/layout.tsx": {
     "mtime": 1784128613.155394,
@@ -442,12 +442,12 @@
   "frontend/nextjs/src/components/CalendarLayoutEditor.tsx": {
     "mtime": 1790702654.3857648,
     "ast_hash": "ada8dd68aea6a6e78801402cf19d915f",
-    "semantic_hash": ""
+    "semantic_hash": "ada8dd68aea6a6e78801402cf19d915f"
   },
   "frontend/nextjs/src/components/CalendarProductPreview.tsx": {
     "mtime": 1790694530.6273408,
     "ast_hash": "5da7c21b8a5f14af002eaea868f288af",
-    "semantic_hash": ""
+    "semantic_hash": "5da7c21b8a5f14af002eaea868f288af"
   },
   "frontend/nextjs/src/components/ColorPicker.tsx": {
     "mtime": 1780143284.622842,
@@ -462,7 +462,7 @@
   "frontend/nextjs/src/components/LayoutSVG.tsx": {
     "mtime": 1790697734.6841552,
     "ast_hash": "a225398fa3be4797be5ebbad273eb1e5",
-    "semantic_hash": ""
+    "semantic_hash": "a225398fa3be4797be5ebbad273eb1e5"
   },
   "frontend/nextjs/src/components/LazyImg.tsx": {
     "mtime": 1788531297.5214348,
@@ -487,17 +487,17 @@
   "frontend/nextjs/src/components/__tests__/CalendarLayoutEditor.parity.test.ts": {
     "mtime": 1790702654.3864229,
     "ast_hash": "783281979aa17c2e5a2cb6edf10ce893",
-    "semantic_hash": ""
+    "semantic_hash": "783281979aa17c2e5a2cb6edf10ce893"
   },
   "frontend/nextjs/src/components/__tests__/CalendarLayoutEditor.test.tsx": {
     "mtime": 1790702654.387841,
     "ast_hash": "0155a6eca3ee8c3fc4c5f35a2958bc05",
-    "semantic_hash": ""
+    "semantic_hash": "0155a6eca3ee8c3fc4c5f35a2958bc05"
   },
   "frontend/nextjs/src/components/__tests__/CalendarProductPreview.test.tsx": {
     "mtime": 1790694530.628523,
     "ast_hash": "df947d001c9d9e27429bf9922425ea78",
-    "semantic_hash": ""
+    "semantic_hash": "df947d001c9d9e27429bf9922425ea78"
   },
   "frontend/nextjs/src/components/__tests__/MonthTileThumb.test.tsx": {
     "mtime": 1780143284.6239753,
@@ -547,7 +547,7 @@
   "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts": {
     "mtime": 1790701435.807611,
     "ast_hash": "b4cec6fb1c3db87e6fe48394b13f1e23",
-    "semantic_hash": ""
+    "semantic_hash": "b4cec6fb1c3db87e6fe48394b13f1e23"
   },
   "frontend/nextjs/src/lib/calendar-cell-upload.ts": {
     "mtime": 1786730641.992915,
@@ -557,7 +557,7 @@
   "frontend/nextjs/src/lib/calendar.ts": {
     "mtime": 1790701435.8084419,
     "ast_hash": "ae441a40c0b88d83e38af1cfeff1cc8c",
-    "semantic_hash": ""
+    "semantic_hash": "ae441a40c0b88d83e38af1cfeff1cc8c"
   },
   "frontend/nextjs/src/lib/fabric-calendar.ts": {
     "mtime": 1783748009.935628,
@@ -567,12 +567,12 @@
   "frontend/nextjs/src/lib/fabric-utils.ts": {
     "mtime": 1790697734.6860278,
     "ast_hash": "82f4280333d2f0d31540f4d370bc5d12",
-    "semantic_hash": ""
+    "semantic_hash": "82f4280333d2f0d31540f4d370bc5d12"
   },
   "frontend/nextjs/src/lib/file-store.ts": {
     "mtime": 1790697734.6867192,
     "ast_hash": "ca77f727baa3625be6caa84ffd247509",
-    "semantic_hash": ""
+    "semantic_hash": "ca77f727baa3625be6caa84ffd247509"
   },
   "frontend/nextjs/src/lib/image-utils.ts": {
     "mtime": 1787642470.6507764,
@@ -617,7 +617,7 @@
   "frontend/nextjs/src/types/calendar.ts": {
     "mtime": 1790702654.3886788,
     "ast_hash": "52b3fa0fcae630072bc407ce7210359e",
-    "semantic_hash": ""
+    "semantic_hash": "52b3fa0fcae630072bc407ce7210359e"
   },
   "frontend/nextjs/src/types/fabric-augmentation.d.ts": {
     "mtime": 1784273895.472269,
@@ -750,9 +750,9 @@
     "semantic_hash": "046353200c0614ab4fd7bf51c5102eef"
   },
   "CLAUDE.md": {
-    "mtime": 1791305279.4804218,
-    "ast_hash": "9672026c7f8dec7a1ea374767ec8b368",
-    "semantic_hash": ""
+    "mtime": 1791305431.0754569,
+    "ast_hash": "824566d3d2ea6b355c8a91c11b20a316",
+    "semantic_hash": "824566d3d2ea6b355c8a91c11b20a316"
   },
   "README.md": {
     "mtime": 1788461069.760867,
@@ -767,12 +767,12 @@
   "backend/django/requirements.txt": {
     "mtime": 1790701435.794342,
     "ast_hash": "cf687557aaf83c26086696bf473f6836",
-    "semantic_hash": ""
+    "semantic_hash": "cf687557aaf83c26086696bf473f6836"
   },
   "docker-compose.yml": {
     "mtime": 1790694530.6169991,
     "ast_hash": "e950246089c2816715d983c02fa47708",
-    "semantic_hash": ""
+    "semantic_hash": "e950246089c2816715d983c02fa47708"
   },
   "frontend/nextjs/public/favicon.png": {
     "mtime": 1780143284.615899,
@@ -917,7 +917,7 @@
   "frontend/nextjs/src/app/dev/calendar-preview/calendar-preview-client.tsx": {
     "mtime": 1790694530.6226518,
     "ast_hash": "0792c27b6eceea5e63ca8df2ba5791b4",
-    "semantic_hash": ""
+    "semantic_hash": "0792c27b6eceea5e63ca8df2ba5791b4"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/canvas-merge.test.ts": {
     "mtime": 1784128613.1506736,
@@ -1032,12 +1032,12 @@
   "docs/AI_GUARDRAILS.md": {
     "mtime": 1790694530.6175966,
     "ast_hash": "12a9c191892ed919f496a393d4c2126d",
-    "semantic_hash": ""
+    "semantic_hash": "12a9c191892ed919f496a393d4c2126d"
   },
   "docs/CALENDAR_FEATURE_PRD.md": {
     "mtime": 1790702654.3847063,
     "ast_hash": "b053e504dc99edb4e3d7d24ea1a60b22",
-    "semantic_hash": ""
+    "semantic_hash": "b053e504dc99edb4e3d7d24ea1a60b22"
   },
   "docs/DATA_LIFECYCLE.md": {
     "mtime": 1789067977.8379982,
@@ -1047,7 +1047,7 @@
   "docs/INTEGRATION.md": {
     "mtime": 1789617784.334466,
     "ast_hash": "111c1fb42094239a930233d029096e7b",
-    "semantic_hash": ""
+    "semantic_hash": "111c1fb42094239a930233d029096e7b"
   },
   "docs/LOAD_BASELINE.md": {
     "mtime": 1786695168.7148595,
@@ -1282,7 +1282,7 @@
   "frontend/nextjs/src/lib/__tests__/ops-guard.test.ts": {
     "mtime": 1790694530.6299088,
     "ast_hash": "05f2067a4cfa6ab3873e3a93576c121e",
-    "semantic_hash": ""
+    "semantic_hash": "05f2067a4cfa6ab3873e3a93576c121e"
   },
   "frontend/nextjs/src/lib/__tests__/pdf-import.test.ts": {
     "mtime": 1786512861.4629428,
@@ -1322,7 +1322,7 @@
   "frontend/nextjs/src/lib/ops-guard.ts": {
     "mtime": 1790694530.6314237,
     "ast_hash": "578bb469110b693520be2576baca4cfe",
-    "semantic_hash": ""
+    "semantic_hash": "578bb469110b693520be2576baca4cfe"
   },
   "frontend/nextjs/src/lib/pdf-import.ts": {
     "mtime": 1786512861.4640687,
@@ -1387,7 +1387,7 @@
   "docs/README.md": {
     "mtime": 1789617784.3356056,
     "ast_hash": "95ec0d3a7bf245215eb22890ba744290",
-    "semantic_hash": ""
+    "semantic_hash": "95ec0d3a7bf245215eb22890ba744290"
   },
   "backend/django/api/management/commands/reconcile_no_order_uploads.py": {
     "mtime": 1786732695.4644713,
@@ -1417,12 +1417,12 @@
   "frontend/nextjs/src/app/editor/layouts/book/[name]/page.tsx": {
     "mtime": 1789617784.3379557,
     "ast_hash": "7caf7e52a5c4b33fc233cd7de5c70145",
-    "semantic_hash": ""
+    "semantic_hash": "7caf7e52a5c4b33fc233cd7de5c70145"
   },
   "frontend/nextjs/src/components/BookLayoutEditor.tsx": {
     "mtime": 1789617784.3414862,
     "ast_hash": "98daacfe639fa5bb540c0d5655d3e2c2",
-    "semantic_hash": ""
+    "semantic_hash": "98daacfe639fa5bb540c0d5655d3e2c2"
   },
   "frontend/nextjs/src/components/__tests__/BookLayoutEditor.test.tsx": {
     "mtime": 1786740575.868377,
@@ -1487,7 +1487,7 @@
   "backend/django/services/asset_store.py": {
     "mtime": 1790701435.7949307,
     "ast_hash": "6bcbbfbbf3025a628b12ae668c4b1e30",
-    "semantic_hash": ""
+    "semantic_hash": "6bcbbfbbf3025a628b12ae668c4b1e30"
   },
   "backend/django/services/chunk_staging.py": {
     "mtime": 1787735759.892257,
@@ -1577,7 +1577,7 @@
   "docs/CALENDAR_S3_READINESS.md": {
     "mtime": 1790701435.803128,
     "ast_hash": "91ff59589948f0e870294fd12bc81258",
-    "semantic_hash": ""
+    "semantic_hash": "91ff59589948f0e870294fd12bc81258"
   },
   "frontend/nextjs/public/printo-logo.webp": {
     "mtime": 1787818683.7862878,
@@ -1607,7 +1607,7 @@
   "backend/django/api/tests/test_layout_rename_alias.py": {
     "mtime": 1789617784.3312066,
     "ast_hash": "6f9a75308949022ef4a94e0418ec2b3c",
-    "semantic_hash": ""
+    "semantic_hash": "6f9a75308949022ef4a94e0418ec2b3c"
   },
   "backend/django/services/tests/test_csp_report.py": {
     "mtime": 1789106967.7565057,
@@ -1632,126 +1632,126 @@
   "backend/django/api/management/commands/refresh_holidays.py": {
     "mtime": 1790701435.7918947,
     "ast_hash": "454e970811dd9a8ce2493d49b0c23c74",
-    "semantic_hash": ""
+    "semantic_hash": "454e970811dd9a8ce2493d49b0c23c74"
   },
   "backend/django/api/static/admin/api/apikey_copy.js": {
     "mtime": 1790694529.596154,
     "ast_hash": "41edc153fa7dbd16a54401774e994f30",
-    "semantic_hash": ""
+    "semantic_hash": "41edc153fa7dbd16a54401774e994f30"
   },
   "backend/django/api/tests/test_apikey_regenerate.py": {
     "mtime": 1790694529.5975883,
     "ast_hash": "61b0bfb682e4e462acb906ec222b41a3",
-    "semantic_hash": ""
+    "semantic_hash": "61b0bfb682e4e462acb906ec222b41a3"
   },
   "backend/django/services/holiday_refresh.py": {
     "mtime": 1790701435.7969391,
     "ast_hash": "96d6e599cac9e6c41fdc1d13e7c9e46a",
-    "semantic_hash": ""
+    "semantic_hash": "96d6e599cac9e6c41fdc1d13e7c9e46a"
   },
   "backend/django/services/tests/fake_s3.py": {
     "mtime": 1790701435.797752,
     "ast_hash": "cc09652c5d769953f201cf9fe6c63751",
-    "semantic_hash": ""
+    "semantic_hash": "cc09652c5d769953f201cf9fe6c63751"
   },
   "backend/django/services/tests/test_calendar_assets_s3.py": {
     "mtime": 1790701435.798243,
     "ast_hash": "ec9c3e092f289d515486ef9c63c26957",
-    "semantic_hash": ""
+    "semantic_hash": "ec9c3e092f289d515486ef9c63c26957"
   },
   "backend/django/services/tests/test_calendar_holidays.py": {
     "mtime": 1790701435.8003387,
     "ast_hash": "c27c40697657c15a0f4b4850de3aa27b",
-    "semantic_hash": ""
+    "semantic_hash": "c27c40697657c15a0f4b4850de3aa27b"
   },
   "backend/django/services/tests/test_calendar_holidays_parity.py": {
     "mtime": 1790701435.8023522,
     "ast_hash": "6ba43a89b065d308336c3db4de97dd1f",
-    "semantic_hash": ""
+    "semantic_hash": "6ba43a89b065d308336c3db4de97dd1f"
   },
   "backend/django/services/tests/test_calendar_year_parity.py": {
     "mtime": 1790694530.6152904,
     "ast_hash": "878f7c0ff3c4f684f025fcc8ca545e73",
-    "semantic_hash": ""
+    "semantic_hash": "878f7c0ff3c4f684f025fcc8ca545e73"
   },
   "backend/django/services/tests/test_fonts.py": {
     "mtime": 1790694529.600585,
     "ast_hash": "537dc0c29398b8d0cca5efca3f2e2eb3",
-    "semantic_hash": ""
+    "semantic_hash": "537dc0c29398b8d0cca5efca3f2e2eb3"
   },
   "backend/django/services/tests/test_holiday_refresh.py": {
     "mtime": 1790701435.802642,
     "ast_hash": "e59e539b4831995d50dfa731cb62c15d",
-    "semantic_hash": ""
+    "semantic_hash": "e59e539b4831995d50dfa731cb62c15d"
   },
   "backend/django/services/tests/test_ops_write_routes.py": {
     "mtime": 1790694530.6159008,
     "ast_hash": "a7224b37e26102d2981ccc879de91cf5",
-    "semantic_hash": ""
+    "semantic_hash": "a7224b37e26102d2981ccc879de91cf5"
   },
   "frontend/nextjs/src/app/api/internal/proxy/__tests__/ops-tier-gate.test.ts": {
     "mtime": 1790694530.6216927,
     "ast_hash": "4b6d1a0a7230cce20aefbc94b8bf1afe",
-    "semantic_hash": ""
+    "semantic_hash": "4b6d1a0a7230cce20aefbc94b8bf1afe"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/file-refs.test.ts": {
     "mtime": 1790697734.680938,
     "ast_hash": "ee32c5949c4958cee48e1ac86d5bfd76",
-    "semantic_hash": ""
+    "semantic_hash": "ee32c5949c4958cee48e1ac86d5bfd76"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/file-refs.ts": {
     "mtime": 1790697734.6812415,
     "ast_hash": "6753df624a2042dedabad538946f4a50",
-    "semantic_hash": ""
+    "semantic_hash": "6753df624a2042dedabad538946f4a50"
   },
   "frontend/nextjs/src/lib/__tests__/file-store.test.ts": {
     "mtime": 1790697734.684467,
     "ast_hash": "186e139d1487abad8aea5a1836721ef5",
-    "semantic_hash": ""
+    "semantic_hash": "186e139d1487abad8aea5a1836721ef5"
   },
   "frontend/nextjs/src/lib/__tests__/units.test.ts": {
     "mtime": 1790697734.685055,
     "ast_hash": "ba65dec2e972f6e10e8b5a797c2272ec",
-    "semantic_hash": ""
+    "semantic_hash": "ba65dec2e972f6e10e8b5a797c2272ec"
   },
   "frontend/nextjs/src/lib/units.ts": {
     "mtime": 1790697734.686978,
     "ast_hash": "dbf7dce4db08f99296d9bfd1fa8c22a7",
-    "semantic_hash": ""
+    "semantic_hash": "dbf7dce4db08f99296d9bfd1fa8c22a7"
   },
   "storage/parity-fixtures/calendar-holidays.json": {
     "mtime": 1790702654.3896303,
     "ast_hash": "4a2aad18d6f68521606364e9a6d824d6",
-    "semantic_hash": ""
+    "semantic_hash": "4a2aad18d6f68521606364e9a6d824d6"
   },
   "storage/parity-fixtures/calendar-year.json": {
     "mtime": 1790694530.6318197,
     "ast_hash": "b191c17e524c59d7bc4c43212a3eeea8",
-    "semantic_hash": ""
+    "semantic_hash": "b191c17e524c59d7bc4c43212a3eeea8"
   },
   "backend/django/api/templates/admin/api/apikey/change_form.html": {
     "mtime": 1790694529.5966566,
     "ast_hash": "298fda9932ce8d48afe18de810a410e2",
-    "semantic_hash": ""
+    "semantic_hash": "298fda9932ce8d48afe18de810a410e2"
   },
   "backend/django/api/templates/admin/api/apikey/key_reveal.html": {
     "mtime": 1790694529.596939,
     "ast_hash": "c19a522a44950995aa501a23229c9592",
-    "semantic_hash": ""
+    "semantic_hash": "c19a522a44950995aa501a23229c9592"
   },
   "backend/django/api/templates/admin/api/apikey/regenerate_confirm.html": {
     "mtime": 1790694529.5972886,
     "ast_hash": "3843887800b0e2a34863d2739d4b3b22",
-    "semantic_hash": ""
+    "semantic_hash": "3843887800b0e2a34863d2739d4b3b22"
   },
   "backend/django/services/jobs_per_day.py": {
     "mtime": 1791305279.4820523,
     "ast_hash": "9e8e195fe98e7b3b319f955a9ea94417",
-    "semantic_hash": ""
+    "semantic_hash": "9e8e195fe98e7b3b319f955a9ea94417"
   },
   "backend/django/services/tests/test_jobs_per_day.py": {
     "mtime": 1791305279.482279,
     "ast_hash": "f04998ede1812e11ebbabe9a3343aa7b",
-    "semantic_hash": ""
+    "semantic_hash": "f04998ede1812e11ebbabe9a3343aa7b"
   }
 }
