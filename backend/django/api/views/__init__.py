@@ -28,10 +28,10 @@ from services.order_qty import (
     qty_summary,
     qty_violation,
 )
-from .permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts, CanListLayouts, CanAccessExports, IsOpsTeam
-from .authentication import APIKeyUser
-from .validators import validate_image_files
-from .models import UploadedFile, ExportedResult, EmbedSession
+from ..permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts, CanListLayouts, CanAccessExports, IsOpsTeam
+from ..authentication import APIKeyUser
+from ..validators import validate_image_files
+from ..models import UploadedFile, ExportedResult, EmbedSession
 
 logger = logging.getLogger(__name__)
 
@@ -2754,7 +2754,7 @@ class FontsView(APIView):
     )
     def put(self, request):
         # Only ops team can modify fonts
-        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        from ..authentication import PIAAuthentication, BearerTokenAuthentication
         user = None
         for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
             try:
@@ -2982,7 +2982,7 @@ class CalendarStylesView(APIView):
             )
 
         # Ops-only mutation — mirror the FontsView gate.
-        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        from ..authentication import PIAAuthentication, BearerTokenAuthentication
         user = None
         for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
             try:
@@ -3153,7 +3153,7 @@ class HolidaysView(APIView):
 
     def _gate_ops(self, request):
         """Returns (user, None) on success or (None, Response) on auth failure."""
-        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        from ..authentication import PIAAuthentication, BearerTokenAuthentication
         user = None
         for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
             try:
