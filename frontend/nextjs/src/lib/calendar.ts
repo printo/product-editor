@@ -228,17 +228,6 @@ export function isoFromDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** "YYYY-MM-DD" → Date at local midnight. Returns null on parse error. */
-export function isoToDate(iso: string): Date | null {
-  const parts = iso.split('-');
-  if (parts.length !== 3) return null;
-  const y = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  const day = parseInt(parts[2], 10);
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day)) return null;
-  return new Date(y, m - 1, day);
-}
-
 // ─── Weekday header labels ──────────────────────────────────────────────────
 
 /**
@@ -311,16 +300,6 @@ export function mergeCellEntries(
   }
 
   return out;
-}
-
-/**
- * Does this cell have an image override that should blank everything?
- * Image override is mutually exclusive with text entries.
- */
-export function cellHasImageOverride(
-  overrides: CalendarCellOverride[] | undefined,
-): boolean {
-  return Boolean(overrides?.some(o => o.type === 'image'));
 }
 
 // ─── Theme + palette colour resolution (parity with calendar_renderer.py) ───
