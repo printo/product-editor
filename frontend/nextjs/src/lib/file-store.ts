@@ -275,25 +275,6 @@ function recordToFile(rec: FileRecord): File {
   return new File([rec.blob], rec.name, { type: rec.type, lastModified: rec.lastModified });
 }
 
-export async function getFile(fileId: string): Promise<File | null> {
-  const mem = memFiles.get(fileId);
-  if (mem) return recordToFile(mem);
-  try {
-    const store = await tx("readonly");
-    return await new Promise((resolve, reject) => {
-      const req = store.get(fileId);
-      req.onsuccess = () => {
-        const rec = req.result as FileRecord | undefined;
-        if (!rec) return resolve(null);
-        resolve(recordToFile(rec));
-      };
-      req.onerror = () => reject(req.error);
-    });
-  } catch {
-    return null; // memory-mode miss — nothing durable to read
-  }
-}
-
 export async function getFilesForOrder(orderId: string): Promise<Map<string, File>> {
   const out = new Map<string, File>();
   memFiles.forEach(rec => {

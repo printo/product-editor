@@ -106,44 +106,6 @@ export function normalizeLayout(raw: any): NormalizedLayout {
   };
 }
 
-// ─── Denormalize (for saving) ────────────────────────────────────────────────
-
-export function denormalizeLayout(normalized: NormalizedLayout): any {
-  const base: any = {
-    name: normalized.name,
-    tags: normalized.tags,
-    createdAt: normalized.createdAt,
-    createdBy: normalized.createdBy,
-    updatedAt: normalized.updatedAt,
-    updatedBy: normalized.updatedBy,
-    metadata: normalized.metadata,
-  };
-
-  if (normalized.type === 'single' && normalized.surfaces.length <= 1) {
-    // Flat format — backward compatible
-    const surface = normalized.surfaces[0];
-    if (surface) {
-      base.canvas = surface.canvas;
-      base.frames = surface.frames;
-      base.maskUrl = surface.maskUrl;
-      base.maskOnExport = surface.maskOnExport;
-    }
-  } else {
-    // Multi-surface format
-    base.type = 'product';
-    base.surfaces = normalized.surfaces.map((s) => ({
-      key: s.key,
-      label: s.label,
-      canvas: s.canvas,
-      frames: s.frames,
-      maskUrl: s.maskUrl,
-      maskOnExport: s.maskOnExport,
-    }));
-  }
-
-  return base;
-}
-
 // ─── Discriminated helpers (no `as any`) ────────────────────────────────────
 
 /**

@@ -3,7 +3,6 @@ import re
 import json
 import time
 import logging
-from functools import wraps
 from typing import Optional, Dict, Any, List
 from django.conf import settings
 from django.db.models import Count, Q
@@ -15,9 +14,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.utils.crypto import get_random_string
 from django.core.exceptions import ValidationError
-import platform
-import signal
-import threading
 import sentry_sdk
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, inline_serializer
 from drf_spectacular.types import OpenApiTypes
@@ -38,36 +34,6 @@ from .validators import validate_image_files
 from .models import UploadedFile, ExportedResult, EmbedSession
 
 logger = logging.getLogger(__name__)
-
-
-def timeout_handler(signum, frame):
-    """Handle timeout for long-running operations."""
-    raise TimeoutError("Operation timed out")
-
-
-def with_timeout(seconds=600):
-    """Decorator to add timeout to operations. (600 seconds = 10 minutes default — matches Celery render_canvas_task hard limit)"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            if (platform.system() == 'Windows'
-                    or not hasattr(signal, 'SIGALRM')
-                    or threading.current_thread() is not threading.main_thread()):
-                # SIGALRM only works on the main thread; skip timeout in worker threads
-                return func(*args, **kwargs)
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(seconds)
-            try:
-                result = func(*args, **kwargs)
-                signal.alarm(0)  # Disable alarm
-                return result
-            except TimeoutError as e:
-                logger.error(f"Operation timeout in {func.__name__}: {str(e)}")
-                raise
-            finally:
-                signal.alarm(0)  # Ensure alarm is disabled
-        return wrapper
-    return decorator
 
 
 class HealthView(APIView):

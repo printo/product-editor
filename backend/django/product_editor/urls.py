@@ -3,11 +3,7 @@ from django.urls import path, include
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView
 
-def trigger_error(request):
-    division_by_zero = 1 / 0
-
 urlpatterns = [
-    path("sentry-debug/", trigger_error),
     path("django-admin/", admin.site.urls),
     path("api/", include("api.urls")),
     # OpenAPI 3 schema (JSON) — consumed by Scalar UI

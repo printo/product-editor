@@ -31,16 +31,16 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        // /api/auth/*, /api/embed/proxy/*, /api/internal/proxy/* and
-        // /api/upload-layout are handled by Next.js Route Handlers — they must
-        // NOT be forwarded to Django. All other /api/* routes go to the backend.
+        // /api/auth/*, /api/embed/proxy/* and /api/internal/proxy/* are
+        // handled by Next.js Route Handlers — they must NOT be forwarded to
+        // Django. All other /api/* routes go to the backend.
         //
         // A bare rewrites() array is `afterFiles`, which is evaluated BEFORE
         // dynamic routes. Both proxies are catch-all ([...path]) routes, i.e.
         // dynamic — so anything this pattern matches beats its route handler.
         // internal/proxy was missing here, so every dashboard/editor call was
         // rewritten to Django as /api/internal/proxy/<path> and came back 404.
-        source: '/api/:path((?!auth|embed/proxy|internal/proxy|upload-layout).*)',
+        source: '/api/:path((?!auth|embed/proxy|internal/proxy).*)',
         destination: process.env.INTERNAL_API_URL
           ? `${process.env.INTERNAL_API_URL}/:path`
           : process.env.NEXT_PUBLIC_API_BASE_URL

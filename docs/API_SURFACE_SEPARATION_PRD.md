@@ -371,7 +371,7 @@ This keeps input adapters separate while ensuring one DB/job/queue flow.
 - Make both dashboard and embed submissions use identical `render_state` schema.
 - Ensure layout resolution is consistent for layout name, layout id, or SKU.
 - Remove unreachable `GenerateLayoutView._handle_sync()`.
-- Remove or simplify `with_timeout()` if no other code uses it.
+- Remove or simplify `with_timeout()` if no other code uses it. *(Done 2026-10-06 — it outlived `_handle_sync()` unused and was deleted.)*
 - Keep `POST /api/layout/generate` route active.
 - Keep `POST /api/editor/render` route active.
 - Ensure `callback_url` can only enter render jobs from `X-Callback-URL`, not request body.
@@ -471,7 +471,7 @@ Smoke tests:
 ### Phase 2: Remove Unreachable Sync Code
 
 - Delete `GenerateLayoutView._handle_sync()`.
-- Delete `with_timeout()` if unused.
+- Delete `with_timeout()` if unused. *(Done 2026-10-06.)*
 - Update docs that mention sync generation.
 
 ### Phase 3: Proxy Helper Cleanup

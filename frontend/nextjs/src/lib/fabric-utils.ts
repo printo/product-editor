@@ -94,34 +94,6 @@ import {
 } from 'fabric';
 import { getShapePath, getShapeDef } from '@/lib/shape-catalog';
 
-// ─── Canvas lifecycle ────────────────────────────────────────────────────────
-
-export interface InitCanvasOptions {
-  backgroundColor?: string;
-  selection?: boolean;
-}
-
-export function initFabricCanvas(
-  canvasEl: HTMLCanvasElement,
-  width: number,
-  height: number,
-  options: InitCanvasOptions = {},
-): Canvas {
-  const canvas = new Canvas(canvasEl, {
-    width,
-    height,
-    backgroundColor: options.backgroundColor ?? '#ffffff',
-    selection: options.selection ?? true,
-    // preserveObjectStacking defaults to true in Fabric 7
-  });
-  return canvas;
-}
-
-export function disposeFabricCanvas(canvas: Canvas | null) {
-  if (!canvas) return;
-  canvas.dispose();
-}
-
 // ─── Frame rectangles ────────────────────────────────────────────────────────
 
 export interface FrameRectOptions {
@@ -221,18 +193,6 @@ export function createFrameLabel(
 
 export function snapToGrid(value: number, gridSize: number): number {
   return Math.round(value / gridSize) * gridSize;
-}
-
-export function applySnapToGrid(
-  target: FabricObject,
-  gridSize: number,
-) {
-  const left = target.left ?? 0;
-  const top = target.top ?? 0;
-  target.set({
-    left: snapToGrid(left, gridSize),
-    top: snapToGrid(top, gridSize),
-  });
 }
 
 // ─── Aligning Guidelines ────────────────────────────────────────────────────
