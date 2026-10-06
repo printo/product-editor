@@ -195,6 +195,13 @@ router.post('/api/internal/pe-callback', async (req: Request, res: Response) => 
     file_count?: number;
     layout_name?: string;
     export_format?: 'png' | 'pdf';
+    // null unless the session set qty on a single-surface product.
+    qty_summary?: {
+      ordered_qty: number;
+      placed_photos: number;
+      shortfall: number;
+      customer_acknowledged_shortfall: boolean;
+    } | null;
     error?: string;
   };
   try {
@@ -316,6 +323,8 @@ def pe_callback(request):
         # rendered before this shipped. uploads_download_url may be None.
         print_url = payload.get('print_download_url') or payload['download_url']
         mock_url = payload.get('mock_download_url')
+        # e.g. "Customer agreed to print 8 instead of 12" — None when no qty.
+        qty_summary = payload.get('qty_summary')
         # Fetch out-of-band — Product Editor has a 10s webhook timeout.
         fetch_and_attach_rendered_files.delay(
             order_id=order_id,
@@ -552,6 +561,7 @@ const body = JSON.stringify({
   file_count: 1,
   layout_name: 'classic_4x6',
   export_format: 'png',
+  qty_summary: { ordered_qty: 12, placed_photos: 8, shortfall: 4, customer_acknowledged_shortfall: true },
 });
 const sig = crypto
   .createHmac('sha256', process.env.PRODUCT_EDITOR_API_KEY!)
