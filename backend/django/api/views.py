@@ -29,6 +29,7 @@ from services.order_qty import (
     MAX_ORDER_QTY,
     count_placed_photos,
     parse_order_qty,
+    qty_summary,
     qty_violation,
 )
 from .permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts, CanListLayouts, CanAccessExports, IsOpsTeam
@@ -2534,18 +2535,23 @@ class EditorRenderView(APIView):
             .values_list('qty', flat=True)
             .first()
         )
+        order_qty_summary = None
         if order_qty is not None:
-            over = qty_violation(
-                count_placed_photos(canvases_payload),
-                order_qty,
-                _read_layout_def(layout_name),
-            )
+            placed = count_placed_photos(canvases_payload)
+            layout_def = _read_layout_def(layout_name)
+            over = qty_violation(placed, order_qty, layout_def)
             if over:
                 logger.warning(
                     "EditorRenderView: rejected over-quantity submission for "
                     "order_id=%s layout=%s (qty=%s)", order_id, layout_name, order_qty,
                 )
                 return Response({'detail': over}, status=status.HTTP_400_BAD_REQUEST)
+            # Under-quantity is accepted; record it so the webhook can tell the
+            # caller the customer knowingly submitted fewer photos.
+            order_qty_summary = qty_summary(
+                placed, order_qty, layout_def,
+                request.data.get('qty_shortfall_acknowledged'),
+            )
 
         # ── Collect + validate all upload_ids ───────────────────────────────
         all_upload_ids = []
@@ -2601,6 +2607,7 @@ class EditorRenderView(APIView):
             'image_paths': image_paths,
             'format_version': 1,
             'include_uploads': include_uploads,
+            'qty_summary': order_qty_summary,
         }
 
         # ── Submit via shared render submission service ──────────────────────

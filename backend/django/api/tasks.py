@@ -740,7 +740,9 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
           "expires_at":    "<ISO 8601 timestamp>",
           "file_count":    <int>,
           "layout_name":   "<name>",
-          "export_format": "png" | "pdf"
+          "export_format": "png" | "pdf",
+          "qty_summary":   null | {"ordered_qty", "placed_photos",
+                                   "shortfall", "customer_acknowledged_shortfall"}
         }
         ``download_url`` is the combined three-folder archive and is kept for
         callers that already read it. The three ``*_download_url`` fields are
@@ -836,6 +838,8 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
         'file_count':    len(output_paths or []),
         'layout_name':   canvas.layout_name,
         'export_format': canvas.export_format,
+        # Null when the session set no qty. See services/order_qty.qty_summary.
+        'qty_summary':   (canvas.render_state or {}).get('qty_summary'),
     }
     # Sign the raw bytes so the caller can verify byte-for-byte. The shared
     # secret is api_key.key — the same key the caller used to create the

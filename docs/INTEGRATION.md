@@ -45,9 +45,33 @@ This handler is what completes step 3.
   "expires_at":           "2026-06-04T14:39:11.123456+00:00",
   "file_count":           15,
   "layout_name":          "classic_4x6",
-  "export_format":        "png"
+  "export_format":        "png",
+  "qty_summary": {
+    "ordered_qty":                     12,
+    "placed_photos":                   8,
+    "shortfall":                       4,
+    "customer_acknowledged_shortfall": true
+  }
 }
 ```
+
+**`qty_summary` — what the customer actually sent for print.** Present when the
+embed session was created with `qty` on a single-surface product; **`null`**
+otherwise (no qty sent, two-sided products, calendars, books), so guard for null.
+
+| Field | Meaning |
+|---|---|
+| `ordered_qty` | The `qty` you set on the session |
+| `placed_photos` | Photos actually placed for print, counted by our server from the submission (one photo repeated into 3 slots counts as 3) |
+| `shortfall` | `ordered_qty − placed_photos`, never below 0 |
+| `customer_acknowledged_shortfall` | `true` when the customer was shown "You have uploaded only X out of Y photos" and chose to submit anyway. Always `false` when `shortfall` is 0 |
+
+Use it as the production reference: e.g. *"Customer agreed to print 8 instead of
+the 12 ordered."* The counts come from our server, not the browser. Only the
+acknowledgement flag reflects the editor UI; a shortfall with
+`customer_acknowledged_shortfall: false` means the submission didn't come
+through the current editor. It is included in the signed body, so verify the
+signature before trusting it like any other field.
 
 **Which URL should you use?** All four point at the same completed job and take
 the same Bearer auth. They differ only in what the ZIP contains:
@@ -463,7 +487,7 @@ an order that has a `qty` set on its session.
 Under-upload is deliberately not blocked, on the server either: `qty` comes from
 you, and treating it as a hard gate in both directions would let one wrong value
 strand a real order at checkout. **If your storefront needs a guaranteed count,
-re-check `file_count` on the completion webhook before accepting the order** —
+read `qty_summary` on the completion webhook before accepting the order** —
 that is still the only guarantee, and it always will be.
 
 Applies to **single-surface products only** (photo prints, magnets, coasters).

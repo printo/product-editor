@@ -702,9 +702,12 @@ Neither `order_id` nor `callback_url` ever appears in the iframe URL — they fl
   "expires_at":    "<ISO 8601>",
   "file_count":    12,
   "layout_name":   "circle_48mm",
-  "export_format": "png"
+  "export_format": "png",
+  "qty_summary":   { "ordered_qty": 12, "placed_photos": 8, "shortfall": 4, "customer_acknowledged_shortfall": true }
 }
 ```
+
+`qty_summary` is `null` unless the session set an enforceable `qty`. Counts are server-derived (`services/order_qty.qty_summary`, snapshotted into `render_state` at submit); only `customer_acknowledged_shortfall` comes from the editor (`qty_shortfall_acknowledged` in the render body, true when `QtyShortfallWarning` was showing at submit).
 
 Headers: `Content-Type: application/json`, `X-Signature: sha256=<hex>`. Caller verifies with `hmac.compare_digest(hmac.new(api_key, raw_body, sha256).hexdigest(), signature)`. Then fetches whichever URL it needs with their api_key as `Authorization: Bearer <key>` to get the ZIP.
 

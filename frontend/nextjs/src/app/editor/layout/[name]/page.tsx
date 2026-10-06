@@ -3467,6 +3467,10 @@ export default function LayoutEditorPage() {
           layout_name: layoutName,
           order_id: orderId,
           canvases: canvasesPayload,
+          // True when the pre-submit modal showed QtyShortfallWarning and the
+          // customer submitted anyway. The server recounts the photos itself
+          // and only forwards this flag in the webhook's qty_summary.
+          qty_shortfall_acknowledged: qtyNeeded > 0 && totalUploadedCount < qtyNeeded,
         }),
       });
 

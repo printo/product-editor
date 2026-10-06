@@ -187,3 +187,33 @@ def qty_violation(
         f'{"" if order_qty == 1 else "s"}, but the submission carries {placed}. '
         'Remove the extras and submit again.'
     )
+
+
+def qty_summary(
+    placed: int,
+    order_qty: Optional[int],
+    layout: Optional[Mapping[str, Any]],
+    acknowledged: Any,
+) -> Optional[dict]:
+    """
+    The `qty_summary` block for the completion webhook, or `None` when the
+    order carries no enforceable quantity.
+
+    The counts are the server's own — `placed` from `count_placed_photos`,
+    `order_qty` from `EmbedSession.qty` — never the browser's. Only the
+    acknowledgement comes from the client: it says the customer was shown the
+    shortfall notice and submitted anyway. It is reported only when there is a
+    shortfall to acknowledge, and anything but a literal `True` reads as not
+    acknowledged (an older editor build, or a direct API call).
+    """
+    if order_qty is None or order_qty <= 0:
+        return None
+    if not is_qty_enforceable(layout):
+        return None
+    shortfall = max(order_qty - placed, 0)
+    return {
+        'ordered_qty': order_qty,
+        'placed_photos': placed,
+        'shortfall': shortfall,
+        'customer_acknowledged_shortfall': shortfall > 0 and acknowledged is True,
+    }
