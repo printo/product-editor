@@ -35,7 +35,7 @@ def test_legacy_csp_report_shape_returns_204_and_logs():
         }
     }).encode()
     request = factory.post("/api/csp-report", data=body, content_type="application/csp-report")
-    with patch("api.views.logger") as mock_logger, patch("api.views.sentry_sdk") as mock_sentry:
+    with patch("api.views.system.logger") as mock_logger, patch("api.views.system.sentry_sdk") as mock_sentry:
         response = view(request)
     assert response.status_code == 204
     assert mock_logger.warning.called
@@ -47,14 +47,14 @@ def test_legacy_csp_report_shape_returns_204_and_logs():
 
 def test_malformed_body_does_not_crash():
     request = factory.post("/api/csp-report", data=b"not json", content_type="application/csp-report")
-    with patch("api.views.logger"), patch("api.views.sentry_sdk"):
+    with patch("api.views.system.logger"), patch("api.views.system.sentry_sdk"):
         response = view(request)
     assert response.status_code == 204
 
 
 def test_empty_body_does_not_crash():
     request = factory.post("/api/csp-report", data=b"", content_type="application/csp-report")
-    with patch("api.views.logger"), patch("api.views.sentry_sdk"):
+    with patch("api.views.system.logger"), patch("api.views.system.sentry_sdk"):
         response = view(request)
     assert response.status_code == 204
 
@@ -68,7 +68,7 @@ def test_bare_report_without_csp_report_wrapper():
         "blocked-uri": "https://example.com/x.css",
     }).encode()
     request = factory.post("/api/csp-report", data=body, content_type="application/reports+json")
-    with patch("api.views.logger") as mock_logger, patch("api.views.sentry_sdk"):
+    with patch("api.views.system.logger") as mock_logger, patch("api.views.system.sentry_sdk"):
         response = view(request)
     assert response.status_code == 204
     call_args = mock_logger.warning.call_args[0]
@@ -80,7 +80,7 @@ def test_no_auth_required():
     # header must not 401/403 — browsers never attach credentials to a
     # report-uri delivery.
     request = factory.post("/api/csp-report", data=b"{}", content_type="application/csp-report")
-    with patch("api.views.logger"), patch("api.views.sentry_sdk"):
+    with patch("api.views.system.logger"), patch("api.views.system.sentry_sdk"):
         response = view(request)
     assert response.status_code == 204
 

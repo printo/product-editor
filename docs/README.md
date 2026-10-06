@@ -43,6 +43,12 @@ code, **the code is right**.
 | [`DPDP_ERASURE_GAP_PRD.md`](DPDP_ERASURE_GAP_PRD.md) | ✅ Closed 2026-07-26 (migration `0011`). Worth reading anyway: §7 records why a "delete rows with blank `order_id`" cleanup would destroy valid uploads, and the failure mode where erasure reported success while 6.4 GB of photos stayed on disk. |
 | [`API_SURFACE_SEPARATION_PRD.md`](API_SURFACE_SEPARATION_PRD.md) | ✅ Shipped 2026-09-04 (PR #133, commit `3070706`) — moved here from "Not started" 2026-09-11. Its **Core Product Invariant** section *is* current policy independent of the refactor — dashboard and embed access must render byte-equivalent output — and is restated in CLAUDE.md as the "access-mode invariant". |
 
+## In progress — plans
+
+| Doc | Status |
+|---|---|
+| [`LARGE_FILE_SPLIT_PLAN.md`](LARGE_FILE_SPLIT_PLAN.md) | 🟡 Started 2026-10-06. Splits `api/views.py` into an `api/views/` package (3 PRs) and the editor `page.tsx` into components and hooks (~11 PRs), moving code without changing it. Its progress table says which parts are done. |
+
 ## Not started — plans
 
 | Doc | Status |

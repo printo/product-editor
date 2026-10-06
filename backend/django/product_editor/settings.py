@@ -401,7 +401,7 @@ CSP_FRAME_ANCESTORS = ("'self'", "https://printo.in", "https://*.printo.in")
 # Relative path, not absolute: nginx routes all of /api/* to this same
 # backend regardless of which app (this one, or the Next.js frontend) served
 # the page that violated, so a relative report-uri resolves correctly from
-# either origin's pages. See CSPReportView (api/views.py) and its mirror in
+# either origin's pages. See CSPReportView (api/views/system.py) and its mirror in
 # next.config.mjs's report-uri directive.
 CSP_REPORT_URI = "/api/csp-report"
 CSP_REPORT_ONLY = os.getenv("CSP_REPORT_ONLY", "True").lower() not in ("false", "0", "no")

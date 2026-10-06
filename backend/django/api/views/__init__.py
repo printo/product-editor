@@ -1,11 +1,9 @@
 import os
 import re
 import json
-import time
 import logging
 from typing import Optional, Dict, Any, List
 from django.conf import settings
-from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -14,7 +12,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.utils.crypto import get_random_string
 from django.core.exceptions import ValidationError
-import sentry_sdk
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse, inline_serializer
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
@@ -28,126 +25,24 @@ from services.order_qty import (
     qty_summary,
     qty_violation,
 )
-from .permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts, CanListLayouts, CanAccessExports, IsOpsTeam
-from .authentication import APIKeyUser
-from .validators import validate_image_files
-from .models import UploadedFile, ExportedResult, EmbedSession
+from ..permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts, CanListLayouts, CanAccessExports, IsOpsTeam
+from ..authentication import APIKeyUser
+from ..validators import validate_image_files
+from ..models import UploadedFile, ExportedResult, EmbedSession
+
+# Re-exports: views moved into submodules stay importable as api.views.<Name>
+# (urls.py, tests and management commands import them from here). See
+# docs/LARGE_FILE_SPLIT_PLAN.md for what lives where.
+from .system import HealthView, ConfigView, CSPReportView  # noqa: F401
+from .ops import (  # noqa: F401
+    CeleryMonitoringView,
+    OrderDataPurgeView,
+    _jobs_per_day_status,
+    _disk_status,
+)
+from .media import OrientationDetectView, HeicConvertView  # noqa: F401
 
 logger = logging.getLogger(__name__)
-
-
-class HealthView(APIView):
-    """Health check endpoint - public access."""
-    permission_classes = [AllowAny]
-
-    @extend_schema(
-        tags=["health"],
-        summary="Service health check",
-        description="Returns `ok` if the service and database are reachable. No authentication required.",
-        responses={
-            200: inline_serializer(
-                name="HealthResponse",
-                fields={
-                    "status": drf_serializers.CharField(default="ok"),
-                    "database": drf_serializers.CharField(default="connected"),
-                    "timestamp": drf_serializers.IntegerField(),
-                },
-            )
-        },
-    )
-    def get(self, request):
-        return Response({
-            "status": "ok",
-            "database": "connected",
-            "timestamp": int(time.time() * 1000)
-        })
-
-
-class CSPReportView(APIView):
-    """
-    Public, unauthenticated sink for browser-generated CSP violation reports.
-
-    Both django-csp's own policy (CSP_REPORT_URI below) and the Next.js
-    frontend's parallel copy (next.config.mjs) point their `report-uri` here —
-    nginx routes all of /api/* to this backend regardless of which app
-    rendered the page that violated, so one endpoint covers both. Never
-    called by anything but a browser; there is no legitimate manual use.
-    """
-    permission_classes = [AllowAny]
-    authentication_classes = []
-
-    @extend_schema(
-        tags=["csp"],
-        summary="CSP violation report sink",
-        description="Browsers POST here automatically per the `report-uri` CSP directive. Not meant to be called directly.",
-        auth=[],
-        request=None,
-        responses={204: None},
-    )
-    def post(self, request):
-        try:
-            payload = json.loads(request.body or b"{}")
-        except (ValueError, UnicodeDecodeError):
-            payload = {}
-        # Legacy report-uri format wraps the report in a "csp-report" key;
-        # tolerate a bare report body too in case a browser ever sends one.
-        report = payload.get("csp-report", payload) if isinstance(payload, dict) else {}
-        logger.warning(
-            "CSP violation: directive=%s blocked=%s document=%s",
-            report.get("violated-directive") or report.get("effective-directive"),
-            report.get("blocked-uri"),
-            report.get("document-uri"),
-            extra={"csp_report": report},
-        )
-        # No-ops safely if SENTRY_DSN isn't set (sentry_sdk.capture_message
-        # returns None when no client is initialized) — see settings.py's
-        # "Sentry Error Tracking Initialization" for the one-time init.
-        sentry_sdk.capture_message(
-            f"CSP violation: {report.get('violated-directive') or report.get('effective-directive') or 'unknown'}",
-            level="warning",
-        )
-        # 204: browsers don't read the response body for report-uri deliveries.
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class ConfigView(APIView):
-    """
-    Public runtime-config endpoint — exposes a handful of settings the
-    browser needs to know to decide which feature paths to activate.
-
-    Kept deliberately tiny so it's safe to hit on every editor mount.
-    Anything sensitive (API keys, secrets) MUST NOT be added here.
-    """
-    permission_classes = [AllowAny]
-
-    @extend_schema(
-        tags=["config"],
-        summary="Public runtime configuration",
-        description=(
-            "Read-only config flags the frontend needs at boot. Currently "
-            "exposes `autoOrientationMode` ('off' | 'mediapipe' | 'hybrid'); "
-            "the frontend uses this to decide whether to load the MediaPipe "
-            "BlazeFace model and whether to fall through to the server-side "
-            "MoveNet pose endpoint when no face is detected client-side."
-        ),
-        responses={
-            200: inline_serializer(
-                name="ConfigResponse",
-                fields={
-                    "autoOrientationMode": drf_serializers.CharField(),
-                },
-            )
-        },
-    )
-    def get(self, request):
-        from django.conf import settings as _s
-        response = Response({
-            "autoOrientationMode": getattr(_s, "AUTO_ORIENTATION_MODE", "mediapipe"),
-        })
-        # Brief browser cache so the editor doesn't refetch every navigation;
-        # operator restart of backend will still propagate within ~30 s.
-        response['Cache-Control'] = 'public, max-age=30, stale-while-revalidate=60'
-        return response
 
 
 def invalidate_layout_caches(name: str | None = None) -> None:
@@ -703,186 +598,6 @@ class RenderStatusView(APIView):
         return Response(response_data)
 
 
-def _jobs_per_day_status():
-    """Jobs submitted per day, dashboard vs embed, for the ops monitoring endpoint.
-
-    Degrades to an `error` key like `_disk_status`: a failed audit query must
-    cost one field, not the whole endpoint.
-    """
-    from services.jobs_per_day import jobs_per_day
-    try:
-        return jobs_per_day()
-    except Exception as exc:
-        logger.warning("jobs_per_day failed: %s", exc)
-        return {'error': str(exc)}
-
-
-def _disk_status():
-    """Live disk usage for EXPORTS_DIR, for the ops monitoring endpoint.
-
-    Returns a dict with an `error` key instead of raising: a stat failure must
-    degrade one field, not 500 the endpoint an operator is using to find out
-    what is wrong.
-    """
-    import shutil
-    try:
-        usage = shutil.disk_usage(settings.EXPORTS_DIR)
-    except Exception as exc:
-        return {'error': str(exc)}
-    percent = (usage.used / usage.total) * 100 if usage.total else 0
-    return {
-        'total_gb': round(usage.total / 1024 ** 3, 2),
-        'used_gb': round(usage.used / 1024 ** 3, 2),
-        'free_gb': round(usage.free / 1024 ** 3, 2),
-        'used_percent': round(percent, 1),
-        # Same 80% line garbage_collector_task trips on, so the two agree.
-        'pressure': percent > 80,
-    }
-
-
-class CeleryMonitoringView(APIView):
-    """Monitoring endpoint for ops team to check Celery worker status."""
-    permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
-    
-    @extend_schema(
-        tags=["ops"],
-        summary="Worker, queue, GC and disk health (ops only)",
-        description=(
-            "Operational snapshot of the render pipeline. **Ops team only.**\n\n"
-            "Two fields here are the supported way to answer questions you cannot "
-            "answer from the database:\n\n"
-            "- **`garbage_collector.stale`** — no *successful* sweep within "
-            "`GC_STALE_AFTER_HOURS` (default 36). Do **not** try to infer this by "
-            "counting soft-deleted rows: the sweep hard-deletes its own tombstones "
-            "in the same pass, so that count reads `0` whether the GC ran an hour "
-            "ago or has never run at all.\n"
-            "- **`garbage_collector.failing`** — the most recent *attempt* raised, "
-            "with `last_error` saying how. A sweep can be failing without yet being "
-            "stale, and \"broke\" and \"was never scheduled\" look identical without "
-            "this field. **Alert on both.**\n\n"
-            "`disk` is read live at request time, not lifted from the last sweep's "
-            "stats — at the moment it matters most (nothing sweeping) those stats "
-            "are absent or stale. `pressure` trips at the same 80% line the GC uses.\n\n"
-            "`jobs_per_day` counts accepted `POST /api/editor/render` submissions for "
-            "the last 14 IST days (oldest first, every day present, zero-filled), split "
-            "into `dashboard` and `embed`. It reads the API audit trail, which is kept "
-            "for `API_AUDIT_RETENTION_DAYS` (default 90) — `jobs` above cannot answer "
-            "this, since a RenderJob is deleted with its canvas after the export "
-            "retention window. A `0` before audit logging began is a missing record, "
-            "not a quiet day. `dashboard` is the `DIRECT`/`INTERNAL` keys and `embed` "
-            "is every other key; while prod has no separate INTERNAL key, `DIRECT` "
-            "also carries QA embed sessions, so `dashboard` is an upper bound. "
-            "`by_source` breaks the window down by key name so that can be checked."
-        ),
-        responses={
-            200: inline_serializer(
-                name="CeleryMonitor",
-                fields={
-                    "workers": inline_serializer(name="MonitorWorkers", fields={
-                        "total": drf_serializers.IntegerField(),
-                        "active": drf_serializers.IntegerField(),
-                    }),
-                    "queues": inline_serializer(name="MonitorQueues", fields={
-                        "priority": drf_serializers.DictField(help_text="{depth, alert} — alert above 50."),
-                        "standard": drf_serializers.DictField(help_text="{depth, alert} — alert above 200."),
-                    }),
-                    "jobs": drf_serializers.DictField(help_text="RenderJob counts by state."),
-                    "garbage_collector": drf_serializers.DictField(
-                        help_text="{last_run_at, stale, failing, last_error, stats{…}} — see description.",
-                    ),
-                    "disk": drf_serializers.DictField(
-                        help_text="{total_gb, used_gb, free_gb, used_percent, pressure} for the exports volume.",
-                    ),
-                    "jobs_per_day": drf_serializers.DictField(
-                        help_text=(
-                            "{timezone, days[{date, dashboard, embed, total}], by_source{}} — "
-                            "or {error} if the audit query failed."
-                        ),
-                    ),
-                },
-            ),
-            403: OpenApiResponse(description="Caller is not on the ops team."),
-        },
-    )
-    def get(self, request):
-        """Get Celery worker and queue statistics."""
-        from celery import current_app
-        from api.models import RenderJob
-        from django.utils import timezone
-        from datetime import timedelta
-        from services.gc_status import read_gc_status
-
-        inspect = current_app.control.inspect()
-        
-        # Queue depths from reserved tasks
-        active_tasks = inspect.active() or {}
-        reserved_tasks = inspect.reserved() or {}
-        
-        priority_depth = 0
-        standard_depth = 0
-        
-        for worker_tasks in reserved_tasks.values():
-            for task in worker_tasks:
-                routing_key = task.get('delivery_info', {}).get('routing_key', '')
-                if routing_key == 'priority':
-                    priority_depth += 1
-                elif routing_key == 'standard':
-                    standard_depth += 1
-        
-        # Worker stats
-        stats = inspect.stats() or {}
-        worker_count = len(stats)
-        active_worker_count = len(active_tasks)
-        
-        # Job counts from database — single aggregated query instead of 4 separate COUNT(*)
-        now = timezone.now()
-        cutoff_24h = now - timedelta(hours=24)
-        job_counts = RenderJob.objects.aggregate(
-            queued=Count('id', filter=Q(status='queued')),
-            processing=Count('id', filter=Q(status='processing')),
-            completed_24h=Count('id', filter=Q(status='completed', completed_at__gte=cutoff_24h)),
-            failed_24h=Count('id', filter=Q(status='failed', completed_at__gte=cutoff_24h)),
-        )
-
-        return Response({
-            'workers': {
-                'total': worker_count,
-                'active': active_worker_count,
-            },
-            'queues': {
-                'priority': {
-                    'depth': priority_depth,
-                    'alert': priority_depth > 50
-                },
-                'standard': {
-                    'depth': standard_depth,
-                    'alert': standard_depth > 200
-                }
-            },
-            'jobs': {
-                'queued': job_counts['queued'],
-                'processing': job_counts['processing'],
-                'completed_24h': job_counts['completed_24h'],
-                'failed_24h': job_counts['failed_24h'],
-            },
-            # Whether the nightly sweep is actually running. `stale: true` is the
-            # field to alert on — it means either no sweep has ever been recorded
-            # or the last one is older than GC_STALE_AFTER_HOURS. Do NOT infer
-            # this from ExportedResult.is_deleted: the sweep purges its own
-            # tombstones in the same pass, so that count reads 0 whether the GC
-            # ran an hour ago or has never run at all. See services/gc_status.py.
-            'garbage_collector': read_gc_status(),
-            # Live disk, read now rather than lifted from the last sweep's stats.
-            # That distinction is the whole point: disk_usage_percent inside
-            # garbage_collector.stats is only as fresh as the last sweep, so at
-            # the moment it matters most — no sweeps happening — it is absent or
-            # stale. Production reached 89% unnoticed twice for exactly that
-            # reason. `pressure` mirrors the >80% threshold the GC itself uses.
-            'disk': _disk_status(),
-            'jobs_per_day': _jobs_per_day_status(),
-        })
-
-
 class GetLayoutView(APIView):
     """Get layout JSON - requires API key."""
     permission_classes = [IsAuthenticatedWithAPIKey, CanListLayouts]
@@ -1100,110 +815,6 @@ class SecureExportDownloadView(APIView):
             return real_path.startswith(real_exports_dir) and os.path.isfile(real_path)
         except:
             return False
-
-class OrderDataPurgeView(APIView):
-    """
-    Ops-only immediate data erasure for one order (Phase 4 — DPDP
-    right-to-erasure). DELETE /api/ops/orders/<order_id>/purge — hard-deletes
-    uploads, exports, CanvasData (cascades RenderJobs) and EmbedSessions,
-    rows AND files. Never added to the embed-proxy allowlist.
-
-    Query params:
-      ?api_key=<name>  narrow to one tenant (default: all keys for the order)
-      ?force=true      purge even while a render is queued/processing
-    """
-    permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
-
-    _ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
-
-    @extend_schema(
-        tags=["ops"],
-        summary="DPDP erasure — hard-delete one order (ops only)",
-        description=(
-            "**Irreversible.** Hard-deletes an order's uploads, exports, "
-            "`CanvasData` and `EmbedSession` rows *and* the corresponding files on "
-            "disk. There is no soft-delete stage and no undo — this exists to serve "
-            "a DPDP right-to-erasure request.\n\n"
-            "Upload files still referenced by a surviving order are kept.\n\n"
-            "**Scoping is mandatory.** `order_id` is only unique per API key "
-            "(`unique_together = (order_id, api_key)`), so the same id can belong to "
-            "several tenants. The endpoint refuses to guess: pass `api_key` to scope "
-            "the erasure to one tenant, or `all_tenants=true` to purge every tenant "
-            "sharing the id. Omitting both is a **400**, not a default.\n\n"
-            "Not reachable through the embed proxy, and re-gated to the ops team in "
-            "the Next.js internal proxy as well — a Django-side `IsOpsTeam` check "
-            "alone would not restrict it, because everything arriving through that "
-            "proxy presents one shared ops-flagged service account."
-        ),
-        parameters=[
-            OpenApiParameter("api_key", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
-                             description="APIKey **name** to scope the erasure to one tenant."),
-            OpenApiParameter("all_tenants", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False,
-                             description="Purge every tenant sharing this order_id. Required when `api_key` is omitted."),
-            OpenApiParameter("force", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False,
-                             description="Purge even while a render is queued or processing (otherwise 409)."),
-        ],
-        request=None,
-        responses={
-            200: inline_serializer(
-                name="OrderPurgeResult",
-                fields={
-                    "matched": drf_serializers.IntegerField(help_text="Orders matched. 0 → 404."),
-                    "erasure_complete": drf_serializers.BooleanField(),
-                    "files_deleted": drf_serializers.IntegerField(),
-                    "bytes_freed": drf_serializers.IntegerField(),
-                    "canvas_rows_deleted": drf_serializers.IntegerField(),
-                    "embed_rows_deleted": drf_serializers.IntegerField(),
-                    "api_keys_touched": drf_serializers.ListField(child=drf_serializers.CharField()),
-                    "unlocated_upload_rows": drf_serializers.IntegerField(
-                        help_text="Rows whose file could not be located on disk.",
-                    ),
-                    "residual_files": drf_serializers.ListField(child=drf_serializers.CharField()),
-                    "residual_dirs": drf_serializers.ListField(child=drf_serializers.CharField()),
-                    "errors": drf_serializers.ListField(child=drf_serializers.CharField()),
-                },
-            ),
-            400: OpenApiResponse(description="Malformed order_id, or neither api_key nor all_tenants given."),
-            403: OpenApiResponse(description="Caller is not on the ops team."),
-            404: OpenApiResponse(description="No data matched this order_id (nothing was deleted)."),
-            409: OpenApiResponse(description="A render is in flight for this order. Re-send with force=true to override."),
-        },
-    )
-    def delete(self, request, order_id: str):
-        from api.purge import purge_order_data
-        from api.models import APIKey
-
-        if not self._ORDER_ID_RE.match(order_id or ''):
-            return Response({'detail': 'Invalid order_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        api_key = None
-        key_name = request.query_params.get('api_key')
-        if key_name:
-            api_key = APIKey.objects.filter(name=key_name).first()
-            if not api_key:
-                return Response({'detail': f"No API key named '{key_name}'."}, status=status.HTTP_404_NOT_FOUND)
-
-        # Cross-tenant erasure is destructive — the same order_id can exist for
-        # different embed customers (unique_together is (order_id, api_key)).
-        # Purging every tenant sharing an id must be a CONSCIOUS choice, not the
-        # default: require ?all_tenants=true when no api_key is scoped.
-        all_tenants = str(request.query_params.get('all_tenants', '')).lower() in ('1', 'true', 'yes')
-        if api_key is None and not all_tenants:
-            return Response(
-                {'detail': "This order_id may belong to multiple tenants. Pass "
-                           "?api_key=<name> to scope the erasure, or ?all_tenants=true "
-                           "to purge every tenant sharing this order_id."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        force = str(request.query_params.get('force', '')).lower() in ('1', 'true', 'yes')
-
-        result = purge_order_data(order_id, api_key=api_key, force=force)
-        if result.get('matched', 0) == 0:
-            return Response(result, status=status.HTTP_404_NOT_FOUND)
-        if result.get('blocked'):
-            return Response(result, status=status.HTTP_409_CONFLICT)
-        return Response(result, status=status.HTTP_200_OK)
 
 
 # Shared by the layout read/write/delete schema descriptions below. Stated once
@@ -2754,7 +2365,7 @@ class FontsView(APIView):
     )
     def put(self, request):
         # Only ops team can modify fonts
-        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        from ..authentication import PIAAuthentication, BearerTokenAuthentication
         user = None
         for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
             try:
@@ -2982,7 +2593,7 @@ class CalendarStylesView(APIView):
             )
 
         # Ops-only mutation — mirror the FontsView gate.
-        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        from ..authentication import PIAAuthentication, BearerTokenAuthentication
         user = None
         for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
             try:
@@ -3153,7 +2764,7 @@ class HolidaysView(APIView):
 
     def _gate_ops(self, request):
         """Returns (user, None) on success or (None, Response) on auth failure."""
-        from .authentication import PIAAuthentication, BearerTokenAuthentication
+        from ..authentication import PIAAuthentication, BearerTokenAuthentication
         user = None
         for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
             try:
@@ -4260,242 +3871,3 @@ class ChunkedUploadCompleteView(APIView):
             'file_size': assembled_size,
             'upload_id': upload_id,
         }, status=status.HTTP_201_CREATED)
-
-
-class OrientationDetectView(APIView):
-    """
-    POST /api/orientation/detect  — synchronous server-side auto-orientation.
-
-    Frontend sends each uploaded file's bytes (multipart) while building
-    canvases; backend runs MediaPipe Pose Landmarker inline and returns
-    the suggested rotation immediately. No DB writes, no Celery
-    round-trip, no temp files persisted — the file bytes are decoded,
-    inferenced, and discarded.
-
-    Why inline (not Celery): the rotation must be applied to the
-    in-editor preview before the customer interacts with the canvas, so
-    by the time the chunked upload at submit-time happens it's too late.
-    The customer's experience is "drop file → see correctly-oriented
-    preview". Inference is fast enough (~30–150 ms on CPU) that holding
-    a gunicorn thread is acceptable.
-
-    Why not Celery: a separate ml-worker container would force frontend
-    polling, which we'd have to wait out before drawing the canvas.
-    Worse UX, no measurable benefit at this scale.
-
-    Returns 503 when AUTO_ORIENTATION_MODE=off so the frontend short-
-    circuits and uses its aspect-ratio heuristic. Returns 204 when the
-    model couldn't find a confident pose (food, landscape, occluded
-    subject) so the caller falls back to the same heuristic.
-    """
-    permission_classes = [IsAuthenticatedWithAPIKey]
-    # Default DRF parsers (incl. MultiPartParser) are enough — frontend
-    # sends a single 'file' field as multipart/form-data.
-
-    @extend_schema(
-        tags=["upload"],
-        summary="Detect rotation for a single photo",
-        description=(
-            "Runs pose detection on one photo and returns the cardinal rotation "
-            "needed to stand its subject upright. **Stateless — nothing is "
-            "persisted.**\n\n"
-            "This catches photos whose subject is sideways *in the bytes* — camera "
-            "held wrong, scanned prints, messaging apps that strip EXIF — which no "
-            "aspect-ratio heuristic can detect.\n\n"
-            "**When no pose is found** (food, landscape, an occluded subject) the "
-            "response is **204 with no body** — not a rotation of 0. Callers must "
-            "branch on the status code and fall back to their own heuristic; "
-            "parsing the body unconditionally will fail here.\n\n"
-            "Returns **503** when `AUTO_ORIENTATION_MODE=off`. Clients should read "
-            "`/api/config` first and skip the upload entirely in that case; a 503 "
-            "here produces the same outcome either way."
-        ),
-        request={"multipart/form-data": inline_serializer(
-            name="OrientationDetect",
-            fields={"file": drf_serializers.FileField(help_text="The image to analyse.")},
-        )},
-        responses={
-            200: inline_serializer(
-                name="OrientationResult",
-                fields={
-                    "rotation": drf_serializers.ChoiceField(choices=[0, 90, 180, 270],
-                                                            help_text="Degrees to rotate for an upright subject."),
-                    "confidence": drf_serializers.FloatField(),
-                    "source": drf_serializers.CharField(help_text="Which detector produced the answer."),
-                },
-            ),
-            204: OpenApiResponse(description="No pose detected — no body. Apply your own heuristic."),
-            400: OpenApiResponse(description="No `file` field, or the image could not be read."),
-            503: OpenApiResponse(description="Auto-orientation is switched off for this deployment."),
-        },
-    )
-    def post(self, request):
-        if getattr(settings, "AUTO_ORIENTATION_MODE", "mediapipe") == "off":
-            return Response(
-                {'detail': 'Auto-orientation disabled'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        upload_file = request.FILES.get('file')
-        if not upload_file:
-            return Response(
-                {'detail': "Missing 'file' multipart field"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Write to a tempfile so the orientation service can mmap-read it.
-        # NamedTemporaryFile + delete=False because we want to control
-        # cleanup explicitly in the finally block.
-        import tempfile
-        suffix = os.path.splitext(upload_file.name or '')[1] or '.jpg'
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                for chunk in upload_file.chunks():
-                    tmp.write(chunk)
-                tmp_path = tmp.name
-        except Exception:
-            logger.exception("orientation/detect: failed to write tempfile")
-            return Response(
-                {'detail': 'Server error writing temp file'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        try:
-            from services.orientation import detect_rotation
-            suggestion = detect_rotation(tmp_path, label=(upload_file.name or 'unnamed'))
-        except ImportError:
-            logger.warning(
-                "orientation/detect: services.orientation unavailable "
-                "(mediapipe not installed) — returning 503"
-            )
-            return Response(
-                {'detail': 'Orientation service not available on this worker'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        except Exception:
-            logger.exception("orientation/detect: inference failed")
-            return Response(
-                {'detail': 'Inference failed'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-
-        if suggestion is None:
-            # No usable pose — frontend falls back to aspect heuristic.
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
-        return Response({
-            'rotation': suggestion.rotation,
-            'confidence': suggestion.confidence,
-            'source': suggestion.source,
-        })
-
-
-class HeicConvertView(APIView):
-    """
-    POST /api/heic/convert  — decode an iPhone HEIC/HEIF photo to JPEG.
-
-    The editor converts HEIC in the browser (``lib/heic-convert.ts``) and only
-    calls this when that fails. It fails routinely: ``heic2any`` bundles a 2021
-    libheif that cannot read the ``tmap`` gain-map HDR structure current
-    iPhones write, and Chrome/Firefox have no HEIC codec to fall back on. See
-    ``services/heic.py`` for the full description of the format.
-
-    Stateless and inline, deliberately mirroring ``OrientationDetectView``:
-    nothing is persisted, no Celery round-trip. The customer is waiting on a
-    canvas preview, so a queued job would either stall the preview or force a
-    second render pass. Decoding a 24 MP HEIC costs roughly a second of CPU.
-
-    Returns the raw JPEG (``image/jpeg``) rather than JSON+base64 — base64
-    would inflate a 2.4 MB photo by a third for no benefit, since the caller
-    wraps the bytes in a File either way.
-    """
-    permission_classes = [IsAuthenticatedWithAPIKey]
-
-    @extend_schema(
-        tags=["upload"],
-        summary="Convert a HEIC/HEIF photo to JPEG",
-        description=(
-            "Accepts a single `file` multipart field containing HEIC/HEIF bytes "
-            "and returns the decoded image as `image/jpeg`. Used as the fallback "
-            "when in-browser HEIC conversion fails."
-        ),
-        request={"multipart/form-data": inline_serializer(
-            name="HeicConvert",
-            fields={"file": drf_serializers.FileField(help_text="HEIC/HEIF bytes, up to the normal upload size limit.")},
-        )},
-        responses={
-            200: OpenApiResponse(response=OpenApiTypes.BINARY, description="The decoded photo as image/jpeg."),
-            400: OpenApiResponse(description="No `file` field, over the size limit, or not decodable as HEIC."),
-            503: OpenApiResponse(description="No HEIC decoder available in this build."),
-        },
-    )
-    def post(self, request):
-        from django.http import HttpResponse
-        from services.heic import (
-            decode_heic_to_jpeg, HeicDecodeError, HeicUnavailableError,
-        )
-
-        upload_file = request.FILES.get('file')
-        if not upload_file:
-            return Response(
-                {'detail': "Missing 'file' multipart field"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Same ceiling as a normal upload. Checked before read() so an oversize
-        # payload never lands in memory — this endpoint holds the whole file,
-        # unlike the chunked upload path.
-        max_bytes = settings.MAX_UPLOAD_FILE_SIZE
-        if upload_file.size and upload_file.size > max_bytes:
-            return Response(
-                {'detail': f'File exceeds {settings.MAX_UPLOAD_FILE_SIZE_MB} MB limit'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        data = upload_file.read()
-        if len(data) > max_bytes:
-            return Response(
-                {'detail': f'File exceeds {settings.MAX_UPLOAD_FILE_SIZE_MB} MB limit'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            jpeg_bytes, width, height = decode_heic_to_jpeg(data)
-        except HeicUnavailableError:
-            logger.warning("heic/convert: pillow-heif not installed — returning 503")
-            return Response(
-                {'detail': 'HEIC conversion is not available on this server'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        except HeicDecodeError as exc:
-            # Genuinely undecodable input is the caller's problem, not a server
-            # fault — 400 so the editor shows "re-export as JPEG" rather than
-            # retrying a request that will always fail the same way.
-            logger.info(
-                "heic/convert: undecodable input (%s bytes): %s", len(data), exc,
-            )
-            return Response(
-                {'detail': 'This file could not be read as a HEIC photo'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except Exception:
-            logger.exception("heic/convert: unexpected failure")
-            return Response(
-                {'detail': 'Conversion failed'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        logger.info(
-            "heic/convert: %s (%d bytes) → JPEG %dx%d (%d bytes)",
-            upload_file.name or 'unnamed', len(data), width, height, len(jpeg_bytes),
-        )
-        response = HttpResponse(jpeg_bytes, content_type='image/jpeg')
-        response['Content-Length'] = len(jpeg_bytes)
-        response['X-Image-Width'] = str(width)
-        response['X-Image-Height'] = str(height)
-        return response
