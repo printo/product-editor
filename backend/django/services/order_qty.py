@@ -211,9 +211,22 @@ def qty_summary(
     if not is_qty_enforceable(layout):
         return None
     shortfall = max(order_qty - placed, 0)
+    acked = shortfall > 0 and acknowledged is True
     return {
         'ordered_qty': order_qty,
         'placed_photos': placed,
         'shortfall': shortfall,
-        'customer_acknowledged_shortfall': shortfall > 0 and acknowledged is True,
+        'customer_acknowledged_shortfall': acked,
+        'summary': _qty_summary_text(placed, order_qty, shortfall, acked),
     }
+
+
+def _qty_summary_text(placed: int, ordered: int, shortfall: int, acked: bool) -> str:
+    """One human-readable line for printo.in's production reference."""
+    if shortfall == 0:
+        return f'Customer submitted all {ordered} ordered photos.'
+    if acked:
+        return (f'Customer agreed to proceed with {placed} photos '
+                f'instead of the {ordered} ordered.')
+    return (f'Customer submitted {placed} photos instead of the {ordered} ordered '
+            '(acknowledgement not recorded).')

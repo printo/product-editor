@@ -243,7 +243,14 @@ def test_qty_summary_records_an_acknowledged_shortfall():
     assert qty_summary(8, 12, SINGLE, True) == {
         'ordered_qty': 12, 'placed_photos': 8, 'shortfall': 4,
         'customer_acknowledged_shortfall': True,
+        'summary': 'Customer agreed to proceed with 8 photos instead of the 12 ordered.',
     }
+
+
+def test_qty_summary_text_for_unacknowledged_and_full_orders():
+    assert qty_summary(8, 12, SINGLE, None)['summary'] == (
+        'Customer submitted 8 photos instead of the 12 ordered (acknowledgement not recorded).')
+    assert qty_summary(12, 12, SINGLE, True)['summary'] == 'Customer submitted all 12 ordered photos.'
 
 
 def test_qty_summary_only_a_literal_true_acknowledges():

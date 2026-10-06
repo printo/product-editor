@@ -1866,7 +1866,7 @@ class EmbedSessionView(APIView):
             "pre-submit warning. Deliberate, and true on the server too: a wrong "
             "`qty` must not strand a real order at checkout. The completion webhook "
             "carries `qty_summary` — `{ordered_qty, placed_photos, shortfall, "
-            "customer_acknowledged_shortfall}`, counted by the server — so you can "
+            "customer_acknowledged_shortfall, summary}`, counted by the server — so you can "
             "record when a customer knowingly submitted fewer photos than ordered. "
             "It is `null` when no `qty` was set or the product is multi-surface, "
             "calendar or book.\n"

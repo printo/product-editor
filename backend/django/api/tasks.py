@@ -742,7 +742,8 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
           "layout_name":   "<name>",
           "export_format": "png" | "pdf",
           "qty_summary":   null | {"ordered_qty", "placed_photos",
-                                   "shortfall", "customer_acknowledged_shortfall"}
+                                   "shortfall", "customer_acknowledged_shortfall",
+                                   "summary"}
         }
         ``download_url`` is the combined three-folder archive and is kept for
         callers that already read it. The three ``*_download_url`` fields are

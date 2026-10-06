@@ -703,7 +703,7 @@ Neither `order_id` nor `callback_url` ever appears in the iframe URL — they fl
   "file_count":    12,
   "layout_name":   "circle_48mm",
   "export_format": "png",
-  "qty_summary":   { "ordered_qty": 12, "placed_photos": 8, "shortfall": 4, "customer_acknowledged_shortfall": true }
+  "qty_summary":   { "ordered_qty": 12, "placed_photos": 8, "shortfall": 4, "customer_acknowledged_shortfall": true, "summary": "Customer agreed to proceed with 8 photos instead of the 12 ordered." }
 }
 ```
 
