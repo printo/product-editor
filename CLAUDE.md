@@ -1014,7 +1014,7 @@ Use comments sparingly. Only comment complex or non-obvious logic.
 
 - Glassmorphism style: blur, transparency, vibrant gradients
 - Icons: `lucide-react`
-- Conditional classes: `clsx` or `tailwind-merge`
+- Conditional classes: `clsx`
 - **JSX backtick warning**: A missing closing `` ` `` in a `className={`...`}` template literal triggers ~17 cascade TypeScript errors downstream
 
 ### Brand colours — `indigo` is not indigo

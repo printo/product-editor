@@ -32,8 +32,7 @@
     "pica": "^9.0.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "smartcrop": "^2.0.5",
-    "tailwind-merge": "2.5.4"
+    "smartcrop": "^2.0.5"
   },
   "devDependencies": {
     "@happy-dom/jest-environment": "^20.9.0",

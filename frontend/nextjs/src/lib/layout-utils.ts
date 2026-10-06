@@ -172,14 +172,3 @@ export function filterSurfaces(
 export function isMultiSurface(layout: NormalizedLayout): boolean {
   return layout.type === 'product' && layout.surfaces.length > 1;
 }
-
-/** Get surface by key, or first surface as fallback */
-export function getSurface(
-  layout: NormalizedLayout,
-  key?: string,
-): SurfaceDefinition | undefined {
-  if (key) {
-    return layout.surfaces.find((s) => s.key === key) || layout.surfaces[0];
-  }
-  return layout.surfaces[0];
-}

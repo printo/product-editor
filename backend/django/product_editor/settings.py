@@ -373,9 +373,6 @@ AUTO_ORIENTATION_MODE = _AUTO_ORIENTATION_MODE_RAW
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — non-file request body limit
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — spool-to-disk threshold
 
-# Security Headers
-SECURE_BROWSER_XSS_FILTER = True
-
 # Content Security Policy via django-csp.
 # Starts in report-only mode — headers are emitted but nothing is blocked, so we
 # can monitor violations before enforcing.

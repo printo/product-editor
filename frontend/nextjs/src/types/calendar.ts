@@ -225,21 +225,6 @@ export interface GenzPalette {
   dotCycle: DotCycle;
 }
 
-/**
- * Shape of `storage/calendar_styles/<name>.json`. Static config; ops
- * tweaks via `PUT /api/ops/calendar-styles/<name>`.
- */
-export interface CalendarStylePresetFile {
-  name: string;
-  label: string;
-  /** Colour roles consumed by the renderer. Concrete keys per theme. */
-  colors: Record<string, string>;
-  /** 3-slot user-dot cycle for themes other than Gen-Z. */
-  dotCycle: DotCycle;
-  /** Gen-Z-specific: list of available palette swatches. */
-  palettes?: GenzPalette[];
-}
-
 // ─── Holiday data (storage/holidays/<locale>/<year>.json) ────────────────────
 
 export interface HolidayEntry {
@@ -251,10 +236,4 @@ export interface HolidayEntry {
   type?: string;
   /** Dot colour for the cell pill. Falls back to a theme default if absent. */
   color?: string;
-}
-
-export interface HolidayYearFile {
-  year: number;
-  locale: HolidayLocale;
-  events: HolidayEntry[];
 }
