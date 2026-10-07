@@ -38,8 +38,8 @@ import { detectFileOrientation } from '@/lib/ml-orientation';
 import { CanvasEditorModal } from './CanvasEditorModal';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import type { CalendarTheme, CalendarType } from '@/types/calendar';
-import { reconcilePageCount, roleForSurfaceKey } from './book-pages';
-import { pageCountBounds, resolvePageCount, pagesToSpreads, spineWidthMm, type BookLayoutLike } from '@/lib/book-layout';
+import { reconcilePageCount } from './book-pages';
+import { resolvePageCount, type BookLayoutLike } from '@/lib/book-layout';
 import {
   resolveRotation, formatWait,
   MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, readCardCountHint, writeCardCountHint,
@@ -59,6 +59,7 @@ import { useEditorEnvironment, useLoginRedirect } from './useEditorEnvironment';
 import { useActiveSurfaceLayout, useLayoutLoader } from './useLayoutLoader';
 import { useSubmitGuards } from './useSubmitGuards';
 import { useCalendarDefaults, useCalendarEditor } from './useCalendarEditor';
+import { useBookPages } from './useBookPages';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
 import { DeleteConfirmDialog } from './dialogs/DeleteConfirmDialog';
@@ -175,15 +176,6 @@ export default function LayoutEditorPage() {
   // Files flagged as truncated/incomplete by the client-side completeness check,
   // held pending the customer's Keep-anyway / Remove decision (see handleFileChange).
   const [pendingTruncated, setPendingTruncated] = useState<{ all: File[]; bad: File[] } | null>(null);
-  // Book D3 overflow: more uploaded photos than the current page count can
-  // hold. Held pending the customer's Extend / Keep-as-is decision, mirroring
-  // pendingTruncated's pause-and-re-enter pattern — see processSelectedFiles.
-  const [pendingBookOverflow, setPendingBookOverflow] = useState<{
-    files: File[]; currentCapacity: number; suggestedCount: number;
-  } | null>(null);
-  // Set right before a decided batch re-enters processSelectedFiles so the
-  // overflow check doesn't re-prompt for the same files a second time.
-  const bookOverflowDecidedRef = useRef(false);
   const [showAutoFillPicker, setShowAutoFillPicker] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
   const { expandPdfPages, pdfPickerElement } = usePdfPageImport();
@@ -249,18 +241,12 @@ export default function LayoutEditorPage() {
   useEffect(() => { activeSurfaceKeyRef.current = activeSurfaceKey; }, [activeSurfaceKey]);
   const [normalizedLayoutState, setNormalizedLayoutState] = useState<NormalizedLayout | null>(null);
 
-  // ── Book product state (BOOK_LAYOUT_PRD.md R1) ────────────────────────────
-  // These only matter when layout.productType === 'book'. Page count is
-  // CUSTOMER state (D2) — surfaceStates always holds exactly the currently
-  // VISIBLE pages (cover, page_01..page_N, back_cover); pages shrunk out of
-  // range are held in bookHiddenPages rather than discarded, and restored if
-  // the count goes back up. See book-pages.ts::reconcilePageCount, the one
-  // place this reconciliation happens (layout load / count change / restore).
-  const isBookProduct = layout?.productType === 'book';
-  const [bookPageCount, setBookPageCount] = useState<number>(0);
-  const [bookHiddenPages, setBookHiddenPages] = useState<Record<string, SurfaceState>>({});
-  const bookHiddenPagesRef = useRef(bookHiddenPages);
-  useEffect(() => { bookHiddenPagesRef.current = bookHiddenPages; }, [bookHiddenPages]);
+  const {
+    isBookProduct, bookPageCount, setBookPageCount, bookHiddenPages, setBookHiddenPages, bookHiddenPagesRef,
+    pendingBookOverflow, setPendingBookOverflow, bookOverflowDecidedRef,
+    bookPageBounds, handleBookPageCountChange, showSpreadPreview, setShowSpreadPreview,
+    bookSpreads, bookCoverPreview, bookBackCoverPreview, bookSpineWidthMm,
+  } = useBookPages({ layout, normalizedLayoutState, surfaceStates, surfaceStatesRef, setSurfaceStates });
 
   // ── Stored-photo bookkeeping (file-store.ts) ─────────────────────────────
   // The persist effect patches fileIds into surfaceStates only, and the
@@ -294,7 +280,7 @@ export default function LayoutEditorPage() {
       deletedFileIdsRef.current.add(id);
       void deleteFile(id);
     }
-  }, []);
+  }, [bookHiddenPagesRef]);
 
   const {
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
@@ -505,7 +491,7 @@ export default function LayoutEditorPage() {
         setIsSaving('idle');
       }
     }, 2000);
-  }, [apiBase, orderId, layoutName, getAuthHeaders, serializeCanvasState, reclaimUnusedFiles]);
+  }, [apiBase, orderId, layoutName, getAuthHeaders, serializeCanvasState, reclaimUnusedFiles, bookHiddenPagesRef]);
 
   const cancelAutosave = useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -905,86 +891,6 @@ export default function LayoutEditorPage() {
 
     return () => { cancelled = true; };
   }, [surfaceStates, orderId]);
-
-  // The template's {min,max,step,default} page-count grid, for the page-count
-  // control below. `null` until the (book) layout has loaded.
-  const bookPageBounds = useMemo(() => {
-    if (!isBookProduct) return null;
-    const raw = normalizedLayoutState?._raw as BookLayoutLike | undefined;
-    return raw ? pageCountBounds(raw) : null;
-  }, [isBookProduct, normalizedLayoutState]);
-
-  // The one place a customer-driven page-count change happens (the control
-  // below, and D3's overflow "extend to N pages?" offer) — always goes
-  // through reconcilePageCount so growing/shrinking/restoring stay
-  // consistent with the layout-load and restore call sites.
-  const handleBookPageCountChange = useCallback((requested: number) => {
-    const raw = normalizedLayoutState?._raw as BookLayoutLike | undefined;
-    if (!raw) return;
-    const { visible, archive, resolvedCount } = reconcilePageCount(
-      raw, requested, surfaceStatesRef.current, bookHiddenPagesRef.current,
-    );
-    setSurfaceStates(visible);
-    setBookHiddenPages(archive);
-    setBookPageCount(resolvedCount);
-  }, [normalizedLayoutState]);
-
-  // ── Book: read-only spread preview (D6 — edit single pages, preview
-  // spreads) ─────────────────────────────────────────────────────────────
-  // Groups the CURRENT VISIBLE pages only (never the held/archived ones —
-  // previewing a page the customer can't currently see would be confusing).
-  // Reuses each page's already-computed thumbnail (canvases[0].dataUrl, the
-  // same one the card grid renders) rather than a fourth frame-drawing path
-  // (CLAUDE.md "Three frame renderers") — this view only adds the spread
-  // *layout*, never re-renders a frame.
-  const [showSpreadPreview, setShowSpreadPreview] = useState(false);
-  const { bookSpreads, bookCoverPreview, bookBackCoverPreview } = useMemo(() => {
-    if (!isBookProduct) return { bookSpreads: [], bookCoverPreview: null, bookBackCoverPreview: null };
-    // mm is the common unit for sizing the cover-wrap panels proportionally
-    // against spineWidthMm below; px-only canvases fall back to treating
-    // their pixel width as a proportional unit (still correct for the ratio,
-    // just not a real mm figure).
-    const widthMmOf = (canvas: { width?: number; widthMm?: number; dpi?: number } | undefined): number => {
-      if (!canvas) return 0;
-      if (canvas.widthMm) return canvas.widthMm;
-      if (canvas.width && canvas.dpi) return (canvas.width / canvas.dpi) * 25.4;
-      return canvas.width || 0;
-    };
-    const pages = surfaceStates.map(s => {
-      const { role, pageIndex } = roleForSurfaceKey(s.key);
-      return {
-        key: s.key,
-        role,
-        pageIndex,
-        label: s.label,
-        dataUrl: s.canvases[0]?.dataUrl ?? null,
-        canvasWidth: s.def.canvas?.width || 1200,
-        canvasHeight: s.def.canvas?.height || 1800,
-        canvasWidthMm: widthMmOf(s.def.canvas),
-      };
-    });
-    // The standalone cover/back-cover spreads pagesToSpreads() produces are
-    // redundant with the cover-wrap panel rendered separately below — filter
-    // them out of the regular list rather than showing the cover twice.
-    const innerSpreads = pagesToSpreads(pages).filter(spread =>
-      !(spread.length === 1 && (spread[0].role === 'cover' || spread[0].role === 'backCover'))
-    );
-    return {
-      bookSpreads: innerSpreads,
-      bookCoverPreview: pages.find(p => p.role === 'cover') ?? null,
-      bookBackCoverPreview: pages.find(p => p.role === 'backCover') ?? null,
-    };
-  }, [isBookProduct, surfaceStates]);
-
-  // R2 (BOOK_LAYOUT_PRD.md) — recomputed from the CURRENT page count, same
-  // as the backend does at materialize time (D4: spine changes whenever the
-  // customer changes the page count, never resolved once at author time).
-  const bookSpineWidthMm = useMemo(() => {
-    if (!isBookProduct) return null;
-    const raw = normalizedLayoutState?._raw as BookLayoutLike | undefined;
-    if (!raw?.book) return null;
-    return spineWidthMm(bookPageCount, raw.book.paperThicknessMm || 0, raw.book.coverThicknessMm || 0);
-  }, [isBookProduct, normalizedLayoutState, bookPageCount]);
 
   // Pre-submit guard (Phase 3): photos placed more than once (excluding
   // deliberate qty auto-fill duplicates). The rest of the guards are in
@@ -2282,7 +2188,7 @@ export default function LayoutEditorPage() {
     };
     document.addEventListener('keydown', onEsc);
     return () => document.removeEventListener('keydown', onEsc);
-  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, pendingTruncated, pendingBookOverflow, showImpositionModal, setShowImpositionModal, showDownloadModal, showEmbedDisclaimer]);
+  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, pendingTruncated, pendingBookOverflow, setPendingBookOverflow, showImpositionModal, setShowImpositionModal, showDownloadModal, showEmbedDisclaimer]);
 
   // All exports go through the server-side pipeline (Celery + Pillow at 300 DPI).
   // The previous "≤20 canvases → render in browser, JSZip" optimisation was
