@@ -4,11 +4,6 @@ Every view is re-exported here, so `from api.views import X` (urls.py, tests,
 management commands) keeps working. Patch a name where the view looks it up:
 `api.views.calendar_assets._write_holidays`, not `api.views._write_holidays`.
 """
-# Imported for its side effect: engine.py sets Image.MAX_IMAGE_PIXELS to 500 MP
-# at import time, and this is the only place the web process imports it.
-# Without it, upload validation falls back to Pillow's ~179 MP bomb limit.
-from layout_engine.engine import LayoutEngine  # noqa: F401
-
 from .system import HealthView, ConfigView, CSPReportView  # noqa: F401
 from .ops import (  # noqa: F401
     CeleryMonitoringView,

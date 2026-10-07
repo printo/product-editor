@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b), the download-link fix, Phase A and its follow-up, and Phase B1 and its accessibility follow-ups (roles, focus, Escape) merged; card buttons from the keyboard in review. Started 2026-10-06.
+**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b), the download-link fix, Phase A and its follow-up, and Phase B1 and its accessibility follow-ups (roles, focus, Escape, card keys) merged; Part 1's follow-up in review. Started 2026-10-06.
 Update the progress table at the bottom as each PR merges.
 
 ## Why
@@ -56,12 +56,15 @@ be circular.
 - **Log lines name the module.** The `verbose` formatter prints `{module}`, so
   lines read `system`/`ops`/`render` instead of `views` (and `__init__` for
   code not yet moved). The `api` logger config still covers them.
-- **Found, not fixed (follow-up PRs):** `_is_safe_layout_name` exists as a
-  method on three classes and `_is_path_safe` on two. And the web process's
-  500 MP Pillow pixel cap depends on `api/views/__init__.py` importing
-  `layout_engine.engine` purely for its import-time side effect (kept, with a
-  comment); setting `Image.MAX_IMAGE_PIXELS` explicitly where uploads are
-  validated would remove that hidden coupling.
+- **Found during Part 1, fixed in its follow-up PR (2026-10-07):** the three
+  identical `_is_safe_layout_name` methods are one `is_safe_layout_name` in
+  `views/_common.py`. The two `_is_path_safe` methods were not duplicates: the
+  one on `GetLayoutView` was dead and is gone, and the export download's
+  backstop check (`_is_full_path_safe`) now compares paths properly instead of
+  with `startswith` (which also accepted a sibling like `exports_old/`). The
+  500 MP Pillow ceiling is set at startup in `api/apps.py` instead of arriving
+  through `api/views/__init__.py` importing `layout_engine.engine` for its side
+  effect.
 
 **Proof for each backend PR** (from a worktree, with the PR's own image tags —
 see "How to test" below):
@@ -195,5 +198,6 @@ storage copies and cleaned env file afterwards.
 | Part 2 · B1 | The eight dialogs → `dialogs/*.tsx` | ✅ Merged (#198), deployed 2026-10-07 |
 | Part 2 · B1 follow-up | Accessibility: dialog roles, names and descriptions on five dialogs; labels on two Close buttons | ✅ Merged (#199), deployed 2026-10-07 |
 | Part 2 · B1 follow-up 2 | Dialogs take keyboard focus (in on open, Tab kept inside, back on close); Escape closes all eight. Adds two Escape scenarios to the characterization suite (17 → 19) and two e2e tests (14 → 16) | ✅ Merged (#200), deployed 2026-10-07 |
-| Part 2 · B1 follow-up 3 | A card's own buttons (Remove Photo, Rotate, …) work from the keyboard: Enter/Space on them no longer opens the editor. Adds two characterization scenarios (19 → 21) | 🟡 In review |
+| Part 2 · B1 follow-up 3 | A card's own buttons (Remove Photo, Rotate, …) work from the keyboard: Enter/Space on them no longer opens the editor. Adds two characterization scenarios (19 → 21) | ✅ Merged (#201), deployed 2026-10-07 |
+| Part 1 · follow-up | One shared layout-name guard (`views/_common.py`); dead path check removed; export backstop compares paths properly; the 500 MP Pillow ceiling set at startup instead of by a side-effect import | 🟡 In review |
 | Part 2 · B2–C8 | The other 11 split PRs | Not started |

@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from PIL import Image, ImageOps, ImageDraw, ImageChops, ImageFilter
 
-from services.image_loader import open_source_rgba, srgb_profile_bytes
+from services.image_loader import MAX_IMAGE_PIXELS, open_source_rgba, srgb_profile_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +29,10 @@ def _sanitize_for_filename(name: str) -> str:
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ._")
     return cleaned
 
-# Decompression-bomb guard. PIL warns at 178M pixels by default and refuses
-# above 2× that. Photo prints can legitimately approach the warn threshold (a
-# 50 MP smartphone shot is ~50M pixels), so we lift the ceiling but keep one
-# in place — uncapped would let a crafted image OOM the worker. 500M pixels =
-# a 22000×22000 image, ~6× the largest legitimate Printo upload.
-Image.MAX_IMAGE_PIXELS = 500_000_000
+# Decompression-bomb ceiling (see services/image_loader.py). Django processes
+# also get it at startup (api/apps.py); setting it here keeps the engine safe
+# when it is used without Django.
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
 class LayoutEngine:

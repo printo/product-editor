@@ -26,6 +26,15 @@ from PIL import Image, ImageCms, ImageOps
 
 logger = logging.getLogger(__name__)
 
+# Decompression-bomb ceiling for every process that opens customer photos.
+# Pillow warns above ~89M pixels and refuses above ~179M (2x that) by default;
+# photo prints legitimately pass the warning (a 50 MP phone shot is ~50M
+# pixels), so the ceiling is lifted but kept — uncapped, a crafted image could
+# OOM a worker. 500M pixels = a 22000x22000 image, ~6x the largest legitimate
+# Printo upload. Applied at Django startup (api/apps.py) and by the render
+# engine on import.
+MAX_IMAGE_PIXELS = 500_000_000
+
 # Built once per process; createProfile is pure-python-cheap but not free.
 _SRGB_PROFILE = ImageCms.createProfile("sRGB")
 
