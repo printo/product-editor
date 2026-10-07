@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 PR 1 of 3. Started 2026-10-06. Update the
+**Status:** 🟡 In progress — Part 1 PR 2 of 3. Started 2026-10-06. Update the
 progress table at the bottom as each PR merges.
 
 ## Why
@@ -119,7 +119,7 @@ storage copies and cleaned env file afterwards.
 
 | PR | Scope | Status |
 |---|---|---|
-| Part 1 · PR 1 | Package conversion; `system`, `ops`, `media` | 🟡 In review |
-| Part 1 · PR 2 | `layouts`, `layout_admin`, `calendar_assets` | Not started |
+| Part 1 · PR 1 | Package conversion; `system`, `ops`, `media` | ✅ Merged (#189), deployed 2026-10-06 |
+| Part 1 · PR 2 | `layouts`, `layout_admin`, `calendar_assets` | 🟡 In review |
 | Part 1 · PR 3 | `render`, `downloads`, `embed`, `uploads` | Not started |
 | Part 2 | Phases 0, A, B1–B4, C1–C6 | Not started |

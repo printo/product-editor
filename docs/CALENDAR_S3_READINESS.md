@@ -25,9 +25,9 @@ All under `$STORAGE_ROOT` and assembled via `os.path.join(settings.STORAGE_ROOT,
 | Path | Module | Purpose |
 |---|---|---|
 | `storage/calendar_palettes/genz/<name>.json` | `services/calendar_layout.py` | Gen-Z palette swatches |
-| `storage/calendar_styles/<name>.json` | `api/views.py::CALENDAR_STYLES_DIR` | Style preset metadata |
+| `storage/calendar_styles/<name>.json` | `api/views/calendar_assets.py::_read_calendar_style` (via `services/asset_store.py`) | Style preset metadata |
 | `storage/holidays/<locale>/<year>.json` | `services/calendar_holidays.py` (reads via `services/asset_store.py`) | Auto-loaded holidays |
-| `storage/fonts.json` | `services/storage.py::_LOCAL_PATH_OVERRIDES` (read via `api/views.py::_read_fonts`) | Font list (NB: font *.ttf files ship with the image under `services/fonts_assets/`, not under STORAGE_ROOT — correct, fonts are immutable assets) |
+| `storage/fonts.json` | `services/storage.py::_LOCAL_PATH_OVERRIDES` (read via `api/views/calendar_assets.py::_read_fonts`) | Font list (NB: font *.ttf files ship with the image under `services/fonts_assets/`, not under STORAGE_ROOT — correct, fonts are immutable assets) |
 | `storage/parity-fixtures/calendar-grid.json` | `services/tests/test_calendar_renderer.py` | Test fixture, dev-only |
 | `storage/parity-fixtures/calendar-year.json` | `services/tests/test_calendar_year_parity.py` | Test fixture, dev-only |
 
