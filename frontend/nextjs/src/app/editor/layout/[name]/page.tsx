@@ -5,21 +5,21 @@
  */
 
 import React, {
-  useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef,
+  useState, useEffect, useCallback, useMemo, useRef,
 } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useHeader } from '@/context/HeaderContext';
 import {
-  Upload, Loader2, CheckCircle2, Check, X,
+  Upload, Loader2, CheckCircle2, X,
   Layout,
-  SendHorizonal, RotateCw, Maximize, Download, Trash2,
-  AlertTriangle, ImagePlus, ArrowLeftRight, Droplets, ArrowLeft, Plus,
-  // Palette, Move, Lock: only used by the hidden Set-BG-Color and
-  // reposition-lock buttons (commented-out JSX below); re-add them if those
-  // come back.
+  RotateCw, Maximize, Trash2,
+  AlertTriangle, ImagePlus, ArrowLeftRight, Droplets,
+  // Palette: only used by the hidden Set-BG-Color button (commented-out JSX
+  // below); re-add it if that comes back. The hidden reposition-lock button,
+  // which needs Move and Lock, is in EditorToolbar.tsx.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  Palette, Move, Lock,
+  Palette,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import {
@@ -64,12 +64,16 @@ import {
 import { reconcilePageCount, roleForSurfaceKey } from './book-pages';
 import { pageCountBounds, resolvePageCount, pagesToSpreads, spineWidthMm, type BookLayoutLike } from '@/lib/book-layout';
 import {
-  resolveRotation, formatWait, formatLayoutDisplayName,
+  resolveRotation, formatWait,
   MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, NO_HOLIDAYS, readCardCountHint, writeCardCountHint, activatesCard,
 } from './editor-utils';
 import { EmbedSubmittedOverlay } from './EmbedSubmittedOverlay';
 import { ImpositionModal } from './ImpositionModal';
 import { useImposition } from './useImposition';
+import { useStickyToolbar } from './useStickyToolbar';
+import { EditorToolbar, useDashboardHeader } from './EditorToolbar';
+import { EditorBanners, ErrorBanner } from './EditorBanners';
+import { ProcessingOverlay } from './ProcessingOverlay';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
 import { DeleteConfirmDialog } from './dialogs/DeleteConfirmDialog';
@@ -437,76 +441,11 @@ export default function LayoutEditorPage() {
   const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
-  const { setTitle, setDescription, setCenterActions, setRightActions, headerHeight } = useHeader();
+  const { headerHeight } = useHeader();
 
-  // The toolbar switches to `position: fixed` once scrolled up to where it
-  // would go under the fixed dashboard header — driven by this boolean, not
-  // CSS `position: sticky`. Sticky's containing block is the toolbar's own
-  // direct parent (the `.relative` wrapper below), and that parent is sized
-  // to exactly the toolbar's own height — its only other child is a 1px
-  // `absolute` sentinel, contributing none — so a sticky toolbar there can
-  // only stay stuck for about one toolbar-height of scroll before its own
-  // undersized container scrolls out from under it and drags the toolbar
-  // away too, right off-screen under the header instead of stopping below
-  // it. Confirmed by forcing that wrapper tall at runtime: sticky then held
-  // correctly at any scroll depth. `fixed` has no containing-block-height
-  // requirement, so it doesn't hit that trap.
-  // The sentinel is held in state through a callback ref, like the toolbar
-  // below: the toolbar renders only once the layout has loaded, after this
-  // effect's first run, and with a plain ref nothing re-ran it once the
-  // sentinel existed — so the toolbar never pinned (until 2026-10-07).
-  const [toolbarSentinel, setToolbarSentinel] = useState<HTMLDivElement | null>(null);
-  const [isToolbarStuck, setIsToolbarStuck] = useState(false);
+  const { setToolbarSentinel, isToolbarStuck, setToolbarEl, toolbarHeight } = useStickyToolbar(headerHeight);
 
-  useEffect(() => {
-    if (!toolbarSentinel) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setIsToolbarStuck(!entry.isIntersecting),
-      { rootMargin: `-${headerHeight + 1}px 0px 0px 0px`, threshold: 0 }
-    );
-    observer.observe(toolbarSentinel);
-    return () => observer.disconnect();
-  }, [headerHeight, toolbarSentinel]);
-
-  // The floating qty banner has to clear BOTH bars above it. In the embed
-  // iframe no app <header> is mounted at all (headerHeight is 0) and this
-  // sticky toolbar is the only thing at the top of the viewport, so a
-  // header-only offset would drop the banner straight on top of it. Measured
-  // rather than hardcoded — the toolbar is one row on desktop and two on a
-  // phone, and it re-flows as the window resizes. A callback ref so the
-  // measurement starts the moment the toolbar mounts (it renders only after
-  // the layout loads).
-  const [toolbarEl, setToolbarEl] = useState<HTMLDivElement | null>(null);
-  const [toolbarHeight, setToolbarHeight] = useState(0);
-
-  useLayoutEffect(() => {
-    if (!toolbarEl) return;
-    const measure = () => setToolbarHeight(Math.round(toolbarEl.getBoundingClientRect().height));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(toolbarEl);
-    return () => observer.disconnect();
-  }, [toolbarEl]);
-
-  useEffect(() => {
-    if (embedToken) return;
-    // Dashboard flow only — the embed iframe returns above, so a customer
-    // inside printo.in's page never sees internal page naming.
-    setTitle('Preview Canvas');
-    setDescription('');
-    setCenterActions(null);
-    setRightActions(
-      <button
-        onClick={() => router.push('/dashboard')}
-        aria-label="Back to templates"
-        title="Back to Templates"
-        className="text-[11px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 p-2.5 md:px-4 md:py-2 rounded-full md:rounded-2xl border-2 border-indigo-100/50 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center gap-2 group shadow-sm shadow-indigo-100/50"
-      >
-        <ArrowLeft className="w-4 h-4 md:w-3.5 md:h-3.5 group-hover:-translate-x-1 transition-transform" />
-        <span className="hidden md:inline">Back to Templates</span>
-      </button>
-    );
-  }, [embedToken, router, setTitle, setDescription, setCenterActions, setRightActions]);
+  useDashboardHeader(embedToken, router);
 
   useEffect(() => {
     if ((status === 'unauthenticated' || session?.error === 'RefreshAccessTokenError') && !embedToken) {
@@ -3129,131 +3068,16 @@ export default function LayoutEditorPage() {
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col">
       <GoogleFontLinks fonts={fontsLoaded} />
-      {swapSource && (
-        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200000] bg-indigo-600 text-white px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300" role="status">
-          <ArrowLeftRight className="w-4 h-4" />
-          <span className="text-xs font-semibold">Tap another photo to swap</span>
-          <button onClick={() => setSwapSource(null)} className="p-1 hover:bg-white/20 rounded-lg transition-all" aria-label="Cancel swap">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-      {(persistDegraded || storageBlocked) && (
-        <div className="fixed bottom-6 right-8 z-[200000] max-w-sm bg-white/90 backdrop-blur-2xl border border-amber-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-amber-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group" role="status" aria-live="polite">
-          <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0 mt-1">
-            <AlertTriangle className="w-3.5 h-3.5" />
-          </div>
-          <span className="flex-1 text-[10px] font-bold text-amber-900/80 tracking-tight leading-snug py-1.5">
-            {storageBlocked
-              ? "Your browser is blocking local storage — your photos stay safe in this tab, but refreshing will remove them. Finish and submit in one session."
-              : "This device's storage is full, so your photos can't be backed up for recovery. Don't refresh or close this tab before submitting."}
-          </span>
-          <button onClick={() => { setPersistDegraded(false); setStorageBlocked(false); }} className="p-2 hover:bg-amber-50 rounded-xl transition-all" aria-label="Dismiss storage warning">
-            <X className="w-3.5 h-3.5 text-amber-400" />
-          </button>
-        </div>
-      )}
-      {uploadWarning && (
-        <div className="fixed top-24 right-8 z-[200000] max-w-xs bg-white/80 backdrop-blur-2xl border border-amber-200/50 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-amber-900/5 flex items-center gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
-          <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
-            <span className="text-[14px] font-black">!</span>
-          </div>
-          <span className="flex-1 text-[10px] font-bold text-amber-900/80 uppercase tracking-tight leading-none">{uploadWarning}</span>
-          <button onClick={() => setUploadWarning(null)} className="p-2 hover:bg-amber-50 rounded-xl transition-all group-hover:rotate-90">
-            <X className="w-3.5 h-3.5 text-amber-400" />
-          </button>
-        </div>
-      )}
-      {colorWarning && (
-        <div className={`fixed ${uploadWarning ? 'top-44' : 'top-24'} right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-orange-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-orange-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group`}>
-          <div className="w-7 h-7 mt-0.5 rounded-xl bg-orange-500/10 text-orange-600 flex items-center justify-center shrink-0">
-            <span className="text-[13px] font-black">⚠</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black text-orange-900/90 uppercase tracking-tight leading-none mb-1">CMYK → RGB colour shift</p>
-            <p className="text-[10px] font-medium text-orange-800/70 leading-snug">{colorWarning}</p>
-          </div>
-          <button onClick={() => setColorWarning(null)} className="p-2 mt-0.5 hover:bg-orange-50 rounded-xl transition-all shrink-0">
-            <X className="w-3.5 h-3.5 text-orange-400" />
-          </button>
-        </div>
-      )}
-      {unsupportedWarning && (
-        <div className={clsx(
-          'fixed right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-rose-300/60 p-1.5 pl-4 rounded-2xl shadow-2xl shadow-rose-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group',
-          ['top-24', 'top-44', 'top-64'][(uploadWarning ? 1 : 0) + (colorWarning ? 1 : 0)],
-        )}>
-          <div className="w-7 h-7 mt-0.5 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
-            <span className="text-[13px] font-black">!</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black text-rose-900/90 uppercase tracking-tight leading-none mb-1">Unsupported file</p>
-            <p className="text-[10px] font-medium text-rose-800/70 leading-snug">{unsupportedWarning}</p>
-          </div>
-          <button onClick={() => setUnsupportedWarning(null)} className="p-2 mt-0.5 hover:bg-rose-50 rounded-xl transition-all shrink-0">
-            <X className="w-3.5 h-3.5 text-rose-400" />
-          </button>
-        </div>
-      )}
-      {/* ── Under-upload banner ─────────────────────────────────────────────── */}
-      {/* Offset by the MEASURED header height rather than a hardcoded `top-24`:
-          the mobile header is two rows (72 + 56 px), so the old 96 px offset
-          parked this card on top of it. Full-bleed with gutters on phones,
-          centred card from `sm` up. */}
-      {qtyUnder && (
-        <div
-          role="status"
-          aria-live="polite"
-          style={{ top: headerHeight + toolbarHeight + 12 }}
-          className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 z-[200002] bg-white/95 backdrop-blur-2xl border border-indigo-200/60 rounded-2xl shadow-2xl shadow-indigo-900/10 p-4 sm:p-5 animate-in fade-in slide-in-from-top-4 duration-400"
-        >
-          <div className="flex items-start gap-3 sm:gap-4">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-              <ImagePlus className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] sm:text-sm font-black text-slate-900 uppercase tracking-tight leading-tight">
-                {qtyUnder.uploaded} of {qtyUnder.needed} images uploaded
-              </p>
-              <p className="text-[12px] text-slate-500 mt-1.5 leading-relaxed">
-                Upload {qtyUnder.needed - qtyUnder.uploaded} more photo{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}, or repeat from the images already uploaded.
-              </p>
-            </div>
-            <button
-              onClick={() => setQtyUnder(null)}
-              aria-label="Dismiss"
-              className="p-2 -mt-1 -mr-1 hover:bg-slate-100 rounded-xl transition-all shrink-0"
-            >
-              <X className="w-4 h-4 text-slate-400" />
-            </button>
-          </div>
-
-          {/* The count IS the message, so show it as a bar too. */}
-          <div className="mt-4 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-indigo-600 transition-all duration-500"
-              style={{ width: `${Math.min(100, Math.round((qtyUnder.uploaded / qtyUnder.needed) * 100))}%` }}
-            />
-          </div>
-
-          {/* Stacked on phones — side by side, these two labels wrap to three
-              lines each inside a 375 px viewport. */}
-          <div className="mt-4 flex flex-col sm:flex-row items-stretch gap-2">
-            <button
-              onClick={() => { setShowAutoFillPicker(true); setPickerSelected(new Set()); }}
-              className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
-            >
-              Choose which to repeat
-            </button>
-            <button
-              onClick={() => uploadInputRef.current?.click()}
-              className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
-            >
-              Upload More
-            </button>
-          </div>
-        </div>
-      )}
+      <EditorBanners
+        swapSource={swapSource} setSwapSource={setSwapSource}
+        persistDegraded={persistDegraded} setPersistDegraded={setPersistDegraded}
+        storageBlocked={storageBlocked} setStorageBlocked={setStorageBlocked}
+        uploadWarning={uploadWarning} setUploadWarning={setUploadWarning}
+        colorWarning={colorWarning} setColorWarning={setColorWarning}
+        unsupportedWarning={unsupportedWarning} setUnsupportedWarning={setUnsupportedWarning}
+        qtyUnder={qtyUnder} setQtyUnder={setQtyUnder} headerHeight={headerHeight} toolbarHeight={toolbarHeight}
+        setShowAutoFillPicker={setShowAutoFillPicker} setPickerSelected={setPickerSelected} uploadInputRef={uploadInputRef}
+      />
 
       {/* ── Auto-fill picker modal ──────────────────────────────────────────── */}
       {showAutoFillPicker && qtyUnder && (
@@ -3430,12 +3254,7 @@ export default function LayoutEditorPage() {
         </div>
       )}
 
-      {error && (
-        <div className="fixed top-4 right-4 z-[200000] max-w-sm bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError(null)}><X className="w-4 h-4" /></button>
-        </div>
-      )}
+      <ErrorBanner error={error} setError={setError} />
       {submitted && submittedJobId && (
         <EmbedSubmittedOverlay
           jobId={submittedJobId}
@@ -3465,237 +3284,23 @@ export default function LayoutEditorPage() {
           the Y axis into 'auto'. */}
       <main className="w-full px-4 md:px-8 pt-0 pb-6 md:pb-8 flex-1 overflow-x-clip">
         <div className="max-w-[1440px] mx-auto space-y-6 md:space-y-8">
-          {/* Wrapper keeps the sentinel from becoming a real space-y sibling of the
-              toolbar below (which would add an unwanted margin-top to it and throw
-              off its natural resting position). The sentinel marks that resting
-              spot; see the isToolbarStuck comment above for why the toolbar goes
-              `fixed` instead of `sticky` once scrolled past it, and the spacer
-              directly below for how the vacated flow space is replaced. */}
-          <div className="relative">
-            <div ref={setToolbarSentinel} className="absolute top-0 inset-x-0 h-px" aria-hidden />
-            {isToolbarStuck && <div style={{ height: toolbarHeight }} aria-hidden />}
-            <div
-              ref={setToolbarEl}
-              style={isToolbarStuck ? {
-                position: 'fixed', top: headerHeight, left: 0, right: 0,
-                maxWidth: 1440, marginLeft: 'auto', marginRight: 'auto',
-              } : undefined}
-              className={clsx(
-                'z-40 px-4 md:px-8 py-3 bg-white/60 backdrop-blur-3xl border-b border-slate-200/50 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4 shadow-sm',
-                !isToolbarStuck && '-mx-4 md:-mx-8',
-              )}
-            >
-            {/* Heading + Add Files share one row on mobile so the upload box doesn't
-                push the toolbar down a whole extra row; `md:contents` removes this
-                wrapper from the desktop layout so heading/box/toolbar go back to
-                being three independent flex-row siblings, unchanged from before. */}
-            <div className="flex items-center justify-between gap-3 md:contents">
-            <div className="flex items-center gap-3 min-w-0 md:flex-none">
-              {/* Embed only — the iframe has no "Back to Templates" destination to
-                  push to (that's dashboard-only, see the HeaderContext effect
-                  above). Deliberately NOT router.back()/history.back(): a nested
-                  iframe shares its ONE browser-tab history with the parent page
-                  (there is no separate per-iframe back stack), so calling it here
-                  could navigate the PARENT printo.in page backward — or, if the
-                  tab's history has nothing printo.in-related immediately prior,
-                  take the customer off printo.in's site entirely mid-checkout.
-                  Instead this mirrors the existing pe:render_job pattern: tell the
-                  parent the customer wants to go back and let THEIR app decide
-                  what that means. No-op until printo.in adds a listener — see
-                  docs/INTEGRATION.md. */}
-              {embedToken && (
-                <button
-                  onClick={() => window.parent.postMessage({ type: 'pe:back', orderID: orderId }, parentOrigin)}
-                  aria-label="Back"
-                  title="Back"
-                  className="p-2 md:p-2.5 rounded-full hover:bg-slate-100 transition-all text-slate-600 hover:text-slate-900 shrink-0"
-                >
-                  <ArrowLeft className="w-4 h-4 md:w-5 md:h-5" />
-                </button>
-              )}
-              <img src="/printo-logo.webp" alt="Printo" className="h-10 md:h-12 w-auto shrink-0" />
-              <div className="w-px h-8 md:h-10 bg-slate-200 shrink-0" />
-              {/* Layout name display — hidden per CEO request (2026-09-09), restored per
-                  management feedback (2026-09-15): the original ask was to drop the raw
-                  technical identifier (e.g. "retro_polaroid_-_4.2x3.5_in"), not the name
-                  entirely. Prefer the ops-curated displayName (2026-09-16) — a real field
-                  ops can write a clean product name into — over formatLayoutDisplayName(),
-                  which is only a mechanical fallback for a layout that predates the field. */}
-              <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter truncate">
-                {layout?.displayName || formatLayoutDisplayName(layout?.name || layoutName)}
-              </h1>
-            </div>
-            {/* Top upload section — hidden when empty (empty state shows primary upload
-                area only); revealed once user uploads at least one photo (secondary "Add more" action).
-                Also hidden while the qty-shortfall banner is up (below) — its own "Upload More"
-                button already does the exact same thing, so showing both at once read as two
-                competing ways to add photos rather than one clear one. */}
-            {(files.length > 0 || surfaceStates.some(s => s.files.length > 0)) && !qtyUnder && (
-              <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink relative group">
-                {qtyNeeded > 0 && totalUploadedCount >= qtyNeeded ? (
-                  // Order quantity fully met — show plain info, not a clickable
-                  // "add more" pill: clicking it would immediately hit the
-                  // over-qty hard-cap modal (there's nowhere left to add to),
-                  // so an actionable-looking control here is a dead end.
-                  <div className="flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border border-emerald-200/60 bg-emerald-50/30">
-                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500 text-white">
-                      <Check className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                    </div>
-                    <p className="flex-1 min-w-0 truncate text-[10px] md:text-[11px] font-black text-emerald-700/80 uppercase tracking-tight">
-                      {`${totalUploadedCount} of ${qtyNeeded} images uploaded`}
-                    </p>
-                  </div>
-                ) : (
-                  <div
-                    className={clsx("relative flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-2xl border-2 border-dashed transition-all cursor-pointer", 'border-emerald-200 bg-emerald-50/30')}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => uploadInputRef.current?.click()}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-                        e.preventDefault();
-                        uploadInputRef.current?.click();
-                      }
-                    }}
-                  >
-                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-emerald-500 text-white">
-                      <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                    </div>
-                    <p className="flex-1 min-w-0 truncate text-[10px] md:text-[11px] font-black text-slate-800/70 uppercase tracking-tight">
-                      <span className="md:hidden">
-                        {`Add Files (${totalUploadedCount}${qtyNeeded ? `/${qtyNeeded}` : ''})`}
-                      </span>
-                      <span className="hidden md:inline">
-                        {`Add Photos | Currently uploaded (${totalUploadedCount}${qtyNeeded ? ` of ${qtyNeeded}` : ''})`}
-                      </span>
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-            </div>
-            <div className="flex items-center justify-center flex-nowrap gap-1 md:gap-3 w-full md:w-auto">
-              <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/50 shrink-0">
-                {(['contain', 'cover'] as FitMode[]).map(mode => (
-                  <button key={mode} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('px-2 md:px-3 py-1.5 text-[9px] md:text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
-                ))}
-              </div>
-              <button
-                onClick={() => { blurFillUserToggledRef.current = true; setGlobalBlurFill(v => !v); }}
-                title={globalBlurFill
-                  ? 'Blur Effect is ON — empty space is filled with a blurred copy of the photo. Click to turn off.'
-                  : 'Blur Effect — fill the empty space around a photo with a blurred copy of it.'}
-                aria-label="Toggle blur effect"
-                className={clsx(
-                  'flex items-center justify-center gap-1 md:gap-1.5 px-2 md:px-3 py-2.5 md:py-2 text-[9px] md:text-[10px] font-black rounded-xl border transition-all uppercase tracking-tight md:tracking-wide shrink-0',
-                  globalBlurFill
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
-                )}>
-                <Droplets className="w-3.5 h-3.5 md:w-3.5 md:h-3.5 shrink-0" />
-                <span className="whitespace-nowrap">Blur Effect</span>
-              </button>
-              {/* Reposition-lock toggle — hidden from the UI on request, kept
-                  in source in case it needs to come back. repositionMode
-                  itself is untouched (still gates drag-to-pan below) and
-                  stays at its default (locked) with no way to flip it now.
-              <button
-                onClick={() => setRepositionMode(v => !v)}
-                title={repositionMode
-                  ? 'Reposition on — drag a photo inside its card. Click to lock.'
-                  : 'Photos are locked. Click to drag-reposition them.'}
-                aria-label={repositionMode ? 'Lock photos' : 'Unlock photos to reposition'}
-                className={clsx(
-                  'hidden md:flex items-center justify-center gap-1.5 p-2.5 md:px-3 md:py-2 text-[10px] font-black rounded-xl border transition-all uppercase tracking-wide',
-                  repositionMode
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
-                )}>
-                {repositionMode ? <Move className="w-4 h-4 md:w-3.5 md:h-3.5" /> : <Lock className="w-4 h-4 md:w-3.5 md:h-3.5" />}
-                <span className="hidden md:inline">{repositionMode ? 'Reposition' : 'Locked'}</span>
-              </button>
-              */}
-              {embedToken ? (
-                <button onClick={() => { setDisclaimerChecked(false); setShowEmbedDisclaimer(true); }} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} aria-label="Save and continue" className="flex items-center justify-center gap-2 text-[11px] font-black text-white bg-indigo-600 p-2.5 md:px-5 md:py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">
-                  {isDownloading ? <Loader2 className="w-4 h-4 md:w-3.5 md:h-3.5 animate-spin" /> : <SendHorizonal className="w-4 h-4 md:w-3.5 md:h-3.5" />} <span className="hidden md:inline">Save &amp; Continue</span>
-                </button>
-              ) : (
-                <button onClick={() => { setDisclaimerChecked(false); setShowDownloadModal(true); }} disabled={files.length === 0 && !surfaceStates.some(s => s.files.length > 0)} aria-label="Download" className="flex items-center justify-center gap-1 md:gap-2 text-[9px] md:text-[11px] font-black text-white bg-slate-900 px-2.5 md:px-5 py-2.5 rounded-xl hover:bg-slate-800 transition-all uppercase tracking-tight md:tracking-widest shrink-0">
-                  <Download className="w-3.5 h-3.5 md:w-3.5 md:h-3.5 shrink-0" /> <span className="whitespace-nowrap">Download</span>
-                </button>
-              )}
-            </div>
-          </div>
-          </div>
+          <EditorToolbar
+            setToolbarSentinel={setToolbarSentinel} isToolbarStuck={isToolbarStuck} toolbarHeight={toolbarHeight}
+            setToolbarEl={setToolbarEl} headerHeight={headerHeight}
+            embedToken={embedToken} orderId={orderId} parentOrigin={parentOrigin} layout={layout} layoutName={layoutName}
+            files={files} surfaceStates={surfaceStates} qtyUnder={qtyUnder} qtyNeeded={qtyNeeded}
+            totalUploadedCount={totalUploadedCount} uploadInputRef={uploadInputRef}
+            globalFitMode={globalFitMode} setGlobalFitMode={setGlobalFitMode} fitModeUserToggledRef={fitModeUserToggledRef}
+            globalBlurFill={globalBlurFill} setGlobalBlurFill={setGlobalBlurFill} blurFillUserToggledRef={blurFillUserToggledRef}
+            isDownloading={isDownloading} setDisclaimerChecked={setDisclaimerChecked}
+            setShowEmbedDisclaimer={setShowEmbedDisclaimer} setShowDownloadModal={setShowDownloadModal}
+          />
 
-          {/* ── Fixed Processing Overlay ────────────────────────────────────── */}
-          {/* isImposing included: executeImposition sets renderProgress on every
-              placed item, but this overlay never rendered during an imposition,
-              so the download showed a bare spinner. With no feedback, a slow
-              render and a hung one look identical — which is exactly how a
-              never-settling pica resize went unnoticed. */}
-          {(isProcessing || isDownloading || isImposing) && renderProgress && (
-            <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
-              <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-300">
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
-                      {/* Only the SUBMIT pass (isDownloading) is reworded for
-                          embed — this same overlay also covers canvas preview
-                          generation after a photo pick, which is not a save. */}
-                      {isDownloading
-                        ? (embedToken ? 'Saving Your Design' : 'Preparing Download')
-                        : 'Processing Your Design'}
-                    </span>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      {isDownloading
-                        ? (embedToken ? 'This may take a moment' : 'Bundling high-res print files')
-                        : 'Optimizing images for print'}
-                    </span>
-                  </div>
-                  <span className="text-[14px] font-black text-indigo-600 tabular-nums bg-indigo-50 px-3 py-1 rounded-xl">
-                    {Math.round((renderProgress.current / renderProgress.total) * 100)}%
-                  </span>
-                </div>
-                
-                <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden p-0.5">
-                  <div
-                    className="h-full bg-indigo-500 rounded-full transition-all duration-300 ease-out shadow-[0_0_12px_rgba(99,102,241,0.4)]"
-                    style={{ width: `${Math.round((renderProgress.current / renderProgress.total) * 100)}%` }}
-                  />
-                </div>
-                
-                <div className="flex items-center justify-center gap-2">
-                  <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">
-                    {serverRenderLabel
-                      ? serverRenderLabel
-                      : isDownloading
-                        ? (renderProgress.total === 100 ? `Zipping... ${renderProgress.current}%` : `Rendering File ${renderProgress.current} of ${renderProgress.total}`)
-                        : `Rendering File ${renderProgress.current} of ${renderProgress.total}`
-                    }
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── HEIC → JPEG conversion (iPhone photos) ──────────────────────── */}
-          {/* No percentage: heic2any's WASM decoder doesn't report progress,
-              and this step is usually well under a couple of seconds. */}
-          {heicConverting && (
-            <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
-              <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-3 animate-in zoom-in-95 duration-300 flex flex-col items-center">
-                <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
-                <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
-                  Converting iPhone Photo
-                </span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Preparing HEIC image for editing
-                </span>
-              </div>
-            </div>
-          )}
+          <ProcessingOverlay
+            isProcessing={isProcessing} isDownloading={isDownloading} isImposing={isImposing}
+            renderProgress={renderProgress} serverRenderLabel={serverRenderLabel}
+            heicConverting={heicConverting} embedToken={embedToken}
+          />
 
           {/* ── Book: page-count control (BOOK_LAYOUT_PRD.md D2/R1) ─────────── */}
           {/* Visible regardless of upload state — pages exist as blank cards
