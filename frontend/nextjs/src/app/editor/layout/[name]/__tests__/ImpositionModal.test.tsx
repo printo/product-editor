@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { SetStateAction } from 'react';
 import { ImpositionModal } from '../ImpositionModal';
 import { computeImpositionLayout, type ItemSize } from '../imposition';
@@ -82,8 +82,57 @@ describe('ImpositionModal', () => {
   it('closes from the X button and from the backdrop', () => {
     const imp = imposition();
     const { container } = render(<ImpositionModal imposition={imp} />);
-    fireEvent.click(container.querySelector('button svg.lucide-x')!.closest('button')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.click(container.querySelector('.backdrop-blur-sm')!);
     expect((imp.setShowImpositionModal as jest.Mock).mock.calls).toEqual([[false], [false]]);
+  });
+});
+
+describe('ImpositionModal for screen readers and the keyboard', () => {
+  it('is a modal dialog named by its title', () => {
+    render(<ImpositionModal imposition={imposition()} />);
+    expect(screen.getByRole('dialog', { name: 'Print settings' })).toHaveAttribute('aria-modal', 'true');
+  });
+
+  // Close, not the first control: with several sheets that would be "Next sheet".
+  it('takes focus on Close when it opens and gives it back when it closes', () => {
+    const imp = imposition();
+    function Page({ open }: { open: boolean }) {
+      return (
+        <>
+          <button>Opener</button>
+          {open && <ImpositionModal imposition={imp} />}
+        </>
+      );
+    }
+    const { rerender } = render(<Page open={false} />);
+    const opener = screen.getByRole('button', { name: 'Opener' });
+    opener.focus();
+    rerender(<Page open />);
+    expect(imp.sheetCount).toBeGreaterThan(1);
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+    rerender(<Page open={false} />);
+    expect(opener).toHaveFocus();
+  });
+
+  it('names every number field', () => {
+    const { unmount } = render(<ImpositionModal imposition={imposition()} />);
+    for (const name of ['Gutter (gap)', 'Margin', 'Crop mark length']) {
+      expect(screen.getByRole('spinbutton', { name })).toBeInTheDocument();
+    }
+    unmount();
+    render(<ImpositionModal imposition={imposition({}, items(2), { ...A4, preset: 'custom', widthIn: 12, heightIn: 18 })} />);
+    expect(screen.getByRole('spinbutton', { name: 'Width' })).toHaveValue(12);
+    expect(screen.getByRole('spinbutton', { name: 'Height' })).toHaveValue(18);
+  });
+
+  it('says which sheet size and orientation are chosen', () => {
+    render(<ImpositionModal imposition={imposition({}, items(2), { ...A4, preset: 'a3', orientation: 'landscape' })} />);
+    const pressed = (group: string) =>
+      within(screen.getByRole('group', { name: group }))
+        .getAllByRole('button')
+        .map(b => `${b.textContent}:${b.getAttribute('aria-pressed')}`);
+    expect(pressed('Sheet size')).toEqual(['a4:false', 'a3:true', '12x18:false', '13x19:false', 'custom:false']);
+    expect(pressed('Orientation')).toEqual(['portrait:false', 'landscape:true']);
   });
 });
