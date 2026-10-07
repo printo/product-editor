@@ -54,6 +54,11 @@ export function useCalendarEditor({
   // Key: iso date, value: blobUrl for preview thumbnail.
   // Blob URLs are revoked when the override is cleared or the page unmounts.
   const [calendarCellImagePreviews, setCalendarCellImagePreviews] = useState<Record<string, string>>({});
+  const calendarCellImagePreviewsRef = useRef(calendarCellImagePreviews);
+  useEffect(() => { calendarCellImagePreviewsRef.current = calendarCellImagePreviews; }, [calendarCellImagePreviews]);
+  useEffect(() => () => {
+    Object.values(calendarCellImagePreviewsRef.current).forEach(url => URL.revokeObjectURL(url));
+  }, []);
 
   // ── Calendar cell editing helpers (PRD §10.3 / audit fix #1) ─────────────
 

@@ -11,6 +11,9 @@ exports dir's prefix (`exports_old/`). The view's first check already rejects
 `..` and absolute paths, so only a symlink placed on the server could reach that
 case — but the backstop exists to catch whatever the first check misses.
 
+The backstop also used to require the file to exist, so a missing export inside
+the exports dir answered 403 "Access denied" instead of the documented 404.
+
 Run stand-alone:
     cd backend/django && DEBUG=1 python -m services.tests.test_view_path_guards
 """
@@ -25,7 +28,8 @@ if not os.environ.get('DJANGO_SETTINGS_MODULE'):
 import django  # noqa: E402
 django.setup()
 
-from django.test import override_settings  # noqa: E402
+from django.contrib.auth.models import AnonymousUser  # noqa: E402
+from django.test import RequestFactory, override_settings  # noqa: E402
 
 from api.views._common import is_safe_layout_name  # noqa: E402
 from api.views.downloads import SecureExportDownloadView  # noqa: E402
@@ -51,11 +55,36 @@ def test_export_downloads_stay_inside_the_exports_dir():
         check = SecureExportDownloadView._is_full_path_safe
         with override_settings(EXPORTS_DIR=exports):
             assert check(os.path.join(exports, 'ok.png'))
-            assert not check(os.path.join(exports, 'missing.png'))
+            # Missing but inside: containment holds; the view answers 404 for it.
+            assert check(os.path.join(exports, 'missing.png'))
             # A sibling that merely shares the prefix, reached directly or through a symlink.
             assert not check(os.path.join(sibling, 'other.png'))
             assert not check(os.path.join(exports, 'link', 'other.png'))
             assert not check(os.path.join(exports, '..', 'exports_old', 'other.png'))
+
+
+def test_export_download_status_codes():
+    with tempfile.TemporaryDirectory() as root:
+        exports = os.path.join(root, 'exports')
+        sibling = os.path.join(root, 'exports_old')
+        os.makedirs(os.path.join(exports, 'job'))
+        os.makedirs(sibling)
+        with open(os.path.join(exports, 'job', 'ok.png'), 'wb') as f:
+            f.write(b'png')
+        open(os.path.join(sibling, 'other.png'), 'wb').close()
+        os.symlink(sibling, os.path.join(exports, 'link'))
+
+        request = RequestFactory().get('/')
+        request.user = AnonymousUser()
+        view = SecureExportDownloadView()
+        with override_settings(EXPORTS_DIR=exports):
+            assert view.get(request, 'job/ok.png').status_code == 200
+            assert view.get(request, 'job/missing.png').status_code == 404
+            assert view.get(request, 'nojob/missing.png').status_code == 404
+            assert view.get(request, 'job').status_code == 404
+            assert view.get(request, '../exports_old/other.png').status_code == 403
+            assert view.get(request, 'link/other.png').status_code == 403
+            assert view.get(request, 'link/missing.png').status_code == 403
 
 
 if __name__ == '__main__':

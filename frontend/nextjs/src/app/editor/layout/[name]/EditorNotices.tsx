@@ -87,7 +87,6 @@ export function LowDpiWarning({ frames }: { frames: LowDpiFrame[] }) {
  *  qty block in processSelectedFiles. */
 export function QtyShortfallWarning({ uploaded, needed }: { uploaded: number; needed: number }) {
   if (needed <= 0 || uploaded >= needed) return null;
-  const short = needed - uploaded;
   return (
     <div className="mx-7 mb-5 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
       <div className="flex items-center gap-2 text-sm font-semibold">

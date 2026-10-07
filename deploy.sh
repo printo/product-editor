@@ -613,13 +613,13 @@ elif [[ "$MODE" == "workers" ]]; then
     docker rm -f "product-editor-${svc}-1" 2>/dev/null && print_status "Removed product-editor-${svc}-1" || print_info "No product-editor-${svc}-1 to remove"
   done
 elif [[ "$MODE" == "frontend" ]]; then
-  print_action "Stopping frontend container..."
-  docker-compose stop frontend 2>&1 | grep -v "^$" || true
-  print_status "Frontend stopped"
-  print_action "Removing frontend container..."
-  docker rm -f product-editor-frontend-1 2>/dev/null && print_status "Frontend container removed" || print_info "No container to remove"
-  
-  ensure_port_free "${FRONTEND_HOST_PORT:-5004}" || true
+  # Same reasoning as `both` above. Stopping here took the site down for the
+  # whole build: on 2026-10-07 every page answered 502 "frontend could not be
+  # resolved" for ~20 s per frontend deploy, customer upload chunks included —
+  # longer whenever the build is not mostly cached. The old container now
+  # keeps serving and is swapped with `--force-recreate` once the new image
+  # exists, leaving only its own stop + start (about a second).
+  print_info "Leaving the current frontend serving; it is swapped after the build."
 fi
 
 # Remove old images
@@ -723,9 +723,9 @@ elif [[ "$MODE" == "workers" ]]; then
     exit 1
   fi
 elif [[ "$MODE" == "frontend" ]]; then
-  print_action "Creating and starting frontend container..."
-  if docker-compose up -d frontend; then
-    print_status "Frontend started"
+  print_action "Swapping the frontend container onto the new image..."
+  if docker-compose up -d --force-recreate --no-deps frontend; then
+    print_status "Frontend swapped"
   else
     print_error "Failed to start frontend"
     docker-compose logs --tail=30 frontend
