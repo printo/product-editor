@@ -4,7 +4,7 @@ import { createEmbedSession } from './support/api';
 import { PARENT_ORIGIN, e2eEnv } from './support/env';
 import {
   PHOTOS, addPhotos, canvasCount, canvasStateFetches, cards, layoutName, logCanvasStateFetches,
-  openEmbedEditor, openInParentPage, parentMessages, parentPageUrl, recordAutosaves, startParentServer,
+  openEmbedEditor, openInParentPage, parentMessages, parentPageUrl, photoOrder, recordAutosaves, startParentServer,
 } from './support/editor';
 
 test.describe('embed editor (customer iframe)', () => {
@@ -136,6 +136,20 @@ test.describe('embed editor (customer iframe)', () => {
     await openEmbedEditor(page, token);
     await addPhotos(page, [PHOTOS.heic]);
     await expect(cards(page)).toHaveCount(1, { timeout: 60_000 });
+  });
+
+  test('dragging one card onto another swaps their photos', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    const saves = recordAutosaves(page);
+    await openEmbedEditor(page, token);
+    await addPhotos(page, [PHOTOS.portrait, PHOTOS.landscape]);
+    await expect(cards(page)).toHaveCount(2);
+    await expect.poll(() => photoOrder(saves.at(-1)), { timeout: 30_000 })
+      .toEqual(['portrait-3000x4000.jpg', 'landscape-4000x3000.jpg']);
+    await cards(page).nth(0).dragTo(cards(page).nth(1));
+    await expect.poll(() => photoOrder(saves.at(-1)), { timeout: 30_000 })
+      .toEqual(['landscape-4000x3000.jpg', 'portrait-3000x4000.jpg']);
+    await expect(cards(page)).toHaveCount(2);
   });
 
   test('the canvas editor opens on a card and closes again', async ({ page }) => {
