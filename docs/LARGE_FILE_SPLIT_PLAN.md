@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 Phase 0b in review. Started 2026-10-06.
+**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b) merged; download-link fix in review. Started 2026-10-06.
 Update the progress table at the bottom as each PR merges.
 
 ## Why
@@ -108,11 +108,12 @@ are ~435 lines of helpers and five small components.
   imposition, the canvas editor, real image decoding (HEIC included) and a
   phone profile. Local only; GitHub Actions is billing-locked. See
   `frontend/nextjs/e2e/README.md`.
-- **Download-link fix** (separate small PR, after 0b): the two download helpers
-  (`handleQuickDownload`, and the dashboard ZIP hand-off in
-  `executeServerRender`) attach a temporary `<a>` to `document.body`; switch both
-  to a detached `<a>`, which every current browser can download from. Decided
-  2026-10-07.
+- **Download-link fix** (separate small PR, after 0b): three download helpers
+  (`handleQuickDownload`, the dashboard ZIP hand-off in `executeServerRender`,
+  and `downloadBlob` in `lib/zip-utils.ts`, which imposition uses) attached a
+  temporary `<a>` to `document.body`; all three now click a detached `<a>`,
+  which every current browser can download from. Decided 2026-10-07; the
+  third was found while making the change and included.
 
 ### The split PRs
 
@@ -187,6 +188,6 @@ storage copies and cleaned env file afterwards.
 | Part 1 · PR 2 | `layouts`, `layout_admin`, `calendar_assets` | ✅ Merged (#190) |
 | Part 1 · PR 3 | `render`, `downloads`, `embed`, `uploads`; `__init__.py` reduced to re-exports | ✅ Merged (#191), deployed 2026-10-07 |
 | Part 2 · 0a | Jest characterization suite; detailed Part 2 plan | ✅ Merged (#193) |
-| Part 2 · 0b | Playwright smoke suite (`frontend/nextjs/e2e/`, 14 tests) | 🟡 In review |
-| Part 2 · fix | Detached download links | Not started |
+| Part 2 · 0b | Playwright smoke suite (`frontend/nextjs/e2e/`, 14 tests) | ✅ Merged (#194) |
+| Part 2 · fix | Detached download links | 🟡 In review |
 | Part 2 · A–C8 | The 13 split PRs above | Not started |

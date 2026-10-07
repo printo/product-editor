@@ -64,8 +64,7 @@ export const downloadBlob = (blob: Blob, filename: string) => {
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
-  document.body.appendChild(link);
+  // Detached on purpose: a link needn't be in the document to download.
   link.click();
-  document.body.removeChild(link);
   URL.revokeObjectURL(url);
 };

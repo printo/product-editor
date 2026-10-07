@@ -309,9 +309,9 @@ describe('editor page — dashboard mode', () => {
   });
 
   it('Download renders on the server, polls the status, then hands the ZIP URL to the browser', async () => {
-    const clicks: Array<{ href: string; download: string }> = [];
+    const clicks: Array<{ href: string; download: string; attached: boolean }> = [];
     jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
-      clicks.push({ href: this.getAttribute('href') || '', download: this.download });
+      clicks.push({ href: this.getAttribute('href') || '', download: this.download, attached: this.isConnected });
     });
     await openEditorWithPhotos(['a.jpg']);
     const user = userEvent.setup();
@@ -324,6 +324,8 @@ describe('editor page — dashboard mode', () => {
     await waitFor(() => expect(clicks).toHaveLength(1), { timeout: 15000 });
     expect(clicks[0].href).toMatch(new RegExp(`^/api/internal/proxy/jobs/${JOB_ID}/download/\\?include_uploads=[01]$`));
     expect(clicks[0].download).toBe(`${LAYOUT_NAME}.zip`);
+    // The link is never attached to the React-owned document.
+    expect(clicks[0].attached).toBe(false);
     const render = backend.callsTo('editor/render', 'POST')[0];
     expect((render.body as { canvases: unknown[] }).canvases).toHaveLength(1);
     const polls = backend.callsTo(`render-status/${JOB_ID}/`, 'GET');

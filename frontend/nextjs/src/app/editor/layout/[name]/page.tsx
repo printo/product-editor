@@ -2518,12 +2518,11 @@ export default function LayoutEditorPage() {
     }
     if (!dataUrl) return;
 
+    // Detached on purpose: a link needn't be in the document to download.
     const a = document.createElement('a');
     a.href = dataUrl;
     a.download = `${layout?.id || 'canvas'}-${surfaceKey || 'canvas'}-${idx + 1}.png`;
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
   };
 
   useEffect(() => {
@@ -3556,9 +3555,8 @@ export default function LayoutEditorPage() {
           // when present (Django sends "<layout>-<short-id>.zip"). This is just
           // the fallback name if that header is ever stripped.
           a.download = `${layout?.name || layoutName}.zip`;
-          document.body.appendChild(a);
+          // Detached on purpose: a link needn't be in the document to download.
           a.click();
-          document.body.removeChild(a);
           return;
         }
 
