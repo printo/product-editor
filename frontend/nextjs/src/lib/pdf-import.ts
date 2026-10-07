@@ -198,7 +198,7 @@ function derivedPageFileName(sourceFileName: string, pageNumber: number): string
 /**
  * Marks every File rasterizeSelectedPages produces. The main editor's
  * auto-orientation (server-side pose detection, then an aspect-ratio
- * rotate-to-fill fallback — see resolveRotation in page.tsx) is designed
+ * rotate-to-fill fallback — see resolveRotation in editor-utils.ts) is designed
  * for photos held sideways, not document pages: pose detection on a
  * rasterized PDF page is meaningless, and the aspect fallback would happily
  * rotate a deliberately-designed document 90° just because its ratio

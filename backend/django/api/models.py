@@ -441,7 +441,7 @@ def default_display_name_for(name: str) -> str:
     """
     Auto-derived display name for a layout that doesn't have an ops-curated
     one yet — de-underscores and title-cases the identifier. Mirrors
-    formatLayoutDisplayName() in frontend/nextjs/.../editor/layout/[name]/page.tsx
+    formatLayoutDisplayName() in frontend/nextjs/.../editor/layout/[name]/editor-utils.ts
     exactly (same transform, same result) so a layout never looks different
     depending on which side computed the fallback.
     """
