@@ -1,5 +1,6 @@
 'use client';
 
+import { useId } from 'react';
 import { X, SendHorizonal } from 'lucide-react';
 import {
   LowDpiWarning, EmptySurfaceWarning, DuplicateFillWarning, QtyShortfallWarning, type PreSubmitNoticeData,
@@ -18,10 +19,12 @@ export function EmbedDisclaimerDialog({
   lowDpiFrames, emptySurfaces, duplicateFills, totalUploadedCount, qtyNeeded,
   onClose, onProceed,
 }: Props) {
+  const titleId = useId();
+  const messageId = useId();
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         {/* Header */}
         <div className="px-7 pt-7 pb-5">
           <div className="flex items-start justify-between gap-4">
@@ -30,11 +33,11 @@ export function EmbedDisclaimerDialog({
                 <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
                   <SendHorizonal className="w-4 h-4 text-indigo-600" />
                 </div>
-                <h3 className="text-base font-bold text-slate-900 tracking-tight">Ready to Submit?</h3>
+                <h3 id={titleId} className="text-base font-bold text-slate-900 tracking-tight">Ready to Submit?</h3>
               </div>
-              <p className="text-sm text-slate-500 leading-relaxed">Please confirm before sending your design for production.</p>
+              <p id={messageId} className="text-sm text-slate-500 leading-relaxed">Please confirm before sending your design for production.</p>
             </div>
-            <button onClick={onClose} className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-xl transition-colors shrink-0">
+            <button onClick={onClose} aria-label="Close" className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-xl transition-colors shrink-0">
               <X className="w-4 h-4 text-slate-400" />
             </button>
           </div>

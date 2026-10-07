@@ -29,10 +29,11 @@ test.describe('dashboard (staff, signed in without a password)', () => {
     await addPhotos(page, [PHOTOS.portrait]);
     await expect(cards(page)).toHaveCount(1);
     await page.getByRole('button', { name: 'Download' }).click();
-    await expect(page.getByText('Ready to Download?')).toBeVisible();
-    await page.getByRole('checkbox').first().check();
+    const options = page.getByRole('dialog', { name: 'Ready to Download?' });
+    await expect(options).toBeVisible();
+    await options.getByRole('checkbox').first().check();
     const download = page.waitForEvent('download', { timeout: 180_000 });
-    await page.getByText('ZIP Archive').click();
+    await options.getByRole('button', { name: /ZIP Archive/ }).click();
     const file = await download;
     // The server's Content-Disposition name (layout + short job id) wins over the link's.
     const name = file.suggestedFilename();
@@ -50,8 +51,9 @@ test.describe('dashboard (staff, signed in without a password)', () => {
     await addPhotos(page, [PHOTOS.portrait, PHOTOS.square]);
     await expect(cards(page)).toHaveCount(2);
     await page.getByRole('button', { name: 'Download' }).click();
-    await page.getByRole('checkbox').first().check();
-    await page.getByText('Imposition').click();
+    const options = page.getByRole('dialog', { name: 'Ready to Download?' });
+    await options.getByRole('checkbox').first().check();
+    await options.getByRole('button', { name: /Imposition/ }).click();
     await expect(page.getByText('Sheet preview')).toBeVisible();
     const download = page.waitForEvent('download', { timeout: 120_000 });
     await page.getByRole('button', { name: /^Download (\d+ )?print sheets?$/ }).click();

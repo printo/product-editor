@@ -1,4 +1,4 @@
-import { useState, type ComponentProps } from 'react';
+import { useState, type ComponentProps, type ReactElement } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { AutoFillPickerDialog } from '../dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from '../dialogs/BookOverflowDialog';
@@ -14,8 +14,6 @@ const photo = (name: string) => new File(['x'], name, { type: 'image/jpeg' });
 const NO_NOTICES: PreSubmitNoticeData = {
   lowDpiFrames: [], emptySurfaces: [], duplicateFills: [], totalUploadedCount: 0, qtyNeeded: 0,
 };
-/** The header's close button: an X icon with no text. */
-const closeButton = (container: HTMLElement) => container.querySelector('button svg.lucide-x')!.closest('button')!;
 
 describe('AutoFillPickerDialog', () => {
   function Picker({ files, needed, uploaded, onConfirm = jest.fn(), onClose = jest.fn() }: {
@@ -189,7 +187,7 @@ describe('DownloadOptionsDialog', () => {
 
   it('closes from the X button and from the backdrop', () => {
     const { container, props } = setup();
-    fireEvent.click(closeButton(container));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.click(container.querySelector('.backdrop-blur-md')!);
     expect(props.onClose).toHaveBeenCalledTimes(2);
   });
@@ -228,7 +226,7 @@ describe('EmbedDisclaimerDialog', () => {
   it('closes from Go Back, the X button and the backdrop', () => {
     const { container, props } = setup();
     fireEvent.click(screen.getByRole('button', { name: 'Go Back' }));
-    fireEvent.click(closeButton(container));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.click(container.querySelector('.backdrop-blur-md')!);
     expect(props.onClose).toHaveBeenCalledTimes(3);
   });
@@ -236,5 +234,72 @@ describe('EmbedDisclaimerDialog', () => {
   it('shows the pre-submit notices', () => {
     setup({ emptySurfaces: [{ key: 'back', label: 'Back' }] });
     expect(screen.getByText('One side has no photo')).toBeInTheDocument();
+  });
+});
+
+describe('dialog semantics for screen readers', () => {
+  const cases: Array<{ label: string; role: 'dialog' | 'alertdialog'; name: string; description?: string; dialog: () => ReactElement }> = [
+    {
+      label: 'delete', role: 'alertdialog', name: 'Remove image?',
+      description: 'This image will be removed from the canvas. This cannot be undone.',
+      dialog: () => <DeleteConfirmDialog onConfirm={jest.fn()} onCancel={jest.fn()} />,
+    },
+    {
+      label: 're-pick', role: 'alertdialog', name: 'Replacing photos will discard edits',
+      dialog: () => <RepickConfirmDialog losingCount={2} onDecide={jest.fn()} />,
+    },
+    {
+      label: 'over-quantity', role: 'alertdialog', name: 'More images than ordered',
+      dialog: () => <OverQuantityDialog orderQty={5} selectedCount={8} onDecide={jest.fn()} />,
+    },
+    {
+      label: 'incomplete images', role: 'alertdialog', name: '2 incomplete images detected',
+      description: 'These files look cut off (often from an interrupted download or transfer) and may print with a missing or grey edge:',
+      dialog: () => <TruncatedImagesDialog badFiles={[photo('a.jpg'), photo('b.jpg')]} onDecide={jest.fn()} />,
+    },
+    {
+      label: 'book overflow', role: 'alertdialog', name: "3 photos won't fit on 2 pages",
+      description: 'Only 2 of 3 photos will be used unless you add more pages. Extend to 4 pages to fit them all?',
+      dialog: () => (
+        <BookOverflowDialog
+          overflow={{ files: [photo('a.jpg'), photo('b.jpg'), photo('c.jpg')], currentCapacity: 2, suggestedCount: 4 }}
+          pageCount={2}
+          onDecide={jest.fn()}
+        />
+      ),
+    },
+    {
+      label: 'auto-fill picker', role: 'dialog', name: 'Choose images to repeat',
+      dialog: () => (
+        <AutoFillPickerDialog
+          qtyUnder={{ needed: 3, uploaded: 1 }} files={[photo('a.jpg')]} getFileUrl={() => 'blob:a'}
+          pickerSelected={new Set()} setPickerSelected={jest.fn()} onClose={jest.fn()} onConfirm={jest.fn()}
+        />
+      ),
+    },
+    {
+      label: 'download options', role: 'dialog', name: 'Ready to Download?',
+      description: 'Please review and confirm before generating your print-ready files.',
+      dialog: () => (
+        <DownloadOptionsDialog
+          {...NO_NOTICES} disclaimerChecked={false} onDisclaimerChange={jest.fn()} includeUploads={false}
+          onIncludeUploadsChange={jest.fn()} onClose={jest.fn()} onDownloadZip={jest.fn()} onImposition={jest.fn()}
+        />
+      ),
+    },
+    {
+      label: 'embed disclaimer', role: 'dialog', name: 'Ready to Submit?',
+      description: 'Please confirm before sending your design for production.',
+      dialog: () => (
+        <EmbedDisclaimerDialog {...NO_NOTICES} disclaimerChecked={false} onDisclaimerChange={jest.fn()} onClose={jest.fn()} onProceed={jest.fn()} />
+      ),
+    },
+  ];
+
+  it.each(cases)('$label: a modal $role named "$name"', ({ role, name, description, dialog }) => {
+    render(dialog());
+    const el = screen.getByRole(role, { name });
+    expect(el).toHaveAttribute('aria-modal', 'true');
+    if (description) expect(el).toHaveAccessibleDescription(description);
   });
 });
