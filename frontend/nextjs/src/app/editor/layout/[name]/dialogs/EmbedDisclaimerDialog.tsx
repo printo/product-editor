@@ -1,6 +1,7 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useRef } from 'react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 import { X, SendHorizonal } from 'lucide-react';
 import {
   LowDpiWarning, EmptySurfaceWarning, DuplicateFillWarning, QtyShortfallWarning, type PreSubmitNoticeData,
@@ -19,12 +20,14 @@ export function EmbedDisclaimerDialog({
   lowDpiFrames, emptySurfaces, duplicateFills, totalUploadedCount, qtyNeeded,
   onClose, onProceed,
 }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, null);
   const titleId = useId();
   const messageId = useId();
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
+      <div ref={dialogRef} className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         {/* Header */}
         <div className="px-7 pt-7 pb-5">
           <div className="flex items-start justify-between gap-4">

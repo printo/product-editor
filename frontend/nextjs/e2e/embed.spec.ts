@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { createEmbedSession } from './support/api';
 import { PARENT_ORIGIN, e2eEnv } from './support/env';
@@ -148,5 +149,40 @@ test.describe('embed editor (customer iframe)', () => {
     await editor.getByRole('button', { name: 'Close editor' }).click();
     await expect(editor).toBeHidden();
     await expect(cards(page)).toHaveCount(1);
+  });
+
+  test('an incomplete photo asks first: the prompt takes focus, and Escape cancels the pick', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    await openEmbedEditor(page, token);
+    // Half a JPEG: no end-of-image marker, so the editor flags it before composing anything.
+    const jpeg = fs.readFileSync(PHOTOS.portrait);
+    await page.locator('input[type="file"][multiple]').setInputFiles({
+      name: 'cut-off.jpg', mimeType: 'image/jpeg', buffer: jpeg.subarray(0, Math.floor(jpeg.length / 2)),
+    });
+    const prompt = page.getByRole('alertdialog', { name: 'Incomplete image detected' });
+    await expect(prompt.getByRole('button', { name: 'Remove it' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(prompt).toBeHidden();
+    await expect(cards(page)).toHaveCount(0);
+  });
+
+  test('a confirm dialog holds keyboard focus: starts on Cancel, Tab stays inside, Escape gives focus back', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    await openEmbedEditor(page, token);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await expect(cards(page)).toHaveCount(1);
+    const remove = page.getByTitle('Remove Photo').first();
+    await remove.focus();
+    await remove.click();
+    const confirm = page.getByRole('alertdialog', { name: 'Remove image?' });
+    await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm.getByRole('button', { name: 'Remove' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(confirm).toBeHidden();
+    await expect(cards(page)).toHaveCount(1);
+    await expect(remove).toBeFocused();
   });
 });

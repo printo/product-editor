@@ -1,6 +1,8 @@
 'use client';
 
+import { useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 
 /** More photos picked than the order's quantity: keep the first N or choose
  *  again. A hard cap, so there is no proceed-with-all choice — see "Order
@@ -10,9 +12,12 @@ export function OverQuantityDialog({ orderQty, selectedCount, onDecide }: {
   selectedCount: number;
   onDecide: (keepFirst: boolean) => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, null);
   return (
     <div className="fixed inset-0 z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div
+        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-label="More images than ordered"

@@ -1,6 +1,7 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useRef } from 'react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 
 /** Files that look cut off (an interrupted download or transfer): remove them
  *  or keep them anyway. */
@@ -8,11 +9,13 @@ export function TruncatedImagesDialog({ badFiles, onDecide }: {
   badFiles: File[];
   onDecide: (decision: 'keep' | 'remove') => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, null);
   const titleId = useId();
   const messageId = useId();
   return (
     <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
+      <div ref={dialogRef} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         <p id={titleId} className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">
           {badFiles.length === 1 ? 'Incomplete image detected' : `${badFiles.length} incomplete images detected`}
         </p>

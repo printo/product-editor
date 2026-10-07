@@ -1368,8 +1368,11 @@ export default function LayoutEditorPage() {
   // ── Escape closes confirm dialogs (Phase 4 a11y) ──────────────────────────
   // One document-level handler (effect + cleanup — the sanctioned no-DOM
   // exception) closes whichever confirm modal is open, so keyboard users
-  // aren't trapped. The full editor modal manages its own keys (Fabric uses
-  // Escape for text editing) and is not included here.
+  // aren't trapped. The dialogs only manage focus (useModalA11y with
+  // onClose: null) and leave Escape here, so one press closes one dialog.
+  // On the file-pick prompts it cancels the pick. The full editor modal
+  // manages its own keys (Fabric uses Escape for text editing) and is not
+  // included here.
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -1377,12 +1380,14 @@ export default function LayoutEditorPage() {
       if (pendingRepick) return setPendingRepick(null);
       if (deleteConfirm) return setDeleteConfirm(null);
       if (pendingOverFiles) return setPendingOverFiles(null);
+      if (pendingTruncated) return setPendingTruncated(null);
+      if (pendingBookOverflow) return setPendingBookOverflow(null);
       if (showDownloadModal) return setShowDownloadModal(false);
       if (showEmbedDisclaimer) return setShowEmbedDisclaimer(false);
     };
     document.addEventListener('keydown', onEsc);
     return () => document.removeEventListener('keydown', onEsc);
-  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, showDownloadModal, showEmbedDisclaimer]);
+  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, pendingTruncated, pendingBookOverflow, showDownloadModal, showEmbedDisclaimer]);
 
   // ── Tab-close guard (Phase 3) ─────────────────────────────────────────────
   // Warn before unloading ONLY while work is genuinely in flight: an active

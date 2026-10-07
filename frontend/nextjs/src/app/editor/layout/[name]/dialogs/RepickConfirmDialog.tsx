@@ -1,14 +1,20 @@
 'use client';
 
+import { useRef } from 'react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
+
 /** Asks before a re-pick discards the edits on pages whose photos are not
  *  in the new selection (Phase 3). */
 export function RepickConfirmDialog({ losingCount, onDecide }: {
   losingCount: number;
   onDecide: (proceed: boolean) => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const keepEditsRef = useRef<HTMLButtonElement>(null);
+  useModalA11y(dialogRef, null, true, keepEditsRef);
   return (
     <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-label="Replacing photos will discard edits">
+      <div ref={dialogRef} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-label="Replacing photos will discard edits">
         <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Replace photos?</p>
         <p className="text-xs text-slate-500 leading-relaxed mb-6">
           {losingCount === 1
@@ -23,6 +29,7 @@ export function RepickConfirmDialog({ losingCount, onDecide }: {
             Replace anyway
           </button>
           <button
+            ref={keepEditsRef}
             onClick={() => onDecide(false)}
             className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
           >

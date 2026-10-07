@@ -16,6 +16,7 @@ import userEvent from '@testing-library/user-event';
 import {
   BOOK_LAYOUT, CALENDAR_FINANCIAL_GENZ, CALENDAR_LAYOUT, CALENDAR_NO_HOLIDAYS, FakeBackend, LAYOUT_NAME, makePhoto, renderEditor, setEditorUrl,
 } from './editor-page-harness';
+import { isImageComplete } from '@/lib/image-utils';
 
 jest.setTimeout(30000);
 
@@ -225,6 +226,19 @@ describe('editor page — embed mode', () => {
     await waitFor(() => expect(cards()).toHaveLength(1));
   });
 
+  it('an incomplete photo asks first: the prompt takes focus, and Escape cancels the pick', async () => {
+    renderEditor();
+    await waitFor(() => expect(backend.callsTo('editor/init')).toHaveLength(1));
+    await waitFor(() => photoInput());
+    jest.mocked(isImageComplete).mockResolvedValueOnce(false);
+    await addPhotos(['cut-off.jpg']);
+    const prompt = await screen.findByRole('alertdialog', { name: 'Incomplete image detected' });
+    expect(prompt).toContainElement(document.activeElement as HTMLElement);
+    await userEvent.setup().keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(cards()).toHaveLength(0);
+  });
+
   it('quick rotate turns the photo 90° and the autosave carries it', async () => {
     await openEditorWithPhotos(['a.jpg']);
     await waitFor(() => expect(lastPut(ORDER_ID)).toBeDefined(), { timeout: 8000 });
@@ -407,5 +421,24 @@ describe('editor page — book layouts', () => {
     await userEvent.setup().click(more);
     await waitFor(() => expect(lastPut(ORDER_ID)?.editor_state.bookState?.pageCount).toBe(12), { timeout: 8000 });
     expect(backend.unexpected).toEqual([]);
+  });
+
+  it('more photos than pages asks to extend: the prompt takes focus, and Escape cancels the pick', async () => {
+    renderEditor();
+    await waitFor(() => expect(backend.callsTo(`canvas-state/${ORDER_ID}/`, 'GET')).toHaveLength(1));
+    await waitFor(() => photoInput());
+    const twelve = Array.from({ length: 12 }, (_, i) => `p${i + 1}.jpg`);
+    await addPhotos(twelve);
+    let prompt = await screen.findByRole('alertdialog', { name: /won't fit on 8 pages/ });
+    expect(prompt).toContainElement(document.activeElement as HTMLElement);
+    await userEvent.setup().keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    await sleep(4000); // past the 2 s autosave debounce: nothing from the pick may be saved
+    expect(allStrings(lastPut(ORDER_ID)?.editor_state)).not.toContain('p1.jpg');
+    // Cancelled, not decided: the same pick asks again, and a decision does place the photos.
+    await addPhotos(twelve);
+    prompt = await screen.findByRole('alertdialog', { name: /won't fit on 8 pages/ });
+    await userEvent.setup().click(within(prompt).getByRole('button', { name: 'Keep 8 pages' }));
+    await waitFor(() => expect(allStrings(lastPut(ORDER_ID)?.editor_state)).toContain('p1.jpg'), { timeout: 8000 });
   });
 });

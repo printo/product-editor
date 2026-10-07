@@ -1,6 +1,7 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useRef } from 'react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 
 /** Book D3: more photos than pages — warn and offer to extend the book. */
 export function BookOverflowDialog({ overflow, pageCount, onDecide }: {
@@ -8,11 +9,13 @@ export function BookOverflowDialog({ overflow, pageCount, onDecide }: {
   pageCount: number;
   onDecide: (decision: 'extend' | 'keep') => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, null);
   const titleId = useId();
   const messageId = useId();
   return (
     <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
+      <div ref={dialogRef} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         <p id={titleId} className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">
           {overflow.files.length} photos won&apos;t fit on {pageCount} pages
         </p>
