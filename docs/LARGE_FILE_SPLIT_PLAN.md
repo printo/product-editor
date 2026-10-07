@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 Phase 0a in review. Started 2026-10-06.
+**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 Phase 0b in review. Started 2026-10-06.
 Update the progress table at the bottom as each PR merges.
 
 ## Why
@@ -100,10 +100,14 @@ are ~435 lines of helpers and five small components.
   `page.tsx` and re-running it (8 deliberate breaks, all caught). One finding
   from that: the photo path has two independent restore guards, but the
   calendar/book autosave triggers rely on `scheduleAutosave`'s guard alone.
-- **0b — Playwright smoke suite** (local, real browser, against the local
-  stack): the same journeys end to end through the real UI, plus what Jest
-  can't run — imposition (canvas), the editor modal, real image decoding, a
-  phone viewport. Local only; GitHub Actions is billing-locked.
+- **0b — Playwright smoke suite** (`frontend/nextjs/e2e/`, `pnpm e2e`): 14
+  tests in the installed Chrome against the local stack and a production build —
+  the same journeys through the real UI, plus what Jest can't run: a fake
+  storefront page receiving `pe:back` / `pe:render_job`, the enforced
+  `frame-ancestors` policy, a real server render downloaded as a ZIP,
+  imposition, the canvas editor, real image decoding (HEIC included) and a
+  phone profile. Local only; GitHub Actions is billing-locked. See
+  `frontend/nextjs/e2e/README.md`.
 - **Download-link fix** (separate small PR, after 0b): the two download helpers
   (`handleQuickDownload`, and the dashboard ZIP hand-off in
   `executeServerRender`) attach a temporary `<a>` to `document.body`; switch both
@@ -182,7 +186,7 @@ storage copies and cleaned env file afterwards.
 | Part 1 · PR 1 | Package conversion; `system`, `ops`, `media` | ✅ Merged (#189), deployed 2026-10-06 |
 | Part 1 · PR 2 | `layouts`, `layout_admin`, `calendar_assets` | ✅ Merged (#190) |
 | Part 1 · PR 3 | `render`, `downloads`, `embed`, `uploads`; `__init__.py` reduced to re-exports | ✅ Merged (#191), deployed 2026-10-07 |
-| Part 2 · 0a | Jest characterization suite; detailed Part 2 plan | 🟡 In review |
-| Part 2 · 0b | Playwright smoke suite | Not started |
+| Part 2 · 0a | Jest characterization suite; detailed Part 2 plan | ✅ Merged (#193) |
+| Part 2 · 0b | Playwright smoke suite (`frontend/nextjs/e2e/`, 14 tests) | 🟡 In review |
 | Part 2 · fix | Detached download links | Not started |
 | Part 2 · A–C8 | The 13 split PRs above | Not started |

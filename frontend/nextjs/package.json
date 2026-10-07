@@ -14,7 +14,10 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:parity": "jest --testPathPattern=\"calendar.parity|book-layout.parity\""
+    "test:parity": "jest --testPathPattern=\"calendar.parity|book-layout.parity\"",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "typecheck:e2e": "tsc -p e2e/tsconfig.json"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.0.0",
@@ -36,6 +39,7 @@
   },
   "devDependencies": {
     "@happy-dom/jest-environment": "^20.9.0",
+    "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
