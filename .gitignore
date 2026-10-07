@@ -122,6 +122,10 @@ backup_*.sql
 # Added by ggshield
 .cache_ggshield
 frontend/nextjs/next-env.d.ts
+# Playwright smoke suite output (frontend/nextjs/e2e)
+frontend/nextjs/playwright-report/
+frontend/nextjs/test-results/
+frontend/nextjs/blob-report/
 
 # Claude Code per-developer state (settings, locks, plans)
 .claude/
