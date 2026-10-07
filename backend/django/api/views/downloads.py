@@ -122,8 +122,9 @@ class SecureExportDownloadView(APIView):
 
             # Inside EXPORTS_DIR, not merely sharing its prefix: a plain
             # startswith() also accepted a sibling such as `exports_old/`.
-            inside = os.path.commonpath([real_path, real_exports_dir]) == real_exports_dir
-            return inside and os.path.isfile(real_path)
+            # Containment only — whether the file exists is the caller's 404,
+            # not a 403.
+            return os.path.commonpath([real_path, real_exports_dir]) == real_exports_dir
         except:
             return False
 

@@ -86,6 +86,22 @@ describe('useCalendarEditor', () => {
     revoke.mockRestore();
   });
 
+  it('frees every day-photo preview when the editor closes', async () => {
+    const revoke = jest.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    upload.mockResolvedValueOnce({ uploadId: 'u-1', blobUrl: 'blob:1' } as never)
+      .mockResolvedValueOnce({ uploadId: 'u-2', blobUrl: 'blob:2' } as never);
+    const p = editorProps();
+    const { result, unmount } = renderHook(() => useCalendarEditor(p));
+    act(() => result.current.handleCalendarMonthTileClick(0, 2027, 3));
+    await act(async () => { await result.current.handleCellImageFileSelected(jpg); });
+    act(() => result.current.handleCalendarMonthTileClick(0, 2027, 4));
+    await act(async () => { await result.current.handleCellImageFileSelected(jpg); });
+    expect(revoke).not.toHaveBeenCalled();
+    unmount();
+    expect(revoke.mock.calls.map(c => c[0]).sort()).toEqual(['blob:1', 'blob:2']);
+    revoke.mockRestore();
+  });
+
   it('does nothing without a selected day, or when the PDF picker is cancelled', async () => {
     const p = editorProps({ expandPdfPages: jest.fn(async () => []) });
     const { result } = renderHook(() => useCalendarEditor(p));
