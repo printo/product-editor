@@ -7,8 +7,6 @@
 import React, {
   useState, useEffect, useCallback, useMemo, useRef,
 } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { useHeader } from '@/context/HeaderContext';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 import {
@@ -17,7 +15,7 @@ import {
   isAllowedImageFile,
   IMAGE_AND_PDF_ACCEPT_ATTR,
 } from '@/lib/upload-utils';
-import { convertHeicFileIfNeeded, convertAndPartitionFiles, isHeicFile, createServerHeicConverter } from '@/lib/heic-convert';
+import { convertHeicFileIfNeeded, convertAndPartitionFiles, isHeicFile } from '@/lib/heic-convert';
 import { pdfDerivedFiles } from '@/lib/pdf-import';
 import { usePdfPageImport } from '@/components/use-pdf-page-import';
 import {
@@ -25,15 +23,14 @@ import {
   FileStoreQuotaError, getPersistenceMode,
 } from '@/lib/file-store';
 import { collectFileIds, unreferencedFileIds } from './file-refs';
-import { normalizeLayout, filterSurfaces, getCanvasSpec, getFrames, type NormalizedLayout } from '@/lib/layout-utils';
-import { getImageMetadata, getImageSize, detectJpegColorSpace, isImageComplete } from '@/lib/image-utils';
-import { collectLowDpiFrames, type LowDpiFrame } from '@/lib/dpi-utils';
+import { getCanvasSpec, getFrames, type NormalizedLayout } from '@/lib/layout-utils';
+import { getImageMetadata, detectJpegColorSpace, isImageComplete } from '@/lib/image-utils';
 import { planCanvasReuse, countCanvasesLosingEdits } from './canvas-merge';
 import {
   allocateFilesToSurfaces, planFrameSlots, surfaceFrameCount, totalSurfaceCapacity,
 } from './surface-allocation';
 import {
-  collectEmptySurfaces, collectDuplicateFills, duplicateFingerprint, checkOrderQty,
+  collectDuplicateFills, duplicateFingerprint, checkOrderQty,
 } from '@/lib/submit-guards';
 import type { FitMode, FrameState, CanvasItem, SurfaceState, Overlay } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
@@ -41,7 +38,7 @@ import { detectFileOrientation } from '@/lib/ml-orientation';
 import { CanvasEditorModal } from './CanvasEditorModal';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/types/calendar';
-import { printedHolidayLocale, resolveDefaultYear } from '@/lib/calendar';
+import { resolveDefaultYear } from '@/lib/calendar';
 import {
   uploadCalendarCellImage,
   CalendarCellUploadError,
@@ -63,6 +60,9 @@ import { BookPageCount, BookSpreadPreview } from './BookSpreadPreview';
 import { EmptyState } from './EmptyState';
 import { CanvasGrid } from './CanvasGrid';
 import { CalendarSection } from './CalendarSection';
+import { useEditorEnvironment, useLoginRedirect } from './useEditorEnvironment';
+import { useActiveSurfaceLayout, useLayoutLoader } from './useLayoutLoader';
+import { useSubmitGuards } from './useSubmitGuards';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
 import { DeleteConfirmDialog } from './dialogs/DeleteConfirmDialog';
@@ -73,102 +73,10 @@ import { RepickConfirmDialog } from './dialogs/RepickConfirmDialog';
 import { TruncatedImagesDialog } from './dialogs/TruncatedImagesDialog';
 
 export default function LayoutEditorPage() {
-  const params = useParams();
-  const layoutName = Array.isArray(params.name) ? params.name[0] : (params.name as string);
-  const router = useRouter();
-  const { data: session, status } = useSession();
-
-  const embedToken = useMemo<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return new URLSearchParams(window.location.search).get('token');
-  }, []);
-
-  // Resolve the parent window's origin for postMessage. Strict targetOrigin
-  // prevents an unrelated outer page from eavesdropping on completion payloads
-  // (which include order_id, job_id, and dataUrls for client-rendered jobs).
-  // Resolution order: ancestorOrigins (Chromium/Safari) → document.referrer
-  // → NEXT_PUBLIC_EMBED_PARENT_ORIGIN env. Falls back to a defaulted printo.in
-  // host so production never silently leaks via '*'.
-  const parentOrigin = useMemo<string>(() => {
-    if (typeof window === 'undefined') return 'https://printo.in';
-    const ancestors = (window.location as unknown as { ancestorOrigins?: { length: number; [i: number]: string } }).ancestorOrigins;
-    if (ancestors && ancestors.length > 0 && ancestors[0]) return ancestors[0];
-    if (document.referrer) {
-      try { return new URL(document.referrer).origin; } catch { /* fall through */ }
-    }
-    return process.env.NEXT_PUBLIC_EMBED_PARENT_ORIGIN || 'https://printo.in';
-  }, []);
-
-  // Quantity enforcement (single-surface only). Two sources, in priority order:
-  //
-  //   1. EmbedSession.qty — set by the caller server-side, injected upstream as
-  //      X-Order-Qty and echoed back by /editor/init below. This is the number
-  //      POST /api/editor/render actually enforces, so it is the one the editor
-  //      must cap against.
-  //   2. the legacy ?qty=N URL param, kept as a fallback so callers that have
-  //      not moved the value into the session body keep working during rollout.
-  //      It lives in a URL the customer's browser owns, which is precisely why
-  //      (1) exists — nothing server-side honours it.
-  const urlQty = useMemo<number | null>(() => {
-    if (typeof window === 'undefined') return null;
-    const v = new URLSearchParams(window.location.search).get('qty');
-    const n = v ? parseInt(v, 10) : NaN;
-    return isNaN(n) || n <= 0 ? null : n;
-  }, []);
-  const [sessionQty, setSessionQty] = useState<number | null>(null);
-  const orderQty = sessionQty ?? urlQty;
-
-  // Stable order ID — read from URL or generate a new friendly ID.
-  // Written back to the URL immediately so a refresh / share keeps the same ID.
-  const [orderId, setOrderId] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    const sp = new URLSearchParams(window.location.search);
-    let id = sp.get('order_id');
-    if (!id) {
-      // Generate PE-XXXXXXXX (8 uppercase hex chars)
-      const hex = crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
-      id = `PE-${hex}`;
-    }
-    return id;
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !orderId) return;
-    const sp = new URLSearchParams(window.location.search);
-    if (sp.get('order_id') !== orderId) {
-      sp.set('order_id', orderId);
-      window.history.replaceState(null, '', `?${sp.toString()}`);
-    }
-  }, [orderId]);
-
-  // Two distinct request paths, deliberately kept separate:
-  //
-  //   1. EMBED iframe flow → /api/embed/proxy/* with X-Embed-Token header.
-  //      The proxy exchanges the short-lived UUID token for the real API key
-  //      server-side; the browser never holds a real key.
-  //
-  //   2. PIA-LOGGED-IN dashboard/editor flow → /api/internal/proxy/* with no
-  //      auth header at all.  The proxy uses the NextAuth session cookie to
-  //      gate access and injects the server-side INTERNAL_API_KEY.  The
-  //      browser never holds a real key here either — replacing the previous
-  //      NEXT_PUBLIC_DIRECT_API_KEY which leaked into the client bundle.
-  const getAuthHeaders = useCallback((): Record<string, string> => {
-    if (embedToken) return { 'X-Embed-Token': embedToken };
-    // Internal proxy reads the session cookie automatically; no header needed.
-    return {};
-  }, [embedToken]);
-
-  const apiBase = embedToken ? '/api/embed/proxy' : '/api/internal/proxy';
-
-  // Last-resort HEIC decoder, running current libheif on the server. Needed
-  // because the in-browser decoders cannot read the gain-map HDR photos
-  // current iPhones write, and Chrome/Firefox have no HEIC codec at all.
-  // Routed through whichever proxy this flow already uses, so the embed
-  // iframe never sees an API key. See lib/heic-convert.ts.
-  const serverHeicConvert = useMemo(
-    () => createServerHeicConverter(apiBase, getAuthHeaders),
-    [apiBase, getAuthHeaders],
-  );
+  const {
+    layoutName, router, session, status, embedToken, parentOrigin, setSessionQty, orderQty,
+    orderId, setOrderId, getAuthHeaders, apiBase, serverHeicConvert,
+  } = useEditorEnvironment();
 
   const [layout, setLayout] = useState<any | null>(null);
   const [layoutLoading, setLayoutLoading] = useState(true);
@@ -262,9 +170,6 @@ export default function LayoutEditorPage() {
   // Per-frame photo replace (Phase 3): which slot the hidden input feeds.
   const [pendingReplace, setPendingReplace] = useState<{ canvasIdx: number; frameIdx: number; surfaceKey: string | null } | null>(null);
   const replacePhotoInputRef = useRef<HTMLInputElement | null>(null);
-  // The client-generated id in play before the embed session id was adopted —
-  // lets the restore effect fall back to a pre-adoption autosave once.
-  const legacyOrderIdRef = useRef<string | null>(null);
   // Device storage full — photos can't be persisted for refresh recovery
   // (Phase 3 quota surfacing). Drives a persistent amber notice.
   const [persistDegraded, setPersistDegraded] = useState(false);
@@ -407,9 +312,6 @@ export default function LayoutEditorPage() {
   // The print carries holidays only when the layout opts in; gated here as
   // well as at fetch time so a previous layout's holidays can never show.
   const printedHolidays = layout?.holidayLocale ? calendarHolidays : NO_HOLIDAYS;
-  // Under-DPI frames for the low-resolution print warning (Phase 2 item 4).
-  // Non-blocking: shows card pills + a pre-submit notice, never stops submit.
-  const [lowDpiFrames, setLowDpiFrames] = useState<LowDpiFrame[]>([]);
 
   // Product-wide per-day entries, keyed by ISO date (flat map — Phase 2).
   // Entries belong to dates, not tile positions: the old 12-slot positional
@@ -436,135 +338,13 @@ export default function LayoutEditorPage() {
 
   useDashboardHeader(embedToken, router);
 
-  useEffect(() => {
-    if ((status === 'unauthenticated' || session?.error === 'RefreshAccessTokenError') && !embedToken) {
-      router.push('/login');
-    }
-  }, [status, session, embedToken, router]);
+  useLoginRedirect({ status, session, embedToken, router });
 
-  // (Fonts are no longer fetched here — they're batched with the layout JSON
-  //  in the single /editor/init request below.)
-
-  useEffect(() => {
-    selectedFonts.forEach(f => loadGoogleFont(f));
-  }, [selectedFonts, loadGoogleFont]);
-
-  useEffect(() => {
-    const canFetch = embedToken || status === 'authenticated';
-    if (!canFetch || !layoutName) return;
-
-    const fetchLayout = async () => {
-      setLayoutLoading(true);
-      try {
-        // C6 batched mount: one round trip for layout JSON + fonts list.
-        // /editor/init re-uses GetLayoutView's cache, so no extra disk hit.
-        const surfacesParam = new URLSearchParams(window.location.search).get('surfaces') || '';
-        const initUrl = `${apiBase}/editor/init?layout=${encodeURIComponent(layoutName)}${surfacesParam ? `&surfaces=${encodeURIComponent(surfacesParam)}` : ''}`;
-        const res = await fetch(initUrl, {
-          headers: { ...getAuthHeaders(), Accept: 'application/json' },
-        });
-        if (!res.ok) {
-          setError(res.status === 404 ? 'Layout not found.' : 'Failed to load layout.');
-          return;
-        }
-        const payload = await res.json();
-        const item = payload.layout;
-        // Embed mode adopts the SESSION order id (Phase 3): the proxy injects
-        // it upstream and editor/init echoes it, so autosave/restore and the
-        // eventual submit all key the same server row — an iframe reload
-        // without ?order_id= no longer orphans the design. Set BEFORE
-        // setLayout so React batches them and the run-once restore effect
-        // fires with the adopted id. Dashboard: payload.order_id is null.
-        if (embedToken && typeof payload.order_id === 'string' && payload.order_id && payload.order_id !== orderId) {
-          legacyOrderIdRef.current = orderId;
-          setOrderId(payload.order_id);
-        }
-        // Adopt the SESSION quantity when the caller set one — it outranks the
-        // ?qty=N URL param because it is what editor/render enforces. Absent
-        // (null) leaves the URL fallback in place; the layout resolves before
-        // any file pick, so this is set before the first qty comparison runs.
-        if (typeof payload.qty === 'number' && Number.isInteger(payload.qty) && payload.qty > 0) {
-          setSessionQty(payload.qty);
-        }
-        if (Array.isArray(payload.fonts) && payload.fonts.length) {
-          setSelectedFonts(payload.fonts);
-        }
-        let normalized: NormalizedLayout;
-        let initSurfaces: SurfaceState[];
-        // A book's surfaces are the customer's chosen page count, not a
-        // fixed list — normalizeLayout() has no concept of that, so build
-        // surfaceStates via the same reconciliation used for every later
-        // page-count change (book-pages.ts::reconcilePageCount), starting
-        // from the template's default count (BOOK_LAYOUT_PRD.md D2/R1).
-        if (item.productType === 'book') {
-          const { visible, resolvedCount } = reconcilePageCount(item as BookLayoutLike, undefined, [], {});
-          initSurfaces = visible;
-          setBookPageCount(resolvedCount);
-          setBookHiddenPages({});
-          normalized = {
-            name: item.name || '',
-            type: 'product',
-            surfaces: visible.map(s => s.def),
-            tags: item.tags || [],
-            createdAt: item.createdAt ?? null,
-            updatedAt: item.updatedAt ?? null,
-            createdBy: item.createdBy || '',
-            updatedBy: item.updatedBy || '',
-            metadata: item.metadata || [],
-            _raw: item,
-          };
-        } else {
-          normalized = normalizeLayout(item);
-          if (surfacesParam) {
-            normalized = filterSurfaces(normalized, surfacesParam.split(',').map(s => s.trim()));
-          }
-          initSurfaces = normalized.surfaces.map(s => ({
-            key: s.key,
-            label: s.label,
-            def: s,
-            files: [],
-            canvases: [],
-            globalFitMode: 'contain' as FitMode,
-          }));
-        }
-        setNormalizedLayoutState(normalized);
-        setSurfaceStates(initSurfaces);
-        const firstKey = normalized.surfaces[0]?.key || 'default';
-        setActiveSurfaceKey(firstKey);
-        const firstSurface = normalized.surfaces[0];
-        setLayout({
-          id: item.name,
-          name: item.name,
-          productType: item.productType || null,
-          dimensions: firstSurface?.canvas?.widthMm && firstSurface?.canvas?.heightMm
-            ? `${firstSurface.canvas.widthMm.toFixed(2)}x${firstSurface.canvas.heightMm.toFixed(2)}mm` : null,
-          height: firstSurface?.canvas?.height || 0,
-          canvas: firstSurface?.canvas || {},
-          frames: firstSurface?.frames || [],
-          tags: item.tags || [],
-          maskUrl: firstSurface?.maskUrl || null,
-          maskOnExport: firstSurface?.maskOnExport ?? false,
-          createdAt: item.createdAt || null,
-          updatedAt: item.updatedAt || null,
-          createdBy: item.createdBy || 'System',
-          updatedBy: item.updatedBy || 'System',
-          metadata: item.metadata || [],
-          weekStart: item.calendar?.weekStart || 'sunday',
-          // null when the print carries no holidays (holidaySource off/absent).
-          holidayLocale: printedHolidayLocale(item.calendar),
-          calendarDefaultYear: item.monthRange?.defaultYear ?? 'current',
-        });
-      } catch {
-        setError('Failed to load layout.');
-      } finally {
-        setLayoutLoading(false);
-      }
-    };
-    fetchLayout();
-    // orderId is read only for the embed adoption comparison — including it
-    // would re-fetch the layout every time the id is adopted (loop).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutName, embedToken, status, apiBase, getAuthHeaders]);
+  const { legacyOrderIdRef } = useLayoutLoader({
+    layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
+    selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
+    setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
+  });
 
   const getFileUrl = useCallback((file: File): string => {
     let url = fileUrlCache.current.get(file);
@@ -630,18 +410,7 @@ export default function LayoutEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, canvases, activeSurfaceKey]);
 
-  useEffect(() => {
-    if (!activeSurface?.def || !normalizedLayoutState) return;
-    setLayout((prev: any) => prev ? {
-      ...prev,
-      canvas: activeSurface.def.canvas,
-      frames: activeSurface.def.frames,
-      maskUrl: activeSurface.def.maskUrl,
-      maskOnExport: activeSurface.def.maskOnExport,
-      dimensions: activeSurface.def.canvas?.widthMm && activeSurface.def.canvas?.heightMm
-        ? `${activeSurface.def.canvas.widthMm.toFixed(2)}x${activeSurface.def.canvas.heightMm.toFixed(2)}mm` : prev?.dimensions,
-    } : prev);
-  }, [activeSurfaceKey, activeSurface?.def, normalizedLayoutState]);
+  useActiveSurfaceLayout({ activeSurfaceKey, activeSurface, normalizedLayoutState, setLayout });
 
   const layoutRef = useRef(layout);
   useEffect(() => { layoutRef.current = layout; }, [layout]);
@@ -1240,36 +1009,19 @@ export default function LayoutEditorPage() {
     return spineWidthMm(bookPageCount, raw.book.paperThicknessMm || 0, raw.book.coverThicknessMm || 0);
   }, [isBookProduct, normalizedLayoutState, bookPageCount]);
 
-  // Pre-submit guards (Phase 3): surfaces that would print blank + photos
-  // placed more than once (excluding deliberate qty auto-fill duplicates).
+  // Pre-submit guard (Phase 3): photos placed more than once (excluding
+  // deliberate qty auto-fill duplicates). The rest of the guards are in
+  // useSubmitGuards; this one stays beside the file intake that fills
+  // intentionalDupesRef until both move (split plan C6). It reads that ref
+  // during render, which React's compiler lint rejects wherever hook rules
+  // aren't suppressed, and this component suppresses them.
   const intentionalDupesRef = useRef(new Set<string>());
-  const emptySurfaces = useMemo(() => {
-    // Blank inner pages are an intentional, common outcome for books (D3 —
-    // "people leave pages for writing"), not a mistake, so exclude them from
-    // this warning; covers being empty should still warn.
-    const surfacesToCheck = isBookProduct
-      ? surfaceStates.filter(s => !s.key.startsWith('page_'))
-      : surfaceStates;
-    return collectEmptySurfaces(surfacesToCheck);
-  }, [surfaceStates, isBookProduct]);
   const duplicateFills = useMemo(() => {
     const groups = surfaceStates.length > 1
       ? surfaceStates.map(s => ({ label: s.label || s.key, canvases: s.canvases }))
       : [{ label: 'your design', canvases }];
     return collectDuplicateFills(groups, intentionalDupesRef.current);
   }, [surfaceStates, canvases]);
-
-  // Worst under-DPI frame per card, for the amber corner pill. Keyed by
-  // `${surfaceKey ?? ''}:${canvasIdx}` to cover both grid variants.
-  const lowDpiByCard = useMemo(() => {
-    const map = new Map<string, LowDpiFrame>();
-    for (const f of lowDpiFrames) {
-      const key = `${f.surfaceKey ?? ''}:${f.canvasIdx}`;
-      const cur = map.get(key);
-      if (!cur || f.dpi < cur.dpi) map.set(key, f);
-    }
-    return map;
-  }, [lowDpiFrames]);
 
   // ── Tab-close guard (Phase 3) ─────────────────────────────────────────────
   // Warn before unloading ONLY while work is genuinely in flight: an active
@@ -1289,33 +1041,7 @@ export default function LayoutEditorPage() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [isDownloading, isSaving]);
 
-  // ── Low-resolution sweep (Phase 2 item 4) ────────────────────────────────
-  // Debounced: reacts to placed photos, saved modal zoom (FrameState.scale),
-  // rotation, and fit-mode flips. Cache-warm getImageSize keeps re-runs
-  // cheap; a first run may decode files not yet in the metadata cache.
-  useEffect(() => {
-    if (!layout) return;
-    // Cancellation flag: an in-flight sweep from a previous state must not
-    // land after a newer one and overwrite fresh results with stale ones.
-    let cancelled = false;
-    const t = setTimeout(async () => {
-      try {
-        const groups = surfaceStates.length > 1
-          ? surfaceStates.map(s => ({
-              canvases: s.canvases,
-              layoutDef: s.def,
-              surfaceKey: s.key,
-              surfaceLabel: s.label || s.key,
-            }))
-          : [{ canvases, layoutDef: layout, surfaceKey: null }];
-        const result = await collectLowDpiFrames(groups as any, getImageSize);
-        if (!cancelled) setLowDpiFrames(result);
-      } catch {
-        // The warning is best-effort — never let it disturb the editor.
-      }
-    }, 300);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [canvases, surfaceStates, layout]);
+  const { lowDpiFrames, emptySurfaces, lowDpiByCard } = useSubmitGuards({ layout, surfaceStates, canvases, isBookProduct });
 
   // ── Calendar: fetch Gen-Z palettes + holidays on layout mount ────────────
   // Only runs for productType='calendar' layouts. Gen-Z palettes are needed
