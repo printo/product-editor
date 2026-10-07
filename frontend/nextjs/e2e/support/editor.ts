@@ -27,6 +27,24 @@ export async function addPhotos(surface: Surface, files: string[]) {
   await surface.locator('input[type="file"][multiple]').setInputFiles(files);
 }
 
+/** Where the editor toolbar sits: found through its Blur Effect button, which
+ *  both the embed and the dashboard toolbar carry. */
+export function toolbarPlacement(surface: Page) {
+  return surface.getByRole('button', { name: 'Toggle blur effect' }).evaluate((button) => {
+    const bar = button.closest('.backdrop-blur-3xl') as HTMLElement;
+    return { position: getComputedStyle(bar).position, top: Math.round(bar.getBoundingClientRect().top) };
+  });
+}
+
+/** Scrolls to the bottom (or top) and checks the page can actually scroll. */
+export async function scrollPage(page: Page, to: 'bottom' | 'top') {
+  const scrolled = await page.evaluate((where) => {
+    window.scrollTo(0, where === 'bottom' ? document.documentElement.scrollHeight : 0);
+    return window.scrollY;
+  }, to);
+  if (to === 'bottom') expect(scrolled).toBeGreaterThan(20);
+}
+
 export async function openEmbedEditor(page: Page, token: string, layout = layoutName()) {
   await page.goto(`/editor/layout/${encodeURIComponent(layout)}?token=${encodeURIComponent(token)}`);
   await expect(page.locator('input[type="file"][multiple]')).toBeAttached();

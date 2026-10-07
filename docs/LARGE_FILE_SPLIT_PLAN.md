@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b), the download-link fix, Phase A and its follow-up, and Phase B1 and its accessibility follow-ups (roles, focus, Escape, card keys) merged; Part 1's follow-ups merged (including the order-purge fix); Phase B2 and its accessibility follow-up (the print-sheet window) merged; the top-bar layering fix in review. Started 2026-10-06.
+**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b), the download-link fix, Phase A and its follow-up, and Phase B1 and its accessibility follow-ups (roles, focus, Escape, card keys) merged; Part 1's follow-ups merged (including the order-purge fix); Phase B2, its accessibility follow-up (the print-sheet window) and the top-bar layering fix merged; the toolbar-pinning fix (found starting B3) in review. Started 2026-10-06.
 Update the progress table at the bottom as each PR merges.
 
 ## Why
@@ -203,5 +203,6 @@ storage copies and cleaned env file afterwards.
 | Part 1 · follow-up 2 | Found while testing #202: the order purge erases upload-only orders, a key-scoped purge no longer touches another key's uploads, and `matched` counts everything found | ✅ Merged (#203), deployed 2026-10-07 |
 | Part 2 · B2 | Imposition → `useImposition.ts` (state, refs, memos, effects 33–37, `executeImposition`) + `ImpositionModal.tsx` | ✅ Merged (#204), deployed 2026-10-07 |
 | Part 2 · B2 follow-up | Accessibility for the print-sheet (imposition) window: a dialog role and name, a labelled Close button, focus (opens on Close, Tab kept inside, back on close), and Escape closes it. Its number fields are named and its sheet-size and orientation buttons say which one is chosen. The page's Escape handler moves below the `useImposition` call, which it reads. Adds one characterization scenario (21 → 22) and one e2e test (16 → 17) | ✅ Merged (#205), deployed 2026-10-07 |
-| Part 2 · B2 follow-up 2 | The download options, embed disclaimer and print-sheet window move from `z-[100]` to `z-[2001]`, above the fixed top bar (`z-[2000]`), so it is dimmed and unclickable while they are open. Adds one e2e test (17 → 18) | 🟡 In review |
+| Part 2 · B2 follow-up 2 | The download options, embed disclaimer and print-sheet window move from `z-[100]` to `z-[2001]`, above the fixed top bar (`z-[2000]`), so it is dimmed and unclickable while they are open. Adds one e2e test (17 → 18) | ✅ Merged (#206), deployed 2026-10-07 |
+| Part 2 · B3 prerequisite | Found starting B3: the toolbar never pinned when scrolled — not in the embed iframe, and on the dashboard it slid under the top bar. The pinning observer was set up once, before the toolbar existed (it renders only after the layout loads), through a plain ref that nothing re-ran. The sentinel is now held in state through a callback ref. Adds one characterization scenario (22 → 23) and two e2e tests, desktop and phone (18 → 20) — the B3 extra check | 🟡 In review |
 | Part 2 · B3–C8 | The other 10 split PRs | Not started |
