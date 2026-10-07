@@ -1437,6 +1437,18 @@ What remains in-repo:
 not survive `docker-compose up -d --force-recreate`, which every `deploy.sh` run
 does. Capture the log window you need *before* redeploying.
 
+**Never put the production `SENTRY_DSN` in a local `.env`.** Local runs use
+`DEBUG=0`, so `settings.py` labels events `production` (unless `ENVIRONMENT`
+says otherwise) and traces every request (`SENTRY_TRACES_SAMPLE_RATE` defaults
+to 1.0). Until 2026-10-07 the local `.env` held the production address, so the
+local stack, the `docker-compose run` test commands above and any test
+container built from that `.env` reported into production Sentry as
+production — test CSP-violation warnings and request traces included. Only the
+backend and workers read `SENTRY_DSN`; the frontend reads
+`NEXT_PUBLIC_SENTRY_DSN`. Keep it blank locally, as `.env.example` does, and if
+you enable Sentry locally on purpose, set `ENVIRONMENT=local` so its events
+can't pass for production. Leave `ENVIRONMENT` unset on the server.
+
 ## Frontend Proxy Routes
 
 The Next.js frontend never exposes API keys to the browser. All backend calls go through one of two server-side proxy routes:
