@@ -17,6 +17,7 @@ from ..authentication import APIKeyUser
 from ..validators import validate_image_files
 from ..models import UploadedFile, EmbedSession
 from .layouts import _read_layout_def
+from ._common import is_safe_layout_name
 
 logger = logging.getLogger(__name__)
 
@@ -207,21 +208,6 @@ class GenerateLayoutView(APIView):
             )
 
     @staticmethod
-    def _is_safe_layout_name(name: str) -> bool:
-        """
-        Is this name structurally safe to build a path from?
-
-        Purely a path-traversal guard — it says nothing about whether the
-        layout exists. Callers that need existence must check separately so a
-        missing layout can answer 404 rather than 400.
-        """
-        if not name:
-            return False
-        return not (
-            '/' in name or '\\' in name or '..' in name or name.startswith('.')
-        )
-
-    @staticmethod
     def _layout_exists(name: str) -> bool:
         """Does a layout with this name exist in LayoutCatalogue (directly, or via a rename alias)?"""
         from api.models import LayoutCatalogue
@@ -240,10 +226,10 @@ class GenerateLayoutView(APIView):
 
         Kept for callers (render submission) where a missing layout genuinely
         is a bad request: they are naming the layout to render, not addressing
-        a resource. Read endpoints should use _is_safe_layout_name +
+        a resource. Read endpoints should use is_safe_layout_name +
         _layout_exists so "not found" reports as 404.
         """
-        return GenerateLayoutView._is_safe_layout_name(name) and \
+        return is_safe_layout_name(name) and \
             GenerateLayoutView._layout_exists(name)
 
 

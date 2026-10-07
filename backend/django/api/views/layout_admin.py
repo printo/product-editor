@@ -10,6 +10,7 @@ from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
 from ..permissions import IsAuthenticatedWithAPIKey, IsOpsTeam
+from ._common import is_safe_layout_name
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +75,6 @@ class LayoutManagementView(APIView):
     from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
     parser_classes = [JSONParser, MultiPartParser, FormParser]
     
-    @staticmethod
-    def _is_safe_layout_name(name: str) -> bool:
-        """Guard against obviously malformed layout names."""
-        if not name or '/' in name or '\\' in name or '..' in name:
-            return False
-        return not name.startswith('.')
-
     @extend_schema(
         tags=["ops"],
         summary="List layouts, or fetch one layout's full JSON",
@@ -117,7 +111,7 @@ class LayoutManagementView(APIView):
         from api.models import LayoutCatalogue, default_display_name_for
 
         if name:
-            if not self._is_safe_layout_name(name):
+            if not is_safe_layout_name(name):
                 return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Query LayoutCatalogue from Postgres (ops can see all, not just public)
@@ -251,7 +245,7 @@ class LayoutManagementView(APIView):
         if not layout_name or not layout_data:
             return Response({"detail": "name and layout_data are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not self._is_safe_layout_name(layout_name):
+        if not is_safe_layout_name(layout_name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
 
         # `name` is immutable once a row exists (2026-09-16) — a prior rename
@@ -452,7 +446,7 @@ class LayoutManagementView(APIView):
                 {"detail": "layout name is required in the URL: /api/ops/layouts/<name>"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if not self._is_safe_layout_name(name):
+        if not is_safe_layout_name(name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:

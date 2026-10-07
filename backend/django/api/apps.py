@@ -37,6 +37,21 @@ class ApiConfig(AppConfig):
                 "Could not enable PIL LOAD_TRUNCATED_IMAGES", exc_info=True,
             )
 
+        # Decompression-bomb ceiling, explicitly, for every Django process. The
+        # web process validates uploads with Pillow and never needs the render
+        # engine; it used to get this 500 MP ceiling only because api/views
+        # imported layout_engine.engine for that side effect, so anything that
+        # stopped importing it would have refused uploads above ~179 MP.
+        try:
+            from PIL import Image
+            from services.image_loader import MAX_IMAGE_PIXELS
+            Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not set PIL MAX_IMAGE_PIXELS", exc_info=True,
+            )
+
         # Boot-time visibility for the server-side overlay renderer's bundled
         # font (CALENDAR_FEATURE_PRD §11.7). Logs a single line on startup if
         # Inter-Variable.ttf is present, or a loud error if missing — beats

@@ -23,8 +23,8 @@ from services.order_qty import InvalidOrderQty, MAX_ORDER_QTY, parse_order_qty
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
 from ..authentication import APIKeyUser
 from ..models import EmbedSession
-from .layouts import GetLayoutView
 from .calendar_assets import _read_fonts
+from ._common import is_safe_layout_name
 
 logger = logging.getLogger(__name__)
 
@@ -426,7 +426,7 @@ class EditorInitView(APIView):
             return Response({'detail': '`layout` query param required'}, status=status.HTTP_400_BAD_REQUEST)
         # 400 for a malformed name, 404 for one that simply isn't there — the
         # editor needs to tell "bad request" apart from "this layout is gone".
-        if not GetLayoutView._is_safe_layout_name(name):
+        if not is_safe_layout_name(name):
             return Response({'detail': 'Invalid layout name'}, status=status.HTTP_400_BAD_REQUEST)
 
         surfaces_param = request.query_params.get('surfaces', '')

@@ -24,9 +24,10 @@ ALLOWED_IMAGE_TYPES = {
 }
 
 MIN_IMAGE_DIMENSION = 50
-# Env-driven (settings.MAX_IMAGE_DIMENSION_PX, default 16384). The engine caps
-# total pixels at Image.MAX_IMAGE_PIXELS and smart-downscales sources, so this
-# is a decompression-bomb guard, not a print-quality limit.
+# Env-driven (settings.MAX_IMAGE_DIMENSION_PX, default 16384). Pillow's pixel
+# ceiling (500 MP, set at startup in api/apps.py) bounds total pixels and the
+# engine smart-downscales sources, so this is a decompression-bomb guard, not a
+# print-quality limit.
 MAX_IMAGE_DIMENSION = settings.MAX_IMAGE_DIMENSION_PX
 
 

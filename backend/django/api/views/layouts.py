@@ -16,6 +16,7 @@ from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
+from ._common import is_safe_layout_name
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,7 @@ class GetLayoutView(APIView):
 
             # Malformed name is a client error; a well-formed name that simply
             # isn't there is a missing resource.
-            if not self._is_safe_layout_name(name):
+            if not is_safe_layout_name(name):
                 return Response(
                     {"detail": "Invalid layout name"},
                     status=status.HTTP_400_BAD_REQUEST
@@ -237,23 +238,6 @@ class GetLayoutView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @staticmethod
-    def _is_safe_layout_name(name: str) -> bool:
-        """Guard against obviously malformed layout names — says nothing about existence."""
-        if not name or '/' in name or '\\' in name or '..' in name:
-            return False
-        return not name.startswith('.')
-
-    @staticmethod
-    def _is_path_safe(path: str, allowed_dir: str) -> bool:
-        """Ensure path is within allowed directory (prevents path traversal)."""
-        try:
-            real_path = os.path.realpath(path)
-            real_allowed_dir = os.path.realpath(allowed_dir)
-            return real_path.startswith(real_allowed_dir)
-        except:
-            return False
-
 
 class ExternalLayoutDetailView(APIView):
     """
@@ -294,7 +278,7 @@ class ExternalLayoutDetailView(APIView):
         from api.models import LayoutCatalogue, default_display_name_for
 
         # 400 for a malformed name, 404 for one that simply isn't there.
-        if not GetLayoutView._is_safe_layout_name(name):
+        if not is_safe_layout_name(name):
             return Response({"detail": "Invalid layout name"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -439,7 +423,7 @@ def _read_layout_def(name: str) -> Optional[Dict[str, Any]]:
     """
     from django.core.cache import cache as django_cache
 
-    if not GetLayoutView._is_safe_layout_name(name):
+    if not is_safe_layout_name(name):
         return None
     cache_key = f"layout_detail:{name}:"
     cached = django_cache.get(cache_key)

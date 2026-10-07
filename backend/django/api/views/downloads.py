@@ -119,9 +119,11 @@ class SecureExportDownloadView(APIView):
         try:
             real_path = os.path.realpath(full_path)
             real_exports_dir = os.path.realpath(settings.EXPORTS_DIR)
-            
-            # Ensure path is within EXPORTS_DIR
-            return real_path.startswith(real_exports_dir) and os.path.isfile(real_path)
+
+            # Inside EXPORTS_DIR, not merely sharing its prefix: a plain
+            # startswith() also accepted a sibling such as `exports_old/`.
+            inside = os.path.commonpath([real_path, real_exports_dir]) == real_exports_dir
+            return inside and os.path.isfile(real_path)
         except:
             return False
 
