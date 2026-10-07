@@ -1,6 +1,6 @@
 import {
   shouldAutoRotate90, resolveRotation, formatWait, formatLayoutDisplayName,
-  readCardCountHint, writeCardCountHint, MAX_SKELETON_CARDS,
+  readCardCountHint, writeCardCountHint, MAX_SKELETON_CARDS, activatesCard,
 } from '../editor-utils';
 import type { OrientationOutcome, OrientationResult } from '@/lib/ml-orientation';
 
@@ -155,5 +155,21 @@ describe('card-count hint', () => {
     expect(readCardCountHint()).toBe(0);
     expect(() => writeCardCountHint('ORD-1', 3)).not.toThrow();
     expect(access).toHaveBeenCalled();
+  });
+});
+
+describe('activatesCard', () => {
+  const card = new EventTarget();
+  const buttonInCard = new EventTarget();
+
+  it('is Enter or Space pressed on the card itself', () => {
+    expect(activatesCard({ key: 'Enter', target: card, currentTarget: card })).toBe(true);
+    expect(activatesCard({ key: ' ', target: card, currentTarget: card })).toBe(true);
+    expect(activatesCard({ key: 'a', target: card, currentTarget: card })).toBe(false);
+  });
+
+  it('leaves keys pressed on a button inside the card to that button', () => {
+    expect(activatesCard({ key: 'Enter', target: buttonInCard, currentTarget: card })).toBe(false);
+    expect(activatesCard({ key: ' ', target: buttonInCard, currentTarget: card })).toBe(false);
   });
 });

@@ -165,3 +165,12 @@ export function writeCardCountHint(orderId: string, count: number): void {
     /* storage blocked — the hint is optional */
   }
 }
+
+/**
+ * Enter or Space pressed on a `role="button"` card itself. A key pressed on a
+ * button inside the card (Remove Photo, Rotate, …) belongs to that button: the
+ * card used to catch it, cancel the button's click and open the editor instead.
+ */
+export function activatesCard(e: { key: string; target: EventTarget; currentTarget: EventTarget }): boolean {
+  return e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ');
+}

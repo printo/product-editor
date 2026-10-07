@@ -81,7 +81,7 @@ import { reconcilePageCount, roleForSurfaceKey } from './book-pages';
 import { pageCountBounds, resolvePageCount, pagesToSpreads, spineWidthMm, type BookLayoutLike } from '@/lib/book-layout';
 import {
   MEASURE_RETRY_MS, MEASURE_RETRY_LIMIT, resolveRotation, formatWait, formatLayoutDisplayName,
-  MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, NO_HOLIDAYS, readCardCountHint, writeCardCountHint,
+  MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, NO_HOLIDAYS, readCardCountHint, writeCardCountHint, activatesCard,
 } from './editor-utils';
 import { EmbedSubmittedOverlay } from './EmbedSubmittedOverlay';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
@@ -4176,7 +4176,7 @@ export default function LayoutEditorPage() {
                           role="button"
                           tabIndex={0}
                           aria-label={`Edit ${surface.label || surface.key}`}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(0, surface.key); } }}
+                          onKeyDown={(e) => { if (activatesCard(e)) { e.preventDefault(); handleCardClick(0, surface.key); } }}
                         >
                           <div
                             className={clsx(
@@ -4339,7 +4339,7 @@ export default function LayoutEditorPage() {
                         role="button"
                         tabIndex={0}
                         aria-label={`Edit canvas ${idx + 1}`}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(idx); } }}
+                        onKeyDown={(e) => { if (activatesCard(e)) { e.preventDefault(); handleCardClick(idx); } }}
                         draggable={!repositionMode}
                         onDragStart={(e) => handleDragStart(e, idx)}
                         onDragOver={(e) => handleDragOver(e, idx)}

@@ -166,15 +166,24 @@ test.describe('embed editor (customer iframe)', () => {
     await expect(cards(page)).toHaveCount(0);
   });
 
-  test('a confirm dialog holds keyboard focus: starts on Cancel, Tab stays inside, Escape gives focus back', async ({ page }) => {
+  test('a card works from the keyboard, and its confirm dialog holds focus', async ({ page }) => {
     const { token } = await createEmbedSession();
     await openEmbedEditor(page, token);
     await addPhotos(page, [PHOTOS.portrait]);
     await expect(cards(page)).toHaveCount(1);
+    // Enter on the card itself opens the canvas editor…
+    await cards(page).first().focus();
+    await page.keyboard.press('Enter');
+    const editor = page.getByRole('dialog', { name: 'Canvas editor' });
+    await expect(editor).toBeVisible();
+    await editor.getByRole('button', { name: 'Close editor' }).click();
+    await expect(editor).toBeHidden();
+    // …while Enter on a button inside the card is that button's: Remove Photo asks first.
     const remove = page.getByTitle('Remove Photo').first();
     await remove.focus();
-    await remove.click();
+    await page.keyboard.press('Enter');
     const confirm = page.getByRole('alertdialog', { name: 'Remove image?' });
+    await expect(editor).toBeHidden();
     await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(confirm.getByRole('button', { name: 'Remove' })).toBeFocused();

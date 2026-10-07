@@ -239,6 +239,21 @@ describe('editor page — embed mode', () => {
     expect(cards()).toHaveLength(0);
   });
 
+  it("keys pressed on a card's own buttons reach those buttons: Enter on Remove Photo asks first, Space on Rotate rotates", async () => {
+    await openEditorWithPhotos(['a.jpg']);
+    await waitFor(() => expect(lastPut(ORDER_ID)).toBeDefined(), { timeout: 8000 });
+    const user = userEvent.setup();
+    screen.getAllByTitle('Remove Photo')[0].focus();
+    await user.keyboard('{Enter}');
+    const confirm = await screen.findByRole('alertdialog', { name: 'Remove image?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    screen.getByTitle('Rotate 90°').focus();
+    await user.keyboard(' ');
+    await waitFor(() => expect(lastPut(ORDER_ID)!.editor_state.surfaces[0].canvases[0].frames[0].rotation).toBe(90), { timeout: 8000 });
+    expect(cards()).toHaveLength(1);
+  });
+
   it('quick rotate turns the photo 90° and the autosave carries it', async () => {
     await openEditorWithPhotos(['a.jpg']);
     await waitFor(() => expect(lastPut(ORDER_ID)).toBeDefined(), { timeout: 8000 });
@@ -421,6 +436,17 @@ describe('editor page — book layouts', () => {
     await userEvent.setup().click(more);
     await waitFor(() => expect(lastPut(ORDER_ID)?.editor_state.bookState?.pageCount).toBe(12), { timeout: 8000 });
     expect(backend.unexpected).toEqual([]);
+  });
+
+  it("Enter on a page card's Remove Photo button asks to remove the photo", async () => {
+    renderEditor();
+    await waitFor(() => expect(backend.callsTo(`canvas-state/${ORDER_ID}/`, 'GET')).toHaveLength(1));
+    await waitFor(() => photoInput());
+    await addPhotos(['a.jpg', 'b.jpg']);
+    await waitFor(() => expect(screen.getAllByTitle('Remove Photo').length).toBeGreaterThan(0));
+    screen.getAllByTitle('Remove Photo')[0].focus();
+    await userEvent.setup().keyboard('{Enter}');
+    await screen.findByRole('alertdialog', { name: 'Remove image?' });
   });
 
   it('more photos than pages asks to extend: the prompt takes focus, and Escape cancels the pick', async () => {
