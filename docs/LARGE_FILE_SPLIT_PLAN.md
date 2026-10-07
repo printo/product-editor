@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b) merged; download-link fix in review. Started 2026-10-06.
+**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b) and the download-link fix merged; Phase A in review. Started 2026-10-06.
 Update the progress table at the bottom as each PR merges.
 
 ## Why
@@ -189,5 +189,6 @@ storage copies and cleaned env file afterwards.
 | Part 1 · PR 3 | `render`, `downloads`, `embed`, `uploads`; `__init__.py` reduced to re-exports | ✅ Merged (#191), deployed 2026-10-07 |
 | Part 2 · 0a | Jest characterization suite; detailed Part 2 plan | ✅ Merged (#193) |
 | Part 2 · 0b | Playwright smoke suite (`frontend/nextjs/e2e/`, 14 tests) | ✅ Merged (#194) |
-| Part 2 · fix | Detached download links | 🟡 In review |
-| Part 2 · A–C8 | The 13 split PRs above | Not started |
+| Part 2 · fix | Detached download links | ✅ Merged (#195), deployed 2026-10-07 |
+| Part 2 · A | Helpers and constants → `editor-utils.ts`; pre-submit notices → `EditorNotices.tsx`; `EmbedSubmittedOverlay.tsx` | 🟡 In review |
+| Part 2 · B1–C8 | The other 12 split PRs | Not started |

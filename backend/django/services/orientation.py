@@ -18,7 +18,7 @@ How it works:
 
 Returns a `RotationSuggestion` or `None` if no usable pose was detected,
 in which case the frontend should fall back to its aspect-ratio
-heuristic (`shouldAutoRotate90` in `editor/layout/[name]/page.tsx`).
+heuristic (`shouldAutoRotate90` in `editor/layout/[name]/editor-utils.ts`).
 
 Singleton model loader: the .task file is ~5–9 MB and the warm-up
 takes ~1–2 s. We load it once per worker process and reuse.
