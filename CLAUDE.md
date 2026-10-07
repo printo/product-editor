@@ -1249,10 +1249,12 @@ Design: [docs/BOOK_LAYOUT_PRD.md](docs/BOOK_LAYOUT_PRD.md) — D1/D2/D2a/D4/D5/D
 
 ## Auto-orientation (server-side MediaPipe Pose)
 
-The editor decides whether to rotate an uploaded photo 90°/180°/270° in two layers:
+The editor decides whether to rotate an uploaded photo 90°/180°/270° in two layers, combined per photo by `resolveRotation` ([editor-utils.ts](frontend/nextjs/src/app/editor/layout/[name]/editor-utils.ts), pinned by `__tests__/editor-utils.test.ts`). **Rotate-to-fill runs first and wins** — an ops decision (2026-05-19): filling the print frame beats keeping people upright, and a canvas can be turned back by hand. (This section listed the pose model as primary and the aspect rule as its fallback until 2026-10-07; the code has worked the other way round since that decision.)
 
-1. **Server-side MediaPipe Pose Landmarker** (primary, v1.11). Inline endpoint at `POST /api/orientation/detect` runs BlazePose, computes the nose-to-shoulder-midpoint vector in image coords, snaps it to the nearest cardinal with a 30° dead-zone, and returns `{rotation, confidence, source}`. ~30–150 ms per photo on CPU. Catches photos whose subject is stored sideways in the bytes (camera held wrong, scanned prints, WhatsApp-stripped EXIF) — the exact case where the aspect heuristic can't help.
-2. **Aspect-ratio heuristic** (`shouldAutoRotate90` in [editor-utils.ts](frontend/nextjs/src/app/editor/layout/[name]/editor-utils.ts), v1.10). Fallback when ML finds no pose (food / landscape / occluded) or returns 503 (mode off). Compares `imgRatio` to `frameRatio` and rotates only when rotation cuts the gap by ≥ 30%.
+1. **Rotate-to-fill** (`shouldAutoRotate90`, v1.10). Turns the photo 90° only when that brings its aspect at least 30% closer to the frame's — and never in a near-square frame (ratio 0.8–1.25, e.g. the retro-polaroid window), where turning can't improve the fill and only lays the subject on its side; the Blur Effect fills any letterbox instead.
+2. **Server-side MediaPipe Pose Landmarker** (v1.11) decides when rotate-to-fill doesn't turn the photo. Inline endpoint at `POST /api/orientation/detect` runs BlazePose, computes the nose-to-shoulder-midpoint vector in image coords, snaps it to the nearest cardinal with a 30° dead-zone, and returns `{rotation, confidence, source}`. ~30–150 ms per photo on CPU. Catches photos whose subject is stored sideways in the bytes (camera held wrong, scanned prints, WhatsApp-stripped EXIF) — what the aspect rule can't see, and the only way a photo in a near-square frame gets turned. No confident pose, mode off (503) or an error → no model rotation.
+
+PDF-derived pages skip both. Calendar cell images (`lib/calendar-cell-upload.ts`, optional auto-orient) use the pose model only, without rotate-to-fill.
 
 **Mode switch** via `.env`:
 ```bash
