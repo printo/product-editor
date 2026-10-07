@@ -1,7 +1,7 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 PR 3 of 3 (Part 1 ends with this PR). Started 2026-10-06. Update the
-progress table at the bottom as each PR merges.
+**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 Phase 0a in review. Started 2026-10-06.
+Update the progress table at the bottom as each PR merges.
 
 ## Why
 
@@ -74,32 +74,88 @@ see "How to test" below):
    servers (one per image) on the same local database.
 6. Smoke tests through nginx once render/embed/upload code moves (PR 3).
 
-## Part 2 — `page.tsx` (~11 PRs, riskiest last)
+## Part 2 — `page.tsx` (13 split PRs after a safety net, riskiest last)
 
-| Phase | Moves out | ~Lines | Risk |
-|---|---|---|---|
-| 0 (optional) | Small local Playwright script for the core embed flow (open → add photos → edit → refresh restores → submit), run before/after each PR | — | — |
-| A | Helpers above the component (`shouldAutoRotate90`, `resolveRotation`, `formatWait`, `formatLayoutDisplayName`, card-count hints) → `editor-utils.ts` with Jest tests; the 5 warning/overlay components | 435 | Low |
-| B1 | Modals: download options, embed disclaimer, auto-fill picker, 5 confirm dialogs | 375 | Low |
-| B2 | Imposition as a unit: its state, 2 effects, `executeImposition`, modal | 570 | Low–med |
-| B3 | Banners, processing/HEIC overlays, toolbar | 365 | Low |
-| B4 | Canvas grid + empty state, book spread preview + page count, calendar section | 590 | Medium |
-| C1 | Layout loading, low-DPI check, fit/blur effects | 200 | Medium |
-| C2 | Calendar editor state (keep `printedHolidayLocale` and `resolveDefaultYear` rules) | 250 | Medium |
-| C3 | Book pages state | 200 | Medium |
-| C4 | File intake: append-not-replace, qty over/under, HEIC, drop, replace | 400 | High |
-| C5 | Server render + submit, polling, `postMessage` (real `surface_key`, never `'*'`) | 450 | High |
-| C6 | Persistence: restore, `scheduleAutosave`, IndexedDB photos | 450 | Highest |
+**What is being split (2026-10-07, `main` @ `ed88707`):** 5,558 lines. The one
+component, `LayoutEditorPage`, is lines 437–5558: 68 `useState`, 42 `useRef`,
+37 effects (36 `useEffect` + 1 `useLayoutEffect`), 14 `useMemo`, 14
+`useCallback`, 34 plain handler functions, and a 1,741-line JSX return. Above it
+are ~435 lines of helpers and five small components.
 
-End state: `page.tsx` ~600–900 lines wiring hooks to components. C6 goes last
-and alone; its acceptance test is the PR #166 reproduction — delay the restore
-GET and confirm no `canvas-state` PUT is issued before it lands.
+### Safety net first (Phase 0)
 
-**Proof for each frontend PR:** `pnpm typecheck`, `pnpm lint`, Jest (plus new
-tests for extracted logic), `pnpm build`, then a browser walk-through (embed
-token and dashboard): add photos twice (appends), edit a frame, swap/delete,
-qty over and under, refresh restores the design, Save & Continue, ZIP download,
-the `test_verification_calendar` layout, imposition, an iPhone HEIC photo.
+- **0a — Jest characterization suite** (`editor/layout/[name]/__tests__/page.characterization.test.tsx`
+  + `editor-page-harness.tsx`). Renders the whole page under Jest/happy-dom with
+  the canvas library, image decoding, orientation, HEIC/PDF, auth and routing
+  stubbed, against a `FakeBackend` that records every request in order and can
+  hold a response back. 17 scenarios: embed load + order-id adoption,
+  Add-Files-appends, autosave (after the restore GET, no `data:` previews), slow
+  restore never overwritten (plain photos, and the calendar layout-defaults path),
+  over-quantity hold + "Keep first N", under-quantity warning, remove photo,
+  quick rotate, tap-to-swap, embed Save & Continue (uploads → render with real
+  upload ids and the real surface key → `pe:render_job` to the parent origin,
+  never `'*'`), dashboard proxy + login redirect + Download (render → poll → ZIP
+  link click), calendar holidays only when printed, book page count.
+  **Every key test was proven able to fail** by breaking the rule it guards in
+  `page.tsx` and re-running it (8 deliberate breaks, all caught). One finding
+  from that: the photo path has two independent restore guards, but the
+  calendar/book autosave triggers rely on `scheduleAutosave`'s guard alone.
+- **0b — Playwright smoke suite** (local, real browser, against the local
+  stack): the same journeys end to end through the real UI, plus what Jest
+  can't run — imposition (canvas), the editor modal, real image decoding, a
+  phone viewport. Local only; GitHub Actions is billing-locked.
+- **Download-link fix** (separate small PR, after 0b): the two download helpers
+  (`handleQuickDownload`, and the dashboard ZIP hand-off in
+  `executeServerRender`) attach a temporary `<a>` to `document.body`; switch both
+  to a detached `<a>`, which every current browser can download from. Decided
+  2026-10-07.
+
+### The split PRs
+
+| # | Moves out | New files | ~Lines | Risk | Extra check |
+|---|---|---|---|---|---|
+| A | Helpers above the component (`shouldAutoRotate90`, `resolveRotation`, `formatWait`, `formatLayoutDisplayName`, card-count hints, constants) and the 5 small components | `editor-utils.ts` (+ unit tests), `EditorNotices.tsx`, `EmbedSubmittedOverlay.tsx` | 435 | Low | New tests pin the auto-rotate rule |
+| B1 | Dialogs: delete, re-pick, over-quantity, truncated, book-overflow, auto-fill picker, download options, embed disclaimer | `dialogs/*.tsx` | 440 | Low | Render test per dialog |
+| B2 | Imposition as a unit: 9 state/refs, 5 memos, effects 33–37, `executeImposition`, the modal | `useImposition.ts`, `ImpositionModal.tsx` | 570 | Low–med | Imposition sheet in Playwright |
+| B3 | Chrome: banners, processing/HEIC overlays, toolbar, sticky-toolbar + header effects (6–8), beforeunload (26), Escape (25) | `EditorToolbar.tsx`, `EditorBanners.tsx`, `ProcessingOverlay.tsx`, `useStickyToolbar.ts` | 420 | Low | Header on phone and desktop |
+| B4 | Main content: card grid + cards + empty state, book spread preview + page count, calendar section | `CanvasGrid.tsx`, `CanvasCard.tsx`, `EmptyState.tsx`, `BookSpreadPreview.tsx`, `CalendarSection.tsx` | 600 | Medium | Swap/drag/pan on cards |
+| C1 | Environment (token, parent origin, qty, order id + URL sync (1), login redirect (9)); layout loading (11, 15) + fonts (10); low-DPI (27) and submit-guard memos | `useEditorEnvironment.ts`, `useLayoutLoader.ts`, `useSubmitGuards.ts` | 300 | Medium | Order id adopted before the layout is set (embed) |
+| C2 | Calendar state, defaults/holidays (28), cell edit + image upload | `useCalendarEditor.ts` | 250 | Medium | `printedHolidayLocale` / `resolveDefaultYear` rules; calendar test layout |
+| C3 | Book page count, hidden pages, spreads, overflow decision | `useBookPages.ts` | 180 | Medium | Book page-count scenario |
+| C4 | Card actions: quick rotate/fit/blur/background/delete/download, pan gesture, tap-to-swap, drag/drop | `useCardActions.ts`, `usePanGesture.ts` | 450 | Med–high | Touch/pan in a phone viewport |
+| C5 | Canvas generation: `generateCanvases*`, `renderCanvas`, object-URL cache (12), fit/blur recompute (29–31) | `useCanvasGeneration.ts` | 420 | High | Crops and rotations identical |
+| C6 | File intake: file change/drop/replace/re-pick/auto-fill/over-/under-qty/HEIC/PDF | `useFileIntake.ts` | 400 | High | Append-not-replace; over-qty hard cap; "Choose again" reopens the picker |
+| C7 | Render & submit: `executeServerRender`, `executeBatchDownload`, `handleSubmitDesign`, download/disclaimer/submitted state | `useServerRender.ts` | 450 | High | Render payload and parent-origin rule (characterization) |
+| C8 | Persistence: `serializeCanvasState`, `scheduleAutosave`/`cancelAutosave` + all three triggers (19, 20, canvases), restore (21), IndexedDB photo store (24), `reclaimUnusedFiles`, preview regeneration, card-count hint (22) | `useDesignPersistence.ts` | 600 | **Highest** | Both slow-restore scenarios, plus a fake-timer hook test that autosave waits for the restore |
+
+Effect numbers refer to the order the effects appear in today's component.
+End state: `page.tsx` ~500–800 lines wiring these together.
+
+### Rules specific to splitting a component
+
+- **Move, don't change** — same code, same dependency arrays; no new
+  `eslint-disable`s. Bugs found along the way get their own PR.
+- **Keep effect order.** Effects run in declaration order and some depend on it
+  (e.g. the "latest value" ref mirrors). A hook is called where its first effect
+  used to be.
+- **One owner per ref.** A ref belongs to the hook that writes it; anything
+  else receives it explicitly.
+- **Tests come with logic.** Each hook PR adds focused `renderHook` tests where
+  the logic allows; each component PR adds a render test.
+
+### Proof for each frontend PR
+
+1. `pnpm typecheck`, `pnpm lint`, all Jest tests — **the characterization suite
+   must pass unchanged** — and `pnpm build`.
+2. The Playwright smoke suite against the local stack.
+3. The PR's extra check from the table.
+Nothing is pushed until all three pass.
+
+### Deploys
+
+Each PR is deployed soon after it merges (decided 2026-10-07), so a regression
+points at one PR; C4–C8 outside Indian business hours. Rollback is `git revert`
++ `./deploy.sh`.
 
 ## How to test a backend split PR locally
 
@@ -125,5 +181,8 @@ storage copies and cleaned env file afterwards.
 |---|---|---|
 | Part 1 · PR 1 | Package conversion; `system`, `ops`, `media` | ✅ Merged (#189), deployed 2026-10-06 |
 | Part 1 · PR 2 | `layouts`, `layout_admin`, `calendar_assets` | ✅ Merged (#190) |
-| Part 1 · PR 3 | `render`, `downloads`, `embed`, `uploads`; `__init__.py` reduced to re-exports | 🟡 In review |
-| Part 2 | Phases 0, A, B1–B4, C1–C6 | Not started |
+| Part 1 · PR 3 | `render`, `downloads`, `embed`, `uploads`; `__init__.py` reduced to re-exports | ✅ Merged (#191), deployed 2026-10-07 |
+| Part 2 · 0a | Jest characterization suite; detailed Part 2 plan | 🟡 In review |
+| Part 2 · 0b | Playwright smoke suite | Not started |
+| Part 2 · fix | Detached download links | Not started |
+| Part 2 · A–C8 | The 13 split PRs above | Not started |

@@ -47,7 +47,7 @@ code, **the code is right**.
 
 | Doc | Status |
 |---|---|
-| [`LARGE_FILE_SPLIT_PLAN.md`](LARGE_FILE_SPLIT_PLAN.md) | 🟡 Started 2026-10-06. Splits `api/views.py` into an `api/views/` package (3 PRs) and the editor `page.tsx` into components and hooks (~11 PRs), moving code without changing it. Its progress table says which parts are done. |
+| [`LARGE_FILE_SPLIT_PLAN.md`](LARGE_FILE_SPLIT_PLAN.md) | 🟡 Started 2026-10-06. Part 1 done: `api/views.py` is now the `api/views/` package (PRs #189–#191). Part 2 splits the editor `page.tsx` into components and hooks — 13 PRs, after a Jest characterization suite and a Playwright smoke suite. Its progress table says which parts are done. |
 
 ## Not started — plans
 
