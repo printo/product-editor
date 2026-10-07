@@ -1,7 +1,9 @@
 'use client';
 
+import { useId, useRef } from 'react';
 import { clsx } from 'clsx';
 import { AlertTriangle, ChevronRight, Download, FileText, Loader2, X } from 'lucide-react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 import { CROP_MARK_LEN_MAX_MM, CROP_MARK_LEN_MIN_MM, MM_TO_IN } from './imposition';
 import type { Imposition } from './useImposition';
 
@@ -13,10 +15,16 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
     impositionPreviewRef, impositionResult, impositionSettings, setImpositionSettings, impositionPlacedTotal,
     impositionSheetLabel, executeImposition, isImposing,
   } = imposition;
+  // Opens on Close, like the other option dialogs. Escape is the page's: one
+  // handler closes every dialog, top one first.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useModalA11y(dialogRef, null, true, closeRef);
+  const id = useId();
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowImpositionModal(false)} />
-      <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[85vh] border border-slate-200">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[85vh] border border-slate-200">
         {/* Left: Preview */}
         <div className="flex-[1.1] bg-slate-50 p-6 pt-16 flex flex-col items-center relative border-r border-slate-200">
           <div className="absolute top-5 left-6">
@@ -80,9 +88,9 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
               <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center">
                 <FileText className="w-4 h-4" />
               </div>
-              <h3 className="text-base font-semibold text-slate-900">Print settings</h3>
+              <h3 id={`${id}-title`} className="text-base font-semibold text-slate-900">Print settings</h3>
             </div>
-            <button onClick={() => setShowImpositionModal(false)} className="p-1.5 hover:bg-slate-100 rounded-md transition-colors">
+            <button ref={closeRef} onClick={() => setShowImpositionModal(false)} aria-label="Close" className="p-1.5 hover:bg-slate-100 rounded-md transition-colors">
               <X className="w-4 h-4 text-slate-500" />
             </button>
           </div>
@@ -90,12 +98,13 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
           <div className="space-y-5">
             {/* Presets */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-slate-500">Sheet size</label>
-              <div className="grid grid-cols-3 gap-1.5">
+              <label id={`${id}-size`} className="text-xs font-medium text-slate-500">Sheet size</label>
+              <div role="group" aria-labelledby={`${id}-size`} className="grid grid-cols-3 gap-1.5">
                 {(['a4', 'a3', '12x18', '13x19', 'custom'] as const).map(p => (
                   <button
                     key={p}
                     onClick={() => setImpositionSettings(s => ({ ...s, preset: p }))}
+                    aria-pressed={impositionSettings.preset === p}
                     className={clsx(
                       'py-2 text-xs font-semibold rounded-md border transition uppercase',
                       impositionSettings.preset === p
@@ -113,10 +122,11 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
             {impositionSettings.preset === 'custom' && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">Width</label>
+                  <label htmlFor={`${id}-width`} className="text-xs font-medium text-slate-500">Width</label>
                   <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
                     <input
                       type="number"
+                      id={`${id}-width`}
                       step="0.1"
                       min="1"
                       value={impositionSettings.widthIn}
@@ -127,10 +137,11 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">Height</label>
+                  <label htmlFor={`${id}-height`} className="text-xs font-medium text-slate-500">Height</label>
                   <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
                     <input
                       type="number"
+                      id={`${id}-height`}
                       step="0.1"
                       min="1"
                       value={impositionSettings.heightIn}
@@ -145,12 +156,13 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
 
             {/* Orientation */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-slate-500">Orientation</label>
-              <div className="grid grid-cols-2 gap-1.5">
+              <label id={`${id}-orientation`} className="text-xs font-medium text-slate-500">Orientation</label>
+              <div role="group" aria-labelledby={`${id}-orientation`} className="grid grid-cols-2 gap-1.5">
                 {(['portrait', 'landscape'] as const).map(o => (
                   <button
                     key={o}
                     onClick={() => setImpositionSettings(s => ({ ...s, orientation: o }))}
+                    aria-pressed={impositionSettings.orientation === o}
                     className={clsx(
                       'py-2 text-xs font-semibold rounded-md border transition capitalize',
                       impositionSettings.orientation === o
@@ -167,10 +179,11 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
             {/* Gutter & Margin */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-500">Gutter (gap)</label>
+                <label htmlFor={`${id}-gutter`} className="text-xs font-medium text-slate-500">Gutter (gap)</label>
                 <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
                   <input
                     type="number"
+                    id={`${id}-gutter`}
                     value={impositionSettings.gutterMm}
                     onChange={e => setImpositionSettings(s => ({ ...s, gutterMm: Number(e.target.value) }))}
                     className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
@@ -179,10 +192,11 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-500">Margin</label>
+                <label htmlFor={`${id}-margin`} className="text-xs font-medium text-slate-500">Margin</label>
                 <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
                   <input
                     type="number"
+                    id={`${id}-margin`}
                     value={impositionSettings.marginMm}
                     onChange={e => setImpositionSettings(s => ({ ...s, marginMm: Number(e.target.value) }))}
                     className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"

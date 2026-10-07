@@ -362,6 +362,21 @@ describe('editor page — dashboard mode', () => {
     expect(polls[0].seq).toBeGreaterThan(render.seq);
     expect(backend.unexpected).toEqual([]);
   });
+
+  it('the print-sheet window takes focus, and Escape closes it and gives focus back to Download', async () => {
+    await openEditorWithPhotos(['a.jpg']);
+    const user = userEvent.setup();
+    const download = screen.getByRole('button', { name: 'Download' });
+    await user.click(download);
+    await screen.findByText('Ready to Download?');
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getByText('Imposition'));
+    const sheets = await screen.findByRole('dialog', { name: 'Print settings' });
+    expect(within(sheets).getByRole('button', { name: 'Close' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(download).toHaveFocus();
+  });
 });
 
 describe('editor page — calendar layouts', () => {

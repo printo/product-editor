@@ -1340,30 +1340,6 @@ export default function LayoutEditorPage() {
     return map;
   }, [lowDpiFrames]);
 
-  // ── Escape closes confirm dialogs (Phase 4 a11y) ──────────────────────────
-  // One document-level handler (effect + cleanup — the sanctioned no-DOM
-  // exception) closes whichever confirm modal is open, so keyboard users
-  // aren't trapped. The dialogs only manage focus (useModalA11y with
-  // onClose: null) and leave Escape here, so one press closes one dialog.
-  // On the file-pick prompts it cancels the pick. The full editor modal
-  // manages its own keys (Fabric uses Escape for text editing) and is not
-  // included here.
-  useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (showAutoFillPicker) return setShowAutoFillPicker(false);
-      if (pendingRepick) return setPendingRepick(null);
-      if (deleteConfirm) return setDeleteConfirm(null);
-      if (pendingOverFiles) return setPendingOverFiles(null);
-      if (pendingTruncated) return setPendingTruncated(null);
-      if (pendingBookOverflow) return setPendingBookOverflow(null);
-      if (showDownloadModal) return setShowDownloadModal(false);
-      if (showEmbedDisclaimer) return setShowEmbedDisclaimer(false);
-    };
-    document.addEventListener('keydown', onEsc);
-    return () => document.removeEventListener('keydown', onEsc);
-  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, pendingTruncated, pendingBookOverflow, showDownloadModal, showEmbedDisclaimer]);
-
   // ── Tab-close guard (Phase 3) ─────────────────────────────────────────────
   // Warn before unloading ONLY while work is genuinely in flight: an active
   // upload/submit/poll (isDownloading spans the whole window) or an
@@ -2681,6 +2657,32 @@ export default function LayoutEditorPage() {
 
   const imposition = useImposition({ layout, surfaceStates, canvases, renderCanvas, setError, setRenderProgress });
   const { showImpositionModal, setShowImpositionModal, isImposing } = imposition;
+
+  // ── Escape closes dialogs (Phase 4 a11y) ──────────────────────────────────
+  // One document-level handler (effect + cleanup — the sanctioned no-DOM
+  // exception) closes whichever dialog is open, so keyboard users aren't
+  // trapped. The dialogs only manage focus (useModalA11y with onClose: null)
+  // and leave Escape here, so one press closes one dialog: the top one. The
+  // confirms are drawn above the print-sheet window, and it above the download
+  // options. On the file-pick prompts it cancels the pick. The full editor
+  // modal manages its own keys (Fabric uses Escape for text editing) and is not
+  // included here. It sits after useImposition, whose state it reads.
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (showAutoFillPicker) return setShowAutoFillPicker(false);
+      if (pendingRepick) return setPendingRepick(null);
+      if (deleteConfirm) return setDeleteConfirm(null);
+      if (pendingOverFiles) return setPendingOverFiles(null);
+      if (pendingTruncated) return setPendingTruncated(null);
+      if (pendingBookOverflow) return setPendingBookOverflow(null);
+      if (showImpositionModal) return setShowImpositionModal(false);
+      if (showDownloadModal) return setShowDownloadModal(false);
+      if (showEmbedDisclaimer) return setShowEmbedDisclaimer(false);
+    };
+    document.addEventListener('keydown', onEsc);
+    return () => document.removeEventListener('keydown', onEsc);
+  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, pendingTruncated, pendingBookOverflow, showImpositionModal, setShowImpositionModal, showDownloadModal, showEmbedDisclaimer]);
 
   // All exports go through the server-side pipeline (Celery + Pillow at 300 DPI).
   // The previous "≤20 canvases → render in browser, JSZip" optimisation was

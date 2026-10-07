@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b), the download-link fix, Phase A and its follow-up, and Phase B1 and its accessibility follow-ups (roles, focus, Escape, card keys) merged; Part 1's follow-ups merged (including the order-purge fix); Phase B2 in review. Started 2026-10-06.
+**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b), the download-link fix, Phase A and its follow-up, and Phase B1 and its accessibility follow-ups (roles, focus, Escape, card keys) merged; Part 1's follow-ups merged (including the order-purge fix); Phase B2 merged; its accessibility follow-up (the print-sheet window) in review. Started 2026-10-06.
 Update the progress table at the bottom as each PR merges.
 
 ## Why
@@ -125,7 +125,7 @@ are ~435 lines of helpers and five small components.
 | A | Helpers above the component (`shouldAutoRotate90`, `resolveRotation`, `formatWait`, `formatLayoutDisplayName`, card-count hints, constants) and the 5 small components | `editor-utils.ts` (+ unit tests), `EditorNotices.tsx`, `EmbedSubmittedOverlay.tsx` | 435 | Low | New tests pin the auto-rotate rule |
 | B1 | Dialogs: delete, re-pick, over-quantity, truncated, book-overflow, auto-fill picker, download options, embed disclaimer | `dialogs/*.tsx` | 440 | Low | Render test per dialog |
 | B2 | Imposition as a unit: 9 state/refs, 5 memos, effects 33–37, `executeImposition`, the modal | `useImposition.ts`, `ImpositionModal.tsx` | 570 | Low–med | Imposition sheet in Playwright |
-| B3 | Chrome: banners, processing/HEIC overlays, toolbar, sticky-toolbar + header effects (6–8), beforeunload (26), Escape (25) | `EditorToolbar.tsx`, `EditorBanners.tsx`, `ProcessingOverlay.tsx`, `useStickyToolbar.ts` | 420 | Low | Header on phone and desktop |
+| B3 | Chrome: banners, processing/HEIC overlays, toolbar, sticky-toolbar + header effects (6–8), beforeunload (26), Escape (25; since the B2 follow-up it sits after the `useImposition` call, whose state it reads) | `EditorToolbar.tsx`, `EditorBanners.tsx`, `ProcessingOverlay.tsx`, `useStickyToolbar.ts` | 420 | Low | Header on phone and desktop |
 | B4 | Main content: card grid + cards + empty state, book spread preview + page count, calendar section | `CanvasGrid.tsx`, `CanvasCard.tsx`, `EmptyState.tsx`, `BookSpreadPreview.tsx`, `CalendarSection.tsx` | 600 | Medium | Swap/drag/pan on cards |
 | C1 | Environment (token, parent origin, qty, order id + URL sync (1), login redirect (9)); layout loading (11, 15) + fonts (10); low-DPI (27) and submit-guard memos | `useEditorEnvironment.ts`, `useLayoutLoader.ts`, `useSubmitGuards.ts` | 300 | Medium | Order id adopted before the layout is set (embed) |
 | C2 | Calendar state, defaults/holidays (28), cell edit + image upload | `useCalendarEditor.ts` | 250 | Medium | `printedHolidayLocale` / `resolveDefaultYear` rules; calendar test layout |
@@ -201,5 +201,6 @@ storage copies and cleaned env file afterwards.
 | Part 2 · B1 follow-up 3 | A card's own buttons (Remove Photo, Rotate, …) work from the keyboard: Enter/Space on them no longer opens the editor. Adds two characterization scenarios (19 → 21) | ✅ Merged (#201), deployed 2026-10-07 |
 | Part 1 · follow-up | One shared layout-name guard (`views/_common.py`); dead path check removed; export backstop compares paths properly; the 500 MP Pillow ceiling set at startup instead of by a side-effect import | ✅ Merged (#202), deployed 2026-10-07 |
 | Part 1 · follow-up 2 | Found while testing #202: the order purge erases upload-only orders, a key-scoped purge no longer touches another key's uploads, and `matched` counts everything found | ✅ Merged (#203), deployed 2026-10-07 |
-| Part 2 · B2 | Imposition → `useImposition.ts` (state, refs, memos, effects 33–37, `executeImposition`) + `ImpositionModal.tsx` | 🟡 In review |
+| Part 2 · B2 | Imposition → `useImposition.ts` (state, refs, memos, effects 33–37, `executeImposition`) + `ImpositionModal.tsx` | ✅ Merged (#204), deployed 2026-10-07 |
+| Part 2 · B2 follow-up | Accessibility for the print-sheet (imposition) window: a dialog role and name, a labelled Close button, focus (opens on Close, Tab kept inside, back on close), and Escape closes it. Its number fields are named and its sheet-size and orientation buttons say which one is chosen. The page's Escape handler moves below the `useImposition` call, which it reads. Adds one characterization scenario (21 → 22) and one e2e test (16 → 17) | 🟡 In review |
 | Part 2 · B3–C8 | The other 10 split PRs | Not started |

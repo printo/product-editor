@@ -61,4 +61,28 @@ test.describe('dashboard (staff, signed in without a password)', () => {
     expect(file.suggestedFilename()).toBeTruthy();
     expect(fs.statSync(await file.path()).size).toBeGreaterThan(0);
   });
+
+  test('the print-sheet window takes focus, keeps Tab inside, and Escape gives focus back to Download', async ({ page }) => {
+    const orderId = newOrderId();
+    rememberOrder(orderId);
+    await page.goto(`/editor/layout/${layoutName()}?order_id=${orderId}`);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await expect(cards(page)).toHaveCount(1);
+    const download = page.getByRole('button', { name: 'Download', exact: true });
+    await download.click();
+    const options = page.getByRole('dialog', { name: 'Ready to Download?' });
+    await options.getByRole('checkbox').first().check();
+    await options.getByRole('button', { name: /Imposition/ }).click();
+    const sheets = page.getByRole('dialog', { name: 'Print settings' });
+    const close = sheets.getByRole('button', { name: 'Close' });
+    await expect(close).toBeFocused();
+    // One sheet, so no sheet arrows: Close is the first control and Download the last.
+    await page.keyboard.press('Shift+Tab');
+    await expect(sheets.getByRole('button', { name: /^Download (\d+ )?print sheets?$/ })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(close).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(sheets).toBeHidden();
+    await expect(download).toBeFocused();
+  });
 });
