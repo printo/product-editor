@@ -14,8 +14,9 @@ export function EmptySurfaceWarning({ surfaces }: { surfaces: EmptySurface[] }) 
         <AlertTriangle className="w-4 h-4 shrink-0" />
         {surfaces.length === 1 ? 'One side has no photo' : 'Some sides have no photo'}
       </div>
+      {/* {' '} rather than a plain space: SWC drops that space when the text holds an entity and wraps. */}
       <p className="text-xs mt-1 leading-relaxed">
-        {surfaces.map(s => s.label).join(', ')} will print blank. You can continue if that&apos;s intended.
+        {surfaces.map(s => s.label).join(', ')}{' '}will print blank. You can continue if that&apos;s intended.
       </p>
     </div>
   );

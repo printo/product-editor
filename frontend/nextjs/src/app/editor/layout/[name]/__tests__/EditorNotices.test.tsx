@@ -14,18 +14,18 @@ describe('EmptySurfaceWarning', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // The label and "will print blank" are checked apart: the compiled text
-  // currently has no space between them (SWC drops it — entity + multi-line).
+  // Whole sentences on purpose: the space after the side names once went
+  // missing in the compiled page ("Frontwill print blank").
   it('names the one side that will print blank', () => {
     render(<EmptySurfaceWarning surfaces={[{ key: 'back', label: 'Back' }]} />);
     expect(screen.getByText('One side has no photo')).toBeInTheDocument();
-    expect(screen.getByText(/will print blank/)).toHaveTextContent(/^Back/);
+    expect(screen.getByText("Back will print blank. You can continue if that's intended.")).toBeInTheDocument();
   });
 
   it('lists every blank side', () => {
     render(<EmptySurfaceWarning surfaces={[{ key: 'front', label: 'Front' }, { key: 'back', label: 'Back' }]} />);
     expect(screen.getByText('Some sides have no photo')).toBeInTheDocument();
-    expect(screen.getByText(/will print blank/)).toHaveTextContent(/^Front, Back/);
+    expect(screen.getByText("Front, Back will print blank. You can continue if that's intended.")).toBeInTheDocument();
   });
 });
 
