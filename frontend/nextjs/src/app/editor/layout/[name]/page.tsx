@@ -12,8 +12,8 @@ import { useSession } from 'next-auth/react';
 import { useHeader } from '@/context/HeaderContext';
 import {
   Upload, Loader2, CheckCircle2, Check, X,
-  FileText, Layout,
-  SendHorizonal, RotateCw, Maximize, Download, ChevronRight, Trash2,
+  Layout,
+  SendHorizonal, RotateCw, Maximize, Download, Trash2,
   AlertTriangle, ImagePlus, ArrowLeftRight, Droplets, ArrowLeft, Plus,
   // Palette, Move, Lock: only used by the hidden Set-BG-Color and
   // reposition-lock buttons (commented-out JSX below); re-add them if those
@@ -22,7 +22,6 @@ import {
   Palette, Move, Lock,
 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
 import {
   uploadFiles,
   unsupportedFilesMessage,
@@ -49,24 +48,9 @@ import {
 import {
   collectEmptySurfaces, collectDuplicateFills, duplicateFingerprint, checkOrderQty,
 } from '@/lib/submit-guards';
-import type { FitMode, FrameState, CanvasItem, ImpositionSettings, SurfaceState, Overlay } from './types';
+import type { FitMode, FrameState, CanvasItem, SurfaceState, Overlay } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { detectFileOrientation } from '@/lib/ml-orientation';
-// Type-only import — erased at compile time, zero bundle impact.
-// The actual Fabric.js runtime is loaded lazily inside executeImposition / the
-// imposition preview useEffect so it does NOT inflate the initial page bundle.
-import type { StaticCanvas as FabricStaticCanvas } from 'fabric';
-import {
-  MM_TO_IN,
-  CROP_MARK_LEN_MM,
-  CROP_MARK_LEN_MIN_MM,
-  CROP_MARK_LEN_MAX_MM,
-  canvasSpecToInches,
-  computeImpositionLayout,
-  cropMarkLengthsFor,
-  resolveSheetSize,
-  type ItemSize,
-} from './imposition';
 import { CanvasEditorModal } from './CanvasEditorModal';
 import { CalendarProductPreview } from '@/components/CalendarProductPreview';
 import { CalendarEditPanel } from '@/components/CalendarEditPanel';
@@ -80,10 +64,12 @@ import {
 import { reconcilePageCount, roleForSurfaceKey } from './book-pages';
 import { pageCountBounds, resolvePageCount, pagesToSpreads, spineWidthMm, type BookLayoutLike } from '@/lib/book-layout';
 import {
-  MEASURE_RETRY_MS, MEASURE_RETRY_LIMIT, resolveRotation, formatWait, formatLayoutDisplayName,
+  resolveRotation, formatWait, formatLayoutDisplayName,
   MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, NO_HOLIDAYS, readCardCountHint, writeCardCountHint, activatesCard,
 } from './editor-utils';
 import { EmbedSubmittedOverlay } from './EmbedSubmittedOverlay';
+import { ImpositionModal } from './ImpositionModal';
+import { useImposition } from './useImposition';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
 import { DeleteConfirmDialog } from './dialogs/DeleteConfirmDialog';
@@ -315,15 +301,9 @@ export default function LayoutEditorPage() {
   const includeUploadsRef = useRef(false);
   const [disclaimerChecked, setDisclaimerChecked] = useState(false);
   const [showEmbedDisclaimer, setShowEmbedDisclaimer] = useState(false);
-  const [showImpositionModal, setShowImpositionModal] = useState(false);
-  const [isImposing, setIsImposing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   // Job id behind the embed post-submit status panel (Phase 3).
   const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
-  const [impositionSettings, setImpositionSettings] = useState<ImpositionSettings>({
-    preset: 'a4', widthIn: 8.27, heightIn: 11.69, marginMm: 6, gutterMm: 5, orientation: 'portrait',
-    cropMarksEnabled: true, cropMarkLenMm: CROP_MARK_LEN_MM,
-  });
 
   // WeakMap allows the File entry to be GC'd when the user removes a frame —
   // a Map would pin every File ever inserted for the lifetime of the page.
@@ -333,12 +313,7 @@ export default function LayoutEditorPage() {
   const createdObjectURLs = useRef<Set<string>>(new Set());
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const impositionPreviewRef = useRef<HTMLCanvasElement>(null);
-  const impositionPreviewBoxRef = useRef<HTMLDivElement>(null);
-  const [previewBox, setPreviewBox] = useState({ w: 0, h: 0 });
-  const impositionFabricRef = useRef<FabricStaticCanvas | null>(null);
   const skipNextGenerateRef = useRef(false);
-  const [previewSheetIdx, setPreviewSheetIdx] = useState(0);
 
   // ── Canvas-state persistence ──────────────────────────────────────────────
   const [isSaving, setIsSaving] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -2704,230 +2679,8 @@ export default function LayoutEditorPage() {
     void processSelectedFiles(held, decision === 'extend' ? suggestedCount : undefined);
   };
 
-  /** The canvases destined for the sheet, in placement order. */
-  const impositionCanvases = useMemo(
-    () => (surfaceStates.length > 1 ? surfaceStates.flatMap(s => s.canvases) : canvases),
-    [surfaceStates, canvases],
-  );
-
-  /**
-   * Physical size of each of those canvases, in inches — index for index.
-   *
-   * Every surface contributes ITS OWN dimensions: a multi-surface product whose
-   * sides differ in size must not be imposed at the first side's size. `null`
-   * means the layout carries no usable dimensions, in which case imposition is
-   * refused rather than guessing a size (a wrong guess prints at the wrong
-   * scale with no visible symptom).
-   */
-  const impositionItems = useMemo<ItemSize[] | null>(() => {
-    if (!layout) return null;
-    if (surfaceStates.length > 1) {
-      const sizes: ItemSize[] = [];
-      for (const s of surfaceStates) {
-        const size = canvasSpecToInches(s.def?.canvas);
-        if (!size) return null;
-        for (let i = 0; i < s.canvases.length; i++) sizes.push(size);
-      }
-      return sizes;
-    }
-    // Single surface: `canvases` is the live array (surfaceStates[0].canvases
-    // only re-syncs on surface switch), but the physical size still comes from
-    // the surface definition.
-    const size = canvasSpecToInches(surfaceStates[0]?.def?.canvas ?? layout.canvas);
-    return size ? canvases.map(() => size) : null;
-  }, [layout, surfaceStates, canvases]);
-
-  const impositionResult = useMemo(
-    () => computeImpositionLayout(impositionSettings, impositionItems ?? []),
-    [impositionSettings, impositionItems],
-  );
-
-  const sheetCount = impositionResult.sheets.length;
-  const impositionPlacedTotal = useMemo(
-    () => impositionResult.placedPerCanvas.reduce((a, b) => a + b, 0),
-    [impositionResult],
-  );
-  const impositionSheetLabel = impositionSettings.preset === 'custom'
-    ? `${impositionSettings.widthIn}″ × ${impositionSettings.heightIn}″`
-    : impositionSettings.preset.toUpperCase();
-
-  // Keep the page selector inside range when the settings change the sheet
-  // count, and start every visit to the modal on sheet 1.
-  useEffect(() => {
-    setPreviewSheetIdx(p => (p < sheetCount ? p : Math.max(0, sheetCount - 1)));
-  }, [sheetCount]);
-  useEffect(() => {
-    if (showImpositionModal) setPreviewSheetIdx(0);
-  }, [showImpositionModal]);
-
-  // The preview scales to the box it is actually given. A fixed pixel budget
-  // overflowed the pane on landscape sheets, and `max-w-full` then squashed
-  // the canvas horizontally while Fabric's inline height held — the sheet
-  // rendered at the wrong aspect ratio.
-  useEffect(() => {
-    const el = impositionPreviewBoxRef.current;
-    if (!el || !showImpositionModal) return;
-
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    let attempts = 0;
-
-    // Only publish a genuinely new size. Returning a fresh object on every
-    // observer tick would re-run the draw effect, which resizes the canvas
-    // inside this very box — a feedback loop that disposed and rebuilt the
-    // Fabric scene forever and never reached the final render.
-    const measure = () => {
-      const w = Math.floor(el.clientWidth), h = Math.floor(el.clientHeight);
-      setPreviewBox(prev => (prev.w === w && prev.h === h ? prev : { w, h }));
-      // A ResizeObserver only delivers during the document's rendering steps,
-      // and a hidden document runs none — so if the box has no size yet, the
-      // observer alone may never report the real one and the preview would
-      // stay blank until the operator happened to change a setting. Poll
-      // briefly to cover that; the observer takes over once a size exists.
-      if ((w <= 0 || h <= 0) && attempts < MEASURE_RETRY_LIMIT) {
-        attempts++;
-        retry = setTimeout(measure, MEASURE_RETRY_MS);
-      }
-    };
-
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    // A tab that was hidden when the modal opened delivered no observer
-    // callbacks at all; re-measure the moment it becomes visible again.
-    document.addEventListener('visibilitychange', measure);
-    return () => {
-      ro.disconnect();
-      document.removeEventListener('visibilitychange', measure);
-      if (retry) clearTimeout(retry);
-    };
-  }, [showImpositionModal]);
-
-  // Decoded sheet thumbnails, keyed by dataUrl. Rebuilding the preview used to
-  // re-decode every placed image on every keystroke; a gang run of one design
-  // now decodes once.
-  const previewImgCache = useRef<Map<string, HTMLImageElement>>(new Map());
-  useEffect(() => {
-    if (!showImpositionModal) previewImgCache.current.clear();
-  }, [showImpositionModal]);
-
-  useEffect(() => {
-    const canvasEl = impositionPreviewRef.current;
-    const { sheets, cropMarks } = impositionResult;
-    if (!canvasEl || sheets.length === 0 || !showImpositionModal) return;
-    // Measure the box HERE rather than trusting the observer's last delivery.
-    // previewBox stays in the dependency list purely as a resize trigger: if
-    // the box happens to be zero-width on first paint and the observer hasn't
-    // reported yet, a live read still gets the real size on the next run.
-    const boxEl = impositionPreviewBoxRef.current;
-    const availW = boxEl?.clientWidth ?? 0;
-    const availH = boxEl?.clientHeight ?? 0;
-    if (availW <= 0 || availH <= 0) return;
-    const sheet = sheets[Math.min(previewSheetIdx, sheets.length - 1)];
-    if (!sheet) return;
-
-    const { w: sheetWIn, h: sheetHIn } = resolveSheetSize(impositionSettings);
-    const scale = Math.min(availW / sheetWIn, availH / sheetHIn);
-    if (!(scale > 0) || !Number.isFinite(scale)) return;
-    const pw = Math.round(sheetWIn * scale), ph = Math.round(sheetHIn * scale);
-    const mPx = (impositionSettings.marginMm / MM_TO_IN) * scale;
-    const markOffset = cropMarks.offsetIn * scale;
-
-    let aborted = false;
-
-    // Lazy-load Fabric.js only when the imposition modal is actually opened.
-    const run = async () => {
-      const { StaticCanvas, Rect: FabricRect, FabricImage, Line } = await import('fabric');
-      if (aborted) return;
-
-      if (impositionFabricRef.current) {
-        impositionFabricRef.current.dispose();
-        impositionFabricRef.current = null;
-      }
-      const fc = new StaticCanvas(canvasEl, {
-        width: pw, height: ph, backgroundColor: '#f8fafc', renderOnAddRemove: false,
-      });
-      impositionFabricRef.current = fc;
-      fc.add(new FabricRect({
-        left: mPx, top: mPx, originX: 'left', originY: 'top', width: pw - 2 * mPx, height: ph - 2 * mPx,
-        fill: '#ffffff', stroke: '#e2e8f0', strokeWidth: 1,
-        strokeDashArray: [4, 3], selectable: false, evented: false,
-      }));
-      fc.add(new FabricRect({
-        left: 0, top: 0, originX: 'left', originY: 'top', width: pw, height: ph,
-        fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1.5,
-        selectable: false, evented: false,
-      }));
-
-      const loadEl = async (dataUrl: string) => {
-        const hit = previewImgCache.current.get(dataUrl);
-        if (hit) return hit;
-        const decoded = await FabricImage.fromURL(dataUrl, { crossOrigin: 'anonymous' });
-        const el = decoded.getElement() as HTMLImageElement;
-        previewImgCache.current.set(dataUrl, el);
-        return el;
-      };
-
-      for (const item of sheet.items) {
-        if (aborted) return;
-        const [px, py, iw, ih] = [item.x * scale, item.y * scale, item.w * scale, item.h * scale];
-        const c = impositionCanvases[item.canvasIdx];
-        if (c?.dataUrl) {
-          try {
-            const el = await loadEl(c.dataUrl);
-            if (aborted) return;
-            const img = new FabricImage(el, { selectable: false, evented: false });
-            if (item.rotated) {
-              img.set({
-                left: px + iw / 2, top: py + ih / 2,
-                originX: 'center', originY: 'center',
-                scaleX: ih / (img.width || 1), scaleY: iw / (img.height || 1),
-                angle: -90,
-              });
-            } else {
-              img.set({
-                left: px, top: py, originX: 'left', originY: 'top',
-                scaleX: iw / (img.width || 1), scaleY: ih / (img.height || 1),
-              });
-            }
-            fc.add(img);
-          } catch { }
-        }
-        // Skipped entirely when the gutter/margin leaves no room — drawing them
-        // anyway put black lines across the neighbouring photo.
-        // Per-side lengths: an edge facing the paper gets a usable mark, an
-        // edge facing another photo stays short enough not to bleed onto it.
-        const L = cropMarkLengthsFor(item, sheet.items, impositionSettings, sheetWIn, sheetHIn);
-        const vLen = { '-1': L.top * scale, '1': L.bottom * scale } as Record<string, number>;
-        const hLen = { '-1': L.left * scale, '1': L.right * scale } as Record<string, number>;
-        for (const [cx, cy, dx, dy] of [
-          [px, py, -1, -1], [px + iw, py, 1, -1],
-          [px, py + ih, -1, 1], [px + iw, py + ih, 1, 1],
-        ] as [number, number, number, number][]) {
-          const vl = vLen[String(dy)];
-          const hl = hLen[String(dx)];
-          if (vl > 0) fc.add(new Line([cx, cy + dy * markOffset, cx, cy + dy * (markOffset + vl)], { stroke: '#64748b', strokeWidth: 0.5, selectable: false, evented: false }));
-          if (hl > 0) fc.add(new Line([cx + dx * markOffset, cy, cx + dx * (markOffset + hl), cy], { stroke: '#64748b', strokeWidth: 0.5, selectable: false, evented: false }));
-        }
-      }
-      // renderAll, not requestRenderAll: the whole scene is built in one pass,
-      // so there is nothing to coalesce, and the rAF that requestRenderAll
-      // schedules never fires while the document is hidden — a backgrounded tab
-      // would show an empty preview until something forced a repaint.
-      if (!aborted) fc.renderAll();
-    };
-
-    // Debounced so holding a key in the margin/gutter field doesn't tear down
-    // and rebuild the whole Fabric scene on every digit.
-    const timer = setTimeout(run, 100);
-    return () => {
-      aborted = true;
-      clearTimeout(timer);
-      if (impositionFabricRef.current) {
-        impositionFabricRef.current.dispose();
-        impositionFabricRef.current = null;
-      }
-    };
-  }, [impositionResult, previewSheetIdx, impositionSettings, impositionCanvases, showImpositionModal, previewBox]);
+  const imposition = useImposition({ layout, surfaceStates, canvases, renderCanvas, setError, setRenderProgress });
+  const { showImpositionModal, setShowImpositionModal, isImposing } = imposition;
 
   // All exports go through the server-side pipeline (Celery + Pillow at 300 DPI).
   // The previous "≤20 canvases → render in browser, JSZip" optimisation was
@@ -3261,114 +3014,6 @@ export default function LayoutEditorPage() {
     }
     setShowDownloadModal(false);
     return executeServerRender();
-  };
-
-  const executeImposition = async () => {
-    if (!impositionItems) {
-      setError('This layout has no physical dimensions, so it cannot be imposed.');
-      return;
-    }
-    setIsImposing(true);
-    try {
-      const dpi = 300;
-      const { sheets: impositionSheets, cropMarks } = computeImpositionLayout(
-        impositionSettings,
-        impositionItems,
-      );
-      const { w: sheetWIn, h: sheetHIn } = resolveSheetSize(impositionSettings);
-      const sheetW = Math.round(sheetWIn * dpi), sheetH = Math.round(sheetHIn * dpi);
-
-      // 1. Prepare for sheet generation
-      const cropMarkOff = Math.round(cropMarks.offsetIn * dpi);
-      const sheetBlobs: { name: string; blob: Blob }[] = [];
-      // StaticCanvas, not Canvas: the interactive one allocates a second
-      // full-size "upper canvas" it never uses (~139 MB per A4 sheet), and
-      // retina scaling would silently export every sheet at 2x on a Mac.
-      const { StaticCanvas, FabricImage, Line } = await import('fabric');
-
-      // A gang run places the same design dozens of times. Render each distinct
-      // canvas once at full resolution and reuse it, instead of once per slot.
-      const renderedByIdx = new Map<number, string>();
-      const renderOnce = async (idx: number) => {
-        const hit = renderedByIdx.get(idx);
-        if (hit !== undefined) return hit;
-        const dataUrl = (await renderCanvas(impositionCanvases[idx], { isExport: true, includeMask: true })) || '';
-        renderedByIdx.set(idx, dataUrl);
-        return dataUrl;
-      };
-
-      const totalItems = impositionSheets.reduce((acc, s) => acc + s.items.length, 0);
-      let done = 0;
-
-      // 2. Process each sheet sequentially to keep memory usage low
-      for (let si = 0; si < impositionSheets.length; si++) {
-        const sheet = impositionSheets[si];
-        const sheetEl = document.createElement('canvas');
-        sheetEl.width = sheetW; sheetEl.height = sheetH;
-        const fabricSheet = new StaticCanvas(sheetEl, {
-          width: sheetW, height: sheetH, backgroundColor: 'white',
-          renderOnAddRemove: false, enableRetinaScaling: false,
-        });
-
-        // For each item in the sheet, render the high-res canvas and place it
-        for (let ii = 0; ii < sheet.items.length; ii++) {
-          const item = sheet.items[ii];
-          const [px, py, pw, ph] = [Math.round(item.x * dpi), Math.round(item.y * dpi), Math.round(item.w * dpi), Math.round(item.h * dpi)];
-
-          try {
-            const dataUrl = await renderOnce(item.canvasIdx);
-            if (dataUrl) {
-              const img = await FabricImage.fromURL(dataUrl, { crossOrigin: 'anonymous' });
-              if (item.rotated) {
-                img.set({ left: px + pw / 2, top: py + ph / 2, originX: 'center', originY: 'center', scaleX: ph / img.width!, scaleY: pw / img.height!, angle: -90, selectable: false, evented: false });
-              } else {
-                img.set({ left: px, top: py, originX: 'left', originY: 'top', scaleX: pw / img.width!, scaleY: ph / img.height!, selectable: false, evented: false });
-              }
-              fabricSheet.add(img);
-            }
-          } catch (err) {
-            console.error('Failed to render imposition item:', err);
-          }
-
-          // Crop marks, clamped by resolveCropMarkGeometry so they can never
-          // reach into the neighbouring photo or run off the sheet edge.
-          const L = cropMarkLengthsFor(item, sheet.items, impositionSettings, sheetWIn, sheetHIn);
-          const vPx = { '-1': Math.round(L.top * dpi), '1': Math.round(L.bottom * dpi) } as Record<string, number>;
-          const hPx = { '-1': Math.round(L.left * dpi), '1': Math.round(L.right * dpi) } as Record<string, number>;
-          for (const [cx, cy, dx, dy] of [[px, py, -1, -1], [px + pw, py, 1, -1], [px, py + ph, -1, 1], [px + pw, py + ph, 1, 1]] as [number, number, number, number][]) {
-            const vl = vPx[String(dy)];
-            const hl = hPx[String(dx)];
-            if (vl > 0) fabricSheet.add(new Line([cx, cy + dy * cropMarkOff, cx, cy + dy * (cropMarkOff + vl)], { stroke: '#000', strokeWidth: 1, selectable: false, evented: false }));
-            if (hl > 0) fabricSheet.add(new Line([cx + dx * cropMarkOff, cy, cx + dx * (cropMarkOff + hl), cy], { stroke: '#000', strokeWidth: 1, selectable: false, evented: false }));
-          }
-
-          done++;
-          setRenderProgress({ current: done, total: totalItems });
-          await new Promise(r => setTimeout(r, 0));
-        }
-
-        fabricSheet.renderAll();
-        const blob = await new Promise<Blob>(res => sheetEl.toBlob(b => res(b!), 'image/png'));
-        sheetBlobs.push({ name: `imposition-sheet-${si + 1}.png`, blob });
-        fabricSheet.dispose();
-      }
-
-      if (sheetBlobs.length === 0) {
-        setError('Nothing could be placed on the sheet — try a larger sheet size or smaller margins.');
-        return;
-      }
-      if (sheetBlobs.length === 1) downloadBlob(sheetBlobs[0].blob, sheetBlobs[0].name);
-      else {
-        downloadBlob(await createZipFromDataUrls(sheetBlobs), 'imposition-sheets.zip');
-      }
-    } catch (err) {
-      console.error('Imposition failed:', err);
-      setError('Imposition failed.');
-    } finally {
-      setIsImposing(false);
-      setShowImpositionModal(false);
-      setRenderProgress(null);
-    }
   };
 
   // ── Calendar cell editing helpers (PRD §10.3 / audit fix #1) ─────────────
@@ -4590,288 +4235,7 @@ export default function LayoutEditorPage() {
           )}
 
           {showImpositionModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowImpositionModal(false)} />
-              <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[85vh] border border-slate-200">
-                {/* Left: Preview */}
-                <div className="flex-[1.1] bg-slate-50 p-6 pt-16 flex flex-col items-center relative border-r border-slate-200">
-                  <div className="absolute top-5 left-6">
-                    <h3 className="text-sm font-semibold text-slate-900">Sheet preview</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {sheetCount === 0
-                        ? 'Nothing fits on this sheet'
-                        : `Sheet ${Math.min(previewSheetIdx + 1, sheetCount)} of ${sheetCount}`}
-                    </p>
-                  </div>
-
-                  {/* The canvas is sized from this box, measured at runtime. It
-                      is positioned ABSOLUTELY so it never contributes to the
-                      box's own size — otherwise resizing the canvas resizes the
-                      box that determines the canvas size, and the two oscillate
-                      forever without the scene ever finishing a render. */}
-                  <div ref={impositionPreviewBoxRef} className="relative flex-1 w-full min-h-[220px] overflow-hidden">
-                    {sheetCount === 0 ? (
-                      <p className="absolute inset-0 flex items-center justify-center text-xs text-slate-400 text-center px-4">
-                        {impositionResult.noUsableArea
-                          ? 'The margin leaves no printable area on this sheet.'
-                          : 'No canvas fits inside this sheet size.'}
-                      </p>
-                    ) : (
-                      <canvas
-                        ref={impositionPreviewRef}
-                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded shadow-sm border border-slate-200 bg-white"
-                      />
-                    )}
-                  </div>
-
-                  {sheetCount > 1 && (
-                    <div className="mt-4 flex items-center gap-1 bg-white border border-slate-200 rounded-full p-1 shadow-sm">
-                      <button
-                        aria-label="Previous sheet"
-                        disabled={previewSheetIdx === 0}
-                        onClick={() => setPreviewSheetIdx(p => Math.max(0, p - 1))}
-                        className="p-1.5 text-slate-500 hover:text-indigo-600 disabled:opacity-30 transition rounded-full hover:bg-slate-50"
-                      >
-                        <ChevronRight className="w-4 h-4 rotate-180" />
-                      </button>
-                      <span className="text-xs font-medium text-slate-700 min-w-[70px] text-center">
-                        {previewSheetIdx + 1} / {sheetCount}
-                      </span>
-                      <button
-                        aria-label="Next sheet"
-                        disabled={previewSheetIdx >= sheetCount - 1}
-                        onClick={() => setPreviewSheetIdx(p => Math.min(sheetCount - 1, p + 1))}
-                        className="p-1.5 text-slate-500 hover:text-indigo-600 disabled:opacity-30 transition rounded-full hover:bg-slate-50"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right: Controls */}
-                <div className="flex-1 p-6 flex flex-col gap-5 bg-white overflow-y-auto custom-scrollbar">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center">
-                        <FileText className="w-4 h-4" />
-                      </div>
-                      <h3 className="text-base font-semibold text-slate-900">Print settings</h3>
-                    </div>
-                    <button onClick={() => setShowImpositionModal(false)} className="p-1.5 hover:bg-slate-100 rounded-md transition-colors">
-                      <X className="w-4 h-4 text-slate-500" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-5">
-                    {/* Presets */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-slate-500">Sheet size</label>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {(['a4', 'a3', '12x18', '13x19', 'custom'] as const).map(p => (
-                          <button
-                            key={p}
-                            onClick={() => setImpositionSettings(s => ({ ...s, preset: p }))}
-                            className={clsx(
-                              'py-2 text-xs font-semibold rounded-md border transition uppercase',
-                              impositionSettings.preset === p
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50',
-                            )}
-                          >
-                            {p}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Custom W × H — only when preset === 'custom' */}
-                    {impositionSettings.preset === 'custom' && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-slate-500">Width</label>
-                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
-                            <input
-                              type="number"
-                              step="0.1"
-                              min="1"
-                              value={impositionSettings.widthIn}
-                              onChange={e => setImpositionSettings(s => ({ ...s, widthIn: Math.max(1, Number(e.target.value) || 0) }))}
-                              className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
-                            />
-                            <span className="text-xs text-slate-400">in</span>
-                          </div>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-slate-500">Height</label>
-                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
-                            <input
-                              type="number"
-                              step="0.1"
-                              min="1"
-                              value={impositionSettings.heightIn}
-                              onChange={e => setImpositionSettings(s => ({ ...s, heightIn: Math.max(1, Number(e.target.value) || 0) }))}
-                              className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
-                            />
-                            <span className="text-xs text-slate-400">in</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Orientation */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-slate-500">Orientation</label>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {(['portrait', 'landscape'] as const).map(o => (
-                          <button
-                            key={o}
-                            onClick={() => setImpositionSettings(s => ({ ...s, orientation: o }))}
-                            className={clsx(
-                              'py-2 text-xs font-semibold rounded-md border transition capitalize',
-                              impositionSettings.orientation === o
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50',
-                            )}
-                          >
-                            {o}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Gutter & Margin */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-slate-500">Gutter (gap)</label>
-                        <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
-                          <input
-                            type="number"
-                            value={impositionSettings.gutterMm}
-                            onChange={e => setImpositionSettings(s => ({ ...s, gutterMm: Number(e.target.value) }))}
-                            className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
-                          />
-                          <span className="text-xs text-slate-400">mm</span>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-slate-500">Margin</label>
-                        <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-md border border-slate-200 focus-within:border-indigo-400 focus-within:bg-white transition">
-                          <input
-                            type="number"
-                            value={impositionSettings.marginMm}
-                            onChange={e => setImpositionSettings(s => ({ ...s, marginMm: Number(e.target.value) }))}
-                            className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
-                          />
-                          <span className="text-xs text-slate-400">mm</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Crop marks — on/off plus a requested length. The length is
-                        a MAXIMUM: resolveCropMarkGeometry clamps it to the room
-                        the gutter and margin actually leave, so a mark can never
-                        print over the neighbouring photo. */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={impositionSettings.cropMarksEnabled}
-                            onChange={e => setImpositionSettings(s => ({ ...s, cropMarksEnabled: e.target.checked }))}
-                            className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
-                          />
-                          <span className="text-xs font-medium text-slate-500">Crop marks</span>
-                        </label>
-                        <div className={clsx(
-                          'flex items-center gap-2 px-3 py-1.5 rounded-md border transition w-28',
-                          impositionSettings.cropMarksEnabled
-                            ? 'bg-slate-50 border-slate-200 focus-within:border-indigo-400 focus-within:bg-white'
-                            : 'bg-slate-50/50 border-slate-100 opacity-50',
-                        )}>
-                          <input
-                            type="number"
-                            min={CROP_MARK_LEN_MIN_MM}
-                            max={CROP_MARK_LEN_MAX_MM}
-                            disabled={!impositionSettings.cropMarksEnabled}
-                            value={impositionSettings.cropMarkLenMm}
-                            onChange={e => setImpositionSettings(s => ({
-                              ...s,
-                              cropMarkLenMm: Math.min(
-                                CROP_MARK_LEN_MAX_MM,
-                                Math.max(CROP_MARK_LEN_MIN_MM, Number(e.target.value) || 0),
-                              ),
-                            }))}
-                            aria-label="Crop mark length"
-                            className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full disabled:cursor-not-allowed"
-                          />
-                          <span className="text-xs text-slate-400">mm</span>
-                        </div>
-                      </div>
-                      {impositionSettings.cropMarksEnabled && impositionResult.cropMarks.shortened && impositionResult.cropMarks.maxLenIn > 0 && (
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          {impositionResult.cropMarks.minLenIn < impositionResult.cropMarks.maxLenIn - 1e-9
-                            ? `Marks are ${(impositionResult.cropMarks.minLenIn * MM_TO_IN).toFixed(1)}–${(impositionResult.cropMarks.maxLenIn * MM_TO_IN).toFixed(1)} mm — the shorter ones sit where the gutter or margin is tight, so they stay clear of the artwork.`
-                            : `Shortened to ${(impositionResult.cropMarks.maxLenIn * MM_TO_IN).toFixed(1)} mm so they stay clear of the artwork. Widen the gutter and margin for full-length marks.`}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* What this will actually produce */}
-                    <div className="px-4 py-3 bg-indigo-50 rounded-md border border-indigo-100 flex items-start gap-2.5">
-                      <div className="w-4 h-4 mt-0.5 bg-indigo-600 text-white rounded-full flex items-center justify-center text-[10px] flex-shrink-0">
-                        ✓
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-indigo-900">
-                          {impositionResult.mode === 'gang' ? 'Auto-repeat' : 'Batch layout'}
-                        </p>
-                        <p className="text-xs text-indigo-700/80 mt-0.5 leading-relaxed">
-                          {impositionResult.mode === 'gang'
-                            ? `Your design is repeated ${impositionPlacedTotal}× to fill one ${impositionSheetLabel} sheet.`
-                            : `${impositionPlacedTotal} ${impositionPlacedTotal === 1 ? 'canvas' : 'canvases'} laid out across ${sheetCount} ${sheetCount === 1 ? 'sheet' : 'sheets'} of ${impositionSheetLabel}, one copy each.`}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Nothing may leave the sheet without the operator knowing. */}
-                    {impositionResult.unplacedCount > 0 && (
-                      <div className="px-4 py-3 bg-amber-50 rounded-md border border-amber-200 flex items-start gap-2.5">
-                        <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-amber-900">
-                            {impositionResult.unplacedCount} {impositionResult.unplacedCount === 1 ? 'canvas' : 'canvases'} will not be printed
-                          </p>
-                          <p className="text-xs text-amber-800/80 mt-0.5 leading-relaxed">
-                            Too large for a {impositionSheetLabel} sheet at this margin. Pick a bigger sheet size or reduce the margin.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {impositionResult.cropMarks.maxLenIn === 0 && !impositionResult.cropMarks.disabled && (
-                      <div className="px-4 py-3 bg-slate-50 rounded-md border border-slate-200 flex items-start gap-2.5">
-                        <AlertTriangle className="w-4 h-4 mt-0.5 text-slate-500 flex-shrink-0" />
-                        <p className="text-xs text-slate-600 leading-relaxed min-w-0">
-                          No room for crop marks — they would print over the artwork. Increase the gutter past 4&nbsp;mm and the margin past 2&nbsp;mm to get them back.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-auto pt-5 border-t border-slate-100">
-                    <button
-                      onClick={executeImposition}
-                      disabled={isImposing || sheetCount === 0}
-                      className="w-full py-2.5 bg-slate-900 text-white rounded-md text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
-                    >
-                      {isImposing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                      {sheetCount > 1 ? `Download ${sheetCount} print sheets` : 'Download print sheet'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <ImpositionModal imposition={imposition} />
           )}
         </div>
       </main>
