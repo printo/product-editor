@@ -22,7 +22,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
   useModalA11y(dialogRef, null, true, closeRef);
   const id = useId();
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowImpositionModal(false)} />
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[85vh] border border-slate-200">
         {/* Left: Preview */}

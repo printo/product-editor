@@ -62,6 +62,30 @@ test.describe('dashboard (staff, signed in without a password)', () => {
     expect(fs.statSync(await file.path()).size).toBeGreaterThan(0);
   });
 
+  test('the download options and the print-sheet window cover the top bar', async ({ page }) => {
+    const orderId = newOrderId();
+    rememberOrder(orderId);
+    await page.goto(`/editor/layout/${layoutName()}?order_id=${orderId}`);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await expect(cards(page)).toHaveCount(1);
+    const back = page.getByRole('button', { name: 'Back to templates' });
+    const box = (await back.boundingBox())!;
+    // What a click on Back to Templates would actually land on.
+    const hitsBack = () => page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return !!el?.closest('header');
+    }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+    expect(await hitsBack()).toBe(true);
+    await page.getByRole('button', { name: 'Download', exact: true }).click();
+    const options = page.getByRole('dialog', { name: 'Ready to Download?' });
+    await expect(options).toBeVisible();
+    expect(await hitsBack()).toBe(false);
+    await options.getByRole('checkbox').first().check();
+    await options.getByRole('button', { name: /Imposition/ }).click();
+    await expect(page.getByRole('dialog', { name: 'Print settings' })).toBeVisible();
+    expect(await hitsBack()).toBe(false);
+  });
+
   test('the print-sheet window takes focus, keeps Tab inside, and Escape gives focus back to Download', async ({ page }) => {
     const orderId = newOrderId();
     rememberOrder(orderId);

@@ -1031,7 +1031,7 @@ Other conventions from the same rework (PR #24):
 
 - **`components/ui/Dropdown.tsx` over native `<select>`** wherever the selected-option highlight must be on-brand — a native select's open list is drawn by the OS and ignores CSS. `CalendarLayoutEditor`'s selects stay native on purpose: its Jest suite drives them via `userEvent.selectOptions`, which can't operate a custom listbox.
 - **Header height is measured, not hardcoded** — `HeaderContext.headerHeight` is published from a `ResizeObserver` + `useLayoutEffect`. Sticky-offset consumers read it rather than duplicating a height class, so the two-row mobile header and one-row desktop header stay in sync.
-- **z-index ladder**: the fixed header sits at `z-[2000]`; full-screen modals need to clear it (the JSON Specification modal went `z-[60]` → `z-[200000]` after rendering behind it).
+- **z-index ladder**: the fixed header sits at `z-[2000]`; full-screen modals need to clear it (the JSON Specification modal went `z-[60]` → `z-[200000]` after rendering behind it). The editor's download options, embed disclaimer and print-sheet window sit at `z-[2001]`: just above the bar, still below the toasts (`z-[3000]`) and everything else they sat under. Until 2026-10-07 they were at `z-[100]`, so the bar stayed bright and Back to Templates stayed clickable while they were open; an e2e test now checks that a click there lands on the dialog's backdrop.
 - `TagFilter` + `lib/product-tags.ts` (`AVAILABLE_TAGS`) are shared verbatim by the dashboard and template library — chip row on desktop, `Dropdown` on mobile.
 
 ## Export Flag

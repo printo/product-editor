@@ -25,7 +25,7 @@ export function EmbedDisclaimerDialog({
   const titleId = useId();
   const messageId = useId();
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-[2001] flex items-center justify-center p-6">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={onClose} />
       <div ref={dialogRef} className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         {/* Header */}
