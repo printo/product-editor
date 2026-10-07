@@ -21,8 +21,9 @@
  *   2. We draw that element onto a ≤640 px canvas, export JPEG.
  *   3. Backend `POST /api/orientation/detect` runs PoseLandmarker,
  *      returns `{rotation, confidence, source}`.
- *   4. On 503 (mode off) / 204 (no pose) / error → return null,
- *      caller falls back to the aspect-ratio heuristic.
+ *   4. On 503 (mode off) → `'use-heuristic'`; on 204 (no pose) or any
+ *      error → `'no-rotate'`. What a caller does with each is its own
+ *      policy (see `OrientationOutcome`).
  *
  * Cache: results memoised per file fingerprint (name:size:lastModified)
  * for the session; the same file never re-uploads or re-infers.
@@ -35,18 +36,20 @@ export type OrientationResult = {
 };
 
 /**
- * Outcome of an orientation request — a 3-way result the caller branches on:
+ * Outcome of an orientation request — what the pose model reported:
  *
- *  - `OrientationResult`  → the model gave a confident rotation; use it.
+ *  - `OrientationResult`  → the model gave a confident rotation.
  *  - `'no-rotate'`        → the model RAN but found nothing confident
  *                           (no pose / ambiguous tilt / occluded), OR the
- *                           request errored. Caller leaves the photo as-is
- *                           (rotation 0). It must NOT fall back to the
- *                           aspect-ratio heuristic — that heuristic flips
- *                           wide group photos sideways in portrait frames.
+ *                           request errored.
  *  - `'use-heuristic'`    → the backend reports AUTO_ORIENTATION_MODE=off.
- *                           Caller uses the legacy aspect-ratio heuristic
- *                           (the explicit pre-ML behaviour).
+ *
+ * What to do with it is the caller's policy. The editor page
+ * (`resolveRotation` in editor/layout/[name]/editor-utils.ts) turns a photo
+ * to fill a clearly portrait or landscape frame FIRST, whatever the outcome
+ * (ops decision 2026-05-19), and only then uses a confident rotation, so
+ * `'no-rotate'` and `'use-heuristic'` both mean "no model rotation" there.
+ * Calendar cell uploads use a confident rotation and ignore the rest.
  */
 export type OrientationOutcome = OrientationResult | 'no-rotate' | 'use-heuristic';
 
@@ -123,17 +126,8 @@ async function downscaleForDetection(imgEl: HTMLImageElement): Promise<Blob | nu
 /**
  * Detect the rotation a file's subject needs.
  *
- * Returns an `OrientationOutcome` (see the type's docstring):
- *   - `OrientationResult` — model gave a confident rotation
- *   - `'no-rotate'`       — model ran, no confident answer (or request
- *                           errored). Caller leaves the photo as-is.
- *   - `'use-heuristic'`   — backend has AUTO_ORIENTATION_MODE=off; caller
- *                           uses the legacy aspect-ratio heuristic.
- *
- * Critically, a model "no answer" maps to `'no-rotate'`, NOT to the
- * aspect-ratio heuristic. The heuristic rotates any landscape photo 90°
- * into a portrait frame — which lays the people in a wide group shot on
- * their side. Only an explicit mode=off makes the caller fall back to it.
+ * Returns an `OrientationOutcome` — see the type's docstring for what each
+ * value means and how the callers use it.
  *
  * `imgEl` is the already-decoded element from `getImageMetadata`; passing
  * it lets us downscale without a second decode.
@@ -186,19 +180,17 @@ export async function detectFileOrientation(
         cache: 'no-store',
       });
 
-      // 503: AUTO_ORIENTATION_MODE=off (or mediapipe unavailable). This is
-      // the ONLY case where the caller should use the aspect-ratio
-      // heuristic — it's the explicit pre-ML behaviour.
+      // 503: AUTO_ORIENTATION_MODE=off (or mediapipe unavailable).
       if (res.status === 503) return 'use-heuristic';
-      // 204: model ran, found no confident pose → leave the photo as-is.
+      // 204: model ran, found no confident pose.
       if (res.status === 204) return 'no-rotate';
-      // Any other non-OK → don't guess, leave as-is.
+      // Any other non-OK → don't guess.
       if (!res.ok) return 'no-rotate';
       const data = (await res.json()) as OrientationResult;
       if (![0, 90, 180, 270].includes(data.rotation)) return 'no-rotate';
       return data;
     } catch {
-      // Network error / abort → leave as-is (safer than rotating blind).
+      // Network error / abort → no model answer (safer than guessing).
       return 'no-rotate';
     }
   })();

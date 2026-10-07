@@ -104,11 +104,12 @@ export function formatWait(seconds: number): string {
 }
 
 /**
- * Display-only prettifier for the header title. `layout.name` IS the
- * filename stem (views.py forces them to match — see "Layout Identity Is
- * the Filename" in CLAUDE.md), so ops-authored slugs like
- * "retro_polaroid_-_4.2x3.5_in" render as readable text here without ever
- * touching the identifier itself or anything sent to the API.
+ * Fallback product name for a layout with no ops-set `displayName`:
+ * de-underscores and title-cases the identifier, so a slug like
+ * "retro_polaroid_-_4.2x3.5_in" reads "Retro Polaroid - 4.2x3.5 In".
+ * Display only — the identifier itself is never changed. Must match the
+ * backend's `default_display_name_for` (api/models.py); both sides' tests
+ * share the same cases.
  */
 export function formatLayoutDisplayName(rawName: string): string {
   return rawName
