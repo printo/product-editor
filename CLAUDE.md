@@ -1608,7 +1608,7 @@ No other open P0/P1 issues. Previously tracked items B1, B4 and B5 have all ship
 
 **Watch list (not blocking):**
 - NextAuth 5 is still in beta. The `(session as any)` casts have been removed, but if you bump the version, recheck `next-auth.d.ts` against the upstream `Session` / `JWT` shapes.
-- ESLint: `pnpm lint` reports 0 errors and 1 warning (an unused `short` in `QtyShortfallWarning`, `editor/layout/[name]/EditorNotices.tsx`) as of 2026-10-07 — the ~56 `no-unused-vars` warnings were cleaned up in PR #137.
+- ESLint: `pnpm lint` reports 0 errors and 0 warnings as of 2026-10-08 (the last one, an unused `short` in `QtyShortfallWarning`, went in PR #220) — the ~56 `no-unused-vars` warnings were cleaned up in PR #137.
 - 31 explicit `as any` casts remain (down from 98). All are Fabric API arg coercion, Fabric internals, or LayoutDef/OverlayState shape narrowing — none are about untyped Fabric custom props (those are typed via `src/types/fabric-augmentation.d.ts`). `@typescript-eslint/no-explicit-any` is set to `off` in eslint.config.mjs because of these — re-enable only after the LayoutDef shape is unified.
 
 ### Fixed
