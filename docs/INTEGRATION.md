@@ -628,6 +628,6 @@ Instead we hand you the signal and let your frontend decide what "back" means in
 
 - Webhook fired by `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](../backend/django/api/tasks.py). Task config: `max_retries=5`, retry delay `2 ** retry_number` seconds.
 - Payload shape constructed in the same file (`webhook_payload = {...}`). Keep this doc in sync if the task changes.
-- Embed-session creation: see `EmbedSessionView` in `backend/django/api/views.py`.
+- Embed-session creation: see `EmbedSessionView` in `backend/django/api/views/embed.py`.
 - ZIP download endpoint: `RenderJobDownloadView` in the same file. Streams via `StreamingHttpResponse`; safe for 500 MB+ payloads.
 - Embed proxy path allowlist + token cache: [`frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts`](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts).

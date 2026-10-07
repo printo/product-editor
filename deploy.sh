@@ -235,7 +235,7 @@ fi
 
 # Worker services share backend/django/Dockerfile with the `backend` service
 # but Docker Compose tags each one independently — so a code change in
-# api/tasks.py, api/views.py, models, settings, etc. needs ALL of these
+# api/tasks.py, api/views/, models, settings, etc. needs ALL of these
 # images rebuilt for workers to see the new code. The `backend` and
 # `workers` modes both rebuild this set; `both` does it implicitly via
 # `docker-compose build` with no args.
