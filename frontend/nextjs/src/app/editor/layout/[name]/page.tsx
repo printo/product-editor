@@ -451,19 +451,22 @@ export default function LayoutEditorPage() {
   // it. Confirmed by forcing that wrapper tall at runtime: sticky then held
   // correctly at any scroll depth. `fixed` has no containing-block-height
   // requirement, so it doesn't hit that trap.
-  const toolbarSentinelRef = useRef<HTMLDivElement>(null);
+  // The sentinel is held in state through a callback ref, like the toolbar
+  // below: the toolbar renders only once the layout has loaded, after this
+  // effect's first run, and with a plain ref nothing re-ran it once the
+  // sentinel existed — so the toolbar never pinned (until 2026-10-07).
+  const [toolbarSentinel, setToolbarSentinel] = useState<HTMLDivElement | null>(null);
   const [isToolbarStuck, setIsToolbarStuck] = useState(false);
 
   useEffect(() => {
-    const sentinel = toolbarSentinelRef.current;
-    if (!sentinel) return;
+    if (!toolbarSentinel) return;
     const observer = new IntersectionObserver(
       ([entry]) => setIsToolbarStuck(!entry.isIntersecting),
       { rootMargin: `-${headerHeight + 1}px 0px 0px 0px`, threshold: 0 }
     );
-    observer.observe(sentinel);
+    observer.observe(toolbarSentinel);
     return () => observer.disconnect();
-  }, [headerHeight]);
+  }, [headerHeight, toolbarSentinel]);
 
   // The floating qty banner has to clear BOTH bars above it. In the embed
   // iframe no app <header> is mounted at all (headerHeight is 0) and this
@@ -3469,7 +3472,7 @@ export default function LayoutEditorPage() {
               `fixed` instead of `sticky` once scrolled past it, and the spacer
               directly below for how the vacated flow space is replaced. */}
           <div className="relative">
-            <div ref={toolbarSentinelRef} className="absolute top-0 inset-x-0 h-px" aria-hidden />
+            <div ref={setToolbarSentinel} className="absolute top-0 inset-x-0 h-px" aria-hidden />
             {isToolbarStuck && <div style={{ height: toolbarHeight }} aria-hidden />}
             <div
               ref={setToolbarEl}

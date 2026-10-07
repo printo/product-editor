@@ -11,7 +11,7 @@
  * against FakeBackend. Timers are real, so the autosave debounce (2 s) and the
  * dashboard's status poll (first at ~2 s) are waited out, not faked.
  */
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   BOOK_LAYOUT, CALENDAR_FINANCIAL_GENZ, CALENDAR_LAYOUT, CALENDAR_NO_HOLIDAYS, FakeBackend, LAYOUT_NAME, makePhoto, renderEditor, setEditorUrl,
@@ -142,6 +142,35 @@ describe('editor page — embed mode', () => {
     expect(init.headers['x-embed-token']).toBe('test-embed-token');
     await waitFor(() => expect(backend.callsTo(`canvas-state/${ORDER_ID}/`, 'GET')).toHaveLength(1));
     expect(backend.unexpected).toEqual([]);
+  });
+
+  it('the toolbar pins once scrolled past it: its observer starts as soon as the toolbar appears', async () => {
+    type Watcher = { cb: IntersectionObserverCallback; targets: Element[] };
+    const watchers: Watcher[] = [];
+    const Real = window.IntersectionObserver;
+    window.IntersectionObserver = class {
+      targets: Element[] = [];
+      constructor(public cb: IntersectionObserverCallback) { watchers.push(this); }
+      observe(el: Element) { this.targets.push(el); }
+      unobserve() {}
+      disconnect() { this.targets = []; }
+      takeRecords() { return []; }
+    } as unknown as typeof IntersectionObserver;
+    try {
+      renderEditor();
+      const toolbar = (await screen.findByRole('button', { name: 'Toggle blur effect' })).closest('.backdrop-blur-3xl') as HTMLElement;
+      const sentinel = toolbar.parentElement!.firstElementChild!;
+      await waitFor(() => expect(watchers.some((w) => w.targets.includes(sentinel))).toBe(true));
+      const watcher = watchers.find((w) => w.targets.includes(sentinel))!;
+      const report = (isIntersecting: boolean) =>
+        act(() => watcher.cb([{ isIntersecting } as IntersectionObserverEntry], watcher as unknown as IntersectionObserver));
+      report(false);
+      expect(toolbar.style.position).toBe('fixed');
+      report(true);
+      expect(toolbar.style.position).toBe('');
+    } finally {
+      window.IntersectionObserver = Real;
+    }
   });
 
   it('adding photos twice appends — the second pick never replaces the first', async () => {

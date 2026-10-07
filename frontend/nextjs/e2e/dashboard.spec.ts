@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { expect, test } from '@playwright/test';
 import { newOrderId, rememberOrder } from './support/api';
 import { signIn } from './support/auth';
-import { PHOTOS, addPhotos, cards, layoutName } from './support/editor';
+import { PHOTOS, addPhotos, cards, layoutName, scrollPage, toolbarPlacement } from './support/editor';
 
 test.describe('dashboard (staff, signed in without a password)', () => {
   test.beforeEach(async ({ context }) => {
@@ -60,6 +60,24 @@ test.describe('dashboard (staff, signed in without a password)', () => {
     const file = await download;
     expect(file.suggestedFilename()).toBeTruthy();
     expect(fs.statSync(await file.path()).size).toBeGreaterThan(0);
+  });
+
+  test('the toolbar pins under the top bar while the page scrolls, and lets go at the top', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 600 });
+    const orderId = newOrderId();
+    rememberOrder(orderId);
+    await page.goto(`/editor/layout/${layoutName()}?order_id=${orderId}`);
+    await addPhotos(page, [PHOTOS.portrait, PHOTOS.landscape, PHOTOS.square]);
+    await expect(cards(page)).toHaveCount(3);
+    const header = (await page.locator('header').first().boundingBox())!;
+    expect((await toolbarPlacement(page)).position).not.toBe('fixed');
+    await scrollPage(page, 'bottom');
+    await expect.poll(async () => (await toolbarPlacement(page)).position).toBe('fixed');
+    // Directly under the bar, give or take the rounding of its measured height.
+    expect(Math.abs((await toolbarPlacement(page)).top - (header.y + header.height))).toBeLessThanOrEqual(1);
+    await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeInViewport();
+    await scrollPage(page, 'top');
+    await expect.poll(async () => (await toolbarPlacement(page)).position).not.toBe('fixed');
   });
 
   test('the download options and the print-sheet window cover the top bar', async ({ page }) => {

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createEmbedSession } from './support/api';
-import { PHOTOS, addPhotos, cards, openEmbedEditor, photoOrder, recordAutosaves } from './support/editor';
+import { PHOTOS, addPhotos, cards, openEmbedEditor, photoOrder, recordAutosaves, scrollPage, toolbarPlacement } from './support/editor';
 
 test.describe('on a phone (touch, small screen)', () => {
   test('add photos, tap-to-swap them, and open the editor sheet', async ({ page }) => {
@@ -23,5 +23,19 @@ test.describe('on a phone (touch, small screen)', () => {
     await expect(editor).toBeVisible();
     await editor.getByRole('button', { name: 'Close editor' }).tap();
     await expect(editor).toBeHidden();
+  });
+
+  // Inside the storefront's iframe there is no app top bar, so the toolbar pins to the very top.
+  test('the toolbar pins to the top while the page scrolls, and lets go at the top', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    await openEmbedEditor(page, token);
+    await addPhotos(page, [PHOTOS.portrait, PHOTOS.landscape, PHOTOS.square]);
+    await expect(cards(page)).toHaveCount(3);
+    expect((await toolbarPlacement(page)).position).not.toBe('fixed');
+    await scrollPage(page, 'bottom');
+    await expect.poll(() => toolbarPlacement(page)).toEqual({ position: 'fixed', top: 0 });
+    await expect(page.getByRole('button', { name: 'Save and continue' })).toBeInViewport();
+    await scrollPage(page, 'top');
+    await expect.poll(async () => (await toolbarPlacement(page)).position).not.toBe('fixed');
   });
 });
