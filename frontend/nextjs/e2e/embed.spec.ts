@@ -92,10 +92,11 @@ test.describe('embed editor (customer iframe)', () => {
       expect(back).toEqual({ origin: editorOrigin, data: { type: 'pe:back', orderID: orderId } });
 
       await frame.getByRole('button', { name: 'Save and continue' }).click();
-      await expect(frame.getByText('Ready to Submit?')).toBeVisible();
-      await frame.getByRole('checkbox').last().check();
+      const confirm = frame.getByRole('dialog', { name: 'Ready to Submit?' });
+      await expect(confirm).toBeVisible();
+      await confirm.getByRole('checkbox').check();
       const renderResponse = page.waitForResponse((r) => r.url().endsWith('/api/embed/proxy/editor/render') && r.request().method() === 'POST', { timeout: 90_000 });
-      await frame.getByRole('button', { name: 'Yes, Proceed' }).click();
+      await confirm.getByRole('button', { name: 'Yes, Proceed' }).click();
       const res = await renderResponse;
       expect(res.status()).toBe(202);
       const { job_id: jobId } = await res.json();
