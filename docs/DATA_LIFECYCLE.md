@@ -44,9 +44,15 @@ Ops-only (Phase 4). Hard-deletes everything above tied to an `order_id` —
 uploads, exports, `CanvasData` (cascades `RenderJob`), and `EmbedSession` —
 **rows and files**, immediately, without waiting for the retention timer.
 
-- Scoped to all API keys for the order by default; `?api_key=<name>` narrows to
-  one tenant. `?force=true` overrides the guard that blocks purge while a
-  render is still queued/processing.
+- Needs `?all_tenants=true` (every API key holding this order id) or
+  `?api_key=<name>` (one tenant); without either it answers 400. Order ids are
+  unique only per key, so two tenants can share one. `?force=true` overrides
+  the guard that blocks purge while a render is still queued/processing.
+- An order counts as found if anything exists for it: a saved design, an embed
+  session, an upload row, or (all-tenant purges only) its upload folder. Until
+  2026-10-07 only the first two counted, so an order holding only photos
+  answered "No data found" with the photos still on disk; and `matched` counted
+  designs only, so the endpoint answered 404 for an order it had just erased.
 - Shared upload files still referenced by another surviving order are kept.
 - Returns per-artifact counts, the API keys touched, and any best-effort file
   errors. Never on the embed-proxy allowlist (ops surface only).
@@ -70,9 +76,13 @@ an incomplete erasure also logs a warning. A bare `files_deleted: 0` is no
 longer indistinguishable from success.
 
 **Uploads are stored per order** — `UPLOADS_DIR/<order_id>/` — so ownership is
-visible in the path. The purge deletes that directory outright, which means it
-erases what is actually on disk rather than only what the database can
-enumerate: a file whose row was lost is still found. Direct partner API uploads
+visible in the path. An all-tenant purge deletes that directory outright, which
+means it erases what is actually on disk rather than only what the database can
+enumerate: a file whose row was lost is still found. A purge scoped to one key
+deletes only that key's uploads, found through their rows, and leaves the folder
+alone: the folder is per order id, not per key, so sweeping it would also erase
+another tenant's photos for the same order id (it did, until 2026-10-07). Use
+`?all_tenants=true` when the erasure must be complete. Direct partner API uploads
 have no order and go to a shared `_no_order/` bucket, excluded from the
 directory delete and cleaned by the GC on age.
 
@@ -95,6 +105,14 @@ None currently open — see "Closed" below for what used to be tracked here.
 
 ### Closed
 
+- **Order purge skipped upload-only orders and over-reached when scoped** —
+  closed 2026-10-07. An order holding only uploaded photos (no saved design, no
+  embed session) answered "No data found" and kept the photos; a purge scoped to
+  one key swept the order's whole upload folder and every upload row for the
+  order id, another key's included; and `matched` counted designs only, so the
+  endpoint answered 404 for orders it had just erased. Pinned by
+  `api/tests/test_order_purge.py`, which runs the purge against Postgres and
+  real files.
 - **`GC_ORPHAN_SWEEP` was `dry_run` in production** — closed 2026-09-10.
   `GC_ORPHAN_SWEEP=delete` now runs on production; five independent safety
   guards must all hold before a directory is deleted (UUID-format name, not in
