@@ -7,7 +7,7 @@ Why this exists
 Before the fix to frontend/nextjs/src/lib/upload-utils.ts, the dashboard/
 editor upload flow never sent order_id on the chunked-upload /complete call,
 so ChunkedUploadCompleteView fell back to NO_ORDER_BUCKET for every one of
-those uploads (see api/views.py::ChunkedUploadCompleteView, services/
+those uploads (see api/views/uploads.py::ChunkedUploadCompleteView, services/
 storage.py::order_upload_dir). That left a backlog of misfiled customer
 photos that OrderDataPurgeView / purge_order_data cannot discover by order_id
 — a real DPDP gap, not just clutter.

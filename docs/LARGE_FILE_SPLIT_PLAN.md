@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 PR 2 of 3. Started 2026-10-06. Update the
+**Status:** 🟡 In progress — Part 1 PR 3 of 3 (Part 1 ends with this PR). Started 2026-10-06. Update the
 progress table at the bottom as each PR merges.
 
 ## Why
@@ -56,8 +56,12 @@ be circular.
 - **Log lines name the module.** The `verbose` formatter prints `{module}`, so
   lines read `system`/`ops`/`render` instead of `views` (and `__init__` for
   code not yet moved). The `api` logger config still covers them.
-- **Found, not fixed (follow-up PR):** `_is_safe_layout_name` exists as a
-  method on three classes and `_is_path_safe` on two.
+- **Found, not fixed (follow-up PRs):** `_is_safe_layout_name` exists as a
+  method on three classes and `_is_path_safe` on two. And the web process's
+  500 MP Pillow pixel cap depends on `api/views/__init__.py` importing
+  `layout_engine.engine` purely for its import-time side effect (kept, with a
+  comment); setting `Image.MAX_IMAGE_PIXELS` explicitly where uploads are
+  validated would remove that hidden coupling.
 
 **Proof for each backend PR** (from a worktree, with the PR's own image tags —
 see "How to test" below):
@@ -120,6 +124,6 @@ storage copies and cleaned env file afterwards.
 | PR | Scope | Status |
 |---|---|---|
 | Part 1 · PR 1 | Package conversion; `system`, `ops`, `media` | ✅ Merged (#189), deployed 2026-10-06 |
-| Part 1 · PR 2 | `layouts`, `layout_admin`, `calendar_assets` | 🟡 In review |
-| Part 1 · PR 3 | `render`, `downloads`, `embed`, `uploads` | Not started |
+| Part 1 · PR 2 | `layouts`, `layout_admin`, `calendar_assets` | ✅ Merged (#190) |
+| Part 1 · PR 3 | `render`, `downloads`, `embed`, `uploads`; `__init__.py` reduced to re-exports | 🟡 In review |
 | Part 2 | Phases 0, A, B1–B4, C1–C6 | Not started |

@@ -143,9 +143,9 @@ PY
 # Threads: gthread worker class with N OS threads per worker — multiplies the
 # request-handling capacity to (workers × threads) without spawning processes.
 WORKERS="${GUNICORN_WORKERS:-$(( $(nproc) * 2 + 1 ))}"
-# Timeout matches the sync-render hard limit in api/views.py (600 s) so a long
-# legacy sync request isn't killed by Gunicorn before the SIGALRM-based timeout
-# inside the view fires. Modern callers go through Celery and don't hit this.
+# Timeout (600 s) was set to match the synchronous render path's limit. That
+# path and its in-view SIGALRM timeout have since been removed (renders run in
+# Celery), so the value is now just a generous ceiling.
 echo "Starting gunicorn: ${WORKERS} workers × ${GUNICORN_THREADS:-4} threads on port ${PORT:-8000}"
 # Gunicorn's own bind message reports the CONTAINER-internal port ($PORT).
 # Docker Compose can remap that on the host via BACKEND_HOST_PORT in .env

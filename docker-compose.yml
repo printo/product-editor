@@ -236,7 +236,7 @@ services:
   # soft-proof / CMYK express path. That pipeline was retired in v1.8 and
   # NOTHING has routed to 'priority' since: all three entries in
   # product_editor/celery.py task_routes point at 'standard', and both dispatch
-  # sites (api/views.py GenerateLayoutView + EditorRenderView) hardcode
+  # sites (api/views/render.py GenerateLayoutView + EditorRenderView) hardcode
   # queue_name = 'standard'. The container had therefore never run a single
   # task while holding a full Django + Pillow + MediaPipe process resident —
   # removed rather than left to look like capacity it never provided.
