@@ -238,27 +238,29 @@ describe('EmbedDisclaimerDialog', () => {
 });
 
 describe('dialog semantics for screen readers', () => {
-  const cases: Array<{ label: string; role: 'dialog' | 'alertdialog'; name: string; description?: string; dialog: () => ReactElement }> = [
+  const cases: Array<{
+    label: string; role: 'dialog' | 'alertdialog'; name: string; description?: string; firstFocus: string; dialog: () => ReactElement;
+  }> = [
     {
-      label: 'delete', role: 'alertdialog', name: 'Remove image?',
+      label: 'delete', firstFocus: 'Cancel', role: 'alertdialog', name: 'Remove image?',
       description: 'This image will be removed from the canvas. This cannot be undone.',
       dialog: () => <DeleteConfirmDialog onConfirm={jest.fn()} onCancel={jest.fn()} />,
     },
     {
-      label: 're-pick', role: 'alertdialog', name: 'Replacing photos will discard edits',
+      label: 're-pick', firstFocus: 'Keep my edits', role: 'alertdialog', name: 'Replacing photos will discard edits',
       dialog: () => <RepickConfirmDialog losingCount={2} onDecide={jest.fn()} />,
     },
     {
-      label: 'over-quantity', role: 'alertdialog', name: 'More images than ordered',
+      label: 'over-quantity', firstFocus: 'Keep first 5', role: 'alertdialog', name: 'More images than ordered',
       dialog: () => <OverQuantityDialog orderQty={5} selectedCount={8} onDecide={jest.fn()} />,
     },
     {
-      label: 'incomplete images', role: 'alertdialog', name: '2 incomplete images detected',
+      label: 'incomplete images', firstFocus: 'Remove them', role: 'alertdialog', name: '2 incomplete images detected',
       description: 'These files look cut off (often from an interrupted download or transfer) and may print with a missing or grey edge:',
       dialog: () => <TruncatedImagesDialog badFiles={[photo('a.jpg'), photo('b.jpg')]} onDecide={jest.fn()} />,
     },
     {
-      label: 'book overflow', role: 'alertdialog', name: "3 photos won't fit on 2 pages",
+      label: 'book overflow', firstFocus: 'Extend to 4 pages', role: 'alertdialog', name: "3 photos won't fit on 2 pages",
       description: 'Only 2 of 3 photos will be used unless you add more pages. Extend to 4 pages to fit them all?',
       dialog: () => (
         <BookOverflowDialog
@@ -269,7 +271,7 @@ describe('dialog semantics for screen readers', () => {
       ),
     },
     {
-      label: 'auto-fill picker', role: 'dialog', name: 'Choose images to repeat',
+      label: 'auto-fill picker', firstFocus: 'Close', role: 'dialog', name: 'Choose images to repeat',
       dialog: () => (
         <AutoFillPickerDialog
           qtyUnder={{ needed: 3, uploaded: 1 }} files={[photo('a.jpg')]} getFileUrl={() => 'blob:a'}
@@ -278,7 +280,7 @@ describe('dialog semantics for screen readers', () => {
       ),
     },
     {
-      label: 'download options', role: 'dialog', name: 'Ready to Download?',
+      label: 'download options', firstFocus: 'Close', role: 'dialog', name: 'Ready to Download?',
       description: 'Please review and confirm before generating your print-ready files.',
       dialog: () => (
         <DownloadOptionsDialog
@@ -288,7 +290,7 @@ describe('dialog semantics for screen readers', () => {
       ),
     },
     {
-      label: 'embed disclaimer', role: 'dialog', name: 'Ready to Submit?',
+      label: 'embed disclaimer', firstFocus: 'Close', role: 'dialog', name: 'Ready to Submit?',
       description: 'Please confirm before sending your design for production.',
       dialog: () => (
         <EmbedDisclaimerDialog {...NO_NOTICES} disclaimerChecked={false} onDisclaimerChange={jest.fn()} onClose={jest.fn()} onProceed={jest.fn()} />
@@ -301,5 +303,24 @@ describe('dialog semantics for screen readers', () => {
     const el = screen.getByRole(role, { name });
     expect(el).toHaveAttribute('aria-modal', 'true');
     if (description) expect(el).toHaveAccessibleDescription(description);
+  });
+
+  // The two destructive confirms start on their safe choice; the rest on their first control.
+  it.each(cases)('$label: takes focus on "$firstFocus" when it opens and gives it back when it closes', ({ firstFocus, dialog }) => {
+    function Page({ open }: { open: boolean }) {
+      return (
+        <>
+          <button>Opener</button>
+          {open && dialog()}
+        </>
+      );
+    }
+    const { rerender } = render(<Page open={false} />);
+    const opener = screen.getByRole('button', { name: 'Opener' });
+    opener.focus();
+    rerender(<Page open />);
+    expect(screen.getByRole('button', { name: firstFocus })).toHaveFocus();
+    rerender(<Page open={false} />);
+    expect(opener).toHaveFocus();
   });
 });

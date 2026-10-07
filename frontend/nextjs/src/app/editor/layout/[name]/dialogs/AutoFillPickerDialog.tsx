@@ -1,6 +1,7 @@
 'use client';
 
-import type { Dispatch, SetStateAction } from 'react';
+import { useRef, type Dispatch, type SetStateAction } from 'react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 import { clsx } from 'clsx';
 import { X, Check } from 'lucide-react';
 
@@ -22,9 +23,12 @@ type Props = {
 export function AutoFillPickerDialog({
   qtyUnder, files, getFileUrl, pickerSelected, setPickerSelected, onClose, onConfirm,
 }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, null);
   return (
     <div className="fixed inset-0 z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Choose images to repeat"

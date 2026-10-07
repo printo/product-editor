@@ -1,6 +1,6 @@
 # Plan: split `api/views.py` and the editor `page.tsx`
 
-**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b), the download-link fix, Phase A and its follow-up, and Phase B1 merged; B1's accessibility follow-up in review. Started 2026-10-06.
+**Status:** 🟡 In progress — Part 1 done (2026-10-07); Part 2 safety nets (0a, 0b), the download-link fix, Phase A and its follow-up, and Phase B1 and its accessibility follow-up merged; dialog focus and Escape in review. Started 2026-10-06.
 Update the progress table at the bottom as each PR merges.
 
 ## Why
@@ -193,5 +193,6 @@ storage copies and cleaned env file afterwards.
 | Part 2 · A | Helpers and constants → `editor-utils.ts`; pre-submit notices → `EditorNotices.tsx`; `EmbedSubmittedOverlay.tsx` | ✅ Merged (#196), deployed 2026-10-07 |
 | Part 2 · A follow-up | Found in A: the missing space in the "side has no photo" notice; stale auto-rotate and display-name comments | ✅ Merged (#197), deployed 2026-10-07 |
 | Part 2 · B1 | The eight dialogs → `dialogs/*.tsx` | ✅ Merged (#198), deployed 2026-10-07 |
-| Part 2 · B1 follow-up | Accessibility: dialog roles, names and descriptions on five dialogs; labels on two Close buttons | 🟡 In review |
+| Part 2 · B1 follow-up | Accessibility: dialog roles, names and descriptions on five dialogs; labels on two Close buttons | ✅ Merged (#199), deployed 2026-10-07 |
+| Part 2 · B1 follow-up 2 | Dialogs take keyboard focus (in on open, Tab kept inside, back on close); Escape closes all eight. Adds two Escape scenarios to the characterization suite (17 → 19) and two e2e tests (14 → 16) | 🟡 In review |
 | Part 2 · B2–C8 | The other 11 split PRs | Not started |
