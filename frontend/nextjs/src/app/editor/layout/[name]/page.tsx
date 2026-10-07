@@ -12,7 +12,7 @@ import { useSession } from 'next-auth/react';
 import { useHeader } from '@/context/HeaderContext';
 import {
   Upload, Loader2, CheckCircle2, Check, X,
-  Archive, FileText, Layout,
+  FileText, Layout,
   SendHorizonal, RotateCw, Maximize, Download, ChevronRight, Trash2,
   AlertTriangle, ImagePlus, ArrowLeftRight, Droplets, ArrowLeft, Plus,
   // Palette, Move, Lock: only used by the hidden Set-BG-Color and
@@ -84,7 +84,14 @@ import {
   MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, NO_HOLIDAYS, readCardCountHint, writeCardCountHint,
 } from './editor-utils';
 import { EmbedSubmittedOverlay } from './EmbedSubmittedOverlay';
-import { EmptySurfaceWarning, DuplicateFillWarning, LowDpiWarning, QtyShortfallWarning } from './EditorNotices';
+import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
+import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
+import { DeleteConfirmDialog } from './dialogs/DeleteConfirmDialog';
+import { DownloadOptionsDialog } from './dialogs/DownloadOptionsDialog';
+import { EmbedDisclaimerDialog } from './dialogs/EmbedDisclaimerDialog';
+import { OverQuantityDialog } from './dialogs/OverQuantityDialog';
+import { RepickConfirmDialog } from './dialogs/RepickConfirmDialog';
+import { TruncatedImagesDialog } from './dialogs/TruncatedImagesDialog';
 
 export default function LayoutEditorPage() {
   const params = useParams();
@@ -3594,125 +3601,26 @@ export default function LayoutEditorPage() {
       )}
 
       {/* ── Auto-fill picker modal ──────────────────────────────────────────── */}
-      {/* Bottom sheet on phones (thumb-reachable, full width, safe-area padded),
-          centred dialog from `sm` up — same idiom as the editor sidebar. The
-          thumbnail grid is the only scrolling region, so the title and the
-          confirm button stay put however many photos are listed. */}
       {showAutoFillPicker && qtyUnder && (
-        <div className="fixed inset-0 z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Choose images to repeat"
-            className="bg-white w-full sm:max-w-lg sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[88vh] sm:max-h-[80vh] flex flex-col animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
-          >
-            <div className="sm:hidden w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4 shrink-0" />
-            <div className="flex items-start justify-between gap-3 shrink-0">
-              <p className="text-[13px] sm:text-sm font-black text-slate-900 uppercase tracking-tight">Choose images to repeat</p>
-              <button
-                onClick={() => setShowAutoFillPicker(false)}
-                aria-label="Close"
-                className="p-2 -mt-1 -mr-1 hover:bg-slate-100 rounded-xl transition-all shrink-0"
-              >
-                <X className="w-4 h-4 text-slate-400" />
-              </button>
-            </div>
-            <p className="text-[12px] text-slate-500 leading-relaxed mt-1.5 mb-4 shrink-0">
-              Tap up to {qtyUnder.needed - qtyUnder.uploaded} image{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''} to duplicate into the remaining
-              slot{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}. Pick fewer and the rest cycle through your photos.
-            </p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 mb-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-              {files.map((f, i) => {
-                // Use the helper so the URL is tracked for cleanup; the bare
-                // URL.createObjectURL fallback used to leak in the qty-picker.
-                const url = getFileUrl(f);
-                const isSelected = pickerSelected.has(i);
-                return (
-                  <button
-                    key={i}
-                    aria-pressed={isSelected}
-                    onClick={() => setPickerSelected(prev => {
-                      const next = new Set(prev);
-                      if (isSelected) next.delete(i); else next.add(i);
-                      return next;
-                    })}
-                    className={clsx('relative aspect-square rounded-xl overflow-hidden border-2 transition-all active:scale-95', isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300')}
-                  >
-                    <img src={url} alt={f.name} className="w-full h-full object-cover" />
-                    {isSelected && (
-                      <div className="absolute inset-0 bg-indigo-500/20 flex items-center justify-center">
-                        <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-sm">
-                          <Check className="w-3.5 h-3.5" strokeWidth={3} />
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              onClick={handleFillWithPicked}
-              disabled={pickerSelected.size === 0}
-              className="w-full min-h-[48px] py-3.5 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
-            >
-              {pickerSelected.size === 0
-                ? 'Select at least one image'
-                : `Use ${pickerSelected.size} selected to fill ${qtyUnder.needed - qtyUnder.uploaded} slot${qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}`}
-            </button>
-          </div>
-        </div>
+        <AutoFillPickerDialog
+          qtyUnder={qtyUnder}
+          files={files}
+          getFileUrl={getFileUrl}
+          pickerSelected={pickerSelected}
+          setPickerSelected={setPickerSelected}
+          onClose={() => setShowAutoFillPicker(false)}
+          onConfirm={handleFillWithPicked}
+        />
       )}
 
       {/* ── Delete confirm modal ─────────────────────────────────────────────── */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7 animate-in zoom-in-95 duration-200">
-            <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Remove image?</p>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6">This image will be removed from the canvas. This cannot be undone.</p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={confirmDelete}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all active:scale-95"
-              >
-                Remove
-              </button>
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteConfirmDialog onConfirm={confirmDelete} onCancel={() => setDeleteConfirm(null)} />
       )}
 
       {/* ── Re-pick confirm modal (Phase 3 — ask before discarding edits) ──── */}
       {pendingRepick && (
-        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-label="Replacing photos will discard edits">
-            <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Replace photos?</p>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6">
-              {pendingRepick.losingCount === 1
-                ? 'One page you edited uses photos that are not in the new selection — its adjustments will be discarded.'
-                : `${pendingRepick.losingCount} pages you edited use photos that are not in the new selection — their adjustments will be discarded.`}
-            </p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => handleRepickConfirm(true)}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
-              >
-                Replace anyway
-              </button>
-              <button
-                onClick={() => handleRepickConfirm(false)}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
-              >
-                Keep my edits
-              </button>
-            </div>
-          </div>
-        </div>
+        <RepickConfirmDialog losingCount={pendingRepick.losingCount} onDecide={handleRepickConfirm} />
       )}
 
       {/* Hidden input feeding the per-frame photo replace (Phase 3). */}
@@ -3753,100 +3661,16 @@ export default function LayoutEditorPage() {
 
       {/* ── Over-upload confirm modal ───────────────────────────────────────── */}
       {pendingOverFiles && orderQty && (
-        <div className="fixed inset-0 z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-label="More images than ordered"
-            className="bg-white w-full sm:max-w-md sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
-          >
-            <div className="sm:hidden w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4" />
-            <div className="flex items-start gap-3 sm:gap-4">
-              <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] sm:text-sm font-black text-slate-900 uppercase tracking-tight leading-tight">More images than ordered</p>
-                <p className="text-[12px] text-slate-500 leading-relaxed mt-1.5">
-                  Your order is for <span className="font-black text-slate-800">{orderQty} {orderQty === 1 ? 'image' : 'images'}</span> but you selected <span className="font-black text-slate-800">{pendingOverFiles.length}</span>. Only {orderQty} can be printed on this order — keep the first {orderQty}, or choose again to pick exactly the ones you want.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 flex flex-col sm:flex-row items-stretch gap-2">
-              <button
-                onClick={() => handleOverConfirm(true)}
-                className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
-              >
-                Keep first {orderQty}
-              </button>
-              <button
-                onClick={() => handleOverConfirm(false)}
-                className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
-              >
-                Choose again
-              </button>
-            </div>
-          </div>
-        </div>
+        <OverQuantityDialog orderQty={orderQty} selectedCount={pendingOverFiles.length} onDecide={handleOverConfirm} />
       )}
 
       {pendingTruncated && (
-        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
-            <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">
-              {pendingTruncated.bad.length === 1 ? 'Incomplete image detected' : `${pendingTruncated.bad.length} incomplete images detected`}
-            </p>
-            <p className="text-[10px] text-slate-500 leading-snug mb-3">
-              {pendingTruncated.bad.length === 1 ? 'This file looks cut off (often from an interrupted download or transfer) and may print with a missing or grey edge:' : 'These files look cut off (often from an interrupted download or transfer) and may print with a missing or grey edge:'}
-            </p>
-            <ul className="text-[10px] text-slate-700 font-semibold max-h-24 overflow-y-auto mb-4 space-y-0.5">
-              {pendingTruncated.bad.map((f, i) => <li key={i} className="truncate">• {f.name}</li>)}
-            </ul>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleTruncatedDecision('remove')}
-                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
-              >
-                Remove {pendingTruncated.bad.length > 1 ? 'them' : 'it'}
-              </button>
-              <button
-                onClick={() => handleTruncatedDecision('keep')}
-                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
-              >
-                Keep anyway
-              </button>
-            </div>
-          </div>
-        </div>
+        <TruncatedImagesDialog badFiles={pendingTruncated.bad} onDecide={handleTruncatedDecision} />
       )}
 
       {/* ── Book D3: more photos than pages — warn and offer to extend ───── */}
       {pendingBookOverflow && (
-        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200">
-            <p className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">
-              {pendingBookOverflow.files.length} photos won&apos;t fit on {bookPageCount} pages
-            </p>
-            <p className="text-[10px] text-slate-500 leading-snug mb-4">
-              Only {pendingBookOverflow.currentCapacity} of {pendingBookOverflow.files.length} photos will be
-              used unless you add more pages. Extend to {pendingBookOverflow.suggestedCount} pages to fit them all?
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleBookOverflowDecision('extend')}
-                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
-              >
-                Extend to {pendingBookOverflow.suggestedCount} pages
-              </button>
-              <button
-                onClick={() => handleBookOverflowDecision('keep')}
-                className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
-              >
-                Keep {bookPageCount} pages
-              </button>
-            </div>
-          </div>
-        </div>
+        <BookOverflowDialog overflow={pendingBookOverflow} pageCount={bookPageCount} onDecide={handleBookOverflowDecision} />
       )}
 
       {/* ── Book: read-only spread preview (D6) ─────────────────────────── */}
@@ -4729,164 +4553,35 @@ export default function LayoutEditorPage() {
 
           {/* Dashboard: combined disclaimer + download options modal */}
           {showDownloadModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={() => setShowDownloadModal(false)} />
-              <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200">
-                {/* Header */}
-                <div className="px-7 pt-7 pb-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2.5 mb-1.5">
-                        <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
-                          <Download className="w-4 h-4 text-indigo-600" />
-                        </div>
-                        <h3 className="text-base font-bold text-slate-900 tracking-tight">Ready to Download?</h3>
-                      </div>
-                      <p className="text-sm text-slate-500 leading-relaxed">Please review and confirm before generating your print-ready files.</p>
-                    </div>
-                    <button onClick={() => setShowDownloadModal(false)} className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-xl transition-colors shrink-0">
-                      <X className="w-4 h-4 text-slate-400" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Divider */}
-                <div className="mx-7 border-t border-slate-100" />
-
-                {/* Confirmation checkbox */}
-                <div className="px-7 py-5">
-                  <label className="flex items-start gap-3.5 cursor-pointer group">
-                    <div className="relative mt-0.5 shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={disclaimerChecked}
-                        onChange={(e) => setDisclaimerChecked(e.target.checked)}
-                        className="peer w-4.5 h-4.5 rounded-md accent-indigo-600 cursor-pointer"
-                      />
-                    </div>
-                    <span className="text-sm text-slate-600 leading-relaxed group-hover:text-slate-800 transition-colors">
-                      I have previewed my design, all images are correctly placed in their frames, and I&apos;m ready to generate the final print-ready files.
-                    </span>
-                  </label>
-                </div>
-
-                {/* Optional — include the customer's original uploaded photos.
-                    Off by default: keeps the ZIP small and the download fast. */}
-                <div className="px-7 pb-5">
-                  <label className="flex items-start gap-3.5 cursor-pointer group">
-                    <div className="relative mt-0.5 shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={includeUploads}
-                        onChange={(e) => { setIncludeUploads(e.target.checked); includeUploadsRef.current = e.target.checked; }}
-                        className="peer w-4.5 h-4.5 rounded-md accent-indigo-600 cursor-pointer"
-                      />
-                    </div>
-                    <span className="text-sm text-slate-600 leading-relaxed group-hover:text-slate-800 transition-colors">
-                      Also include the customer&apos;s original uploaded photos in the ZIP. Off by default — leaving it off makes the download much smaller and faster; turn it on only when you need the source files.
-                    </span>
-                  </label>
-                </div>
-
-                <LowDpiWarning frames={lowDpiFrames} />
-                <EmptySurfaceWarning surfaces={emptySurfaces} />
-                <DuplicateFillWarning duplicates={duplicateFills} />
-                <QtyShortfallWarning uploaded={totalUploadedCount} needed={qtyNeeded} />
-
-                {/* Download options */}
-                <div className="px-7 pb-7 flex gap-3">
-                  <button
-                    onClick={executeBatchDownload}
-                    disabled={!disclaimerChecked}
-                    className="flex-1 group flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed border-slate-100 bg-slate-50/50 enabled:hover:border-indigo-300 enabled:hover:bg-indigo-50 enabled:hover:shadow-md enabled:hover:shadow-indigo-100/60"
-                  >
-                    <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-sm group-enabled:group-hover:border-indigo-200 group-enabled:group-hover:shadow-indigo-100 transition-all">
-                      <Archive className="w-5 h-5 text-indigo-600" />
-                    </div>
-                    <div className="text-center">
-                      <div className="text-sm font-bold text-slate-800 tracking-tight">ZIP Archive</div>
-                      <div className="text-xs text-slate-400 mt-0.5">All files packed</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => { setShowDownloadModal(false); setShowImpositionModal(true); }}
-                    disabled={!disclaimerChecked}
-                    className="flex-1 group flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed border-slate-100 bg-slate-50/50 enabled:hover:border-emerald-300 enabled:hover:bg-emerald-50 enabled:hover:shadow-md enabled:hover:shadow-emerald-100/60"
-                  >
-                    <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-sm group-enabled:group-hover:border-emerald-200 group-enabled:group-hover:shadow-emerald-100 transition-all">
-                      <FileText className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div className="text-center">
-                      <div className="text-sm font-bold text-slate-800 tracking-tight">Imposition</div>
-                      <div className="text-xs text-slate-400 mt-0.5">Print sheet layout</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </div>
+            <DownloadOptionsDialog
+              disclaimerChecked={disclaimerChecked}
+              onDisclaimerChange={setDisclaimerChecked}
+              includeUploads={includeUploads}
+              onIncludeUploadsChange={(checked) => { setIncludeUploads(checked); includeUploadsRef.current = checked; }}
+              lowDpiFrames={lowDpiFrames}
+              emptySurfaces={emptySurfaces}
+              duplicateFills={duplicateFills}
+              totalUploadedCount={totalUploadedCount}
+              qtyNeeded={qtyNeeded}
+              onClose={() => setShowDownloadModal(false)}
+              onDownloadZip={executeBatchDownload}
+              onImposition={() => { setShowDownloadModal(false); setShowImpositionModal(true); }}
+            />
           )}
 
           {/* Embed: disclaimer-only modal before Save & Continue */}
           {showEmbedDisclaimer && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-              <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={() => setShowEmbedDisclaimer(false)} />
-              <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden animate-in zoom-in-95 duration-200">
-                {/* Header */}
-                <div className="px-7 pt-7 pb-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2.5 mb-1.5">
-                        <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
-                          <SendHorizonal className="w-4 h-4 text-indigo-600" />
-                        </div>
-                        <h3 className="text-base font-bold text-slate-900 tracking-tight">Ready to Submit?</h3>
-                      </div>
-                      <p className="text-sm text-slate-500 leading-relaxed">Please confirm before sending your design for production.</p>
-                    </div>
-                    <button onClick={() => setShowEmbedDisclaimer(false)} className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-xl transition-colors shrink-0">
-                      <X className="w-4 h-4 text-slate-400" />
-                    </button>
-                  </div>
-                </div>
-                <div className="mx-7 border-t border-slate-100" />
-                {/* Confirmation checkbox */}
-                <div className="px-7 py-5">
-                  <label className="flex items-start gap-3.5 cursor-pointer group">
-                    <div className="relative mt-0.5 shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={disclaimerChecked}
-                        onChange={(e) => setDisclaimerChecked(e.target.checked)}
-                        className="peer w-4.5 h-4.5 rounded-md accent-indigo-600 cursor-pointer"
-                      />
-                    </div>
-                    <span className="text-sm text-slate-600 leading-relaxed group-hover:text-slate-800 transition-colors">
-                      I have previewed my design, all images are correctly placed in their frames, and I&apos;m ready to send for production.
-                    </span>
-                  </label>
-                </div>
-                <LowDpiWarning frames={lowDpiFrames} />
-                <EmptySurfaceWarning surfaces={emptySurfaces} />
-                <DuplicateFillWarning duplicates={duplicateFills} />
-                <QtyShortfallWarning uploaded={totalUploadedCount} needed={qtyNeeded} />
-                {/* Actions */}
-                <div className="px-7 pb-7 flex gap-3">
-                  <button
-                    onClick={() => setShowEmbedDisclaimer(false)}
-                    className="flex-1 text-sm font-semibold px-5 py-3 rounded-2xl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all"
-                  >
-                    Go Back
-                  </button>
-                  <button
-                    onClick={() => { setShowEmbedDisclaimer(false); handleSubmitDesign(); }}
-                    disabled={!disclaimerChecked}
-                    className="flex-1 text-sm font-semibold px-5 py-3 rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-35 disabled:cursor-not-allowed shadow-md shadow-indigo-200 enabled:hover:shadow-indigo-300"
-                  >
-                    Yes, Proceed
-                  </button>
-                </div>
-              </div>
-            </div>
+            <EmbedDisclaimerDialog
+              disclaimerChecked={disclaimerChecked}
+              onDisclaimerChange={setDisclaimerChecked}
+              lowDpiFrames={lowDpiFrames}
+              emptySurfaces={emptySurfaces}
+              duplicateFills={duplicateFills}
+              totalUploadedCount={totalUploadedCount}
+              qtyNeeded={qtyNeeded}
+              onClose={() => setShowEmbedDisclaimer(false)}
+              onProceed={() => { setShowEmbedDisclaimer(false); handleSubmitDesign(); }}
+            />
           )}
 
           {showImpositionModal && (

@@ -4,6 +4,15 @@ import { AlertTriangle } from 'lucide-react';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
 import type { DuplicateFill, EmptySurface } from '@/lib/submit-guards';
 
+/** What the four notices show — both pre-submit dialogs pass it through. */
+export type PreSubmitNoticeData = {
+  lowDpiFrames: LowDpiFrame[];
+  emptySurfaces: EmptySurface[];
+  duplicateFills: DuplicateFill[];
+  totalUploadedCount: number;
+  qtyNeeded: number;
+};
+
 /** Amber pre-submit notice for surfaces that will print without a photo
  *  (Phase 3 guard). Warn-and-proceed — never blocks. */
 export function EmptySurfaceWarning({ surfaces }: { surfaces: EmptySurface[] }) {
