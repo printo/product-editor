@@ -247,7 +247,7 @@ class OrderDataPurgeView(APIView):
             200: inline_serializer(
                 name="OrderPurgeResult",
                 fields={
-                    "matched": drf_serializers.IntegerField(help_text="Orders matched. 0 → 404."),
+                    "matched": drf_serializers.IntegerField(help_text="Records found for the order: saved designs, embed sessions and upload rows, plus its upload folder when present. 0 → 404."),
                     "erasure_complete": drf_serializers.BooleanField(),
                     "files_deleted": drf_serializers.IntegerField(),
                     "bytes_freed": drf_serializers.IntegerField(),

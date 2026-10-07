@@ -50,15 +50,35 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
     api_key names touched, any in-flight blockers, and best-effort file errors.
     """
     from api.models import CanvasData, RenderJob, EmbedSession, UploadedFile, ExportedResult
+    from services.storage import NO_ORDER_BUCKET, order_upload_dir, upload_subdir
 
     canvas_qs = CanvasData.objects.filter(order_id=order_id)
     embed_qs = EmbedSession.objects.filter(order_id=order_id)
+    order_uploads = UploadedFile.objects.filter(order_id=order_id)
     if api_key is not None:
         canvas_qs = canvas_qs.filter(api_key=api_key)
         embed_qs = embed_qs.filter(api_key=api_key)
+        order_uploads = order_uploads.filter(api_key=api_key)
+
+    # The order's own upload folder: never the shared no-order bucket, and only
+    # for an all-tenant purge. The folder is per order_id, not per API key, and
+    # order ids are unique only per key — a purge scoped to one key that swept
+    # it would also delete another key's uploads for the same order id.
+    owns_folder = upload_subdir(order_id) != NO_ORDER_BUCKET
+    odir = order_upload_dir(order_id) if owns_folder and api_key is None else None
 
     canvases = list(canvas_qs.select_related('api_key'))
-    if not canvases and not embed_qs.exists():
+    # Anything at all counts. An order can hold photos with no saved design and
+    # no embed session (uploads never placed, or whose design rows already
+    # expired); requiring one of those rows used to answer "No data found" with
+    # the photos still on disk.
+    matched = (
+        len(canvases)
+        + embed_qs.count()
+        + (order_uploads.count() if owns_folder else 0)
+        + (1 if odir and os.path.isdir(odir) else 0)
+    )
+    if matched == 0:
         return {'matched': 0, 'detail': 'No data found for this order.'}
 
     # In-flight guard: don't yank files from under a running render.
@@ -67,7 +87,7 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
     )
     if in_flight.exists() and not force:
         return {
-            'matched': len(canvases),
+            'matched': matched,
             'blocked': True,
             'detail': 'A render is still queued/processing for this order. '
                       'Retry with force=true to purge anyway.',
@@ -158,9 +178,6 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
         # that: ask the upload table directly who owns the file.
         #
         # Still honours the shared-original rule via keep_paths.
-        order_uploads = UploadedFile.objects.filter(order_id=order_id)
-        if api_key is not None:
-            order_uploads = order_uploads.filter(api_key=api_key)
         linked_paths = [
             p for p in order_uploads.values_list('file_path', flat=True)
             if p and p not in keep_paths
@@ -180,42 +197,42 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
         # rows we know about" and "erased this customer's data".
         #
         # Deliberately skipped for the shared no-order bucket, which holds
-        # direct-API uploads belonging to nobody in particular, and when another
-        # surviving order references a file inside (keep_paths).
-        from services.storage import NO_ORDER_BUCKET, order_upload_dir, upload_subdir
+        # direct-API uploads belonging to nobody in particular; for a purge scoped
+        # to one API key (see `odir` above — the rows in 2b cover that key, and a
+        # file with no row can't be attributed to a key); and, file by file, when
+        # another surviving order references a file inside (keep_paths).
+        if odir and os.path.isdir(odir):
+            shared = [p for p in keep_paths if p.startswith(odir + os.sep)]
+            if shared:
+                # Rare: a surviving order reuses an original stored here.
+                # Remove file-by-file and leave the shared ones.
+                for root, _dirs, fnames in os.walk(odir):
+                    for fn in fnames:
+                        fp = os.path.join(root, fn)
+                        if fp in keep_paths:
+                            continue
+                        attempted_paths.add(fp)
+                        d, f, e = _delete_files([fp])
+                        files_deleted += d; freed_bytes += f; errors += e
+            else:
+                for root, _dirs, fnames in os.walk(odir):
+                    for fn in fnames:
+                        attempted_paths.add(os.path.join(root, fn))
+                attempted_dirs.add(odir)
+                try:
+                    freed_bytes += sum(
+                        os.path.getsize(os.path.join(r, fn))
+                        for r, _d, fs in os.walk(odir) for fn in fs
+                    )
+                    files_deleted += sum(len(fs) for _r, _d, fs in os.walk(odir))
+                    shutil.rmtree(odir)
+                except OSError as exc:
+                    errors.append(f"{odir}: {exc}")
 
-        if upload_subdir(order_id) != NO_ORDER_BUCKET:
-            odir = order_upload_dir(order_id)
-            if os.path.isdir(odir):
-                shared = [p for p in keep_paths if p.startswith(odir + os.sep)]
-                if shared:
-                    # Rare: a surviving order reuses an original stored here.
-                    # Remove file-by-file and leave the shared ones.
-                    for root, _dirs, fnames in os.walk(odir):
-                        for fn in fnames:
-                            fp = os.path.join(root, fn)
-                            if fp in keep_paths:
-                                continue
-                            attempted_paths.add(fp)
-                            d, f, e = _delete_files([fp])
-                            files_deleted += d; freed_bytes += f; errors += e
-                else:
-                    for root, _dirs, fnames in os.walk(odir):
-                        for fn in fnames:
-                            attempted_paths.add(os.path.join(root, fn))
-                    attempted_dirs.add(odir)
-                    try:
-                        freed_bytes += sum(
-                            os.path.getsize(os.path.join(r, fn))
-                            for r, _d, fs in os.walk(odir) for fn in fs
-                        )
-                        files_deleted += sum(len(fs) for _r, _d, fs in os.walk(odir))
-                        shutil.rmtree(odir)
-                    except OSError as exc:
-                        errors.append(f"{odir}: {exc}")
-
-            # Rows for anything that lived there, whether or not we had a path.
-            UploadedFile.objects.filter(order_id=order_id).delete()
+        if owns_folder:
+            # Rows for anything that lived there, whether or not we had a path:
+            # this key's rows when the purge is scoped, every key's otherwise.
+            order_uploads.delete()
 
         # 4. CanvasData.delete() cascades RenderJob rows.
         canvas_rows = len(canvases)
@@ -232,11 +249,9 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
     # then reports whatever is still there.
     #
     # Scope, stated honestly: this verifies that everything we KNEW about is
-    # gone. It cannot discover unknown upload files for the order, because
-    # uploads are stored flat under UPLOADS_DIR with a random filename prefix —
-    # nothing in the path identifies the owner. UploadedFile.order_id
-    # (migration 0011) is what makes ownership knowable; this sweep is the
-    # check that the deletion driven by it actually took effect.
+    # gone. It does not look for files nobody recorded: the folder sweep (2c)
+    # finds those for an all-tenant purge, and a purge scoped to one key cannot
+    # tell its files from another key's without the rows.
     residual_files: list[str] = []
     for path in sorted(attempted_paths):
         if not os.path.exists(path):
@@ -273,7 +288,7 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
     # unlocated_rows: upload rows we deleted without finding a file to go with
     # them. Non-zero means bytes may still be on disk somewhere we could not
     # resolve — worth investigating rather than reporting success.
-    unlocated_rows = UploadedFile.objects.filter(order_id=order_id).count()
+    unlocated_rows = order_uploads.count()
     # Complete means: no upload row left claiming this order, nothing we tried
     # to delete survived, and no file error along the way.
     erasure_complete = (
@@ -296,7 +311,7 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
             order_id, unlocated_rows, len(errors),
         )
     return {
-        'matched': canvas_rows,
+        'matched': matched,
         'canvas_rows_deleted': canvas_rows,
         'embed_rows_deleted': embed_rows,
         'files_deleted': files_deleted,
