@@ -1023,9 +1023,11 @@ def garbage_collector_task():
     """
     Periodic task to clean up expired export files.
 
-    Runs daily at 02:00 UTC. Reduces retention to 7 days when disk usage
-    exceeds 80 %. Files belonging to orders flagged for manual review are
-    skipped even if expired.
+    Runs every 6 hours (00:00, 06:00, 12:00 and 18:00 UTC; see
+    product_editor/celery.py). When disk usage exceeds 80 % it uses
+    EXPORT_RETENTION_DAYS_UNDER_PRESSURE instead of EXPORT_RETENTION_DAYS (the
+    same value unless set lower). Files belonging to orders flagged for manual
+    review are skipped even if expired.
 
     Returns:
         dict with deleted_count, deleted_bytes, disk_usage_percent

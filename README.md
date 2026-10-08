@@ -12,10 +12,9 @@ The repository includes a code knowledge graph in `graphify-out/`. For architect
 graphify query "how does the render pipeline work"
 graphify path "EditorRenderView" "notify_caller_webhook_task"
 graphify explain "render_canvas_task"
-graphify update .
 ```
 
-Use `graphify update .`, not `graphify . --update`. The `update` subcommand refreshes the code graph locally without requiring an LLM API key.
+After code changes, refresh the graph with `$(cat graphify-out/.graphify_python) scripts/graphify-refresh.py`. It re-reads the code only (no LLM or API key) and keeps the doc nodes and community names. Don't use `graphify update .` or `graphify . --update`: both re-add stale doc nodes and drop the community names, and the second needs an LLM API key. Changes to the docs reach the graph only through a full `/graphify` run. See [CLAUDE.md](CLAUDE.md#knowledge-graph).
 
 ---
 
@@ -52,7 +51,7 @@ Use `graphify update .`, not `graphify . --update`. The `update` subcommand refr
 | `backend` | Django API + Gunicorn web server |
 | `frontend` | Next.js customer-facing editor |
 | `celery-worker-standard` | Render worker — the only one. Consumes `priority,standard` (nothing produces to `priority`; it is drained so a stray dispatch can't be lost) |
-| `celery-beat` | Periodic task scheduler (daily GC at 02:00 UTC) |
+| `celery-beat` | Periodic task scheduler (garbage collector every 6 hours: 00:00, 06:00, 12:00 and 18:00 UTC) |
 | `redis` | Broker, result backend, status cache |
 | `db` | PostgreSQL database |
 | `proxy` | nginx edge proxy + TLS termination (Cloudflare Origin Certificate) |
@@ -204,7 +203,7 @@ PUBLIC_HOST=product-editor.printo.in
 POSTGRES_PASSWORD=<strong password>
 DIRECT_API_KEY=<ops team key>
 EXTERNAL_API_KEY=<embed partner key>
-INTERNAL_API_KEY=<same value as DIRECT_API_KEY — server-only, never NEXT_PUBLIC_>
+INTERNAL_API_KEY=<its own random value, different from DIRECT_API_KEY — server-only, never NEXT_PUBLIC_>
 REDIS_URL=redis://redis:6379/0
 ```
 
@@ -397,7 +396,7 @@ cat backup.sql | docker-compose exec -T db psql -U postgres product_editor
 docker-compose exec backend python manage.py migrate
 ```
 
-Current migrations (latest: `0014_audit_trail`):
+Current migrations (latest: `0020_layoutcatalogue_display_name`):
 
 | Migration | Change |
 |---|---|
@@ -415,6 +414,12 @@ Current migrations (latest: `0014_audit_trail`):
 | 0012 | Stored `expires_at` defaults and backfill for `UploadedFile` / `ExportedResult` so webhook expiry and GC retention stay aligned |
 | 0013 | `CanvasData.image_paths` default list — fixes first-autosave failures on new orders |
 | 0014 | API audit trail hardening: `APIRequest.api_key` becomes nullable `SET_NULL`, plus `APIRequest.auth_source` |
+| 0015 | `EmbedSession.qty` — the ordered quantity, stored on the session so the render endpoint can enforce it (nullable: NULL means the caller did not say) |
+| 0016 | `LayoutCatalogue` model — layout definitions move from disk into Postgres — plus an idempotent import function |
+| 0017 | Imports the 14 production layouts from the committed `backend/django/migrations/prod_layouts.json` |
+| 0018 | Renames four `LayoutCatalogue` indexes to Django's auto-generated names (no functional change) |
+| 0019 | `LayoutCatalogue.renamed_to` — alias pointer so a renamed layout's old identifier keeps resolving |
+| 0020 | `LayoutCatalogue.display_name` — the ops-editable customer-facing name (the identifier `name` is immutable) — with a backfill from the identifier |
 
 ---
 
@@ -444,7 +449,7 @@ docker stats product-editor-celery-worker-standard-1
 | Jobs stuck in `queued` | `docker-compose ps celery-worker-*` | Restart workers; verify Redis is reachable |
 | Worker exits immediately | `docker-compose logs celery-worker-*` | Check Redis connection; verify migrations ran |
 | `ClientFetchError` on frontend login | `frontend/nextjs/.env.local` | Set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) |
-| Dashboard shows empty / 500 | Missing `INTERNAL_API_KEY` env var | Add `INTERNAL_API_KEY=<same as DIRECT_API_KEY>` to `.env.local` — the internal proxy refuses to forward without it |
+| Dashboard shows empty / 500 | Missing `INTERNAL_API_KEY` env var | Add `INTERNAL_API_KEY=<same as INTERNAL_API_KEY in the root .env>` to `.env.local` — the internal proxy refuses to forward without it |
 | Dashboard/editor returns 401 after long idle | Session token expired | `pia-auth.ts` refresh flow kicks in automatically; if PIA is unreachable the user is redirected to `/login` |
 | Frontend not loading | Port | Use `localhost:5004`, not `:3000` |
 | Webhook push failing repeatedly | `CanvasData.requires_manual_review` in Admin | Check the caller's `callback_url` is reachable + accepts POST; order flagged after 5 failures |
@@ -471,7 +476,7 @@ docker stats product-editor-celery-worker-standard-1
 - [ ] `DJANGO_SECRET_KEY` — strong random value
 - [ ] `ALLOWED_HOSTS` set to production domain
 - [ ] `POSTGRES_PASSWORD` — strong random value
-- [ ] `INTERNAL_API_KEY` set (server-only, same value as `DIRECT_API_KEY`) — **never** use `NEXT_PUBLIC_DIRECT_API_KEY` in production
+- [ ] `INTERNAL_API_KEY` set (server-only, its own value — different from `DIRECT_API_KEY`) — **never** use `NEXT_PUBLIC_DIRECT_API_KEY` in production
 - [ ] `NEXT_PUBLIC_DIRECT_API_KEY` removed from all env files once `INTERNAL_API_KEY` is confirmed working
 - [ ] Rotate `DIRECT_API_KEY` / `INTERNAL_API_KEY` if either was ever deployed as `NEXT_PUBLIC_*`
 - [ ] Firewall: open only 80, 443, 22
@@ -503,7 +508,6 @@ The README now follows `.env.example`, which is the source of truth for local an
 
 | Variable | Required | Description |
 |---|---|---|
-| `COMPOSE_PROFILES` | No | Compose profile selection. `.env.example` enables the nginx edge via `prod` |
 | `NODE_ENV` | Yes | Runtime mode. `.env.example` uses `production` |
 | `DEBUG` | Yes | `0` for production; defaults to off even if unset |
 | `DJANGO_SECRET_KEY` | Yes | Django secret key. Boot fails under `DEBUG=0` if left at the dev default |
@@ -530,7 +534,7 @@ The README now follows `.env.example`, which is the source of truth for local an
 | `DIRECT_API_KEY` | Yes | Internal ops team API key seeded into Django on boot |
 | `EXTERNAL_API_KEY` | No | External partner key |
 | `TESTING_API_KEY` | No | Testing key |
-| `INTERNAL_API_KEY` | Yes | Server-only key used by the Next.js internal proxy. Set it to the **same value** as `DIRECT_API_KEY` |
+| `INTERNAL_API_KEY` | Yes | Server-only key used by the Next.js internal proxy. Give it **its own value**: the backend seeds a separate `INTERNAL` key from it on boot, so the proxy's traffic has its own audit trail and can be rotated on its own. If it still equals `DIRECT_API_KEY`, that seed is skipped with a warning and traffic keeps working through the `DIRECT` key until you rotate it |
 | `AUTH_SECRET` | Yes | NextAuth JWT signing secret (≥ 32 chars). Compose aborts on boot if unset |
 | `AUTH_URL` | Yes | Public auth base URL for NextAuth |
 | `AUTH_TRUST_HOST` | No | NextAuth host trust toggle |

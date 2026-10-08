@@ -9,14 +9,15 @@
 #   - pe-manifest-<ts>.json : per-table row counts for restore verification.
 #
 # Deliberately EXCLUDED from the daily set:
-#   - exports/  : pure derivatives (regenerable by re-render; GC'd daily)
+#   - exports/  : pure derivatives (regenerable by re-render; GC'd every 6 hours)
 #   - uploads/  : transient + potentially tens of GB (GC'd). Use --with-uploads
 #                 for a weekly set — CanvasData.editor_state references upload
 #                 paths, so a DB restore without uploads can't re-render
 #                 in-flight orders.
 #
-# Cron (document in deploy notes): run at 03:15 UTC, AFTER the 02:00 UTC
-# garbage_collector_task so the tar doesn't race GC deletions:
+# Cron (document in deploy notes): run at 03:15 UTC. garbage_collector_task
+# sweeps at 00:00, 06:00, 12:00 and 18:00 UTC, so 03:15 falls between sweeps and
+# the tar doesn't race GC deletions:
 #   15 3 * * * cd /path/to/product-editor && ./scripts/backup.sh >> backups/backup.log 2>&1
 set -euo pipefail
 

@@ -182,7 +182,7 @@ class CeleryMonitoringView(APIView):
                 'completed_24h': job_counts['completed_24h'],
                 'failed_24h': job_counts['failed_24h'],
             },
-            # Whether the nightly sweep is actually running. `stale: true` is the
+            # Whether the GC sweep is actually running. `stale: true` is the
             # field to alert on — it means either no sweep has ever been recorded
             # or the last one is older than GC_STALE_AFTER_HOURS. Do NOT infer
             # this from ExportedResult.is_deleted: the sweep purges its own

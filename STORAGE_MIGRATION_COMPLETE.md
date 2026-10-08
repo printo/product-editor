@@ -151,7 +151,7 @@ Successfully migrated the Product Editor's layout storage from git-tracked files
   - All maintain Redis cache (5-min TTL) for performance
 
 ### Phase 6: Testing & Deployment (✅ Complete)
-**Commits**: Tests + runbook + this document
+**Commits**: Tests + runbook (since removed) + this document
 
 - **Unit Tests** (`api/tests/test_layout_catalogue.py`)
   - LayoutCatalogue CRUD: create, read, update
@@ -168,14 +168,7 @@ Successfully migrated the Product Editor's layout storage from git-tracked files
   - Rename operation clearing both old/new names
   - Preservation of unrelated caches
 
-- **Deployment Runbook** (`DEPLOYMENT_RUNBOOK.md`)
-  - Pre-deployment steps: export layout catalogue, verify count, commit dump
-  - Deployment steps: push, run ./deploy.sh, verify migration
-  - Post-deployment verification: count checks, API tests, embed flow, smoke tests
-  - Rollback plan: filesystem fallback or full git revert
-  - Monitoring: error logs, slow queries, cache performance
-  - Success criteria: 7 checkpoints before prod deployment
-  - Timeline: ~1 hour total (30 min prep + 10 min deploy + 20 min verify)
+- **Deployment Runbook** — removed 2026-10-08. It was a one-time procedure for this migration, and parts of it had gone wrong: it said to push straight to `main`, and that `./deploy.sh` reverses migrations (it never does; its rollback leaves the database alone). It is still in git history.
 
 ---
 

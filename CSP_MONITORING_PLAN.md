@@ -1,129 +1,42 @@
-# CSP Violations Monitoring & Enforcement Plan
+# CSP enforcement plan
 
-**Status**: In progress (feature/csp-monitoring branch)  
-**Date**: 2026-09-10
+**Status: report-only.** Violations are reported to `/api/csp-report` but nothing is blocked. The one directive already enforced is `frame-ancestors` on `/editor/layout/*`, which limits who may embed the editor. The current state and the next step are in [CLAUDE.md](CLAUDE.md) under "Open follow-ups".
 
-## Current State
+> This file first said enforcement was "production-ready" (2026-09-10). It was not. That test run missed that Google Fonts were blocked (fixed 2026-09-29, PR #168), and the switch it described flipped only one of the policy's two halves. Corrected 2026-10-08.
 
-CSP is currently in **report-only mode**:
-- `CSP_REPORT_ONLY=True` in `backend/django/product_editor/settings.py`
-- Violations are reported but not blocked
-- Policy includes `'unsafe-eval'` for Fabric.js in `CSP_SCRIPT_SRC`
-- `frame-ancestors` directive limits embedding to printo.in origins
+## Two halves, one flag
 
-## Configuration
+The same policy is emitted by two separate apps, and `CSP_REPORT_ONLY` has to reach both:
 
-**Backend** (`backend/django/product_editor/settings.py`):
-```python
-CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'")  # 'unsafe-eval' for Fabric.js
-CSP_REPORT_ONLY = os.getenv("CSP_REPORT_ONLY", "True").lower() not in ("false", "0", "no")
-```
+| Half | Serves | Where | When the flag is read |
+|---|---|---|---|
+| Django (django-csp) | API/JSON responses and the Scalar docs page (`/docs/api/`) | `CSP_*` in `backend/django/product_editor/settings.py` | at runtime |
+| Next.js | every page, including the customer editor and the embed iframe | `headers()` in `frontend/nextjs/next.config.mjs` | **at image build time** (docker-compose passes it as a build arg) |
 
-**Frontend** (`frontend/nextjs/next.config.mjs`):
-- `frame-ancestors` limited to `'self'`, `https://printo.in`, `https://*.printo.in`
-- Override via `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS` env var
+Change a directive in both files. The policy needs `'unsafe-eval'` for Fabric.js, and Google's domains for the `/login` sign-in and the web fonts.
 
-## Monitoring Checklist
+## Where violations show up
 
-### 1. Editor Page (`/editor/layout/[name]`)
-- [x] Load layout in browser
-- [x] Open DevTools Console
-- [x] Check for CSP violations (should be report-only, not blocked)
-- [x] Verify Fabric.js editor works without errors
-- [x] Upload a photo and draw on canvas
-- [x] Check for violations in Network tab (CSP reports if any)
+The browser POSTs each report to `/api/csp-report` (`CSPReportView`). It writes a `CSP violation: directive=… blocked=…` warning to the backend log and sends a Sentry message. **Sentry is the history**: the backend log is lost whenever the container is recreated, which every `./deploy.sh` does.
 
-### 2. Embed Iframe Test
-- [x] Create embed session via `/api/embed/session`
-- [x] Load iframe in test page with embed token
-- [x] Verify `frame-ancestors` allows embedding from test origin
-- [x] Check console for frame-related CSP violations
-- [x] Confirm postMessage contract works (`pe:render_job` message)
+`GET /api/celery/monitor/` does not carry CSP reports. An earlier version of this plan checked it and recorded "no violations"; that check could not have found any.
 
-### 3. Admin/Dashboard Pages
-- [x] Login to dashboard (`/dashboard`)
-- [x] Access `/editor/layouts` (ops template list)
-- [x] Verify no CSP violations on authenticated pages
+## Before flipping to enforcement
 
-### 4. CSP Report Verification
-- [x] Check `GET /api/celery/monitor/` for any CSP violation reports
-- [x] Inspect violation payload structure if any exist
-- **Result**: No CSP violations detected (empty report - ✅ expected)
+- Exercise every page enforcement would affect, in a browser with the console open: the editor with an embed token (upload a photo, edit on the canvas, submit), the embed inside an iframe on an allowed origin, the dashboard, `/editor/layouts` and the calendar and book ops editors, `/login` including "Sign in with Google", and `/docs/api/`.
+- Search Sentry for CSP violation messages and let a few quiet days of real traffic go by. A short manual pass is not proof: the 2026-09-10 one found nothing while Google Fonts were being blocked.
 
-## Validation Criteria
+## Flipping it
 
-**PASS** if:
-- ✅ No CSP violations appear in DevTools console (report-only mode)
-- ✅ Fabric.js canvas renders and responds to user input
-- ✅ Embed iframe loads and `frame-ancestors` works as expected
-- ✅ All features (upload, draw, navigate) work without errors
-- ✅ No unexpected violations in CSP reports
+1. Set `CSP_REPORT_ONLY=False` in the production `.env` (back it up first, as for any `.env` edit; see "Deployment" in CLAUDE.md).
+2. Run `./deploy.sh`. It rebuilds the frontend image, which is what carries the flag into the page headers. `docker-compose up -d` or a backend restart flips the Django half only and leaves the editor pages in report-only.
+3. Check both halves. The header name should now be `Content-Security-Policy`, not `Content-Security-Policy-Report-Only`:
+   ```bash
+   curl -sI https://product-editor.printo.in/login | grep -i security-policy
+   curl -sI https://product-editor.printo.in/api/config | grep -i security-policy
+   ```
+4. Watch Sentry. To roll back, set the flag to `True` and run `./deploy.sh` again.
 
-**FAIL** if:
-- ❌ Unintended CSP violations appear (beyond `'unsafe-eval'` which we intentionally allow)
-- ❌ Canvas doesn't render or interact
-- ❌ Embed iframe fails to load due to frame-ancestors
-- ❌ Features break unexpectedly
+## History: the 2026-09-10 test run
 
-## Enforcement Switch
-
-Once validated, flip policy from report-only to enforcement:
-
-```bash
-# In production .env:
-CSP_REPORT_ONLY=False
-
-# Restart backend:
-docker-compose up -d backend
-```
-
-## Files to Monitor
-
-- `backend/django/product_editor/settings.py` — CSP directives + report-only flag
-- `frontend/nextjs/next.config.mjs` — frame-ancestors + directives
-- Browser DevTools Console — violation messages
-- Browser Network tab — CSP report headers
-
-## Test Results (2026-09-10 - COMPLETE)
-
-### Backend CSP Headers ✅
-```
-Content-Security-Policy-Report-Only: 
-  default-src 'self'
-  connect-src 'self' https:
-  script-src 'self' 'unsafe-inline' 'unsafe-eval'
-  frame-ancestors 'self' https://printo.in https://*.printo.in
-  style-src 'self' 'unsafe-inline'
-  img-src 'self' data: blob: https:
-  font-src 'self' data:
-```
-
-**Verified endpoints:**
-- ✅ `/api/config` — CSP headers present
-- ✅ `/api/embed/session/validate` — CSP headers present
-- ✅ `/editor/layout/[name]` — CSP headers applied
-
-### Editor Testing ✅
-- ✅ Editor loaded with embed token
-- ✅ Fabric.js canvas renders
-- ✅ UI controls visible (FIT, COVER, BLUR EFFECT, submit button)
-- ✅ No CSP violations in DevTools console
-- ✅ No CSP-blocked resources
-- ✅ Report-only mode active (headers not enforced)
-
-### Findings - Final Validation Complete ✅
-- ✅ All CSP directives properly configured (default-src, connect-src, script-src, frame-ancestors, style-src, img-src, font-src)
-- ✅ `'unsafe-eval'` correctly allows Fabric.js without violations
-- ✅ frame-ancestors limits embedding to printo.in (production-ready)
-- ✅ Report-only mode active: violations reported but not blocked
-- ✅ No unintended CSP violations detected across all test scenarios
-- ✅ Embed proxy access control enforced (403 on restricted paths)
-- ✅ All directives verified in DevTools and via curl headers
-- ✅ Production-ready for enforcement: CSP_REPORT_ONLY=False when new features validated
-
-## Notes
-
-- Report-only mode (current state) shows violations but doesn't block ✅ CONFIRMED
-- Once enabled, CSP violations WILL block resources, so validation is critical
-- Fabric.js legitimately requires `'unsafe-eval'` for canvas manipulation ✅ VERIFIED
-- Frame-ancestors is the only security-sensitive directive for embed flow ✅ CONFIGURED
+Run against the local stack in report-only mode: Django's headers present on `/api/config` and `/api/embed/session/validate`, the Next.js headers present on `/editor/layout/[name]`, the Fabric.js canvas rendering, the embed iframe loading under `frame-ancestors`, the `pe:render_job` message arriving, and the dashboard and ops pages loading, all with no console violations. It did not exercise Google Fonts.
