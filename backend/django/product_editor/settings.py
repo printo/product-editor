@@ -306,9 +306,9 @@ EXPORT_RETENTION_DAYS_UNDER_PRESSURE = int(
 # Age at which the last recorded GC sweep counts as stale, surfaced as
 # `garbage_collector.stale` on /api/celery/monitor/ (see services/gc_status.py).
 #
-# 36h, not 24h: the sweep runs daily at 02:00 UTC, so a 24h threshold would flag
-# every run that is merely a few hours late — one restart near 02:00 and it cries
-# wolf. 36h means a single missed night trips it and nothing else does.
+# 36h, not 24h: the sweep runs every 6 hours (00:00/06:00/12:00/18:00 UTC), so
+# 36h is six missed sweeps in a row. A merely late run or a restart can't trip
+# it; a day and a half of silence does.
 GC_STALE_AFTER_HOURS = int(os.getenv("GC_STALE_AFTER_HOURS", "36"))
 
 # Reclamation of export directories no DB row accounts for — see
