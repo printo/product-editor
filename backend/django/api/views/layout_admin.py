@@ -10,7 +10,7 @@ from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
 from ..permissions import IsAuthenticatedWithAPIKey, IsOpsTeam
-from ._common import is_safe_layout_name
+from ._common import is_safe_layout_name, layout_policy_cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +19,14 @@ def invalidate_layout_caches(name: str | None = None) -> None:
     """
     Drop every cache entry that can serve a stale copy of a layout.
 
-    Three families exist and they must be cleared together:
+    Four families exist and they must be cleared together:
       * "layouts_list_all"      — public list  (ListLayoutsView)
       * "ops_layouts_list_all"  — ops list     (LayoutManagementView)
       * "layout_detail:<name>:<surfaces>" — per-layout JSON, written by BOTH
         GetLayoutView and EditorInitView, keyed by the optional ?surfaces=
         filter so ONE layout can hold several entries.
+      * "layout_policy:<name>"  — the bare definition behind the quantity
+        check (`_read_layout_def`); a separate key on purpose.
 
     The detail family was previously never invalidated at all. Because the
     renderer reads the layout fresh from disk at render time while the editor
@@ -55,6 +57,10 @@ def invalidate_layout_caches(name: str | None = None) -> None:
         django_cache.delete(f"layout_detail:{name}:")
     except Exception as exc:  # pragma: no cover — cache must never break a write
         logger.warning("Failed to invalidate layout_detail cache for %s: %s", name, exc)
+    try:
+        django_cache.delete(layout_policy_cache_key(name))
+    except Exception as exc:  # pragma: no cover — cache must never break a write
+        logger.warning("Failed to invalidate layout_policy cache for %s: %s", name, exc)
 
 
 # Shared by the layout read/write/delete schema descriptions below. Stated once

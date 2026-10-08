@@ -1,8 +1,8 @@
 """
 Regression tests for layout cache invalidation.
 
-Two bugs motivated these, both the same shape — a cache written under one key
-family and invalidated under another:
+Three bugs motivated these, the first two the same shape — a cache written
+under one key family and invalidated under another:
 
   1. LayoutManagementView.delete() cleared only "layouts_list_all", leaving
      "ops_layouts_list_all" (the cache the ops Templates page actually reads)
@@ -14,6 +14,12 @@ family and invalidated under another:
      the editor was served the cached copy, an ops edit opened a window where
      the customer composed against stale frame geometry and the print used the
      new one. Silent wrong print.
+
+  3. The over-quantity check on submit cached the bare layout definition under
+     that same "layout_detail:" key and overwrote the shaped payload the editor
+     is served. It now has its own "layout_policy:<name>" key, which
+     invalidation must clear too (the end-to-end behaviour is in
+     api/tests/test_layout_policy_cache.py).
 
 These assert the invalidation contract without a database or a live Redis, by
 driving invalidate_layout_caches() against a stub cache.
@@ -73,6 +79,8 @@ BASE_KEYS = [
     "layout_detail:classic_5x7:front",
     "layout_detail:classic_5x7:front,back",
     "layout_detail:other_layout:",
+    "layout_policy:classic_5x7",
+    "layout_policy:other_layout",
     "unrelated_key",
 ]
 
@@ -91,18 +99,26 @@ def test_clears_every_surfaces_variant_of_that_layout():
     assert remaining == set(), f"stale detail entries survived: {remaining}"
 
 
+def test_clears_the_quantity_policy_entry_for_that_layout():
+    stub = _StubCache(BASE_KEYS)
+    _run(stub, "classic_5x7")
+    assert "layout_policy:classic_5x7" not in stub.keys
+
+
 def test_does_not_touch_other_layouts_or_unrelated_keys():
     stub = _StubCache(BASE_KEYS)
     _run(stub, "classic_5x7")
     assert "layout_detail:other_layout:" in stub.keys
+    assert "layout_policy:other_layout" in stub.keys
     assert "unrelated_key" in stub.keys
 
 
 def test_name_prefix_collision_is_not_over_deleted():
     # "classic_5x7" must not take out "classic_5x70".
-    stub = _StubCache(BASE_KEYS + ["layout_detail:classic_5x70:"])
+    stub = _StubCache(BASE_KEYS + ["layout_detail:classic_5x70:", "layout_policy:classic_5x70"])
     _run(stub, "classic_5x7")
     assert "layout_detail:classic_5x70:" in stub.keys
+    assert "layout_policy:classic_5x70" in stub.keys
 
 
 def test_without_name_only_lists_are_cleared():
@@ -110,6 +126,7 @@ def test_without_name_only_lists_are_cleared():
     _run(stub, None)
     assert "layouts_list_all" not in stub.keys
     assert "layout_detail:classic_5x7:" in stub.keys
+    assert "layout_policy:classic_5x7" in stub.keys
 
 
 def test_backend_without_delete_pattern_still_clears_the_plain_key():
@@ -119,6 +136,7 @@ def test_backend_without_delete_pattern_still_clears_the_plain_key():
     _run(stub, "classic_5x7")
     assert "layouts_list_all" not in stub.keys
     assert "layout_detail:classic_5x7:" not in stub.keys
+    assert "layout_policy:classic_5x7" not in stub.keys
 
 
 def test_retention_promise_matches_gc_enforcement():

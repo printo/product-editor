@@ -17,3 +17,15 @@ def is_safe_layout_name(name: str) -> bool:
     if not name:
         return False
     return not ('/' in name or '\\' in name or '..' in name or name.startswith('.'))
+
+
+def layout_policy_cache_key(name: str) -> str:
+    """
+    Cache key for the raw definition behind quantity-policy decisions.
+
+    Deliberately not part of the "layout_detail:<name>:<surfaces>" family: that
+    one holds the shaped payload the editor views return verbatim (definition +
+    `displayName`) and is only ever filled for public layouts. Sharing it let
+    the policy read overwrite that payload with the bare definition.
+    """
+    return f"layout_policy:{name}"
