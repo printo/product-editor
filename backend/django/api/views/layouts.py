@@ -16,7 +16,7 @@ from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
-from ._common import is_safe_layout_name
+from ._common import is_safe_layout_name, layout_policy_cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -410,22 +410,21 @@ def _read_layout_def(name: str) -> Optional[Dict[str, Any]]:
     Sourced from **LayoutCatalogue, not disk**. Layouts moved to Postgres in
     PR #111 and `storage/layouts/` was deleted, so a disk read here would
     return None for every layout in production and the quantity cap would
-    silently never fire — worse, it would fire only when this cache key
-    happened to be warm from a `GetLayoutView` request, making enforcement
-    non-deterministic. That is the same disk-vs-catalogue trap the #111 audit
-    fixed in four other places.
+    silently never fire. That is the same disk-vs-catalogue trap the #111
+    audit fixed in four other places.
 
-    Shares GetLayoutView's cache key (unfiltered variant), so the editor's own
-    mount request has usually already warmed this and the read costs nothing —
-    and `invalidate_layout_caches` therefore clears this entry too, so an ops
-    layout edit cannot leave a policy decision reading yesterday's surfaces.
-    If you change that key's shape, this is a third consumer of it.
+    Cached for two minutes under its own key, not GetLayoutView's: that key
+    holds the shaped payload the editor is served verbatim, and writing the
+    bare definition into it dropped `displayName` from the editor and put
+    non-public layouts behind the public endpoints.
+    `invalidate_layout_caches` clears this entry too, so an ops layout edit
+    cannot leave a policy decision reading yesterday's surfaces.
     """
     from django.core.cache import cache as django_cache
 
     if not is_safe_layout_name(name):
         return None
-    cache_key = f"layout_detail:{name}:"
+    cache_key = layout_policy_cache_key(name)
     cached = django_cache.get(cache_key)
     if isinstance(cached, dict):
         return cached
