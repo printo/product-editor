@@ -8,21 +8,31 @@ Tests cover:
 - Rename operations clearing both old and new keys
 """
 
-from django.test import TestCase
+from django.conf import settings
+from django.test import TestCase, override_settings
 from django.core.cache import cache
 from api.views import invalidate_layout_caches
 
+# These tests need the real django_redis backend (delete_pattern), and the test
+# database shares its Redis with the local dev stack. They used to call
+# cache.clear(), which is FLUSHDB: every run wiped the whole dev cache. A key
+# prefix of their own keeps their keys apart, and cleanup removes only those.
+ISOLATED_CACHES = {
+    'default': {**settings.CACHES['default'], 'KEY_PREFIX': 'pe-test'},
+}
 
+
+@override_settings(CACHES=ISOLATED_CACHES)
 class CacheInvalidationTest(TestCase):
     """Test cache invalidation behavior."""
 
     def setUp(self):
-        """Clear cache before each test."""
-        cache.clear()
+        """Start each test with none of this suite's keys."""
+        cache.delete_pattern('*')
 
     def tearDown(self):
-        """Clear cache after each test."""
-        cache.clear()
+        """Leave none of this suite's keys behind."""
+        cache.delete_pattern('*')
 
     def test_invalidate_list_caches(self):
         """Test that list caches are cleared."""
