@@ -81,7 +81,14 @@ class LayoutEngine:
                     # PIL writes one-image PDFs natively. resolution is in DPI;
                     # PDFs don't carry pixel-DPI metadata the way PNGs do, so
                     # callers should set the canvas size in points to match.
-                    image_data.save(tmp_path, "PDF", resolution=300.0)
+                    #
+                    # An RGB image goes into the PDF as a JPEG stream, and
+                    # Pillow's defaults for that (quality 75, 4:2:0 chroma) are
+                    # not print quality, so both are set explicitly.
+                    image_data.save(
+                        tmp_path, "PDF", resolution=300.0,
+                        quality=95, subsampling=0,
+                    )
                 elif ext == '.png':
                     # Tag the output as explicitly sRGB so the print RIP never
                     # has to guess the colour space (sources are converted to
