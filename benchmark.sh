@@ -4,23 +4,44 @@
 # ═══════════════════════════════════════════
 
 set -e
-source .env 2>/dev/null || true
 
-API_KEY="${DIRECT_API_KEY}"
-HOST="http://localhost:8000"
-FRONTEND="http://localhost:${FRONTEND_HOST_PORT:-5004}"
+# .env is a Docker env-file, not a shell script. `source`-ing it dies on any
+# value bash can't parse (CORS_ALLOWED_ORIGINS did: exit 2 before a line of
+# output), so read just the keys this script needs.
+env_value() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | sed -e "s/^[\"']//" -e "s/[\"']\$//"; }
+
+API_KEY="${DIRECT_API_KEY:-$(env_value DIRECT_API_KEY)}"
+BACKEND_PORT="${BACKEND_HOST_PORT:-$(env_value BACKEND_HOST_PORT)}"
+FRONTEND_PORT="${FRONTEND_HOST_PORT:-$(env_value FRONTEND_HOST_PORT)}"
+HOST="http://localhost:${BACKEND_PORT:-8000}"
+FRONTEND="http://localhost:${FRONTEND_PORT:-5004}"
 RUNS=5
+
+# A layout that exists on the target. Hardcoding one (classic_5x7 was) goes
+# stale as the catalogue changes. BENCH_LAYOUT=<name> overrides.
+first_layout() {
+  curl -s "$HOST/api/layouts?fields=summary" -H "Authorization: Bearer $API_KEY" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    items = [d for d in (json.load(sys.stdin).get("layouts") or []) if isinstance(d, dict) and d.get("name")]
+except Exception:
+    items = []
+plain = [d for d in items if d.get("productType") not in ("calendar", "book") and d.get("surfaceCount") == 1]
+print(((plain or items) or [{}])[0].get("name", ""))
+' 2>/dev/null || true
+}
+BENCH_LAYOUT="${BENCH_LAYOUT:-$(first_layout)}"
 
 red='\033[0;31m'; green='\033[0;32m'; yellow='\033[1;33m'; cyan='\033[0;36m'; nc='\033[0m'
 
 bench() {
-  local label="$1"; local url="$2"; local extra_args="${3:-}"
+  local label="$1"; local url="$2"; shift 2   # anything left is passed to curl
   local total=0; local max=0; local min=999
   local sizes=0; local status=""
 
   for i in $(seq 1 $RUNS); do
     result=$(curl -s -w '%{time_total} %{time_starttransfer} %{size_download} %{http_code}' \
-      -o /dev/null $extra_args "$url" 2>/dev/null)
+      -o /dev/null "$@" "$url" 2>/dev/null)
     t=$(echo "$result" | awk '{print $1}')
     ttfb=$(echo "$result" | awk '{print $2}')
     sz=$(echo "$result" | awk '{print $3}')
@@ -49,10 +70,14 @@ echo -e "${cyan}═════════════════════�
 echo ""
 
 bench "GET /api/health (no auth)"          "$HOST/api/health"
-bench "GET /api/layouts (list all)"         "$HOST/api/layouts"         "-H 'Authorization: Bearer $API_KEY'"
-bench "GET /api/layouts/classic_5x7"        "$HOST/api/layouts/classic_5x7" "-H 'Authorization: Bearer $API_KEY'"
-bench "GET /api/fonts"                      "$HOST/api/fonts"           "-H 'Authorization: Bearer $API_KEY'"
-bench "GET /api/canvas-state/PE-BENCH/"     "$HOST/api/canvas-state/PE-BENCH/" "-H 'Authorization: Bearer $API_KEY'"
+bench "GET /api/layouts (list all)"         "$HOST/api/layouts"         -H "Authorization: Bearer $API_KEY"
+if [ -n "$BENCH_LAYOUT" ]; then
+  bench "GET /api/layouts/$BENCH_LAYOUT"    "$HOST/api/layouts/$BENCH_LAYOUT" -H "Authorization: Bearer $API_KEY"
+else
+  echo "  (skipped GET /api/layouts/<name>: $HOST/api/layouts returned no layouts; set BENCH_LAYOUT=<name>)"
+fi
+bench "GET /api/fonts"                      "$HOST/api/fonts"           -H "Authorization: Bearer $API_KEY"
+bench "GET /api/canvas-state/PE-BENCH/"     "$HOST/api/canvas-state/PE-BENCH/" -H "Authorization: Bearer $API_KEY"
 
 echo ""
 echo -e "${cyan}═══════════════════════════════════════════${nc}"
@@ -121,8 +146,9 @@ print(f'  RenderJob single aggregate (10x avg):  {elapsed:.1f}ms  (optimized)')
 
 # Table sizes
 from django.db import connection
+from api.models import APIRequest, EmbedSession
 with connection.cursor() as cursor:
-    for table in ['api_apirequest', 'api_renderjob', 'api_canvasdata', 'api_apikey', 'api_embedsession']:
+    for table in [m._meta.db_table for m in (APIRequest, RenderJob, CanvasData, APIKey, EmbedSession)]:
         try:
             cursor.execute(f'SELECT count(*) FROM {table}')
             count = cursor.fetchone()[0]
