@@ -12,10 +12,9 @@ The repository includes a code knowledge graph in `graphify-out/`. For architect
 graphify query "how does the render pipeline work"
 graphify path "EditorRenderView" "notify_caller_webhook_task"
 graphify explain "render_canvas_task"
-graphify update .
 ```
 
-Use `graphify update .`, not `graphify . --update`. The `update` subcommand refreshes the code graph locally without requiring an LLM API key.
+After code changes, refresh the graph with `$(cat graphify-out/.graphify_python) scripts/graphify-refresh.py`. It re-reads the code only (no LLM or API key) and keeps the doc nodes and community names. Don't use `graphify update .` or `graphify . --update`: both re-add stale doc nodes and drop the community names, and the second needs an LLM API key. Changes to the docs reach the graph only through a full `/graphify` run. See [CLAUDE.md](CLAUDE.md#knowledge-graph).
 
 ---
 
@@ -52,7 +51,7 @@ Use `graphify update .`, not `graphify . --update`. The `update` subcommand refr
 | `backend` | Django API + Gunicorn web server |
 | `frontend` | Next.js customer-facing editor |
 | `celery-worker-standard` | Render worker — the only one. Consumes `priority,standard` (nothing produces to `priority`; it is drained so a stray dispatch can't be lost) |
-| `celery-beat` | Periodic task scheduler (daily GC at 02:00 UTC) |
+| `celery-beat` | Periodic task scheduler (garbage collector every 6 hours: 00:00, 06:00, 12:00 and 18:00 UTC) |
 | `redis` | Broker, result backend, status cache |
 | `db` | PostgreSQL database |
 | `proxy` | nginx edge proxy + TLS termination (Cloudflare Origin Certificate) |
@@ -503,7 +502,6 @@ The README now follows `.env.example`, which is the source of truth for local an
 
 | Variable | Required | Description |
 |---|---|---|
-| `COMPOSE_PROFILES` | No | Compose profile selection. `.env.example` enables the nginx edge via `prod` |
 | `NODE_ENV` | Yes | Runtime mode. `.env.example` uses `production` |
 | `DEBUG` | Yes | `0` for production; defaults to off even if unset |
 | `DJANGO_SECRET_KEY` | Yes | Django secret key. Boot fails under `DEBUG=0` if left at the dev default |
