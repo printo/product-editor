@@ -177,17 +177,32 @@ class LayoutEngine:
         return frames
 
     def _load_mask(self, mask_url: str):
-        """Load a mask image from its URL path, or return None."""
+        """Load a layout mask for printing, or return None when there is none.
+
+        Local disk first (masks saved before layouts moved to Postgres), then
+        the configured storage, which on an S3 deployment is the only place an
+        ops upload goes. Never prints without a mask the layout asks for: a
+        missing file raises, and so does a store that couldn't answer
+        (services.storage.MaskUnavailable, which the render task retries).
+        Returning None here used to crash on the caller's `mask_img.size`.
+        """
         if not mask_url:
             return None
+        mask_filename = os.path.basename(mask_url)
+        mask_path = os.path.join(os.path.dirname(self.layouts_dir), "masks", mask_filename)
+        if os.path.exists(mask_path):
+            return Image.open(mask_path).convert("RGBA")
+
+        import io
+        from services.storage import get_storage
         try:
-            mask_filename = os.path.basename(mask_url)
-            mask_path = os.path.join(os.path.dirname(self.layouts_dir), "masks", mask_filename)
-            if os.path.exists(mask_path):
-                return Image.open(mask_path).convert("RGBA")
-        except Exception as exc:
-            logger.warning("Failed to load mask '%s': %s", mask_url, exc)
-        return None
+            data = get_storage().read_mask(mask_filename)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Mask '{mask_filename}' was not found. Upload the mask again "
+                f"in the layout editor."
+            ) from exc
+        return Image.open(io.BytesIO(data)).convert("RGBA")
 
     @staticmethod
     def _normalize_frames(frames: list, canvas_w: int, canvas_h: int) -> list:
