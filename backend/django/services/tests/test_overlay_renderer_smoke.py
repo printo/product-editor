@@ -91,7 +91,7 @@ def test_renders_one_of_each_overlay_type():
         {
             "type": "image",
             "fileId": "smoke-test-sticker",
-            "src": sticker_path,     # also resolvable via the local-path fallback
+            "src": sticker_path,     # ignored — image overlays resolve by fileId only
             "x": 70, "y": 80, "width": 15, "height": 10,
             "rotation": 0,
             "opacity": 1.0,
