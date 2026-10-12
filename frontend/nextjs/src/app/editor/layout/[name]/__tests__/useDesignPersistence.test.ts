@@ -69,6 +69,7 @@ function setup(init: Init = {}) {
     const [activeSurfaceKey, setActiveSurfaceKey] = useState('default');
     const activeSurfaceKeyRef = useRef(activeSurfaceKey); activeSurfaceKeyRef.current = activeSurfaceKey;
     const [globalFitMode, setGlobalFitMode] = useState<FitMode>('contain');
+    const [globalBlurFill, setGlobalBlurFill] = useState(true);
     const [calendarTheme, setCalendarTheme] = useState<CalendarTheme>('modern-minimalist');
     const [calendarType, setCalendarType] = useState<CalendarType>('english');
     const [genzPalette, setGenzPalette] = useState<string | undefined>(undefined);
@@ -82,11 +83,11 @@ function setup(init: Init = {}) {
       layout: init.layout === undefined ? LAYOUT : init.layout, layoutLoading: false, layoutName: 'classic_4x6', orderId: 'EXT-1',
       apiBase: '/api/embed/proxy', getAuthHeaders: () => ({ 'X-Embed-Token': 't' }), legacyOrderIdRef, normalizedLayoutState: null,
       canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
-      setGlobalFitMode, getFileUrl: (f: File) => `blob:${f.name}`, skipNextGenerateRef,
+      setGlobalFitMode, setGlobalBlurFill, getFileUrl: (f: File) => `blob:${f.name}`, skipNextGenerateRef,
       isCalendarProduct: init.calendar ?? false, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
       calendarCells, setCalendarCells, isBookProduct: init.book ?? false, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
     });
-    return { ...p, canvases, setCanvases, files, surfaceStates, setSurfaceStates, activeSurfaceKey, globalFitMode, calendarTheme, setCalendarTheme, calendarCells, setBookPageCount, setBookHiddenPages, skipNextGenerateRef };
+    return { ...p, canvases, setCanvases, files, surfaceStates, setSurfaceStates, activeSurfaceKey, globalFitMode, globalBlurFill, calendarTheme, setCalendarTheme, calendarCells, setBookPageCount, setBookHiddenPages, skipNextGenerateRef };
   });
 }
 const tick = (ms: number) => act(async () => { await jest.advanceTimersByTimeAsync(ms); });
@@ -239,6 +240,25 @@ describe('useAutosaveAndRestore — the restore', () => {
     expect(window.location.search).toBe('?order_id=EXT-1');
     expect(pruneStaleOrders).toHaveBeenCalledWith('EXT-1');
     expect(pruneUnreferencedFiles).toHaveBeenCalledWith('EXT-1', new Set(['f1']), expect.any(Number));
+  });
+
+  it('sets the Blur Effect button to match the photos that came back', async () => {
+    getQueue = [{ status: 200, body: { editor_state: {
+      layoutName: 'classic_4x6', activeSurfaceKey: 'default',
+      surfaces: [{ key: 'default', canvases: [canvas([frame({ fillStyle: undefined })]), canvas([frame({ fillStyle: undefined })])], globalFitMode: 'contain' }],
+    } } }];
+    const off = setup();
+    await waitFor(() => expect(off.result.current.restorePending).toBe(false));
+    expect(off.result.current.globalBlurFill).toBe(false);
+    off.unmount();
+
+    getQueue = [{ status: 200, body: { editor_state: {
+      layoutName: 'classic_4x6', activeSurfaceKey: 'default',
+      surfaces: [{ key: 'default', canvases: [canvas([frame({ fillStyle: 'blur' })])], globalFitMode: 'contain' }],
+    } } }];
+    const on = setup();
+    await waitFor(() => expect(on.result.current.restorePending).toBe(false));
+    expect(on.result.current.globalBlurFill).toBe(true);
   });
 
   it('falls back once to a design saved under the pre-adoption order id', async () => {

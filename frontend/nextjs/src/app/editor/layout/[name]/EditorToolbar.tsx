@@ -54,6 +54,7 @@ type Props = {
   globalBlurFill: boolean;
   setGlobalBlurFill: Dispatch<SetStateAction<boolean>>;
   blurFillUserToggledRef: MutableRefObject<boolean>;
+  isProcessing: boolean;
   isDownloading: boolean;
   setDisclaimerChecked: Dispatch<SetStateAction<boolean>>;
   setShowEmbedDisclaimer: Dispatch<SetStateAction<boolean>>;
@@ -67,7 +68,7 @@ export function EditorToolbar({
   setToolbarSentinel, isToolbarStuck, toolbarHeight, setToolbarEl, headerHeight,
   embedToken, orderId, parentOrigin, layout, layoutName, files, surfaceStates, qtyUnder, qtyNeeded,
   totalUploadedCount, uploadInputRef, globalFitMode, setGlobalFitMode, fitModeUserToggledRef,
-  globalBlurFill, setGlobalBlurFill, blurFillUserToggledRef, isDownloading, setDisclaimerChecked,
+  globalBlurFill, setGlobalBlurFill, blurFillUserToggledRef, isProcessing, isDownloading, setDisclaimerChecked,
   setShowEmbedDisclaimer, setShowDownloadModal,
 }: Props) {
   return (
@@ -184,17 +185,21 @@ export function EditorToolbar({
         <div className="flex items-center justify-center flex-nowrap gap-1 md:gap-3 w-full md:w-auto">
           <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/50 shrink-0">
             {(['contain', 'cover'] as FitMode[]).map(mode => (
-              <button key={mode} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('px-2 md:px-3 py-1.5 text-[9px] md:text-[10px] font-black rounded-lg transition-all uppercase', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
+              <button key={mode} disabled={isProcessing} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('px-2 md:px-3 py-1.5 text-[9px] md:text-[10px] font-black rounded-lg transition-all uppercase disabled:opacity-50 disabled:cursor-not-allowed', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
             ))}
           </div>
+          {/* Both whole-design toggles rewrite every card, so they wait while
+              photos are still being processed: a click mid-processing raced
+              the card builder and left some cards blurred and some not. */}
           <button
+            disabled={isProcessing}
             onClick={() => { blurFillUserToggledRef.current = true; setGlobalBlurFill(v => !v); }}
             title={globalBlurFill
               ? 'Blur Effect is ON — empty space is filled with a blurred copy of the photo. Click to turn off.'
               : 'Blur Effect — fill the empty space around a photo with a blurred copy of it.'}
             aria-label="Toggle blur effect"
             className={clsx(
-              'flex items-center justify-center gap-1 md:gap-1.5 px-2 md:px-3 py-2.5 md:py-2 text-[9px] md:text-[10px] font-black rounded-xl border transition-all uppercase tracking-tight md:tracking-wide shrink-0',
+              'flex items-center justify-center gap-1 md:gap-1.5 px-2 md:px-3 py-2.5 md:py-2 text-[9px] md:text-[10px] font-black rounded-xl border transition-all uppercase tracking-tight md:tracking-wide shrink-0 disabled:opacity-50 disabled:cursor-not-allowed',
               globalBlurFill
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                 : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',

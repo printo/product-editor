@@ -226,7 +226,7 @@ export default function LayoutEditorPage() {
   } = useAutosaveAndRestore({
     layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, legacyOrderIdRef, normalizedLayoutState,
     canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
-    setGlobalFitMode, getFileUrl, skipNextGenerateRef,
+    setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
     calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
   });
@@ -508,7 +508,7 @@ export default function LayoutEditorPage() {
             totalUploadedCount={totalUploadedCount} uploadInputRef={uploadInputRef}
             globalFitMode={globalFitMode} setGlobalFitMode={setGlobalFitMode} fitModeUserToggledRef={fitModeUserToggledRef}
             globalBlurFill={globalBlurFill} setGlobalBlurFill={setGlobalBlurFill} blurFillUserToggledRef={blurFillUserToggledRef}
-            isDownloading={isDownloading} setDisclaimerChecked={setDisclaimerChecked}
+            isProcessing={isProcessing} isDownloading={isDownloading} setDisclaimerChecked={setDisclaimerChecked}
             setShowEmbedDisclaimer={setShowEmbedDisclaimer} setShowDownloadModal={setShowDownloadModal}
           />
 
