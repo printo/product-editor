@@ -122,7 +122,7 @@ type PutBody = {
   editor_state: {
     layoutName?: string;
     surfaces: Array<{ key: string; canvases: Array<{ frames: Frame[] }> }>;
-    calendarState?: { themePreset?: string; calendarType?: string };
+    calendarState?: { themePreset?: string; calendarType?: string; genzPalette?: string; cells?: Record<string, unknown[]> };
     bookState?: { pageCount?: number };
   };
 };
@@ -464,6 +464,41 @@ describe('editor page — calendar layouts', () => {
     for (const put of backend.callsTo(`canvas-state/${ORDER_ID}/`, 'PUT')) {
       expect((put.body as PutBody).editor_state.surfaces[0].canvases).toHaveLength(1);
     }
+    expect(backend.unexpected).toEqual([]);
+  });
+
+  it('the day editor moves to any printed date; the event and the layout’s default palette are saved', async () => {
+    backend.layout = {
+      ...CALENDAR_LAYOUT, calendar: { ...CALENDAR_LAYOUT.calendar, defaultGenzPalette: 'lilac' },
+    } as unknown as Record<string, unknown>;
+    backend.genzStyle = {
+      defaultPalette: 'butter',
+      palettes: ['butter', 'lilac'].map((name) => ({
+        name, label: name, bg: '#fff', month: '#000', weekday: '#000', grid: '#eee', date: '#000', pill: '#ccc', dotCycle: ['#f00', '#0f0', '#00f'],
+      })),
+    };
+    renderEditor();
+    await waitFor(() => expect(backend.callsTo(`canvas-state/${ORDER_ID}/`, 'GET')).toHaveLength(1));
+    const user = userEvent.setup();
+    const tiles = within(await screen.findByTestId('month-tiles-grid')).getAllByRole('button');
+    await user.click(tiles[2]);
+    const panel = await screen.findByRole('dialog', { name: /March 2026/ });
+    expect(panel).toHaveAttribute('data-cell-iso', '2026-03-01');
+    await user.click(within(panel).getByRole('button', { name: '15 March 2026' }));
+    expect(panel).toHaveAttribute('data-cell-iso', '2026-03-15');
+    // Keyboard: one week on.
+    await user.keyboard('{ArrowDown}');
+    expect(panel).toHaveAttribute('data-cell-iso', '2026-03-22');
+    await user.type(within(panel).getByTestId('cell-editor-input'), 'Anniversary{Enter}');
+    expect(within(panel).getByRole('button', { name: '22 March 2026, 1 entry' })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => {
+      const cal = lastPut(ORDER_ID)?.editor_state.calendarState;
+      expect(cal?.cells).toEqual({ '2026-03-22': [{ type: 'text', text: 'Anniversary' }] });
+      expect(cal?.genzPalette).toBe('lilac');
+    }, { timeout: 8000 });
+    await user.click(within(panel).getByTestId('cell-editor-close'));
+    await user.click(screen.getByRole('button', { name: 'Gen-Z' }));
+    expect(within(screen.getByTestId('genz-palette-swatches')).getByTitle('lilac')).toHaveAttribute('aria-pressed', 'true');
     expect(backend.unexpected).toEqual([]);
   });
 

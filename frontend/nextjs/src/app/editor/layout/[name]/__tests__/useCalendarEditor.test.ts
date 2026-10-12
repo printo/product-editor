@@ -56,6 +56,28 @@ describe('useCalendarEditor', () => {
     expect(result.current.selectedCalendarCell).toEqual({ surfaceIndex: 2, year: 2027, month: 3, iso: '2027-03-01' });
   });
 
+  it('the day picker moves the editor to any printed date, and nowhere else', () => {
+    const { result } = renderHook(() => useCalendarEditor(editorProps()));
+    expect(result.current.visibleCalendarMonths[0]).toEqual({ year: 2027, month: 1 });
+    expect(result.current.visibleCalendarMonths[11]).toEqual({ year: 2027, month: 12 });
+    act(() => result.current.selectCalendarDate('2027-03-17'));
+    expect(result.current.selectedCalendarCell).toEqual({ surfaceIndex: 2, year: 2027, month: 3, iso: '2027-03-17' });
+    act(() => result.current.selectCalendarDate('2028-01-05'));
+    act(() => result.current.selectCalendarDate('not-a-date'));
+    expect(result.current.selectedCalendarCell?.iso).toBe('2027-03-17');
+  });
+
+  it('a Financial calendar’s range runs April to the next March', () => {
+    const { result } = renderHook(() => useCalendarEditor(editorProps()));
+    act(() => result.current.setCalendarType('financial'));
+    expect(result.current.visibleCalendarMonths[0]).toEqual({ year: 2027, month: 4 });
+    expect(result.current.visibleCalendarMonths[11]).toEqual({ year: 2028, month: 3 });
+    act(() => result.current.selectCalendarDate('2027-01-10'));
+    expect(result.current.selectedCalendarCell).toBeNull();
+    act(() => result.current.selectCalendarDate('2028-02-29'));
+    expect(result.current.selectedCalendarCell).toEqual({ surfaceIndex: 10, year: 2028, month: 2, iso: '2028-02-29' });
+  });
+
   it('a day photo replaces the day’s entries and shows a preview', async () => {
     upload.mockResolvedValue({ uploadId: 'u-1', blobUrl: 'blob:1', persistDegraded: false } as never);
     const p = editorProps();
@@ -139,7 +161,7 @@ describe('useCalendarDefaults', () => {
   const props = (over: Partial<Props> = {}): Props => ({
     isCalendarProduct: true, layout: CAL, normalizedLayoutState: { _raw: { calendar: { themePreset: 'modern-genz', calendarType: 'financial' } } } as never,
     apiBase: '/api/internal/proxy', getAuthHeaders: () => ({}), setCalendarTheme: jest.fn(), setCalendarType: jest.fn(),
-    setGenzPalettes: jest.fn(), setCalendarHolidays: jest.fn(), ...over,
+    setGenzPalette: jest.fn(), setGenzPalettes: jest.fn(), setCalendarHolidays: jest.fn(), ...over,
   });
   const urls = () => (global.fetch as jest.Mock).mock.calls.map(c => c[0]);
   beforeEach(() => {
@@ -156,6 +178,41 @@ describe('useCalendarDefaults', () => {
     expect(p.setCalendarType).toHaveBeenCalledWith('financial');
     await waitFor(() => expect(p.setGenzPalettes).toHaveBeenCalledWith([{ name: 'neon' }]));
     expect(urls()[0]).toBe('/api/internal/proxy/calendar-styles/modern-genz');
+  });
+
+  const genzStyle = (palettes: string[], defaultPalette = 'butter') => {
+    global.fetch = jest.fn(async (url: string) => ({
+      ok: true,
+      json: async () => url.includes('calendar-styles') ? { defaultPalette, palettes: palettes.map(name => ({ name })) } : { events: [] },
+    })) as unknown as typeof fetch;
+  };
+  const rawCalendar = (calendar: Record<string, unknown>) => ({ _raw: { calendar } }) as never;
+  const initialPalette = (p: Props, prev: string | undefined) => {
+    const arg = (p.setGenzPalette as jest.Mock).mock.calls[0][0];
+    return typeof arg === 'function' ? arg(prev) : arg;
+  };
+
+  it('starts on the layout’s default Gen-Z palette, without overriding a restored one', async () => {
+    genzStyle(['butter', 'lilac']);
+    const p = props({ normalizedLayoutState: rawCalendar({ defaultGenzPalette: 'lilac' }) });
+    renderHook(() => useCalendarDefaults(p));
+    await waitFor(() => expect(p.setGenzPalette).toHaveBeenCalledTimes(1));
+    expect(initialPalette(p, undefined)).toBe('lilac');
+    expect(initialPalette(p, 'sky')).toBe('sky');
+  });
+
+  it('a missing or unknown layout palette falls back to the style’s default, as the print does', async () => {
+    genzStyle(['butter', 'lilac', 'mint'], 'mint');
+    const unknown = props({ normalizedLayoutState: rawCalendar({ defaultGenzPalette: 'deleted' }) });
+    renderHook(() => useCalendarDefaults(unknown));
+    await waitFor(() => expect(unknown.setGenzPalette).toHaveBeenCalled());
+    expect(initialPalette(unknown, undefined)).toBe('mint');
+
+    genzStyle(['butter'], 'gone');
+    const neither = props({ normalizedLayoutState: rawCalendar({}) });
+    renderHook(() => useCalendarDefaults(neither));
+    await waitFor(() => expect(neither.setGenzPalettes).toHaveBeenCalled());
+    expect(neither.setGenzPalette).not.toHaveBeenCalled();
   });
 
   it('loads holidays for every year the print could cover, either calendar type, plus the next year', async () => {

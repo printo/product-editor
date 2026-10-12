@@ -350,3 +350,31 @@ describe('CalendarEditPanel — mobile bottom-sheet', () => {
     expect(panel.getAttribute('aria-modal')).toBe('true');
   });
 });
+
+// ─── Moving between dates ───────────────────────────────────────────────────
+
+describe('CalendarEditPanel — date navigation', () => {
+  it('shows the host’s date navigation under the header', () => {
+    setup({ dateNavigation: <div data-testid="date-nav" /> });
+    expect(screen.getByTestId('calendar-edit-panel')).toContainElement(screen.getByTestId('date-nav'));
+  });
+
+  it('a half-typed event is dropped when the date changes, so it can’t land on the wrong day', async () => {
+    const { rerender, onAddTextEntry } = setup();
+    await userEvent.type(screen.getByTestId('cell-editor-input'), 'Anniversary');
+    rerender(
+      <CalendarEditPanel
+        iso="2026-01-08"
+        onAddTextEntry={onAddTextEntry}
+        onRemoveTextEntryByIndex={jest.fn()}
+        onRequestImageOverride={jest.fn()}
+        onRemoveImageOverride={jest.fn()}
+        onToggleHide={jest.fn()}
+        onReset={jest.fn()}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(screen.getByTestId('cell-editor-input')).toHaveValue('');
+    expect(screen.getByTestId('calendar-edit-panel')).toHaveAttribute('data-cell-iso', '2026-01-08');
+  });
+});

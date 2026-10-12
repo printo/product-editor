@@ -3,20 +3,21 @@
 import type { ComponentProps, Dispatch, RefObject, SetStateAction } from 'react';
 import { CalendarProductPreview } from '@/components/CalendarProductPreview';
 import { CalendarEditPanel } from '@/components/CalendarEditPanel';
+import { CalendarDayPicker } from '@/components/CalendarDayPicker';
 import { IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/types/calendar';
 
 type PreviewProps = ComponentProps<typeof CalendarProductPreview>;
 type SelectedCell = { surfaceIndex: number; year: number; month: number; iso: string };
 
-/** Calendar products: the 12-month preview, the per-day editor panel and the
- *  hidden picker for a day's photo. */
+/** Calendar products: the 12-month preview, the per-day editor panel (with a
+ *  day picker over the printed months) and the hidden picker for a day's photo. */
 export function CalendarSection({
   isCalendarProduct, layout, calendarTheme, setCalendarTheme, genzPalette, genzPalettes, setGenzPalette,
   calendarType, setCalendarType, handleCalendarMonthTileClick, calendarCells, printedHolidays,
   selectedCalendarCell, setSelectedCalendarCell, calendarCellEntries, updateCellEntries,
   calendarCellImagePreviews, setCalendarCellImagePreviews, calendarImageUploading, calendarCellFileInputRef,
-  handleCellImageFileSelected,
+  handleCellImageFileSelected, visibleCalendarMonths, selectCalendarDate,
 }: {
   isCalendarProduct: boolean;
   layout: { weekStart?: unknown; calendarDefaultYear?: PreviewProps['defaultYear'] } | null;
@@ -39,6 +40,8 @@ export function CalendarSection({
   calendarImageUploading: boolean;
   calendarCellFileInputRef: RefObject<HTMLInputElement | null>;
   handleCellImageFileSelected: (file: File) => void;
+  visibleCalendarMonths: readonly { year: number; month: number }[];
+  selectCalendarDate: (iso: string) => void;
 }) {
   return (
     <>
@@ -71,6 +74,16 @@ export function CalendarSection({
                   !calendarCellImagePreviews[selectedCalendarCell.iso]
                 }
                 isImageUploading={calendarImageUploading}
+                dateNavigation={
+                  <CalendarDayPicker
+                    iso={selectedCalendarCell.iso}
+                    months={visibleCalendarMonths}
+                    weekStart={layout?.weekStart as any || 'sunday'}
+                    cells={calendarCells}
+                    holidays={printedHolidays}
+                    onSelectDate={selectCalendarDate}
+                  />
+                }
                 onAddTextEntry={text =>
                   updateCellEntries(selectedCalendarCell.iso, prev => [
                     ...prev, { type: 'text', text },

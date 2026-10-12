@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/types/calendar';
-import { resolveDefaultYear } from '@/lib/calendar';
+import { resolveDefaultYear, resolveSurfaceMonth } from '@/lib/calendar';
 import { uploadCalendarCellImage, CalendarCellUploadError } from '@/lib/calendar-cell-upload';
 import { isHeicFile } from '@/lib/heic-convert';
 import type { NormalizedLayout } from '@/lib/layout-utils';
@@ -119,10 +119,28 @@ export function useCalendarEditor({
   }, [selectedCalendarCell, orderId, apiBase, getAuthHeaders, updateCellEntries, expandPdfPages, setUnsupportedWarning, setPersistDegraded, setError]);
 
   const handleCalendarMonthTileClick = (surfaceIndex: number, year: number, month: number) => {
-    // Open the first day of the month by default — customer can tap a specific cell after.
+    // Open the first day of the month; the panel's day picker moves to any other date.
     const firstIso = `${year}-${String(month).padStart(2, '0')}-01`;
     setSelectedCalendarCell({ surfaceIndex, year, month, iso: firstIso });
   };
+
+  // The 12 months the print covers, resolved exactly as the preview tiles
+  // and `materialize_surfaces` resolve them — the day picker's range.
+  const calendarDefaultYear = layout?.calendarDefaultYear;
+  const visibleCalendarMonths = useMemo(() => {
+    const baseYear = resolveDefaultYear(calendarDefaultYear, calendarType);
+    return Array.from({ length: 12 }, (_, i) => resolveSurfaceMonth(i, 0, calendarType, baseYear));
+  }, [calendarDefaultYear, calendarType]);
+
+  /** Move the day editor to `iso`; a date outside the printed months is ignored. */
+  const selectCalendarDate = useCallback((iso: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return;
+    const year = Number(m[1]), month = Number(m[2]);
+    const surfaceIndex = visibleCalendarMonths.findIndex(v => v.year === year && v.month === month);
+    if (surfaceIndex < 0) return;
+    setSelectedCalendarCell({ surfaceIndex, year, month, iso });
+  }, [visibleCalendarMonths]);
 
   return {
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
@@ -130,14 +148,15 @@ export function useCalendarEditor({
     selectedCalendarCell, setSelectedCalendarCell, calendarCellFileInputRef, calendarImageUploading,
     calendarCellImagePreviews, setCalendarCellImagePreviews,
     calendarCellEntries, updateCellEntries, handleCellImageFileSelected, handleCalendarMonthTileClick,
+    visibleCalendarMonths, selectCalendarDate,
   };
 }
 
-/** On a calendar layout: apply the ops defaults (theme, type), fetch the Gen-Z
- *  palettes, and fetch the holidays the print will carry. */
+/** On a calendar layout: apply the ops defaults (theme, type, Gen-Z palette),
+ *  fetch the Gen-Z palettes, and fetch the holidays the print will carry. */
 export function useCalendarDefaults({
   isCalendarProduct, layout, normalizedLayoutState, apiBase, getAuthHeaders,
-  setCalendarTheme, setCalendarType, setGenzPalettes, setCalendarHolidays,
+  setCalendarTheme, setCalendarType, setGenzPalette, setGenzPalettes, setCalendarHolidays,
 }: {
   isCalendarProduct: boolean;
   layout: CalendarLayout;
@@ -146,6 +165,7 @@ export function useCalendarDefaults({
   getAuthHeaders: () => Record<string, string>;
   setCalendarTheme: Setter<CalendarTheme>;
   setCalendarType: Setter<CalendarType>;
+  setGenzPalette: Setter<string | undefined>;
   setGenzPalettes: Setter<GenzPalette[]>;
   setCalendarHolidays: Setter<HolidayEntry[]>;
 }) {
@@ -164,10 +184,21 @@ export function useCalendarDefaults({
     if (rawCalendar?.themePreset) setCalendarTheme(rawCalendar.themePreset as CalendarTheme);
     if (rawCalendar?.calendarType) setCalendarType(rawCalendar.calendarType as CalendarType);
 
-    // Fetch Gen-Z palettes if theme default is modern-genz.
+    // Fetch the Gen-Z palettes (the customer can switch to Gen-Z from any
+    // theme) and start on the palette the print would use untouched: ops'
+    // `defaultGenzPalette`, else the style's own `defaultPalette` — the same
+    // fallback order as `_resolve_genz_palette`. Only a palette that exists
+    // is applied, and never over one a restore already set.
     fetch(`${apiBase}/calendar-styles/modern-genz`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.palettes?.length) setGenzPalettes(d.palettes); })
+      .then(d => {
+        const palettes: GenzPalette[] = d?.palettes ?? [];
+        if (!palettes.length) return;
+        setGenzPalettes(palettes);
+        const initial = [rawCalendar?.defaultGenzPalette, d?.defaultPalette]
+          .find(name => typeof name === 'string' && palettes.some(p => p.name === name));
+        if (initial) setGenzPalette(prev => prev ?? initial);
+      })
       .catch(() => {});
 
     const locale: string | null = layout.holidayLocale;

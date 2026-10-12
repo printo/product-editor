@@ -27,6 +27,7 @@ function setup(over: Partial<Props> = {}) {
     calendarCellEntries: (iso: string) => (cells[iso] || []) as never[], updateCellEntries: jest.fn(),
     calendarCellImagePreviews: { [ISO]: 'blob:preview' }, setCalendarCellImagePreviews: jest.fn(),
     calendarImageUploading: false, calendarCellFileInputRef: { current: null }, handleCellImageFileSelected: jest.fn(),
+    visibleCalendarMonths: Array.from({ length: 12 }, (_, i) => ({ year: 2027, month: i + 1 })), selectCalendarDate: jest.fn(),
     ...over,
   };
   preview.mockClear(); panel.mockClear();
@@ -68,6 +69,15 @@ describe('CalendarSection', () => {
     });
     act(() => panelProps().onClose());
     expect(props.setSelectedCalendarCell).toHaveBeenCalledWith(null);
+  });
+
+  it('gives the day editor a day picker over the printed months, which moves the selection', () => {
+    const { panelProps, props } = setup();
+    const picker = panelProps().dateNavigation as React.ReactElement<Record<string, unknown>>;
+    expect(picker.props).toMatchObject({
+      iso: ISO, months: props.visibleCalendarMonths, weekStart: 'monday', cells: props.calendarCells,
+      holidays: HOLIDAYS, onSelectDate: props.selectCalendarDate,
+    });
   });
 
   it('calls a day photo expired when the entry is there but its preview is not', () => {

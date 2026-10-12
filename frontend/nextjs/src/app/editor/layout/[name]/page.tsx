@@ -142,6 +142,7 @@ export default function LayoutEditorPage() {
     selectedCalendarCell, setSelectedCalendarCell, calendarCellFileInputRef, calendarImageUploading,
     calendarCellImagePreviews, setCalendarCellImagePreviews,
     calendarCellEntries, updateCellEntries, handleCellImageFileSelected, handleCalendarMonthTileClick,
+    visibleCalendarMonths, selectCalendarDate,
   } = useCalendarEditor({
     layout, orderId, apiBase, getAuthHeaders, expandPdfPages, setUnsupportedWarning, setPersistDegraded, setError,
   });
@@ -276,7 +277,7 @@ export default function LayoutEditorPage() {
 
   useCalendarDefaults({
     isCalendarProduct, layout, normalizedLayoutState, apiBase, getAuthHeaders,
-    setCalendarTheme, setCalendarType, setGenzPalettes, setCalendarHolidays,
+    setCalendarTheme, setCalendarType, setGenzPalette, setGenzPalettes, setCalendarHolidays,
   });
 
   const { generateCanvasesForLayout } = useCanvasGeneration({
@@ -549,6 +550,7 @@ export default function LayoutEditorPage() {
             calendarCellImagePreviews={calendarCellImagePreviews} setCalendarCellImagePreviews={setCalendarCellImagePreviews}
             calendarImageUploading={calendarImageUploading} calendarCellFileInputRef={calendarCellFileInputRef}
             handleCellImageFileSelected={handleCellImageFileSelected}
+            visibleCalendarMonths={visibleCalendarMonths} selectCalendarDate={selectCalendarDate}
           />
 
           {/* Dashboard: combined disclaimer + download options modal */}
