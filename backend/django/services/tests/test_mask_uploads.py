@@ -139,7 +139,7 @@ def test_s3_upload_uses_the_key_the_preview_and_print_read():
     layout = {"productType": "book", "book": {"cover": {}, "innerPage": {}}}
     with S3Backend() as s3:
         _store_uploaded_masks({"mask_cover": _png()}, "photobook", layout)
-        assert s3.client.objects["masks/photobook_cover_mask.png"] == PNG
+        assert s3.client.objects["product-editor/masks/photobook_cover_mask.png"] == PNG
     assert layout["book"]["cover"]["maskUrl"] == "/api/layouts/masks/photobook_cover_mask.png"
 
 

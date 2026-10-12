@@ -2,7 +2,7 @@
 Tests that a layout mask with Mask on Export reaches the print under
 STORAGE_BACKEND=s3.
 
-The ops upload writes a mask to S3 (`masks/<file>`) and MaskDownloadView serves
+The ops upload writes a mask to S3 (`<prefix>/masks/<file>`) and MaskDownloadView serves
 the preview from the same key, but the render looked only on local disk —
 which on an S3 deployment holds no masks. The preview showed the frame; the
 render then crashed on `None.size`, so the job failed after three retries
@@ -59,12 +59,12 @@ def _near(a, b, tol=8):
 def test_reads_the_mask_from_s3_when_local_disk_has_none():
     work = tempfile.mkdtemp(prefix="pe-mask-")
     with S3Backend() as s3:
-        s3.client.put_object(Bucket=s3.storage.bucket, Key="masks/frame_mask.png", Body=_frame_png())
+        s3.client.put_object(Bucket=s3.storage.bucket, Key="product-editor/masks/frame_mask.png", Body=_frame_png())
         mask = _engine(work)._load_mask("/api/layouts/masks/frame_mask.png")
     assert mask.mode == "RGBA" and mask.size == (100, 150)
     assert mask.getpixel((5, 5))[:3] == BROWN
     assert mask.getpixel((50, 75))[3] == 0, "the window must stay transparent"
-    assert "masks/frame_mask.png" in s3.client.reads
+    assert "product-editor/masks/frame_mask.png" in s3.client.reads
 
 
 def test_a_mask_on_local_disk_still_wins():
@@ -73,7 +73,7 @@ def test_a_mask_on_local_disk_still_wins():
     with open(os.path.join(work, "masks", "frame_mask.png"), "wb") as f:
         f.write(_frame_png(color=(0, 0, 255)))
     with S3Backend() as s3:
-        s3.client.put_object(Bucket=s3.storage.bucket, Key="masks/frame_mask.png", Body=_frame_png())
+        s3.client.put_object(Bucket=s3.storage.bucket, Key="product-editor/masks/frame_mask.png", Body=_frame_png())
         mask = _engine(work)._load_mask("/api/layouts/masks/frame_mask.png")
     assert mask.getpixel((5, 5))[:3] == (0, 0, 255)
     assert s3.client.reads == [], "S3 should not be asked when the file is local"
@@ -115,12 +115,19 @@ def test_an_s3_outage_raises_mask_unavailable_so_the_render_retries():
             raise AssertionError("an outage must not print as no mask")
 
 
+def test_masks_live_under_the_service_prefix():
+    """Not the bucket root: the app's IAM user writes only under its prefix."""
+    with S3Backend() as s3:
+        assert s3.storage.mask_key("frame_mask.png") == "product-editor/masks/frame_mask.png"
+        assert s3.storage.mask_key("../../x/frame_mask.png") == "product-editor/masks/frame_mask.png"
+
+
 def test_the_key_ignores_any_path_in_the_mask_url():
     work = tempfile.mkdtemp(prefix="pe-mask-")
     with S3Backend() as s3:
-        s3.client.put_object(Bucket=s3.storage.bucket, Key="masks/frame_mask.png", Body=_frame_png())
+        s3.client.put_object(Bucket=s3.storage.bucket, Key="product-editor/masks/frame_mask.png", Body=_frame_png())
         _engine(work)._load_mask("/api/layouts/masks/../../secret/frame_mask.png")
-    assert s3.client.reads == ["masks/frame_mask.png"]
+    assert s3.client.reads == ["product-editor/masks/frame_mask.png"]
 
 
 def test_local_storage_reads_from_its_masks_dir():
@@ -156,7 +163,7 @@ def test_an_s3_only_mask_is_printed_over_the_photo():
         "maskOnExport": True,
     }
     with S3Backend() as s3:
-        s3.client.put_object(Bucket=s3.storage.bucket, Key="masks/mask_test_mask.png", Body=_frame_png())
+        s3.client.put_object(Bucket=s3.storage.bucket, Key="product-editor/masks/mask_test_mask.png", Body=_frame_png())
         engine = LayoutEngine(os.path.join(work, "layouts"), os.path.join(work, "exports"),
                               layout_definition=layout)
         outputs = engine.generate("mask_test", [photo])
