@@ -14,7 +14,7 @@
 import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
-  BOOK_LAYOUT, CALENDAR_FINANCIAL_GENZ, CALENDAR_LAYOUT, CALENDAR_NO_HOLIDAYS, FakeBackend, LAYOUT_NAME, makePhoto, renderEditor, setEditorUrl,
+  BOOK_LAYOUT, CALENDAR_FINANCIAL_GENZ, CALENDAR_LAYOUT, CALENDAR_NO_HOLIDAYS, FakeBackend, LAYOUT_4X6, LAYOUT_NAME, makePhoto, renderEditor, setEditorUrl,
 } from './editor-page-harness';
 import { isImageComplete } from '@/lib/image-utils';
 
@@ -142,6 +142,19 @@ describe('editor page — embed mode', () => {
     expect(init.headers['x-embed-token']).toBe('test-embed-token');
     await waitFor(() => expect(backend.callsTo(`canvas-state/${ORDER_ID}/`, 'GET')).toHaveLength(1));
     expect(backend.unexpected).toEqual([]);
+  });
+
+  it('the heading shows the Display Name ops set, not one made from the identifier', async () => {
+    backend.layout = { ...LAYOUT_4X6, displayName: 'Classic Print – Two-Up' };
+    renderEditor();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Classic Print – Two-Up' })).toBeInTheDocument();
+  });
+
+  it('the heading falls back to the identifier, tidied, when a layout has no Display Name', async () => {
+    const { displayName: _unused, ...withoutDisplayName } = LAYOUT_4X6;
+    backend.layout = withoutDisplayName;
+    renderEditor();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Test 4x6' })).toBeInTheDocument();
   });
 
   it('the toolbar pins once scrolled past it: its observer starts as soon as the toolbar appears', async () => {
