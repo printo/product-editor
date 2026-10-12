@@ -17,7 +17,7 @@ function setup(overrides: Partial<Props> = {}) {
     totalUploadedCount: 2, uploadInputRef: { current: input },
     globalFitMode: 'contain', setGlobalFitMode: jest.fn(), fitModeUserToggledRef: { current: false },
     globalBlurFill: true, setGlobalBlurFill: jest.fn(), blurFillUserToggledRef: { current: false },
-    isDownloading: false, setDisclaimerChecked: jest.fn(), setShowEmbedDisclaimer: jest.fn(), setShowDownloadModal: jest.fn(),
+    isProcessing: false, isDownloading: false, setDisclaimerChecked: jest.fn(), setShowEmbedDisclaimer: jest.fn(), setShowDownloadModal: jest.fn(),
     ...overrides,
   };
   const click = jest.spyOn(input, 'click').mockImplementation(() => {});
@@ -99,6 +99,17 @@ describe('EditorToolbar', () => {
     expect(props.blurFillUserToggledRef.current).toBe(true);
     const toggle = (props.setGlobalBlurFill as jest.Mock).mock.calls[0][0] as (v: boolean) => boolean;
     expect(toggle(true)).toBe(false);
+  });
+
+  it('Fit/Cover and Blur Effect wait while photos are still being processed', () => {
+    const { props } = setup({ isProcessing: true });
+    for (const name of ['Fit', 'Cover', 'Toggle blur effect']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name }));
+    }
+    expect(props.setGlobalFitMode).not.toHaveBeenCalled();
+    expect(props.setGlobalBlurFill).not.toHaveBeenCalled();
+    expect(props.blurFillUserToggledRef.current).toBe(false);
   });
 
   it('hands the sentinel and toolbar to the sticky hook, and pins under the top bar when stuck', () => {

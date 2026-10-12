@@ -25,7 +25,7 @@ type Ref<T> = MutableRefObject<T>;
 export function useAutosaveAndRestore({
   layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, legacyOrderIdRef, normalizedLayoutState,
   canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
-  setGlobalFitMode, getFileUrl, skipNextGenerateRef,
+  setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
   isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
   calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
 }: {
@@ -46,6 +46,7 @@ export function useAutosaveAndRestore({
   activeSurfaceKeyRef: Ref<string>;
   setActiveSurfaceKey: Setter<string>;
   setGlobalFitMode: Setter<FitMode>;
+  setGlobalBlurFill: Setter<boolean>;
   getFileUrl: (file: File) => string;
   skipNextGenerateRef: Ref<boolean>;
   isCalendarProduct: boolean;
@@ -527,6 +528,12 @@ export function useAutosaveAndRestore({
           // customer's manual pans — the fit-mode effect only recomputes
           // offsets for USER toggles (fitModeUserToggledRef).
           setGlobalFitMode(activeSaved.globalFitMode ?? 'contain');
+          // The Blur Effect toggle isn't saved and starts on, so a design saved
+          // with blur off came back with the button lit and the cards plain —
+          // the first click "turned it off" and changed nothing. Match the
+          // button to the photos that came back.
+          const restoredFrames = hydrated.flatMap(c => c.frames);
+          if (restoredFrames.length) setGlobalBlurFill(restoredFrames.some(f => f.fillStyle === 'blur'));
         }
 
         // Delete this order's older stored photos the restored design doesn't
