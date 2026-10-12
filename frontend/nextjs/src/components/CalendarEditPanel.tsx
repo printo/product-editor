@@ -4,7 +4,9 @@
  * Per-cell editor panel for the calendar product
  * (CALENDAR_FEATURE_PRD §5 Phase 5 Day 3).
  *
- * Opens when the customer taps a date cell on `CalendarProductPreview`.
+ * Opens when the customer taps a month tile on `CalendarProductPreview`
+ * (on that month's 1st); the host's `dateNavigation` picker moves it to
+ * any other date the calendar prints.
  * Lets them:
  *   - Add text entries (up to MAX_ENTRIES_PER_CELL = 3 visible; §11.10)
  *   - Remove their own entries (holidays are auto-loaded + non-removable)
@@ -27,7 +29,7 @@
  * existing canvas-state save path.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   MAX_ENTRIES_PER_CELL,
   mergeCellEntries,
@@ -83,6 +85,12 @@ export interface CalendarEditPanelProps {
    * override button so the customer doesn't double-submit.
    */
   isImageUploading?: boolean;
+  /**
+   * Optional date navigation (the host passes a `CalendarDayPicker`) shown
+   * under the header, so the customer can move the editor to any date
+   * without closing it.
+   */
+  dateNavigation?: ReactNode;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -117,8 +125,16 @@ export function CalendarEditPanel({
   imageExpired = false,
   imagePreviewUrl,
   isImageUploading = false,
+  dateNavigation,
 }: CalendarEditPanelProps) {
   const [inputText, setInputText] = useState('');
+  // A half-typed event belongs to the date it was typed on: moving to
+  // another date clears it rather than letting Add file it there.
+  const [prevIso, setPrevIso] = useState(iso);
+  if (iso !== prevIso) {
+    setPrevIso(iso);
+    setInputText('');
+  }
 
   // Classify the customer's existing overrides into the 3 mutually-exclusive
   // modes plus the user-text entries that share the "default" mode.
@@ -214,6 +230,8 @@ export function CalendarEditPanel({
           ×
         </button>
       </header>
+
+      {dateNavigation}
 
       {/* Entries list */}
       <section data-testid="cell-editor-entries">

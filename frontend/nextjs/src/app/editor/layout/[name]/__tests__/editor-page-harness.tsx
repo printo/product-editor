@@ -159,6 +159,7 @@ export class FakeBackend {
   holdRestore: Hold | null = null;
   renderStatus: 'queued' | 'processing' | 'completed' | 'failed' = 'completed';
   holidays: Array<{ date: string; name: string }> = [];
+  genzStyle: { defaultPalette?: string; palettes: Array<Record<string, unknown>> } = { palettes: [] };
   private seq = 0;
   private uploadSeq = 0;
   private uploads = new Map<string, { filename: string; total: number }>();
@@ -230,7 +231,7 @@ export class FakeBackend {
       return fakeResponse(200, new Blob(['PK-fake-zip'], { type: 'application/zip' }), 'application/zip');
     }
     if (path === 'calendar-styles/modern-genz' && method === 'GET') {
-      return fakeResponse(200, { name: 'modern-genz', palettes: [] });
+      return fakeResponse(200, { name: 'modern-genz', ...this.genzStyle });
     }
     if (path.startsWith('holidays/') && method === 'GET') {
       return fakeResponse(200, { events: this.holidays });

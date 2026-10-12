@@ -364,6 +364,13 @@ def _resolve_theme_style(name: str) -> Optional[dict]:
     return _read_calendar_asset("calendar_styles", name, "Theme style")
 
 
+# The palette printed when neither the customer nor ops picked one, or the
+# picked one can't be read. Matches `defaultPalette` in
+# storage/calendar_styles/modern-genz.json, which the editor preview falls
+# back to (useCalendarDefaults).
+FALLBACK_GENZ_PALETTE = "butter"
+
+
 def _resolve_genz_palette(style: dict) -> Optional[dict]:
     """
     Load the active Gen-Z palette JSON.
@@ -380,12 +387,18 @@ def _resolve_genz_palette(style: dict) -> Optional[dict]:
     """
     import re
 
-    name = style.get("defaultGenzPalette") or "butter"
+    name = style.get("defaultGenzPalette") or FALLBACK_GENZ_PALETTE
     # Path-traversal guard mirrors api/views/calendar_assets.py::_safe_locale_year.
     if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
         logger.warning("Bogus genz palette name %r — falling back to defaults", name)
         return None
-    return _read_calendar_asset("calendar_palettes/genz", name, "Gen-Z palette")
+    palette = _read_calendar_asset("calendar_palettes/genz", name, "Gen-Z palette")
+    if palette is None and name != FALLBACK_GENZ_PALETTE:
+        # A palette that no longer exists (deleted after ops picked it, or a
+        # stale customer choice) prints the fallback palette — the same one
+        # the editor preview starts on — rather than plain theme defaults.
+        palette = _read_calendar_asset("calendar_palettes/genz", FALLBACK_GENZ_PALETTE, "Gen-Z palette")
+    return palette
 
 
 def _read_calendar_asset(asset_type: str, name: str, what: str) -> Optional[dict]:
