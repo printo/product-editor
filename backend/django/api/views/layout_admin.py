@@ -386,7 +386,7 @@ class LayoutManagementView(APIView):
             # Invalidate caches
             invalidate_layout_caches(layout_name)
 
-            return Response({"status": "success", "name": layout_name, "display_name": resolved_display_name})
+            return Response({"status": "success", "name": layout_name, "display_name": resolved_display_name, "layout": layout_data})
         except json.JSONDecodeError:
             return Response({"detail": "Invalid JSON data"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:

@@ -172,8 +172,14 @@ export interface CalendarLayoutEditorProps {
   /** Called when ops clicks Save. Parent serialises + POSTs `layoutJson` as
    *  `layout_data` and `displayName` as the separate `display_name` field.
    *  `maskFile` is a newly chosen mask PNG to upload with it (the server
-   *  stores it and sets `maskUrl`); null when the mask is unchanged. */
-  onSave: (layoutJson: Record<string, unknown>, displayName: string, maskFile: File | null) => void | Promise<void>;
+   *  stores it and sets `maskUrl`); null when the mask is unchanged. Resolve
+   *  with the layout as the server stored it so the editor can adopt the
+   *  stored mask path in place of the chosen file's name. */
+  onSave: (
+    layoutJson: Record<string, unknown>,
+    displayName: string,
+    maskFile: File | null,
+  ) => void | Record<string, unknown> | Promise<void | Record<string, unknown>>;
   /** Called on Cancel button click. Parent navigates away or resets. */
   onCancel?: () => void;
 }
@@ -1026,7 +1032,13 @@ export function CalendarLayoutEditor({
     }
     setBusy(true);
     try {
-      await onSave(draftToLayoutJson(draft, { posterCustomLayout }), draft.displayName ?? '', maskFile);
+      const stored = await onSave(draftToLayoutJson(draft, { posterCustomLayout }), draft.displayName ?? '', maskFile);
+      // The draft holds the chosen file's bare name until the upload; a later
+      // save in this session must send the stored path, not that name.
+      if (maskFile && stored && typeof stored.maskUrl === 'string') {
+        patch({ maskUrl: stored.maskUrl });
+        setMaskFile(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {

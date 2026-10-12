@@ -166,7 +166,11 @@ export default function CalendarLayoutEditorPage() {
     };
   }, [isNew, routeName]);
 
-  async function handleSave(layoutJson: Record<string, unknown>, displayName: string, maskFile: File | null) {
+  async function handleSave(
+    layoutJson: Record<string, unknown>,
+    displayName: string,
+    maskFile: File | null,
+  ): Promise<Record<string, unknown> | undefined> {
     const name = String(layoutJson.name ?? routeName);
     if (!name) throw new Error('Layout name missing from serialised JSON.');
 
@@ -198,6 +202,7 @@ export default function CalendarLayoutEditorPage() {
         (detail as { detail?: string }).detail || `Save failed (HTTP ${res.status}).`,
       );
     }
+    const saved = (await res.json().catch(() => ({}))) as { layout?: Record<string, unknown> };
 
     if (isNew) {
       router.replace(`/editor/layouts/calendar/${encodeURIComponent(name)}`);
@@ -208,6 +213,7 @@ export default function CalendarLayoutEditorPage() {
         router.push('/editor/layouts');
       }, 1500);
     }
+    return saved.layout;
   }
 
   if (loading) {

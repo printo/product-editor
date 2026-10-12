@@ -243,6 +243,21 @@ describe('CalendarLayoutEditor — paper mask', () => {
     expect(json.maskOnExport).toBe(true);
   });
 
+  it('adopts the stored mask path after the upload, so a second save keeps it', async () => {
+    const onSave = jest.fn()
+      .mockResolvedValueOnce({ maskUrl: '/api/layouts/masks/desk_cal_mask.png' })
+      .mockResolvedValue(undefined);
+    setup({ onSave });
+    await goToStep(2);
+    await userEvent.upload(screen.getByTestId('mask-file-input'), new File(['png'], 'desk_frame.png', { type: 'image/png' }));
+    await goToStep(4);
+    await userEvent.click(screen.getByTestId('save-btn'));
+    await userEvent.click(screen.getByTestId('save-btn'));
+    const [json, , maskFile] = onSave.mock.calls[1];
+    expect(maskFile).toBeNull();
+    expect(json.maskUrl).toBe('/api/layouts/masks/desk_cal_mask.png');
+  });
+
   it('keeps an existing mask without re-uploading it', async () => {
     const { onSave } = setup({ initial: { maskUrl: '/api/layouts/masks/desk_mask.png', maskOnExport: true } });
     await goToStep(2);
