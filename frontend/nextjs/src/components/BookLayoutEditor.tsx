@@ -18,7 +18,7 @@
  * gets immediate feedback before Save. The server re-validates regardless.
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { spineWidthMm } from '@/lib/book-layout';
 
 // ─── Draft types ─────────────────────────────────────────────────────────────
@@ -35,7 +35,14 @@ export interface BookRoleDraft {
   canvasHeightMm: number;
   dpi: number;
   frames: BookFrameDraft[];
+  /** Stored mask for this role (`/api/layouts/masks/<file>`), or a newly
+   *  chosen file's name until the save uploads it and the server sets it. */
+  maskUrl?: string | null;
+  maskOnExport?: boolean;
 }
+
+export type BookMaskRole = 'cover' | 'innerPage' | 'backCover';
+export type BookMaskFiles = Partial<Record<BookMaskRole, File>>;
 
 export interface BookLayoutDraft {
   name: string;
@@ -74,9 +81,21 @@ export interface BookLayoutEditorProps {
    * freely editable up to the first save.
    */
   isExistingLayout?: boolean;
+  /**
+   * The layout as stored, for an existing layout. Saving merges the editor's
+   * fields into it, so anything this editor has no control for (pageOverrides,
+   * overlays, frame ids, …) survives a save instead of being dropped.
+   */
+  baseLayout?: Record<string, unknown>;
   /** Called when ops clicks Save. Parent serialises + POSTs `layoutJson` as
-   *  `layout_data` and `displayName` as the separate `display_name` field. */
-  onSave: (layoutJson: Record<string, unknown>, displayName: string) => void | Promise<void>;
+   *  `layout_data` and `displayName` as the separate `display_name` field.
+   *  `maskFiles` holds newly chosen mask PNGs per role, for upload. Resolve
+   *  with the layout as stored so the editor adopts the stored mask paths. */
+  onSave: (
+    layoutJson: Record<string, unknown>,
+    displayName: string,
+    maskFiles: BookMaskFiles,
+  ) => void | Record<string, unknown> | Promise<void | Record<string, unknown>>;
   /** Called on Cancel button click. Parent navigates away or resets. */
   onCancel?: () => void;
 }
@@ -112,26 +131,43 @@ function defaultBookLayout(name: string): BookLayoutDraft {
 
 // ─── Layout-JSON serializer ─────────────────────────────────────────────────
 
-function roleToJson(role: BookRoleDraft): Record<string, unknown> {
+type Json = Record<string, unknown>;
+
+const asObject = (v: unknown): Json => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Json) : {});
+
+function roleToJson(role: BookRoleDraft, base: Json = {}): Json {
   const width = Math.round((role.canvasWidthMm * role.dpi) / 25.4);
   const height = Math.round((role.canvasHeightMm * role.dpi) / 25.4);
-  return {
+  const baseFrames = Array.isArray(base.frames) ? (base.frames as unknown[]) : [];
+  const { maskUrl: _maskUrl, maskOnExport: _maskOnExport, ...rest } = base;
+  const out: Json = {
+    ...rest,
     canvas: {
+      ...asObject(base.canvas),
       width, height,
       widthMm: role.canvasWidthMm,
       heightMm: role.canvasHeightMm,
       dpi: role.dpi,
     },
-    frames: role.frames,
+    // Keep each frame's other keys (ids, captions) — only the box is edited here.
+    frames: role.frames.map(({ x, y, width: w, height: h }, i) => ({ ...asObject(baseFrames[i]), x, y, width: w, height: h })),
   };
+  if (role.maskUrl) {
+    out.maskUrl = role.maskUrl;
+    out.maskOnExport = role.maskOnExport ?? false;
+  }
+  return out;
 }
 
 /**
  * Flatten the editor draft into the canonical layout JSON shape consumed by
  * api/validators.py::validate_book_layout + services/book_layout.py.
  */
-export function draftToLayoutJson(draft: BookLayoutDraft): Record<string, unknown> {
-  const book: Record<string, unknown> = {
+export function draftToLayoutJson(draft: BookLayoutDraft, baseLayout: Json = {}): Json {
+  const baseBook = asObject(baseLayout.book);
+  const { backCover: _baseBackCover, ...bookRest } = baseBook;
+  const book: Json = {
+    ...bookRest,
     bleedMm: draft.bleedMm,
     gutterMm: draft.gutterMm,
     paperThicknessMm: draft.paperThicknessMm,
@@ -142,13 +178,16 @@ export function draftToLayoutJson(draft: BookLayoutDraft): Record<string, unknow
       step: draft.pageCountStep,
       default: draft.pageCountDefault,
     },
-    cover: roleToJson(draft.cover),
-    innerPage: roleToJson(draft.innerPage),
+    cover: roleToJson(draft.cover, asObject(baseBook.cover)),
+    innerPage: roleToJson(draft.innerPage, asObject(baseBook.innerPage)),
   };
   if (draft.hasBackCover) {
-    book.backCover = roleToJson(draft.backCover);
+    book.backCover = roleToJson(draft.backCover, asObject(baseBook.backCover));
   }
+  // displayName comes back on GET but is its own column, saved separately.
+  const { displayName: _displayName, ...rest } = baseLayout;
   return {
+    ...rest,
     name: draft.name,
     productType: draft.productType,
     book,
@@ -242,13 +281,19 @@ function NumberField({
 // ─── One role's canvas + frames + preview (cover / innerPage / backCover) ────
 
 function RoleEditor({
-  title, role, onChange, testIdPrefix,
+  title, role, onChange, testIdPrefix, maskFile, onMaskFile,
 }: {
   title: string;
   role: BookRoleDraft;
   onChange: (next: BookRoleDraft) => void;
   testIdPrefix: string;
+  maskFile: File | null;
+  onMaskFile: (file: File | null) => void;
 }) {
+  const maskPreview = useMemo(() => (maskFile ? URL.createObjectURL(maskFile) : null), [maskFile]);
+  useEffect(() => () => { if (maskPreview) URL.revokeObjectURL(maskPreview); }, [maskPreview]);
+  const maskSrc = maskFile ? maskPreview : role.maskUrl || null;
+
   const patchFrame = (i: number, next: Partial<BookFrameDraft>) => {
     const frames = [...role.frames];
     frames[i] = { ...frames[i], ...next };
@@ -302,7 +347,7 @@ function RoleEditor({
               + Add
             </button>
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 mb-4">
             {role.frames.map((f, i) => (
               <div
                 key={i}
@@ -329,6 +374,61 @@ function RoleEditor({
               </div>
             ))}
           </div>
+
+          <div data-testid={`${testIdPrefix}-mask`}>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-1">
+              Mask <span className="normal-case font-normal text-zinc-400">(optional)</span>
+            </h4>
+            <p className="text-[11px] text-zinc-500 mb-1.5">
+              A PNG the size of this canvas, transparent where photos show.
+            </p>
+            <div className="flex items-center gap-2 mb-1.5">
+              <label className="flex items-center gap-2 cursor-pointer min-w-0">
+                <span className="px-2 py-1 text-xs rounded border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 shrink-0">
+                  {role.maskUrl ? 'Replace PNG' : 'Upload PNG'}
+                </span>
+                <span className="text-xs text-zinc-500 truncate" data-testid={`${testIdPrefix}-mask-current`}>
+                  {maskFile
+                    ? `${maskFile.name} — uploads when you save`
+                    : role.maskUrl
+                      ? role.maskUrl.split('/').pop()
+                      : 'No mask'}
+                </span>
+                <input
+                  type="file"
+                  accept="image/png"
+                  className="sr-only"
+                  data-testid={`${testIdPrefix}-mask-input`}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    onMaskFile(f);
+                    if (f) onChange({ ...role, maskUrl: f.name });
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              {(maskFile || role.maskUrl) && (
+                <button
+                  type="button"
+                  onClick={() => { onMaskFile(null); onChange({ ...role, maskUrl: null, maskOnExport: false }); }}
+                  data-testid={`${testIdPrefix}-mask-remove`}
+                  className="text-xs text-zinc-400 hover:text-red-600 px-1"
+                >
+                  ✕ Remove
+                </button>
+              )}
+            </div>
+            <label className="flex items-center gap-2 text-xs text-zinc-600">
+              <input
+                type="checkbox"
+                checked={!!role.maskOnExport}
+                disabled={!role.maskUrl}
+                onChange={(e) => onChange({ ...role, maskOnExport: e.target.checked })}
+                data-testid={`${testIdPrefix}-mask-on-export`}
+              />
+              Apply mask on export
+            </label>
+          </div>
         </div>
 
         <aside className="flex flex-col gap-2" data-testid={`${testIdPrefix}-preview`}>
@@ -351,6 +451,14 @@ function RoleEditor({
                 }}
               />
             ))}
+            {maskSrc && (
+              <img
+                src={maskSrc}
+                alt=""
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                data-testid={`${testIdPrefix}-mask-preview`}
+              />
+            )}
           </div>
         </aside>
       </div>
@@ -364,6 +472,7 @@ export function BookLayoutEditor({
   initial,
   newLayoutName = 'untitled_book',
   isExistingLayout = false,
+  baseLayout,
   onSave,
   onCancel,
 }: BookLayoutEditorProps) {
@@ -376,8 +485,21 @@ export function BookLayoutEditor({
   }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [maskFiles, setMaskFiles] = useState<BookMaskFiles>({});
 
-  const patch = (next: Partial<BookLayoutDraft>) => setDraft((d) => ({ ...d, ...next }));
+  const patch = (next: Partial<BookLayoutDraft>) => {
+    setSaved(false);
+    setDraft((d) => ({ ...d, ...next }));
+  };
+  const setMaskFile = (role: BookMaskRole) => (file: File | null) => {
+    setSaved(false);
+    setMaskFiles((m) => {
+      const next = { ...m };
+      if (file) next[role] = file; else delete next[role];
+      return next;
+    });
+  };
 
   const handleSave = async () => {
     setError(null);
@@ -388,7 +510,25 @@ export function BookLayoutEditor({
     }
     setBusy(true);
     try {
-      await onSave(draftToLayoutJson(draft), draft.displayName ?? '');
+      const uploads: BookMaskFiles = { ...maskFiles };
+      if (!draft.hasBackCover) delete uploads.backCover;
+      const stored = await onSave(draftToLayoutJson(draft, baseLayout), draft.displayName ?? '', uploads);
+      // Each uploaded role's draft still holds the file's bare name; adopt the
+      // path the server stored, or a later save would send the bare name back.
+      const storedBook = asObject(asObject(stored).book);
+      const roles = Object.keys(uploads) as BookMaskRole[];
+      if (roles.length) {
+        setDraft((d) => {
+          const next = { ...d };
+          for (const role of roles) {
+            const url = asObject(storedBook[role]).maskUrl;
+            if (typeof url === 'string') next[role] = { ...d[role], maskUrl: url };
+          }
+          return next;
+        });
+      }
+      setMaskFiles({});
+      setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
@@ -480,12 +620,16 @@ export function BookLayoutEditor({
           role={draft.cover}
           onChange={(cover) => patch({ cover })}
           testIdPrefix="cover"
+          maskFile={maskFiles.cover ?? null}
+          onMaskFile={setMaskFile('cover')}
         />
         <RoleEditor
           title="Inner page"
           role={draft.innerPage}
           onChange={(innerPage) => patch({ innerPage })}
           testIdPrefix="inner-page"
+          maskFile={maskFiles.innerPage ?? null}
+          onMaskFile={setMaskFile('innerPage')}
         />
 
         <label className="flex items-center gap-2 text-sm text-zinc-700">
@@ -509,6 +653,8 @@ export function BookLayoutEditor({
             role={draft.backCover}
             onChange={(backCover) => patch({ backCover })}
             testIdPrefix="back-cover"
+            maskFile={maskFiles.backCover ?? null}
+            onMaskFile={setMaskFile('backCover')}
           />
         )}
       </div>
@@ -517,6 +663,11 @@ export function BookLayoutEditor({
         {error && (
           <span className="text-xs text-red-600 mr-auto" data-testid="save-error">
             {error}
+          </span>
+        )}
+        {saved && !error && (
+          <span className="text-xs text-emerald-700 mr-auto" role="status" data-testid="save-success">
+            ✓ Saved
           </span>
         )}
         {onCancel && (
