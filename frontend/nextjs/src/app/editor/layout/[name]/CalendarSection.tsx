@@ -59,7 +59,7 @@ export function CalendarSection({
             onMonthTileClick={handleCalendarMonthTileClick}
             cells={calendarCells}
             holidays={printedHolidays}
-            weekStart={layout?.weekStart as any || 'sunday'}
+            weekStart={layout?.weekStart === 'monday' ? 'monday' : 'sunday'}
             defaultYear={layout?.calendarDefaultYear ?? 'current'}
           />
           {selectedCalendarCell && (
@@ -78,7 +78,7 @@ export function CalendarSection({
                   <CalendarDayPicker
                     iso={selectedCalendarCell.iso}
                     months={visibleCalendarMonths}
-                    weekStart={layout?.weekStart as any || 'sunday'}
+                    weekStart={layout?.weekStart === 'monday' ? 'monday' : 'sunday'}
                     cells={calendarCells}
                     holidays={printedHolidays}
                     onSelectDate={selectCalendarDate}
