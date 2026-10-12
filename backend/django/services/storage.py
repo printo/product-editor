@@ -446,12 +446,21 @@ class S3Storage(StorageBackend):
     def masks_dir(self) -> str:
         return f"s3://{self.bucket}/{self.s3_prefix}/masks/"
 
+    def mask_key(self, filename: str) -> str:
+        """The one S3 key for a layout mask — upload, preview and print all use it.
+
+        Under the service prefix like every other key: masks used to live at
+        the bucket root (`masks/<file>`), outside `product-editor/`, the only
+        path the app's IAM user is meant to write.
+        """
+        return self._s3_key(f"masks/{os.path.basename(filename)}")
+
     def read_mask(self, filename: str) -> bytes:
-        """Read from the same `masks/<file>` key the ops upload writes and
-        MaskDownloadView serves. The render used to look on local disk only,
-        which on an S3 deployment holds no masks, so a mask with Mask on Export
-        on reached the preview but never the print."""
-        s3_key = f"masks/{os.path.basename(filename)}"
+        """Read from the key the ops upload writes and MaskDownloadView
+        serves. The render used to look on local disk only, which on an S3
+        deployment holds no masks, so a mask with Mask on Export on reached
+        the preview but never the print."""
+        s3_key = self.mask_key(filename)
         try:
             response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
             return response['Body'].read()

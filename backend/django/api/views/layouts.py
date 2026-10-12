@@ -349,7 +349,7 @@ class MaskDownloadView(APIView):
         try:
             if isinstance(storage, S3Storage):
                 # S3 storage: generate presigned URL and redirect
-                s3_key = f"masks/{filename}"
+                s3_key = storage.mask_key(filename)
                 try:
                     presigned_url = storage.generate_mask_presigned_url(s3_key, expiry=3600)
                     response = Response(status=status.HTTP_301_MOVED_PERMANENTLY)

@@ -506,9 +506,9 @@ def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
     storage = get_storage()
     for mask_filename, upload, block in pending:
         if isinstance(storage, S3Storage):
-            # S3 masks/ prefix (NOT order-based uploads/) — the key
+            # <prefix>/masks/ (NOT order-based uploads/) — the key
             # MaskDownloadView serves and the render reads.
-            s3_key = f"masks/{mask_filename}"
+            s3_key = storage.mask_key(mask_filename)
             storage.s3.put_object(Bucket=storage.bucket, Key=s3_key, Body=upload.read())
             logger.info(f"Uploaded mask to S3: {s3_key}")
         else:
