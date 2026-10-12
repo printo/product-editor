@@ -270,36 +270,41 @@ def _resolve_render_inputs(canvas_data) -> tuple:
     return render_source, image_paths
 
 
-def _build_uploaded_files_map(canvas_data, overlays_per_canvas) -> dict | None:
+def _referenced_upload_ids(overlays_per_canvas, calendar_state=None) -> set[str]:
+    """Every customer upload the print draws besides the frame photos: image
+    overlays (`fileId`) and photos placed on calendar dates (`uploadId` on an
+    `image` entry in `calendar.cells`).
+
+    Calendar date photos were missing here, so the renderer never found their
+    files and printed those dates as empty cells while the editor showed the
+    photo.
     """
-    Build { upload_id → server file path } for image overlays referenced
-    by this canvas's overlays list. Used by the server-side overlay
-    renderer to resolve image overlays that point at local customer
-    uploads (PRD §11 — Phase 1 of the calendar feature roadmap).
-
-    Strategy:
-      1. Walk every overlay across every canvas, collect each `fileId`
-         (which is the upload_session_id assigned by the chunked-upload
-         API when the customer uploaded the image).
-      2. Query UploadedFile filtered by `api_key` (tenant boundary) and
-         the collected upload_session_ids.
-      3. Return a flat { upload_session_id → file_path } map.
-
-    Returns None when no image overlays reference uploads (engine then
-    skips the lookup entirely).
-    """
-    if not overlays_per_canvas:
-        return None
-
     upload_ids: set[str] = set()
-    for canvas_overlays in overlays_per_canvas:
+    for canvas_overlays in overlays_per_canvas or []:
         for o in canvas_overlays or []:
-            if o.get('type') != 'image':
-                continue
-            fid = o.get('fileId')
-            if fid:
-                upload_ids.add(str(fid))
+            if isinstance(o, dict) and o.get('type') == 'image' and o.get('fileId'):
+                upload_ids.add(str(o['fileId']))
+    cells = (calendar_state or {}).get('cells') or {}
+    for entries in cells.values():
+        for e in entries or []:
+            if isinstance(e, dict) and e.get('type') == 'image' and e.get('uploadId'):
+                upload_ids.add(str(e['uploadId']))
+    return upload_ids
 
+
+def _build_uploaded_files_map(canvas_data, overlays_per_canvas, calendar_state=None) -> dict | None:
+    """
+    Build { upload_id → server file path } for the uploads the print draws
+    besides frame photos — image overlays and calendar date photos — so the
+    overlay and calendar renderers can open them.
+
+    Uploads are matched by `upload_session_id` (the id the chunked-upload API
+    gave the customer) within the canvas's own api_key (tenant boundary).
+
+    Returns None when nothing references an upload (the engine then skips
+    the lookup entirely).
+    """
+    upload_ids = _referenced_upload_ids(overlays_per_canvas, calendar_state)
     if not upload_ids:
         return None
 
@@ -483,7 +488,6 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         # map so text/shape/image overlays render server-side. Layouts without
         # overlays return None here and the engine fast-paths past the new code.
         overlays_per_canvas = _extract_overlays_per_canvas(render_source)
-        uploaded_files = _build_uploaded_files_map(canvas, overlays_per_canvas)
 
         # Phase 2 (WYSIWYG) — per-canvas background + paper colours so the print
         # matches the colours the customer chose (previously hardcoded white).
@@ -495,6 +499,11 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         # calendarType / palette choices override the layout defaults at
         # materialize time; per-canvas cells override at render time.
         calendar_state = _extract_calendar_state(render_source)
+
+        # Uploads the print draws besides frame photos: image overlays and
+        # photos placed on calendar dates. Built after calendar_state, which
+        # holds the date photos.
+        uploaded_files = _build_uploaded_files_map(canvas, overlays_per_canvas, calendar_state)
 
         # BOOK_LAYOUT_PRD.md §5.4 — extract the customer's page count + any
         # ops per-page overrides. None for non-book products; engine then
