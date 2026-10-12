@@ -208,7 +208,8 @@ export function useServerRender({
         // were just never sent. Shapes already match the backend union. Drop the
         // non-serialisable File; for a local image overlay set fileId to the
         // server upload id so the backend can resolve the bytes, and drop the
-        // (revoked) blob src. Clipart/icon overlays keep their src path.
+        // (revoked) blob src. Clipart/icon overlays keep their src, but the
+        // print never opens it: image overlays resolve by fileId only.
         overlays: c.overlays.map((ov) => {
           if (ov.type !== 'image') return ov;
           const up = ov.originalFile ? uploadResults.get(ov.originalFile) : null;
