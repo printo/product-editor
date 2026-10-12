@@ -147,6 +147,11 @@ class StorageBackend:
     def masks_dir(self) -> str:
         raise NotImplementedError
 
+    def read_mask(self, filename: str) -> bytes:
+        """A layout mask's bytes, by bare filename. FileNotFoundError if the
+        store doesn't hold it; MaskUnavailable if the store couldn't say."""
+        raise NotImplementedError
+
     def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
         """Read a calendar/ops asset (holidays, styles, palettes).
 
@@ -266,6 +271,10 @@ class LocalStorage(StorageBackend):
         masks_path = os.path.join(os.path.dirname(settings.LAYOUTS_DIR), "masks")
         os.makedirs(masks_path, exist_ok=True)
         return masks_path
+
+    def read_mask(self, filename: str) -> bytes:
+        with open(os.path.join(self.masks_dir(), os.path.basename(filename)), "rb") as f:
+            return f.read()
 
     def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
         return _read_local_calendar_asset(asset_type, asset_name)
@@ -437,6 +446,20 @@ class S3Storage(StorageBackend):
     def masks_dir(self) -> str:
         return f"s3://{self.bucket}/{self.s3_prefix}/masks/"
 
+    def read_mask(self, filename: str) -> bytes:
+        """Read from the same `masks/<file>` key the ops upload writes and
+        MaskDownloadView serves. The render used to look on local disk only,
+        which on an S3 deployment holds no masks, so a mask with Mask on Export
+        on reached the preview but never the print."""
+        s3_key = f"masks/{os.path.basename(filename)}"
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+            return response['Body'].read()
+        except Exception as exc:
+            if _s3_error_code(exc) in _S3_ABSENT_CODES:
+                raise FileNotFoundError(f"Mask not in S3: {s3_key}") from exc
+            raise MaskUnavailable(f"S3 read failed for {s3_key}: {exc}") from exc
+
     def generate_mask_presigned_url(self, s3_key: str, expiry: int = 3600) -> str:
         # If CDN domain is configured, construct CDN URL instead of presigned S3 URL
         if self.cdn_domain:
@@ -561,6 +584,11 @@ class S3Storage(StorageBackend):
                 return _list_local_calendar_assets(asset_type)
             raise CalendarAssetUnavailable(f"S3 list failed for {prefix}: {exc}") from exc
         return sorted((set(_list_local_calendar_assets(asset_type)) | live) - deleted)
+
+
+class MaskUnavailable(Exception):
+    """The store couldn't say whether a mask exists (outage, credentials).
+    Raised rather than printing without the mask; the render retries."""
 
 
 class CalendarAssetUnavailable(Exception):
