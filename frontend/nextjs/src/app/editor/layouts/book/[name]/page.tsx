@@ -24,12 +24,15 @@ import { useHeader } from '@/context/HeaderContext';
 import {
   BookLayoutEditor,
   type BookLayoutDraft,
+  type BookMaskFiles,
   type BookRoleDraft,
 } from '@/components/BookLayoutEditor';
 
 interface ExistingRoleJson {
   canvas?: { width?: number; height?: number; widthMm?: number; heightMm?: number; dpi?: number };
   frames?: Array<{ x: number; y: number; width: number; height: number }>;
+  maskUrl?: string | null;
+  maskOnExport?: boolean;
 }
 
 interface ExistingLayoutJson {
@@ -50,11 +53,17 @@ interface ExistingLayoutJson {
 
 function roleFromJson(role: ExistingRoleJson | undefined, fallback: BookRoleDraft): BookRoleDraft {
   if (!role) return fallback;
+  const dpi = role.canvas?.dpi ?? fallback.dpi;
+  // A pixels-only canvas (hand-authored JSON) converts back to mm rather than
+  // resetting to the fallback size.
+  const mm = (px: number | undefined) => (px ? Math.round((px * 25.4 / dpi) * 10) / 10 : undefined);
   return {
-    canvasWidthMm: role.canvas?.widthMm ?? fallback.canvasWidthMm,
-    canvasHeightMm: role.canvas?.heightMm ?? fallback.canvasHeightMm,
-    dpi: role.canvas?.dpi ?? fallback.dpi,
+    canvasWidthMm: role.canvas?.widthMm ?? mm(role.canvas?.width) ?? fallback.canvasWidthMm,
+    canvasHeightMm: role.canvas?.heightMm ?? mm(role.canvas?.height) ?? fallback.canvasHeightMm,
+    dpi,
     frames: role.frames ?? fallback.frames,
+    maskUrl: role.maskUrl ?? null,
+    maskOnExport: role.maskOnExport ?? false,
   };
 }
 
@@ -103,6 +112,7 @@ export default function BookLayoutEditorPage() {
   }, [isNew, routeName, setTitle, setDescription, setCenterActions, setRightActions]);
 
   const [initial, setInitial] = useState<Partial<BookLayoutDraft> | null>(null);
+  const [baseLayout, setBaseLayout] = useState<Record<string, unknown> | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -126,6 +136,7 @@ export default function BookLayoutEditorPage() {
             );
           } else {
             setInitial(existingToInitial(existing));
+            setBaseLayout(existing as unknown as Record<string, unknown>);
           }
         }
       } catch (e) {
@@ -138,28 +149,49 @@ export default function BookLayoutEditorPage() {
     return () => { cancelled = true; };
   }, [isNew, routeName]);
 
-  async function handleSave(layoutJson: Record<string, unknown>, displayName: string) {
+  async function handleSave(
+    layoutJson: Record<string, unknown>,
+    displayName: string,
+    maskFiles: BookMaskFiles,
+  ): Promise<Record<string, unknown> | undefined> {
     const name = String(layoutJson.name ?? routeName);
     if (!name) throw new Error('Layout name missing from serialised JSON.');
 
     // `name` is immutable once created (2026-09-16) — the editor locks the
     // identifier input once isExistingLayout is true, so this is always a
     // create (isNew) or an update to the SAME name, never a rename.
-    const body: Record<string, unknown> = { name, display_name: displayName, layout_data: layoutJson };
+    // New mask PNGs go up as multipart (`mask_<role>`): the server stores
+    // each one and sets that role's maskUrl. JSON otherwise, as before.
+    const masks = Object.entries(maskFiles).filter((e): e is [string, File] => Boolean(e[1]));
+    let init: RequestInit;
+    if (masks.length) {
+      const form = new FormData();
+      form.append('name', name);
+      form.append('display_name', displayName);
+      form.append('layout_data', JSON.stringify(layoutJson));
+      for (const [role, file] of masks) form.append(`mask_${role}`, file);
+      init = { method: 'POST', body: form };
+    } else {
+      init = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, display_name: displayName, layout_data: layoutJson }),
+      };
+    }
 
-    const res = await fetch(`/api/internal/proxy/ops/layouts/${encodeURIComponent(name)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const res = await fetch(`/api/internal/proxy/ops/layouts/${encodeURIComponent(name)}`, init);
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}));
       throw new Error((detail as { detail?: string }).detail || `Save failed (HTTP ${res.status}).`);
     }
+    const saved = (await res.json().catch(() => ({}))) as { layout?: Record<string, unknown> };
+    // The next save merges into what is now stored, not the layout as loaded.
+    if (saved.layout) setBaseLayout(saved.layout);
 
     if (isNew) {
       router.replace(`/editor/layouts/book/${encodeURIComponent(name)}`);
     }
+    return saved.layout;
   }
 
   if (loading) {
@@ -188,6 +220,7 @@ export default function BookLayoutEditorPage() {
       initial={initial ?? undefined}
       newLayoutName={isNew ? 'untitled_book' : routeName}
       isExistingLayout={!isNew}
+      baseLayout={baseLayout}
       onSave={handleSave}
       onCancel={() => router.push('/editor/layouts')}
     />

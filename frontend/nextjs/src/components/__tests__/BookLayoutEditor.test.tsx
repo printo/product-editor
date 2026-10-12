@@ -68,6 +68,95 @@ describe('draftToLayoutJson', () => {
   });
 });
 
+describe('draftToLayoutJson — keeps what the editor has no control for', () => {
+  const stored = {
+    name: 'softcover_a4',
+    displayName: 'Softcover A4',
+    productType: 'book',
+    tags: ['Photobook'],
+    book: {
+      gutterMm: 12,
+      pageOverrides: { '3': { frames: [{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }] } },
+      cover: {
+        canvas: { width: 1, height: 1, bleedMm: 3 },
+        frames: [{ id: 'cover-photo', caption: 'Our trip', x: 0, y: 0, width: 1, height: 1 }],
+        overlays: [{ type: 'text', text: 'Hello' }],
+        maskUrl: '/api/layouts/masks/softcover_a4_cover_mask.png',
+        maskOnExport: true,
+      },
+      innerPage: { canvas: { width: 1, height: 1 }, frames: [] },
+      backCover: { canvas: { width: 1, height: 1 }, frames: [] },
+    },
+  };
+
+  it('merges the edits into the stored layout', () => {
+    const json = draftToLayoutJson(goodDraft({
+      cover: {
+        canvasWidthMm: 303, canvasHeightMm: 216, dpi: 300,
+        frames: [{ x: 0.05, y: 0.05, width: 0.9, height: 0.9 }],
+        maskUrl: '/api/layouts/masks/softcover_a4_cover_mask.png', maskOnExport: true,
+      },
+    }), stored) as any;
+    expect(json.tags).toEqual(['Photobook']);
+    expect(json.book.pageOverrides).toEqual(stored.book.pageOverrides);
+    expect(json.book.cover.overlays).toEqual([{ type: 'text', text: 'Hello' }]);
+    expect(json.book.cover.canvas.bleedMm).toBe(3);
+    expect(json.book.cover.canvas.widthMm).toBe(303);
+    expect(json.book.cover.frames[0]).toEqual({ id: 'cover-photo', caption: 'Our trip', x: 0.05, y: 0.05, width: 0.9, height: 0.9 });
+    expect(json.book.cover.maskUrl).toBe('/api/layouts/masks/softcover_a4_cover_mask.png');
+    expect(json.book.gutterMm).toBe(10);
+    expect(json).not.toHaveProperty('displayName');
+  });
+
+  it('drops a removed mask and an unticked back cover', () => {
+    const json = draftToLayoutJson(goodDraft(), stored) as any;
+    expect(json.book.cover).not.toHaveProperty('maskUrl');
+    expect(json.book.cover).not.toHaveProperty('maskOnExport');
+    expect(json.book).not.toHaveProperty('backCover');
+  });
+});
+
+describe('BookLayoutEditor — masks', () => {
+  it('hands each chosen PNG to onSave under its role', async () => {
+    const { onSave } = setup({ newLayoutName: 'framed_book' });
+    const cover = new File(['png'], 'cover_frame.png', { type: 'image/png' });
+    const inner = new File(['png'], 'page_frame.png', { type: 'image/png' });
+    await userEvent.upload(screen.getByTestId('cover-mask-input'), cover);
+    await userEvent.upload(screen.getByTestId('inner-page-mask-input'), inner);
+    expect(screen.getByTestId('cover-mask-current')).toHaveTextContent('cover_frame.png — uploads when you save');
+    await userEvent.click(screen.getByTestId('cover-mask-on-export'));
+    await userEvent.click(screen.getByTestId('save-btn'));
+    const [json, , files] = onSave.mock.calls[0];
+    expect(files).toEqual({ cover: cover, innerPage: inner });
+    expect(json.book.cover.maskOnExport).toBe(true);
+    expect(json.book.innerPage.maskOnExport).toBe(false);
+    expect(await screen.findByTestId('save-success')).toHaveTextContent('Saved');
+  });
+
+  it('adopts the stored mask path after the upload, so a second save keeps it', async () => {
+    const onSave = jest.fn()
+      .mockResolvedValueOnce({ book: { cover: { maskUrl: '/api/layouts/masks/framed_book_cover_mask.png' } } })
+      .mockResolvedValue(undefined);
+    setup({ newLayoutName: 'framed_book', onSave });
+    await userEvent.upload(screen.getByTestId('cover-mask-input'), new File(['png'], 'cover_frame.png', { type: 'image/png' }));
+    await userEvent.click(screen.getByTestId('save-btn'));
+    await screen.findByTestId('save-success');
+    await userEvent.click(screen.getByTestId('save-btn'));
+    const [json, , files] = onSave.mock.calls[1];
+    expect(files).toEqual({});
+    expect(json.book.cover.maskUrl).toBe('/api/layouts/masks/framed_book_cover_mask.png');
+  });
+
+  it('does not upload a back-cover mask once the back cover is switched off', async () => {
+    const { onSave } = setup({ newLayoutName: 'framed_book' });
+    await userEvent.click(screen.getByTestId('has-back-cover-checkbox'));
+    await userEvent.upload(screen.getByTestId('back-cover-mask-input'), new File(['png'], 'b.png', { type: 'image/png' }));
+    await userEvent.click(screen.getByTestId('has-back-cover-checkbox'));
+    await userEvent.click(screen.getByTestId('save-btn'));
+    expect(onSave.mock.calls[0][2]).toEqual({});
+  });
+});
+
 describe('validateDraft', () => {
   it('accepts a well-formed draft', () => {
     expect(validateDraft(goodDraft())).toBeNull();
