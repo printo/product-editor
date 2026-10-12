@@ -1,4 +1,5 @@
 """Ops layout management (create, update, soft-delete) and layout cache invalidation."""
+import hashlib
 import os
 import re
 import json
@@ -397,7 +398,7 @@ class LayoutManagementView(APIView):
         tags=["ops"],
         summary="Delete a layout",
         description=(
-            "Removes the layout JSON and any `<name>_mask.*` file beside it, then "
+            "Soft-deletes the layout (it stays listed under \"Show deleted\"; mask files are kept), then "
             "invalidates both the list cache and this layout's detail cache "
             "entries. Dropping only the list cache used to leave the deleted "
             "template visible on the Templates page — and still openable in the "
@@ -499,22 +500,27 @@ def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
         if ext != '.png':
             raise ValueError("Masks must be PNG files, with a transparent window where the photo shows.")
         stem = f"{layout_name}_{target}_mask" if target else f"{layout_name}_mask"
-        pending.append((f"{stem}.png", upload, block))
+        data = upload.read()
+        # A content fingerprint in the name gives every distinct mask its own
+        # URL, so a CDN or browser can cache it for good: replacing a mask
+        # changes its URL instead of serving the old image from cache while
+        # the print uses the new one.
+        digest = hashlib.sha256(data).hexdigest()[:10]
+        pending.append((f"{stem}_{digest}.png", data, block))
 
     if not pending:
         return
     storage = get_storage()
-    for mask_filename, upload, block in pending:
+    for mask_filename, data, block in pending:
         if isinstance(storage, S3Storage):
             # <prefix>/masks/ (NOT order-based uploads/) — the key
             # MaskDownloadView serves and the render reads.
             s3_key = storage.mask_key(mask_filename)
-            storage.s3.put_object(Bucket=storage.bucket, Key=s3_key, Body=upload.read())
+            storage.s3.put_object(Bucket=storage.bucket, Key=s3_key, Body=data, ContentType='image/png')
             logger.info(f"Uploaded mask to S3: {s3_key}")
         else:
             mask_path = os.path.join(storage.masks_dir(), mask_filename)
-            with open(mask_path, 'wb+') as destination:
-                for chunk in upload.chunks():
-                    destination.write(chunk)
+            with open(mask_path, 'wb') as destination:
+                destination.write(data)
             logger.info(f"Uploaded mask to disk: {mask_path}")
         block['maskUrl'] = f"/api/layouts/masks/{mask_filename}"

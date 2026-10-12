@@ -36,6 +36,7 @@ class FakeS3Client:
     def __init__(self):
         self.objects: dict[str, bytes] = {}
         self.metadata: dict[str, dict] = {}
+        self.content_types: dict[str, str | None] = {}
         self.reads: list[str] = []
         # Set to an exception instance to make every get / put / list raise it.
         self.get_error: Exception | None = None
@@ -62,9 +63,10 @@ class FakeS3Client:
         assert bucket == BUCKET
         self._store(key, fileobj.read())
 
-    def put_object(self, Bucket, Key, Body=b"", Metadata=None):
+    def put_object(self, Bucket, Key, Body=b"", Metadata=None, ContentType=None):
         assert Bucket == BUCKET
         self._store(Key, Body, Metadata)
+        self.content_types[Key] = ContentType
 
     def list_objects_v2(self, Bucket, Prefix, Delimiter=None, ContinuationToken=None):
         assert Bucket == BUCKET
