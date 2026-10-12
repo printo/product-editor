@@ -322,11 +322,11 @@ class MaskDownloadView(APIView):
             "Serves the mask bitmap a layout clips its frames against. Public if "
             "you know the filename — masks are shape stencils, not customer data.\n\n"
             "**Local storage (dev):** Streams the file directly.\n"
-            "**S3 storage (prod):** Returns a 301 redirect to a presigned URL (1-hour expiry)."
+            "**S3 storage (prod):** Returns a 302 redirect to a presigned URL (1-hour expiry), or to the CDN when `S3_CDN_DOMAIN` is set."
         ),
         responses={
             200: OpenApiResponse(response=OpenApiTypes.BINARY, description="The mask image (usually image/png) — local storage only."),
-            301: OpenApiResponse(description="Redirect to presigned S3 URL — S3 storage only."),
+            302: OpenApiResponse(description="Redirect to the mask on S3 (presigned) or the CDN — S3 storage only."),
             400: OpenApiResponse(description="Malformed filename (path traversal attempt or invalid characters)."),
             404: OpenApiResponse(description="No such mask."),
             502: OpenApiResponse(description="S3 service error."),
@@ -352,8 +352,11 @@ class MaskDownloadView(APIView):
                 s3_key = storage.mask_key(filename)
                 try:
                     presigned_url = storage.generate_mask_presigned_url(s3_key, expiry=3600)
-                    response = Response(status=status.HTTP_301_MOVED_PERMANENTLY)
+                    # 302, not 301: browsers keep a 301 indefinitely, and this
+                    # target is a signed URL that expires in an hour.
+                    response = Response(status=status.HTTP_302_FOUND)
                     response['Location'] = presigned_url
+                    response['Cache-Control'] = 'private, max-age=300'
                     return response
                 except Exception as exc:
                     logger.error(f"Failed to generate presigned URL for mask {filename}: {exc}")

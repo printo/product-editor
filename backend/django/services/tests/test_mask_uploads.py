@@ -14,6 +14,7 @@ Run stand-alone:
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 
@@ -31,6 +32,7 @@ from services import storage as storage_mod
 from services.tests.fake_s3 import S3Backend
 
 PNG = b"\x89PNG\r\n\x1a\nfake"
+FP = hashlib.sha256(PNG).hexdigest()[:10]
 
 
 def _png(name="frame.png", body=PNG):
@@ -69,16 +71,16 @@ def test_layout_wide_mask_sets_root_mask_url():
     layout = {"canvas": {"width": 10, "height": 10}}
     with _LocalStore() as st:
         _store_uploaded_masks({"mask": _png()}, "a4_frame", layout)
-        assert st.masks() == ["a4_frame_mask.png"]
-    assert layout["maskUrl"] == "/api/layouts/masks/a4_frame_mask.png"
+        assert st.masks() == [f"a4_frame_mask_{FP}.png"]
+    assert layout["maskUrl"] == f"/api/layouts/masks/a4_frame_mask_{FP}.png"
 
 
 def test_surface_mask_sets_that_surface_only():
     layout = {"type": "product", "surfaces": [{"key": "front"}, {"key": "back"}]}
     with _LocalStore() as st:
         _store_uploaded_masks({"mask_back": _png()}, "sleeve", layout)
-        assert st.masks() == ["sleeve_back_mask.png"]
-    assert layout["surfaces"][1]["maskUrl"] == "/api/layouts/masks/sleeve_back_mask.png"
+        assert st.masks() == [f"sleeve_back_mask_{FP}.png"]
+    assert layout["surfaces"][1]["maskUrl"] == f"/api/layouts/masks/sleeve_back_mask_{FP}.png"
     assert "maskUrl" not in layout["surfaces"][0]
     assert "maskUrl" not in layout
 
@@ -87,8 +89,8 @@ def test_book_role_masks_set_each_role():
     layout = {"productType": "book", "book": {"cover": {}, "innerPage": {}, "backCover": {}}}
     with _LocalStore():
         _store_uploaded_masks({"mask_cover": _png(), "mask_innerPage": _png()}, "photobook", layout)
-    assert layout["book"]["cover"]["maskUrl"] == "/api/layouts/masks/photobook_cover_mask.png"
-    assert layout["book"]["innerPage"]["maskUrl"] == "/api/layouts/masks/photobook_innerPage_mask.png"
+    assert layout["book"]["cover"]["maskUrl"] == f"/api/layouts/masks/photobook_cover_mask_{FP}.png"
+    assert layout["book"]["innerPage"]["maskUrl"] == f"/api/layouts/masks/photobook_innerPage_mask_{FP}.png"
     assert "maskUrl" not in layout["book"]["backCover"]
 
 
@@ -139,8 +141,33 @@ def test_s3_upload_uses_the_key_the_preview_and_print_read():
     layout = {"productType": "book", "book": {"cover": {}, "innerPage": {}}}
     with S3Backend() as s3:
         _store_uploaded_masks({"mask_cover": _png()}, "photobook", layout)
-        assert s3.client.objects["product-editor/masks/photobook_cover_mask.png"] == PNG
-    assert layout["book"]["cover"]["maskUrl"] == "/api/layouts/masks/photobook_cover_mask.png"
+        assert s3.client.objects[f"product-editor/masks/photobook_cover_mask_{FP}.png"] == PNG
+        # Served through the CDN as-is, so it must say it's a PNG.
+        assert s3.client.content_types[f"product-editor/masks/photobook_cover_mask_{FP}.png"] == "image/png"
+    assert layout["book"]["cover"]["maskUrl"] == f"/api/layouts/masks/photobook_cover_mask_{FP}.png"
+
+
+def test_a_replaced_mask_gets_a_new_url_and_the_same_mask_keeps_its_url():
+    """Cache safety: a CDN or browser may keep a mask URL for good."""
+    with _LocalStore():
+        first, again, other = ({"canvas": {}} for _ in range(3))
+        _store_uploaded_masks({"mask": _png()}, "a4", first)
+        _store_uploaded_masks({"mask": _png()}, "a4", again)
+        _store_uploaded_masks({"mask": _png(body=PNG + b"v2")}, "a4", other)
+    assert first["maskUrl"] == again["maskUrl"]
+    assert other["maskUrl"] != first["maskUrl"]
+
+
+def test_mask_preview_is_a_temporary_redirect():
+    """A 301 is cached indefinitely; the target here is a signed URL that expires."""
+    from django.test import RequestFactory
+    from api.views.layouts import MaskDownloadView
+    with S3Backend() as s3:
+        s3.storage.cdn_domain = "cdn.example.test"
+        resp = MaskDownloadView.as_view()(RequestFactory().get("/api/layouts/masks/a4_mask_x.png"), filename="a4_mask_x.png")
+    assert resp.status_code == 302, resp.status_code
+    assert resp["Location"] == "https://cdn.example.test/product-editor/masks/a4_mask_x.png"
+    assert "max-age=300" in resp["Cache-Control"]
 
 
 if __name__ == "__main__":
