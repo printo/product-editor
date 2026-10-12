@@ -19,6 +19,11 @@ import { HeaderProvider } from '@/context/HeaderContext';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
+// The step-2 Fabric canvas needs a real canvas; the mask upload under test doesn't.
+jest.mock('@/components/CalendarFabricPreview', () => ({
+  CalendarFabricPreview: () => null,
+}));
+
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
 const mockParams: { name: string } = { name: 'new' };
@@ -207,6 +212,35 @@ describe('CalendarLayoutEditor wrapper — save flow', () => {
     expect(mockReplace).toHaveBeenCalledWith(
       expect.stringMatching(/\/editor\/layouts\/calendar\//)
     );
+  });
+
+  it('uploads a newly chosen mask with the layout as multipart', async () => {
+    const fetchStub = makeFetchStub({
+      'calendar-styles/modern-genz': { body: STYLE_RESPONSE },
+      'holidays/en-IN': { body: HOLIDAYS_RESPONSE },
+      'ops/layouts': { body: { ok: true } },
+    });
+    global.fetch = fetchStub;
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument()
+    );
+    await userEvent.click(screen.getByTestId('step-2'));
+    const png = new File(['png'], 'desk_frame.png', { type: 'image/png' });
+    await userEvent.upload(screen.getByTestId('mask-file-input'), png);
+    await goToReviewStep();
+    await userEvent.click(screen.getByTestId('save-btn'));
+    let init: RequestInit | undefined;
+    await waitFor(() => {
+      const opsCall = fetchStub.mock.calls.find((args) => String(args[0]).includes('/ops/layouts/'));
+      expect(opsCall).toBeTruthy();
+      init = opsCall![1];
+    });
+    const form = init!.body as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    expect((form.get('mask') as File).name).toBe('desk_frame.png');
+    expect(JSON.parse(form.get('layout_data') as string).productType).toBe('calendar');
+    expect(init!.headers).toBeUndefined();
   });
 
   it('locks the identifier for an existing layout and sends display_name instead of a rename', async () => {

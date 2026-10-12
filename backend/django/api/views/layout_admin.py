@@ -1,5 +1,6 @@
 """Ops layout management (create, update, soft-delete) and layout cache invalidation."""
 import os
+import re
 import json
 import logging
 from rest_framework.views import APIView
@@ -327,41 +328,21 @@ class LayoutManagementView(APIView):
                     msg = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
                     return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Handle mask uploads (S3 or local storage)
-            mask_file = request.FILES.get('mask')
-            if mask_file:
-                try:
-                    storage = get_storage()
-                    from services.storage import S3Storage
-                    import io
-
-                    mask_filename = f"{layout_name}_mask{os.path.splitext(mask_file.name)[1]}"
-
-                    if isinstance(storage, S3Storage):
-                        # Upload directly to S3 masks/ prefix (NOT order-based uploads/)
-                        mask_content = mask_file.file.read()
-                        s3_key = f"masks/{mask_filename}"
-                        storage.s3.put_object(
-                            Bucket=storage.bucket,
-                            Key=s3_key,
-                            Body=mask_content,
-                        )
-                        layout_data['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
-                        logger.info(f"Uploaded mask to S3: {s3_key}")
-                    else:
-                        # Upload to local storage masks/ directory
-                        mask_path = os.path.join(storage.masks_dir(), mask_filename)
-                        with open(mask_path, 'wb+') as destination:
-                            for chunk in mask_file.chunks():
-                                destination.write(chunk)
-                        layout_data['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
-                        logger.info(f"Uploaded mask to disk: {mask_path}")
-                except Exception as exc:
-                    logger.error(f"Failed to upload mask: {exc}")
-                    return Response(
-                        {"detail": f"Failed to upload mask: {str(exc)}"},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                    )
+            # Mask uploads: `mask` is the layout-wide mask; `mask_<target>` is
+            # one surface's (multi-surface products, by surface key) or one
+            # book role's (cover / innerPage / backCover). The generic editor
+            # has always sent `mask_<key>` for multi-surface products, but only
+            # `mask` was ever read, so those uploads were silently dropped.
+            try:
+                _store_uploaded_masks(request.FILES, layout_name, layout_data)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            except Exception as exc:
+                logger.error(f"Failed to upload mask: {exc}")
+                return Response(
+                    {"detail": f"Failed to upload mask: {str(exc)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
             # Infer product_type from definition
             product_type = layout_data.get('productType', 'single_canvas')
@@ -473,3 +454,67 @@ class LayoutManagementView(APIView):
         except Exception as e:
             logger.error(f"Error deleting layout {name}: {str(e)}")
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+_MASK_TARGET_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
+_BOOK_MASK_ROLES = ('cover', 'innerPage', 'backCover')
+
+
+def _mask_target_block(layout_data: dict, target: str) -> dict:
+    """The dict whose `maskUrl` a `mask_<target>` upload sets."""
+    if layout_data.get('productType') == 'book':
+        book = layout_data.get('book') or {}
+        if target in _BOOK_MASK_ROLES and isinstance(book.get(target), dict):
+            return book[target]
+        raise ValueError(
+            f"Mask for '{target}': a book layout takes masks for "
+            f"{', '.join(r for r in _BOOK_MASK_ROLES if isinstance(book.get(r), dict))} only."
+        )
+    for surface in layout_data.get('surfaces') or []:
+        if isinstance(surface, dict) and surface.get('key') == target:
+            return surface
+    raise ValueError(f"Mask for '{target}': this layout has no surface with that key.")
+
+
+def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
+    """Save every mask in the upload and point the layout at it.
+
+    Validates all targets before writing any file, so a bad request leaves
+    storage untouched.
+    """
+    from services.storage import S3Storage
+
+    pending = []
+    for field, upload in files.items():
+        if field == 'mask':
+            target, block = None, layout_data
+        elif field.startswith('mask_'):
+            target = field[len('mask_'):]
+            if not _MASK_TARGET_RE.match(target):
+                raise ValueError(f"Invalid mask field '{field}'.")
+            block = _mask_target_block(layout_data, target)
+        else:
+            continue
+        ext = os.path.splitext(upload.name)[1].lower()
+        if ext != '.png':
+            raise ValueError("Masks must be PNG files, with a transparent window where the photo shows.")
+        stem = f"{layout_name}_{target}_mask" if target else f"{layout_name}_mask"
+        pending.append((f"{stem}.png", upload, block))
+
+    if not pending:
+        return
+    storage = get_storage()
+    for mask_filename, upload, block in pending:
+        if isinstance(storage, S3Storage):
+            # S3 masks/ prefix (NOT order-based uploads/) — the key
+            # MaskDownloadView serves and the render reads.
+            s3_key = f"masks/{mask_filename}"
+            storage.s3.put_object(Bucket=storage.bucket, Key=s3_key, Body=upload.read())
+            logger.info(f"Uploaded mask to S3: {s3_key}")
+        else:
+            mask_path = os.path.join(storage.masks_dir(), mask_filename)
+            with open(mask_path, 'wb+') as destination:
+                for chunk in upload.chunks():
+                    destination.write(chunk)
+            logger.info(f"Uploaded mask to disk: {mask_path}")
+        block['maskUrl'] = f"/api/layouts/masks/{mask_filename}"

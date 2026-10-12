@@ -170,8 +170,10 @@ export interface CalendarLayoutEditorProps {
   /** Clock override for tests — pins the year "Auto-roll" resolves to. */
   now?: Date;
   /** Called when ops clicks Save. Parent serialises + POSTs `layoutJson` as
-   *  `layout_data` and `displayName` as the separate `display_name` field. */
-  onSave: (layoutJson: Record<string, unknown>, displayName: string) => void | Promise<void>;
+   *  `layout_data` and `displayName` as the separate `display_name` field.
+   *  `maskFile` is a newly chosen mask PNG to upload with it (the server
+   *  stores it and sets `maskUrl`); null when the mask is unchanged. */
+  onSave: (layoutJson: Record<string, unknown>, displayName: string, maskFile: File | null) => void | Promise<void>;
   /** Called on Cancel button click. Parent navigates away or resets. */
   onCancel?: () => void;
 }
@@ -1024,7 +1026,7 @@ export function CalendarLayoutEditor({
     }
     setBusy(true);
     try {
-      await onSave(draftToLayoutJson(draft, { posterCustomLayout }), draft.displayName ?? '');
+      await onSave(draftToLayoutJson(draft, { posterCustomLayout }), draft.displayName ?? '', maskFile);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
@@ -1377,24 +1379,32 @@ export function CalendarLayoutEditor({
                 <h2 className="text-sm font-semibold text-zinc-900 mb-1">
                   Paper mask <span className="text-zinc-400 font-normal">(optional)</span>
                 </h2>
+                <p className="text-xs text-zinc-500 mb-1.5">
+                  A PNG the size of the canvas, transparent where the photo and calendar show. Every month uses the same mask.
+                </p>
                 {/* File picker row */}
                 <div className="flex items-center gap-2 mb-1.5">
                   <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
                     <span className="px-2 py-1 text-xs rounded border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 shrink-0">
-                      Choose file
+                      {draft.maskUrl ? 'Replace PNG' : 'Upload PNG'}
                     </span>
-                    <span className="text-xs text-zinc-400 truncate">
-                      {maskFile ? maskFile.name : 'No file chosen'}
+                    <span className="text-xs text-zinc-500 truncate" data-testid="mask-current">
+                      {maskFile
+                        ? `${maskFile.name} — uploads when you save`
+                        : draft.maskUrl
+                          ? draft.maskUrl.split('/').pop()
+                          : 'No mask'}
                     </span>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/png"
                       className="sr-only"
                       data-testid="mask-file-input"
                       onChange={(e) => {
                         const f = e.target.files?.[0] ?? null;
                         setMaskFile(f);
                         if (f) patch({ maskUrl: f.name });
+                        e.target.value = '';
                       }}
                     />
                   </label>
@@ -1404,20 +1414,12 @@ export function CalendarLayoutEditor({
                       data-testid="mask-clear-btn"
                       onClick={() => { setMaskFile(null); patch({ maskUrl: null, maskOnExport: false }); }}
                       className="text-xs text-zinc-400 hover:text-red-500 shrink-0 px-1"
-                      title="Clear mask"
+                      title="Remove mask"
                     >
-                      ✕ Clear
+                      ✕ Remove
                     </button>
                   )}
                 </div>
-                <input
-                  type="text"
-                  value={draft.maskUrl ?? ''}
-                  placeholder="e.g. desk_calendar_mask.png"
-                  onChange={(e) => { patch({ maskUrl: e.target.value || null }); if (!e.target.value) setMaskFile(null); }}
-                  data-testid="mask-url"
-                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-xs font-mono mb-1.5"
-                />
                 <label className="flex items-center gap-2 text-xs text-zinc-600">
                   <input type="checkbox" checked={!!draft.maskOnExport} disabled={!draft.maskUrl}
                     onChange={(e) => patch({ maskOnExport: e.target.checked })} data-testid="mask-on-export" />

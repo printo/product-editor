@@ -226,6 +226,35 @@ describe('CalendarLayoutEditor — mode toggle', () => {
   });
 });
 
+// ─── Paper mask ───────────────────────────────────────────────────────────
+
+describe('CalendarLayoutEditor — paper mask', () => {
+  it('hands a chosen PNG to onSave so it can be uploaded', async () => {
+    const { onSave } = setup();
+    await goToStep(2);
+    const png = new File(['png'], 'desk_frame.png', { type: 'image/png' });
+    await userEvent.upload(screen.getByTestId('mask-file-input'), png);
+    expect(screen.getByTestId('mask-current')).toHaveTextContent('desk_frame.png — uploads when you save');
+    await userEvent.click(screen.getByTestId('mask-on-export'));
+    await goToStep(4);
+    await userEvent.click(screen.getByTestId('save-btn'));
+    const [json, , maskFile] = onSave.mock.calls[0];
+    expect(maskFile).toBe(png);
+    expect(json.maskOnExport).toBe(true);
+  });
+
+  it('keeps an existing mask without re-uploading it', async () => {
+    const { onSave } = setup({ initial: { maskUrl: '/api/layouts/masks/desk_mask.png', maskOnExport: true } });
+    await goToStep(2);
+    expect(screen.getByTestId('mask-current')).toHaveTextContent('desk_mask.png');
+    await goToStep(4);
+    await userEvent.click(screen.getByTestId('save-btn'));
+    const [json, , maskFile] = onSave.mock.calls[0];
+    expect(maskFile).toBeNull();
+    expect(json.maskUrl).toBe('/api/layouts/masks/desk_mask.png');
+  });
+});
+
 // ─── Style controls ────────────────────────────────────────────────────────
 
 describe('CalendarLayoutEditor — style controls', () => {
@@ -733,12 +762,11 @@ describe('CalendarLayoutEditor — review fix #12 (mm readback)', () => {
 });
 
 describe('CalendarLayoutEditor — review fix #5 (mask UI) [Gap A]', () => {
-  it('renders the mask section with empty URL by default', async () => {
+  it('renders the mask section with no mask by default', async () => {
     setup();
     await goToStep(2);
     expect(screen.getByTestId('mask-section')).toBeInTheDocument();
-    const urlField = screen.getByTestId('mask-url') as HTMLInputElement;
-    expect(urlField.value).toBe('');
+    expect(screen.getByTestId('mask-current')).toHaveTextContent('No mask');
   });
 
   it('disables maskOnExport when maskUrl is empty', async () => {
@@ -747,17 +775,17 @@ describe('CalendarLayoutEditor — review fix #5 (mask UI) [Gap A]', () => {
     expect(screen.getByTestId('mask-on-export')).toBeDisabled();
   });
 
-  it('enables maskOnExport once a mask URL is typed', async () => {
+  it('enables maskOnExport once a mask PNG is chosen', async () => {
     setup();
     await goToStep(2);
-    await userEvent.type(screen.getByTestId('mask-url'), 'desk_mask.png');
+    await userEvent.upload(screen.getByTestId('mask-file-input'), new File(['png'], 'desk_mask.png', { type: 'image/png' }));
     expect(screen.getByTestId('mask-on-export')).not.toBeDisabled();
   });
 
   it('serialises maskUrl + maskOnExport when set', async () => {
     const { onSave } = setup();
     await goToStep(2);
-    await userEvent.type(screen.getByTestId('mask-url'), 'my_mask.png');
+    await userEvent.upload(screen.getByTestId('mask-file-input'), new File(['png'], 'my_mask.png', { type: 'image/png' }));
     await userEvent.click(screen.getByTestId('mask-on-export'));
     await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
