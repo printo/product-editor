@@ -166,33 +166,43 @@ export default function CalendarLayoutEditorPage() {
     };
   }, [isNew, routeName]);
 
-  async function handleSave(layoutJson: Record<string, unknown>, displayName: string) {
+  async function handleSave(
+    layoutJson: Record<string, unknown>,
+    displayName: string,
+    maskFile: File | null,
+  ): Promise<Record<string, unknown> | undefined> {
     const name = String(layoutJson.name ?? routeName);
     if (!name) throw new Error('Layout name missing from serialised JSON.');
 
     // `name` is immutable once created (2026-09-16) — the editor locks the
     // identifier input once isExistingLayout is true, so this is always a
     // create (isNew) or an update to the SAME name, never a rename.
-    const body: Record<string, unknown> = {
-      name,
-      display_name: displayName,
-      layout_data: layoutJson,
-    };
-
-    const res = await fetch(
-      `/api/internal/proxy/ops/layouts/${encodeURIComponent(name)}`,
-      {
+    // A newly chosen mask goes up as multipart: the server stores the PNG
+    // (S3 on prod) and sets maskUrl itself. JSON otherwise, as before.
+    let init: RequestInit;
+    if (maskFile) {
+      const form = new FormData();
+      form.append('name', name);
+      form.append('display_name', displayName);
+      form.append('layout_data', JSON.stringify(layoutJson));
+      form.append('mask', maskFile);
+      init = { method: 'POST', body: form };
+    } else {
+      init = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      },
-    );
+        body: JSON.stringify({ name, display_name: displayName, layout_data: layoutJson }),
+      };
+    }
+
+    const res = await fetch(`/api/internal/proxy/ops/layouts/${encodeURIComponent(name)}`, init);
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}));
       throw new Error(
         (detail as { detail?: string }).detail || `Save failed (HTTP ${res.status}).`,
       );
     }
+    const saved = (await res.json().catch(() => ({}))) as { layout?: Record<string, unknown> };
 
     if (isNew) {
       router.replace(`/editor/layouts/calendar/${encodeURIComponent(name)}`);
@@ -203,6 +213,7 @@ export default function CalendarLayoutEditorPage() {
         router.push('/editor/layouts');
       }, 1500);
     }
+    return saved.layout;
   }
 
   if (loading) {
