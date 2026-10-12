@@ -313,7 +313,7 @@ export default function LayoutCreatorPage() {
           {/* !w-auto + min-w-0 override SearchInput's mobile w-[175px] shrink-0 so
               this row (search + filter + Fonts + nav) can fit a 375px viewport. */}
           <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} className="flex-1 min-w-0 !w-auto" />
-          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden md:flex" />
+          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden xl:flex" />
           <button
             onClick={() => setShowFontModal(true)}
             aria-label="Fonts"
@@ -321,17 +321,18 @@ export default function LayoutCreatorPage() {
             className="flex items-center gap-1.5 px-2.5 py-2.5 md:px-3 md:py-2 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
           >
             <Type className="w-4 h-4 md:w-3.5 md:h-3.5" />
-            <span className="hidden md:inline">Fonts ({selectedFonts.length})</span>
+            <span className="hidden xl:inline">Fonts ({selectedFonts.length})</span>
           </button>
+          {/* On phones the top row has no room for it; it sits beside the tag filter in the page instead. */}
           {canManageHolidays && (
             <Link
               href="/editor/layouts/holidays"
               aria-label="Holidays"
               title="Holidays printed on calendars"
-              className="flex items-center gap-1.5 px-2.5 py-2.5 md:px-3 md:py-2 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-2.5 md:px-3 md:py-2 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
             >
               <CalendarDays className="w-4 h-4 md:w-3.5 md:h-3.5" />
-              <span className="hidden xl:inline">Holidays</span>
+              <span className="hidden 2xl:inline">Holidays</span>
             </Link>
           )}
         </div>
@@ -934,8 +935,20 @@ export default function LayoutCreatorPage() {
           <Toast message={success} tone="success" onDismiss={() => setSuccess(null)} />
         </ToastStack>
 
-        {/* Mobile slot — the header row has no space for a fourth control. */}
-        <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="flex md:hidden mb-4" />
+        {/* Below xl the header has no room for the tag filter (the search box shrank to its
+            icon), and on phones none for Holidays either, so they sit here instead. */}
+        <div className="flex xl:hidden items-center gap-2 mb-4">
+          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="flex flex-1 min-w-0 md:flex-none" />
+          {canManageHolidays && (
+            <Link
+              href="/editor/layouts/holidays"
+              className="md:hidden flex items-center gap-1.5 px-3 py-2.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 shrink-0"
+            >
+              <CalendarDays className="w-4 h-4" />
+              Holidays
+            </Link>
+          )}
+        </div>
 
         {layouts.some((l: any) => typeof l === 'object' && l.isDeprecated) && (
           <div className="flex justify-end mb-4">

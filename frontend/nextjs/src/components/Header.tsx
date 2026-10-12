@@ -70,8 +70,10 @@ export const Header = () => {
       {/* Row 1: Brand + Actions — the only row on desktop; on mobile this is the sticky top bar */}
       <div className="h-[72px] md:h-20 flex items-center justify-between px-4 md:px-6">
         {/* Left: Branding & Context — the context block flexes/truncates on mobile
-            (no room for a fixed 280px column there) and locks to the fixed desktop width at md+ */}
-        <div className="flex items-center gap-3 md:gap-6 flex-1 min-w-0 md:flex-none md:w-[480px] md:shrink-0">
+            (no room for a fixed 280px column there) and locks to the fixed desktop width at md+.
+            Only a page with a title needs that width: without one the column is just the brand,
+            and holding 480px for it squeezed the centre search box to nothing (Templates page). */}
+        <div className={`flex items-center gap-3 md:gap-6 flex-1 min-w-0 md:flex-none md:shrink-0 ${title ? 'md:w-[480px]' : 'md:w-auto'}`}>
           <HeaderBrand />
 
           {/* Page context — only rendered when a page actually sets a title.
