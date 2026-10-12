@@ -26,6 +26,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import {
   MONTH_NAMES_EN,
   displayLabelFor,
@@ -1615,6 +1616,16 @@ export function CalendarLayoutEditor({
                     <option value="generic">generic (universal)</option>
                   </select>
                 </label>
+                {/* New tab: this wizard's draft lives only in memory. */}
+                <Link
+                  href={`/editor/layouts/holidays?locale=${encodeURIComponent(draft.style.holidaySource.locale || 'generic')}`}
+                  target="_blank"
+                  rel="noopener"
+                  data-testid="manage-holidays-link"
+                  className="self-end pb-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:underline"
+                >
+                  Manage holidays →
+                </Link>
               </div>
             </section>
 

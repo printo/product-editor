@@ -552,9 +552,11 @@ class HolidaysView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         response = Response(data)
-        # 1-day cache + 7-day stale-while-revalidate. Holiday data changes
-        # at most once a year, so aggressive caching is the right call.
-        response['Cache-Control'] = 'public, max-age=86400, stale-while-revalidate=604800'
+        # Same 5-minute browser cache as fonts and calendar styles. This was a
+        # day (+ a week stale) while holidays changed only by API; now ops edit
+        # them on /editor/layouts/holidays, and a day-old copy would preview
+        # holidays the print no longer carries.
+        response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
         return response
 
     def _gate_ops(self, request):

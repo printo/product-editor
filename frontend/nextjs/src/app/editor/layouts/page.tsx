@@ -37,7 +37,7 @@ import { TagFilter } from '@/components/ui/TagFilter';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Toast, ToastStack } from '@/components/ui/Toast';
 import { useHeader } from '@/context/HeaderContext';
-import { isAdmin } from '@/lib/roles';
+import { canManageTemplates, isAdmin } from '@/lib/roles';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
 import { hasTransparentPixels } from '@/lib/image-utils';
 import { mmToPx as mmToPxExact, pxToMm as pxToMmExact } from '@/lib/units';
@@ -268,6 +268,10 @@ export default function LayoutCreatorPage() {
     is_staff: session?.is_staff,
     registration_status: session?.registration_status,
   });
+  const canManageHolidays = canManageTemplates({
+    is_staff: session?.is_staff,
+    is_ops_team: session?.is_ops_team,
+  });
 
   useEffect(() => {
     if (isModalOpen) {
@@ -319,6 +323,17 @@ export default function LayoutCreatorPage() {
             <Type className="w-4 h-4 md:w-3.5 md:h-3.5" />
             <span className="hidden md:inline">Fonts ({selectedFonts.length})</span>
           </button>
+          {canManageHolidays && (
+            <Link
+              href="/editor/layouts/holidays"
+              aria-label="Holidays"
+              title="Holidays printed on calendars"
+              className="flex items-center gap-1.5 px-2.5 py-2.5 md:px-3 md:py-2 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
+            >
+              <CalendarDays className="w-4 h-4 md:w-3.5 md:h-3.5" />
+              <span className="hidden xl:inline">Holidays</span>
+            </Link>
+          )}
         </div>
       );
       // Jump to the Django admin console. Uses the SAME rule nginx's
@@ -347,7 +362,7 @@ export default function LayoutCreatorPage() {
     // without it the dropdown would keep rendering the tag selected at mount.
     // The access flags likewise: rightActions is a snapshot too, so the button
     // would stay hidden for an administrator whose session resolved after mount.
-  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length, canOpenDjangoAdmin]);
+  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length, canOpenDjangoAdmin, canManageHolidays]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 

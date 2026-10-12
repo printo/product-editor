@@ -324,6 +324,15 @@ describe('CalendarLayoutEditor — holiday source', () => {
     const json = onSave.mock.calls[0][0];
     expect(((json.calendar as Record<string, unknown>).holidaySource as Record<string, unknown>).locale).toBe('generic');
   });
+
+  it('links to the holiday manager for the chosen locale, in a new tab', async () => {
+    setup();
+    await goToStep(3);
+    await userEvent.selectOptions(screen.getByTestId('holiday-locale'), 'generic');
+    const link = screen.getByTestId('manage-holidays-link');
+    expect(link).toHaveAttribute('href', '/editor/layouts/holidays?locale=generic');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
 });
 
 // ─── Existing layouts: holidays as the print reads them ─────────────────────
