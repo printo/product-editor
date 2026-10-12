@@ -134,6 +134,7 @@ export function useLayoutLoader({
         setLayout({
           id: item.name,
           name: item.name,
+          displayName: item.displayName || null,
           productType: item.productType || null,
           dimensions: firstSurface?.canvas?.widthMm && firstSurface?.canvas?.heightMm
             ? `${firstSurface.canvas.widthMm.toFixed(2)}x${firstSurface.canvas.heightMm.toFixed(2)}mm` : null,
