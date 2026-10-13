@@ -167,7 +167,7 @@ export default function Dashboard() {
       <div className="flex items-center gap-2 flex-1 min-w-0 md:flex-none md:w-full md:max-w-[900px]">
         {/* !w-auto + min-w-0 override SearchInput's mobile w-[175px] shrink-0 so
             search + filter + nav fit a 375px viewport without overlapping. */}
-        <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} className="flex-1 min-w-0 !w-auto" />
+        <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} layouts`} className="flex-1 min-w-0 !w-auto" />
         <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden md:flex" />
       </div>
     );

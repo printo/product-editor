@@ -86,9 +86,9 @@ test.describe('dashboard (staff, signed in without a password)', () => {
     await page.goto(`/editor/layout/${layoutName()}?order_id=${orderId}`);
     await addPhotos(page, [PHOTOS.portrait]);
     await expect(cards(page)).toHaveCount(1);
-    const back = page.getByRole('button', { name: 'Back to templates' });
+    const back = page.getByRole('button', { name: 'Back to layouts' });
     const box = (await back.boundingBox())!;
-    // What a click on Back to Templates would actually land on.
+    // What a click on Back to Layouts would actually land on.
     const hitsBack = () => page.evaluate(({ x, y }) => {
       const el = document.elementFromPoint(x, y);
       return !!el?.closest('header');

@@ -16,10 +16,10 @@ export const Header = () => {
   const { title, description, centerActions, rightActions, headerHeight, setHeaderHeight } = useHeader();
   const { data: session } = useSession();
   const pathname = usePathname();
-  // Highlight "Templates" tab for the layouts list AND any sub-editor pages
+  // Highlight "Layouts" tab for the layouts list AND any sub-editor pages
   // (e.g. /editor/layouts/calendar/new, /editor/layouts/calendar/[name])
   const isLayoutEditor = pathname === '/editor/layouts' || pathname.startsWith('/editor/layouts/');
-  // The Templates tab is the only entry point into the ops authoring UI, so it
+  // The Layouts tab is the only entry point into the ops authoring UI, so it
   // follows the same rule as the page itself (proxy.ts) and its writes (the
   // internal proxy). Showing it to the Editor tier would offer a tab that
   // redirects straight back to the dashboard — a permission boundary that
@@ -28,7 +28,7 @@ export const Header = () => {
   const navItems = React.useMemo(() => {
     const items = [{ href: '/dashboard', label: 'Dashboard', active: !isLayoutEditor }];
     if (canManageTemplates(session)) {
-      items.push({ href: '/editor/layouts', label: 'Templates', active: isLayoutEditor });
+      items.push({ href: '/editor/layouts', label: 'Layouts', active: isLayoutEditor });
     }
     return items;
   }, [isLayoutEditor, session]);
@@ -72,7 +72,7 @@ export const Header = () => {
         {/* Left: Branding & Context — the context block flexes/truncates on mobile
             (no room for a fixed 280px column there) and locks to the fixed desktop width at md+.
             Only a page with a title needs that width: without one the column is just the brand,
-            and holding 480px for it squeezed the centre search box to nothing (Templates page). */}
+            and holding 480px for it squeezed the centre search box to nothing (Layouts page). */}
         <div className={`flex items-center gap-3 md:gap-6 flex-1 min-w-0 md:flex-none md:shrink-0 ${title ? 'md:w-[480px]' : 'md:w-auto'}`}>
           <HeaderBrand />
 
@@ -107,7 +107,7 @@ export const Header = () => {
         </div>
 
         {/* Right: Actions & Universal Nav — page action slot stays visible on mobile (pages
-            provide a compact icon-only variant there); the Dashboard/Templates toggle hides
+            provide a compact icon-only variant there); the Dashboard/Layouts toggle hides
             on mobile here and reappears in row 2 below instead */}
         <div className="flex items-center gap-3 md:gap-4 md:w-[480px] justify-end shrink-0">
           {rightActions && (
@@ -132,7 +132,7 @@ export const Header = () => {
         </div>
       </div>
 
-      {/* Row 2: Search + Dashboard/Templates toggle — mobile only, sits directly below the
+      {/* Row 2: Search + Dashboard/Layouts toggle — mobile only, sits directly below the
           sticky top bar. Only rendered when a page actually sets centerActions, so pages
           without a search box (e.g. the canvas editor) don't carry a dead empty strip — the
           ResizeObserver above picks up the resulting height change automatically. */}

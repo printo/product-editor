@@ -132,12 +132,12 @@ describe('EditorToolbar', () => {
 describe('useDashboardHeader', () => {
   const wrapper = ({ children }: { children: ReactNode }) => <HeaderProvider>{children}</HeaderProvider>;
 
-  it('dashboard: titles the page and puts Back to Templates in the top bar', () => {
+  it('dashboard: titles the page and puts Back to Layouts in the top bar', () => {
     const router = { push: jest.fn() };
     const { result } = renderHook(() => { useDashboardHeader(null, router); return useHeader(); }, { wrapper });
     expect(result.current.title).toBe('Preview Canvas');
     render(<>{result.current.rightActions}</>);
-    fireEvent.click(screen.getByRole('button', { name: 'Back to templates' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to layouts' }));
     expect(router.push).toHaveBeenCalledWith('/dashboard');
   });
 

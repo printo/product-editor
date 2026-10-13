@@ -7,7 +7,7 @@ import { useHeader } from '@/context/HeaderContext';
 import { formatLayoutDisplayName } from './editor-utils';
 import type { FitMode, SurfaceState } from './types';
 
-/** Dashboard only: the page title and the Back to Templates button in the app's top bar. */
+/** Dashboard only: the page title and the Back to Layouts button in the app's top bar. */
 export function useDashboardHeader(embedToken: string | null, router: { push(href: string): void }) {
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
   useEffect(() => {
@@ -20,12 +20,12 @@ export function useDashboardHeader(embedToken: string | null, router: { push(hre
     setRightActions(
       <button
         onClick={() => router.push('/dashboard')}
-        aria-label="Back to templates"
-        title="Back to Templates"
+        aria-label="Back to layouts"
+        title="Back to Layouts"
         className="text-[11px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 p-2.5 md:px-4 md:py-2 rounded-full md:rounded-2xl border-2 border-indigo-100/50 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center gap-2 group shadow-sm shadow-indigo-100/50"
       >
         <ArrowLeft className="w-4 h-4 md:w-3.5 md:h-3.5 group-hover:-translate-x-1 transition-transform" />
-        <span className="hidden md:inline">Back to Templates</span>
+        <span className="hidden md:inline">Back to Layouts</span>
       </button>
     );
   }, [embedToken, router, setTitle, setDescription, setCenterActions, setRightActions]);
@@ -99,7 +99,7 @@ export function EditorToolbar({
             being three independent flex-row siblings, unchanged from before. */}
         <div className="flex items-center justify-between gap-3 md:contents">
         <div className="flex items-center gap-3 min-w-0 md:flex-none">
-          {/* Embed only — the iframe has no "Back to Templates" destination to
+          {/* Embed only — the iframe has no "Back to Layouts" destination to
               push to (that's dashboard-only, see the HeaderContext effect
               above). Deliberately NOT router.back()/history.back(): a nested
               iframe shares its ONE browser-tab history with the parent page
