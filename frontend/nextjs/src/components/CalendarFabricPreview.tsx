@@ -52,6 +52,9 @@ interface CalendarFabricPreviewProps {
   maskUrl?: string | null;
   snapGrid?: boolean;
   zoom?: number;
+  /** The layer the editor is on. The other layer is dimmed and cannot be
+   *  selected, so a drag never lands on the wrong block. Default: both live. */
+  activeLayer?: 'frames' | 'calendar' | 'both';
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -75,6 +78,7 @@ export function CalendarFabricPreview({
   maskUrl = null,
   snapGrid = false,
   zoom = 1,
+  activeLayer = 'both',
 }: CalendarFabricPreviewProps) {
   const canvasElRef = useRef<HTMLCanvasElement>(null);
   const fabricRef   = useRef<Canvas | null>(null);
@@ -147,7 +151,12 @@ export function CalendarFabricPreview({
     if (fc.width !== cw || fc.height !== ch) fc.setDimensions({ width: cw, height: ch });
 
     // Remove all objects we own
+    fc.discardActiveObject();
     fc.getObjects().filter((o: any) => o.__calPreview).forEach(o => fc.remove(o));
+
+    const framesLive = activeLayer !== 'calendar';
+    const calendarsLive = activeLayer !== 'frames';
+    const LOCKED_OPACITY = 0.35;
 
     // ── Guides + grid ────────────────────────────────────────────────────
     createCenterGuides(cw, ch).forEach(g => {
@@ -177,8 +186,10 @@ export function CalendarFabricPreview({
         stroke: '#10b981',
         strokeWidth: 1.5,
         strokeDashArray: [4, 3],
-        selectable: true,
-        hasControls: true,
+        selectable: framesLive,
+        evented: framesLive,
+        hasControls: framesLive,
+        opacity: framesLive ? 1 : LOCKED_OPACITY,
         lockRotation: true,
         cornerColor: '#6366f1',
         cornerSize: 8,
@@ -202,6 +213,7 @@ export function CalendarFabricPreview({
         padding: 2,
         selectable: false, evented: false,
       });
+      lbl.set({ opacity: framesLive ? 1 : LOCKED_OPACITY });
       lbl.__calPreview = true;
       lbl.__fabricEditor = 'label';
       lbl.__frameIdx = idx;
@@ -265,8 +277,10 @@ export function CalendarFabricPreview({
         stroke: interactive ? '#0ea5e9' : '#7dd3fc',
         strokeWidth: interactive ? 1.5 : 1,
         strokeDashArray: interactive ? [4, 3] : [2, 4],
-        selectable: interactive,
-        hasControls: interactive,
+        selectable: interactive && calendarsLive,
+        evented: calendarsLive,
+        hasControls: interactive && calendarsLive,
+        opacity: calendarsLive ? 1 : LOCKED_OPACITY,
         lockRotation: true,
         cornerColor: '#0ea5e9',
         cornerSize: 8,
@@ -290,6 +304,7 @@ export function CalendarFabricPreview({
         padding: 2,
         selectable: false, evented: false,
       });
+      lbl.set({ opacity: calendarsLive ? 1 : LOCKED_OPACITY });
       lbl.__calPreview = true;
       lbl.__fabricEditor = 'calendarLabel';
       lbl.__calendarIdx = calIdx;
@@ -314,8 +329,10 @@ export function CalendarFabricPreview({
         stroke: '#0ea5e9',
         strokeWidth: 2,
         strokeDashArray: [6, 4],
-        selectable: true,
-        hasControls: true,
+        selectable: calendarsLive,
+        evented: calendarsLive,
+        hasControls: calendarsLive,
+        opacity: calendarsLive ? 1 : LOCKED_OPACITY,
         lockRotation: true,
         cornerColor: '#0ea5e9',
         cornerSize: 10,
@@ -335,7 +352,7 @@ export function CalendarFabricPreview({
 
     fc.renderAll();
      
-  }, [frames, calendars, mode, posterCustomLayout, widthMm, heightMm, snapGrid, getScale]);
+  }, [frames, calendars, mode, posterCustomLayout, widthMm, heightMm, snapGrid, getScale, activeLayer]);
 
   // ── Fabric events → parent state ─────────────────────────────────────────
 
