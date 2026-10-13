@@ -48,7 +48,7 @@ export async function getImageMetadata(file: File): Promise<{ width: number; hei
   try {
     // Read only the first 64 KB — EXIF data is always at the file head and ExifReader.load(file)
     // would otherwise read the entire file (potentially 10–20 MB per photo, 200× in a large batch).
-    const { default: ExifReader } = await (import('exifreader') as any);
+    const { default: ExifReader } = await import('exifreader');
     const buf = await file.slice(0, 65536).arrayBuffer();
     const tags = await ExifReader.load(buf);
     if (tags.Orientation) orientation = (tags.Orientation.value as number) || 1;

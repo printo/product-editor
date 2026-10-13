@@ -91,6 +91,7 @@ export function changeDpiDataUrl(base64Image: string, dpi: number): string {
 import {
   Canvas, Rect, Circle, Ellipse, Triangle, Polygon, Path,
   FabricText, Line, type FabricObject,
+  type TMat2D,
 } from 'fabric';
 import { getShapePath, getShapeDef } from '@/lib/shape-catalog';
 
@@ -485,6 +486,6 @@ export function centerCanvasViewport(
   vpt[3] = targetZoom;
   vpt[4] = (containerWidth / 2) - (canvasW * targetZoom / 2);
   vpt[5] = (containerHeight / 2) - (canvasH * targetZoom / 2);
-  fc.setViewportTransform(vpt as any);
+  fc.setViewportTransform(vpt as TMat2D);
   return fitZoom;
 }

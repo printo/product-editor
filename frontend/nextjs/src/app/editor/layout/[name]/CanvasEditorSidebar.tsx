@@ -249,7 +249,7 @@ export function CanvasEditorSidebar({
 
               {/* Caption — per-template opt-in (layout.frameCaptionsEnabled); OFF by
                   default so it never appears on a product it wasn't designed for. */}
-              {Boolean((layout as any)?.frameCaptionsEnabled) && (
+              {Boolean(layout?.frameCaptionsEnabled) && (
               <div className="space-y-2 pt-4 border-t border-slate-50">
                 <label className="text-[11px] font-medium text-slate-500 uppercase">Caption</label>
                 <textarea
@@ -319,8 +319,8 @@ export function CanvasEditorSidebar({
                 <div className="shrink-0 space-y-2">
                   <label className="text-[11px] font-medium text-slate-500 uppercase">Photo Alignment</label>
                   <AlignmentToolbar 
-                    onHAlign={v => handleAlign(fIdx, v as any)}
-                    onVAlign={v => handleAlign(fIdx, v as any)}
+                    onHAlign={v => handleAlign(fIdx, v)}
+                    onVAlign={v => handleAlign(fIdx, v)}
                   />
                 </div>
               </div>
@@ -383,7 +383,7 @@ export function CanvasEditorSidebar({
                 const updateOverlay = (patch: Partial<TextOverlay>) => {
                   pushUndo(editingCanvas, true);
                   const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
-                  debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
+                  debouncedRender({ ...editingCanvas, overlays: newOverlays as Overlay[] });
                 };
                 return (
                   <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -501,7 +501,7 @@ export function CanvasEditorSidebar({
                 const updateImage = (patch: Partial<ImageOverlay>) => {
                   pushUndo(editingCanvas);
                   const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
-                  debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
+                  debouncedRender({ ...editingCanvas, overlays: newOverlays as Overlay[] });
                 };
                 return (
                   <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -562,7 +562,7 @@ export function CanvasEditorSidebar({
                 const updateImage = (patch: Partial<ImageOverlay>) => {
                   pushUndo(editingCanvas);
                   const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
-                  debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
+                  debouncedRender({ ...editingCanvas, overlays: newOverlays as Overlay[] });
                 };
                 // Keeps the lost image's place, size and rotation. The fileId is
                 // cleared so the new File is stored for the next restore.

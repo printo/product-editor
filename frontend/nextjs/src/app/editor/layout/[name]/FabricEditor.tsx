@@ -17,8 +17,10 @@ import {
   Ellipse,
   Shadow,
   type FabricObject,
+  type CircleProps,
+  type EllipseProps,
 } from 'fabric';
-import type { CanvasItem } from './types';
+import type { CanvasItem, FrameState } from './types';
 import { buildFrameFill, buildFrameCaption, rotatedBounds, frameBaseScale } from './frame-fill';
 import { captionOverridesFromMm } from '@/lib/caption-layout';
 import type { LayerSelection } from './LayersPanel';
@@ -110,7 +112,7 @@ function applyOverlayToObject(
       fontSize: overlay.fontSize,
       fill: overlay.color || '#000000',
       fontFamily: overlayFontFamily(overlay.fontFamily),
-      textAlign: (overlay.textAlign || 'center') as any,
+      textAlign: (overlay.textAlign || 'center') as Textbox['textAlign'],
       originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
       left: (overlay.x / 100) * canvasW,
       top: (overlay.y / 100) * canvasH,
@@ -125,9 +127,9 @@ function applyOverlayToObject(
     const def = getShapeDef(overlay.shapeType);
     if (def?.fabricType === 'circle') {
       const radius = Math.min(sw, sh) / 2;
-      obj.set({ radius, left: sx + sw / 2, top: sy + sh / 2 } as any);
+      obj.set({ radius, left: sx + sw / 2, top: sy + sh / 2 } as Partial<CircleProps>);
     } else if (def?.fabricType === 'ellipse') {
-      obj.set({ rx: sw / 2, ry: sh / 2, left: sx + sw / 2, top: sy + sh / 2 } as any);
+      obj.set({ rx: sw / 2, ry: sh / 2, left: sx + sw / 2, top: sy + sh / 2 } as Partial<EllipseProps>);
     } else {
       obj.set({ left: sx, top: sy, width: sw, height: sh });
     }
@@ -156,7 +158,7 @@ function applyOverlayToObject(
 
     // Update image source in-place using setSrc if changed
     const imgObj = obj as FabricImage;
-    if ((imgObj as any)._element?.src !== overlay.src) {
+    if ((imgObj.getElement() as HTMLImageElement | undefined)?.src !== overlay.src) {
       imgObj.setSrc(overlay.src, { crossOrigin: 'anonymous' });
     }
   }
@@ -267,8 +269,8 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const suppressSelectionEventsRef = useRef(false);
 
   // Canvas logical dimensions (passed from surface or fallback)
-  const canvasW = canvasWidth || layout?.canvas?.width || (layout?.surfaces?.[0] as any)?.width || 1200;
-  const canvasH = canvasHeight || layout?.canvas?.height || (layout?.surfaces?.[0] as any)?.height || 1800;
+  const canvasW = canvasWidth || layout?.canvas?.width || layout?.surfaces?.[0]?.width || 1200;
+  const canvasH = canvasHeight || layout?.canvas?.height || layout?.surfaces?.[0]?.height || 1800;
 
   // Guide strokes and dashes live in canvas-pixel space, but the canvas is
   // zoomed to fit the viewport — so a large layout (more canvas px) shrinks
@@ -548,7 +550,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       log('pxPerMm:', _pxPerMm.toFixed(3), '(canvasW / widthMm =', canvasW, '/', layout?.canvas?.widthMm, ')');
       log('layout.frames:', JSON.stringify(layout?.frames));
       if (Array.isArray(layout?.frames) && layout.frames.length > 0) {
-        (layout.frames as any[]).forEach((f: any, i: number) => {
+        (layout.frames as Array<{ x: number; y: number; width: number; height: number }>).forEach((f, i: number) => {
           const _isP = f.width <= 1 && f.height <= 1;
           const _fx = _isP ? f.x * canvasW : f.x;
           const _fy = _isP ? f.y * canvasH : f.y;
@@ -794,7 +796,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       const fy = isPercent ? frameSpec.y * canvasH : frameSpec.y;
       const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
       const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-      const imgSource = frameState.originalFile ? getFileUrl(frameState.originalFile) : (frameState as any).url;
+      const imgSource = frameState.originalFile ? getFileUrl(frameState.originalFile) : (frameState as FrameState & { url?: string }).url;
       if (!imgSource) return;
       try {
         const img = await FabricImage.fromURL(imgSource, { crossOrigin: 'anonymous' });
@@ -850,18 +852,18 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           img.getElement() as CanvasImageSource, editingCanvas.paperColor,
         );
         if (fillObj) {
-          (fillObj as any).__fabricEditor = 'frameFill';
-          (fillObj as any).__frameIdx = frameIdx;
+          fillObj.__fabricEditor = 'frameFill';
+          fillObj.__frameIdx = frameIdx;
           fc.add(fillObj);
         }
-        const _capPxPerMm = canvasW / ((layout as any)?.canvas?.widthMm || (layout as any)?.surfaces?.[0]?.canvas?.widthMm || 1);
+        const _capPxPerMm = canvasW / (layout?.canvas?.widthMm || layout?.surfaces?.[0]?.canvas?.widthMm || 1);
         const captionObj = buildFrameCaption(
-          frameState, _geom, Boolean((layout as any)?.frameCaptionsEnabled),
+          frameState, _geom, Boolean(layout?.frameCaptionsEnabled),
           captionOverridesFromMm(frameSpec, _capPxPerMm),
         );
         if (captionObj) {
-          (captionObj as any).__fabricEditor = 'frameCaption';
-          (captionObj as any).__frameIdx = frameIdx;
+          captionObj.__fabricEditor = 'frameCaption';
+          captionObj.__frameIdx = frameIdx;
           fc.add(captionObj);
         }
       } catch (err) { console.error(err); }
@@ -897,7 +899,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     });
     paperOverlay.__paper = true;
     fc.add(paperOverlay);
-    log(`  [Paper Overlay] added to canvas | path commands: ${(paperOverlay.path as any[])?.length ?? 'n/a'}`);
+    log(`  [Paper Overlay] added to canvas | path commands: ${(paperOverlay.path as unknown[] | undefined)?.length ?? 'n/a'}`);
     const paperOverlayZ = 1 + frames.length + guidesCount + (frames.length * 2);
     fc.moveObjectTo(paperOverlay, paperOverlayZ);
 
@@ -945,14 +947,14 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           left, top,
           originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
           originY: 'center', fontSize: overlay.fontSize, fill: overlay.color || '#000000',
-          fontFamily: overlayFontFamily(overlay.fontFamily), textAlign: (overlay.textAlign || 'center') as any,
+          fontFamily: overlayFontFamily(overlay.fontFamily), textAlign: (overlay.textAlign || 'center') as Textbox['textAlign'],
           width: canvasW * 0.8, editable: true, splitByGrapheme: true,
           cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#f97316',
           angle: overlay.rotation || 0,
         });
         fabricObj.__fabricEditor = 'text';
       } else if (overlay.type === 'shape') {
-        fabricObj = makeShapeObject(overlay as any, canvasW, canvasH);
+        fabricObj = makeShapeObject(overlay, canvasW, canvasH);
         if (fabricObj) {
           if (_DEV) log('Shape Overlay Calculation (Full Rebuild):', { overlay, fabricObj });
           fabricObj.__fabricEditor = 'shape';
@@ -1009,19 +1011,19 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       // Slot each frame's fill directly BELOW its photo and its caption directly
       // ABOVE, using the photo's LIVE index so we never disturb the carefully
       // ordered guide / paper / outline / mask layers stacked above the frames.
-      const findFramePhoto = (idx: number) => fc.getObjects().find(
+      const findFramePhoto = (idx: number | undefined) => fc.getObjects().find(
         (o: any) => o.__fabricEditor === 'frame' && o.__frameIdx === idx,
       );
       fc.getObjects()
         .filter((o: any) => o.__fabricEditor === 'frameFill')
         .forEach((fill) => {
-          const photo = findFramePhoto((fill as any).__frameIdx);
+          const photo = findFramePhoto(fill.__frameIdx);
           if (photo) fc.moveObjectTo(fill, fc.getObjects().indexOf(photo));
         });
       fc.getObjects()
         .filter((o: any) => o.__fabricEditor === 'frameCaption')
         .forEach((cap) => {
-          const photo = findFramePhoto((cap as any).__frameIdx);
+          const photo = findFramePhoto(cap.__frameIdx);
           if (photo) fc.moveObjectTo(cap, fc.getObjects().indexOf(photo) + 1);
         });
 
