@@ -94,7 +94,11 @@ prune() {
   # GNU-only `head -n -N`). Delete all but the last $keep entries.
   local dir="$1" pattern="$2" keep="$3"
   local total
-  total="$(ls -1 "$dir"/$pattern 2>/dev/null | wc -l | tr -d '[:space:]')"
+  # `|| true`: an empty glob makes `ls` fail, and under `set -e` + `pipefail`
+  # that used to abort the whole backup (before the remaining prunes and the
+  # weekly set) whenever no file of this kind existed yet, e.g. no ops-config
+  # archive under the local storage backend.
+  total="$(ls -1 "$dir"/$pattern 2>/dev/null | wc -l | tr -d '[:space:]' || true)"
   [ "$total" -le "$keep" ] && return 0
   ls -1 "$dir"/$pattern 2>/dev/null | sort | head -n "$(( total - keep ))" | while read -r f; do
     rm -f "$f"
