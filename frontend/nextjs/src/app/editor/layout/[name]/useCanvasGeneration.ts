@@ -10,6 +10,7 @@ import { resolveRotation } from './editor-utils';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { planFrameSlots } from './surface-allocation';
 import type { CanvasItem, FitMode, FrameState, SurfaceState } from './types';
+import { seedCard, type SavedTemplate } from './template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;
@@ -66,6 +67,7 @@ export function useCanvasGeneration({
   layout, files, isProcessing, setIsProcessing, setError, isCalendarProduct, setRenderProgress, canvasesRef, setCanvases,
   renderCanvas, apiBase, getAuthHeaders, globalFitModeRef, globalBlurFillRef, skipNextGenerateRef, surfaceStates,
   setSurfaceStates, fitModeUserToggledRef, globalFitMode, activeSurfaceKey, blurFillUserToggledRef, globalBlurFill,
+  templateRef,
 }: {
   layout: any;
   files: File[];
@@ -89,6 +91,9 @@ export function useCanvasGeneration({
   activeSurfaceKey: string;
   blurFillUserToggledRef: Ref<boolean>;
   globalBlurFill: boolean;
+  /** The layout template in force (template.ts); a card built without
+   *  previous edits to carry starts with its decoration. */
+  templateRef?: Ref<SavedTemplate | null>;
 }) {
   const generateCanvasesForLayout = useCallback(async (
     layoutDef: any, surfaceFiles: File[], fitMode: FitMode,
@@ -162,12 +167,15 @@ export function useCanvasGeneration({
         }
       }
       const carry = reusePlan.carry[i];
+      // A card with no edits to carry starts with the template's decoration
+      // (template.ts); the key is the surface this layout def describes.
+      const seed = carry ? null : seedCard(templateRef?.current ?? null, layoutDef.key || activeSurfaceKey);
       const item: CanvasItem = {
         id: i,
         frames: canvasFrames,
-        overlays: carry?.overlays || [],
-        bgColor: carry?.bgColor || '#ffffff',
-        paperColor: carry?.paperColor || '#ffffff',
+        overlays: carry?.overlays || seed?.overlays || [],
+        bgColor: carry?.bgColor || seed?.bgColor || '#ffffff',
+        paperColor: carry?.paperColor || seed?.paperColor || '#ffffff',
         dataUrl: carry?.dataUrl || null
       };
 
@@ -179,7 +187,7 @@ export function useCanvasGeneration({
       newCanvases.push(item);
     }
     return newCanvases;
-  }, [renderCanvas, apiBase, getAuthHeaders, canvasesRef, globalBlurFillRef]);
+  }, [renderCanvas, apiBase, getAuthHeaders, canvasesRef, globalBlurFillRef, templateRef, activeSurfaceKey]);
 
   const generateCanvases = useCallback(async () => {
     if (!layout || files.length === 0 || isProcessing) return;
@@ -275,12 +283,13 @@ export function useCanvasGeneration({
             }
             
             const carry = reusePlan.carry[batchIdx];
+            const seed = carry ? null : seedCard(templateRef?.current ?? null, activeSurfaceKey);
             const item: CanvasItem = {
               id: batchIdx,
               frames: canvasFrames,
-              overlays: carry?.overlays || [],
-              bgColor: carry?.bgColor || '#ffffff',
-              paperColor: carry?.paperColor || '#ffffff',
+              overlays: carry?.overlays || seed?.overlays || [],
+              bgColor: carry?.bgColor || seed?.bgColor || '#ffffff',
+              paperColor: carry?.paperColor || seed?.paperColor || '#ffffff',
               // The plan only carries a dataUrl when every frame kept its
               // original slot — anything else needs a fresh thumbnail.
               dataUrl: carry?.dataUrl || null,

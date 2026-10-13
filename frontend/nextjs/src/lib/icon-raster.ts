@@ -79,7 +79,8 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Fetch an SVG and draw it to a PNG File of exactly `width` × `height`. */
+/** Fetch an icon (SVG) or a template sticker (PNG, by content type) and draw
+ *  it to a PNG File of exactly `width` × `height`. */
 export async function rasterizeSvgUrl(
   url: string,
   width: number,
@@ -88,8 +89,11 @@ export async function rasterizeSvgUrl(
 ): Promise<File> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`The icon could not be downloaded (${res.status})`);
-  const svg = svgForRaster(await res.text(), width, height);
-  const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  const contentType = (res.headers?.get?.('content-type') || '').toLowerCase();
+  const isRaster = /^image\/(png|jpe?g|webp|gif)/.test(contentType);
+  const svgUrl = isRaster
+    ? URL.createObjectURL(await res.blob())
+    : URL.createObjectURL(new Blob([svgForRaster(await res.text(), width, height)], { type: 'image/svg+xml' }));
   // Off-screen, never attached to the page.
   const canvas = document.createElement('canvas');
   try {

@@ -2,7 +2,7 @@
 
 import { useEffect, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react';
 import { clsx } from 'clsx';
-import { ArrowLeft, Check, Download, Droplets, Loader2, Plus, SendHorizonal } from 'lucide-react';
+import { ArrowLeft, Check, Download, Droplets, LayoutTemplate as TemplateIcon, Loader2, Plus, SendHorizonal } from 'lucide-react';
 import { useHeader } from '@/context/HeaderContext';
 import { formatLayoutDisplayName } from './editor-utils';
 import type { FitMode, SurfaceState } from './types';
@@ -59,6 +59,10 @@ type Props = {
   setDisclaimerChecked: Dispatch<SetStateAction<boolean>>;
   setShowEmbedDisclaimer: Dispatch<SetStateAction<boolean>>;
   setShowDownloadModal: Dispatch<SetStateAction<boolean>>;
+  /** Layout templates: shown only when the layout has some. */
+  templateCount?: number;
+  activeTemplateName?: string | null;
+  onOpenTemplates?: () => void;
 };
 
 /** The editor toolbar: logo and product name, the Add Photos box, Fit/Cover,
@@ -68,6 +72,7 @@ export function EditorToolbar({
   setToolbarSentinel, isToolbarStuck, toolbarHeight, setToolbarEl, headerHeight,
   embedToken, orderId, parentOrigin, layout, layoutName, files, surfaceStates, qtyUnder, qtyNeeded,
   totalUploadedCount, uploadInputRef, globalFitMode, setGlobalFitMode, fitModeUserToggledRef,
+  templateCount = 0, activeTemplateName = null, onOpenTemplates,
   globalBlurFill, setGlobalBlurFill, blurFillUserToggledRef, isProcessing, isDownloading, setDisclaimerChecked,
   setShowEmbedDisclaimer, setShowDownloadModal,
 }: Props) {
@@ -207,6 +212,22 @@ export function EditorToolbar({
             <Droplets className="w-3.5 h-3.5 md:w-3.5 md:h-3.5 shrink-0" />
             <span className="whitespace-nowrap">Blur Effect</span>
           </button>
+          {templateCount > 0 && onOpenTemplates && (
+            <button
+              disabled={isProcessing}
+              onClick={onOpenTemplates}
+              title={activeTemplateName ? `Template: ${activeTemplateName}. Click to change it or apply it to every card.` : 'Start from a ready-made decoration.'}
+              aria-label="Templates"
+              className={clsx(
+                'flex items-center justify-center gap-1 md:gap-1.5 px-2 md:px-3 py-2.5 md:py-2 text-[9px] md:text-[10px] font-black rounded-xl border transition-all uppercase tracking-tight md:tracking-wide shrink-0 disabled:opacity-50 disabled:cursor-not-allowed',
+                activeTemplateName
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                  : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
+              )}>
+              <TemplateIcon className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap">Templates</span>
+            </button>
+          )}
           {/* Reposition-lock toggle — hidden from the UI on request, kept
               in source in case it needs to come back. repositionMode
               itself is untouched (still gates drag-to-pan in page.tsx) and

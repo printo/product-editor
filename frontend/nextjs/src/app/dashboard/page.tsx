@@ -86,7 +86,7 @@ export default function Dashboard() {
   }, [status, session, router]);
 
   const normalizeLayoutItem = useCallback((item: any) => {
-    if (typeof item === 'string') return { id: item, name: item, displayName: item, frames: [], tags: [], canvas: {}, surfaceCount: 0 };
+    if (typeof item === 'string') return { id: item, name: item, displayName: item, frames: [], tags: [], canvas: {}, surfaceCount: 0, templateCount: 0 };
     const isProduct = item.type === 'product' && Array.isArray(item.surfaces);
     const canvas = isProduct ? item.surfaces[0]?.canvas : item.canvas;
     const frames = isProduct ? item.surfaces[0]?.frames || [] : item.frames || [];
@@ -107,6 +107,7 @@ export default function Dashboard() {
       updatedAt: item.updatedAt || null,
       createdBy: item.createdBy || 'System',
       surfaceCount: isProduct ? item.surfaces.length : 0,
+      templateCount: typeof item.templateCount === 'number' ? item.templateCount : 0,
       _raw: item,
     };
   }, []);
@@ -234,6 +235,12 @@ export default function Dashboard() {
                           <>
                             <span>•</span>
                             <span className="text-indigo-500 font-medium">Multi-Surface</span>
+                          </>
+                        )}
+                        {layout.templateCount > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-indigo-500 font-medium">{layout.templateCount} {layout.templateCount === 1 ? 'Template' : 'Templates'}</span>
                           </>
                         )}
                       </p>

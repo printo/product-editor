@@ -25,6 +25,9 @@ export interface FrameState {
 
 export interface TextOverlay {
   id: string | number;
+  /** Set on an overlay copied from a layout template (template.ts); the
+   *  customer's own overlays never carry it. */
+  templateId?: string;
   text: string;
   x: number;      // percentage 0–100 from left
   y: number;      // percentage 0–100 from top
@@ -37,6 +40,7 @@ export interface TextOverlay {
 
 export interface ShapeOverlay {
   id: string | number;
+  templateId?: string;
   shapeType: string;
   svgPath?: string;
   x: number;
@@ -52,6 +56,7 @@ export interface ShapeOverlay {
 
 export interface ImageOverlay {
   id: string | number;
+  templateId?: string;
   src: string;
   originalFile?: File;
   /** UUID for IndexedDB blob recovery (only set for `source === 'local'`). */

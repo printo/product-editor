@@ -13,6 +13,7 @@ import { MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, readCardCountHint, writeCar
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
 import { collectFileIds, unreferencedFileIds } from './file-refs';
 import type { CanvasItem, FitMode, SurfaceState } from './types';
+import { isLayoutTemplate, toSavedTemplate, type LayoutTemplate, type SavedTemplate } from './template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;
@@ -28,6 +29,7 @@ export function useAutosaveAndRestore({
   setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
   isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
   calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
+  activeTemplateRef, setActiveTemplate,
 }: {
   layout: any;
   layoutLoading: boolean;
@@ -63,6 +65,11 @@ export function useAutosaveAndRestore({
   setBookPageCount: Setter<number>;
   bookHiddenPagesRef: Ref<Record<string, SurfaceState>>;
   setBookHiddenPages: Setter<Record<string, SurfaceState>>;
+  /** The layout template in force, saved with the design (template.ts) so a
+   *  refresh keeps decorating new cards; a restored design's template wins
+   *  over one named on the address. */
+  activeTemplateRef?: Ref<SavedTemplate | LayoutTemplate | null>;
+  setActiveTemplate?: Setter<LayoutTemplate | null>;
 }) {
   // ── Restore placeholders ────────────────────────────────────────────────
   // `order_id` is written into the URL on first mount, so its presence at
@@ -205,6 +212,7 @@ export function useAutosaveAndRestore({
           })),
           activeSurfaceKey: latestActiveKey,
           layoutName,
+          template: activeTemplateRef?.current ? toSavedTemplate(activeTemplateRef.current) : null,
         };
         // Calendar products persist the customer's theme/type/palette/cell
         // choices so they survive page refresh (PRD §10.3 / audit fix #1).
@@ -255,7 +263,7 @@ export function useAutosaveAndRestore({
         setIsSaving('idle');
       }
     }, 2000);
-  }, [apiBase, orderId, layoutName, getAuthHeaders, serializeCanvasState, reclaimUnusedFiles, bookHiddenPagesRef, surfaceStatesRef, activeSurfaceKeyRef]);
+  }, [apiBase, orderId, layoutName, getAuthHeaders, serializeCanvasState, reclaimUnusedFiles, bookHiddenPagesRef, surfaceStatesRef, activeSurfaceKeyRef, activeTemplateRef]);
 
   const cancelAutosave = useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -507,6 +515,12 @@ export function useAutosaveAndRestore({
           isRestoringRef.current = true;
           skipNextGenerateRef.current = true; // suppress generateCanvases trigger
           setCanvases(hydrated);
+          // The saved design decides the template: its own, or none. The id
+          // on the address was only ever a starting point for a new design.
+          const savedTemplate = data.editor_state.template;
+          setActiveTemplate?.(isLayoutTemplate(savedTemplate)
+            ? { ...savedTemplate, thumbnailUrl: null, layoutName }
+            : null);
           // Regenerate canvas previews that were stripped from autosave payload
           // to reduce size. Runs async in the background — previews appear as
           // they're ready, never blocking UI update.
@@ -563,7 +577,7 @@ export function useAutosaveAndRestore({
     if (orderId) writeCardCountHint(orderId, canvases.length);
   }, [canvases.length, orderId]);
 
-  return { restorePending, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef };
+  return { restorePending, restoreSettled, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef };
 }
 
 /** Stores each photo the design uses in the browser's IndexedDB once, and

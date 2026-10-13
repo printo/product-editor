@@ -159,6 +159,8 @@ export class FakeBackend {
   holdRestore: Hold | null = null;
   renderStatus: 'queued' | 'processing' | 'completed' | 'failed' = 'completed';
   holidays: Array<{ date: string; name: string }> = [];
+  /** Published layout templates served by GET templates?layout=. */
+  templates: Array<Record<string, unknown>> = [];
   genzStyle: { defaultPalette?: string; palettes: Array<Record<string, unknown>> } = { palettes: [] };
   private seq = 0;
   private uploadSeq = 0;
@@ -188,7 +190,10 @@ export class FakeBackend {
     this.calls.push(call);
 
     if (path === 'editor/init' && method === 'GET') {
-      return fakeResponse(200, { layout: this.layout, fonts: [], ...this.editorInit });
+      return fakeResponse(200, { layout: this.layout, fonts: [], template: null, ...this.editorInit });
+    }
+    if (path === 'templates' && method === 'GET') {
+      return fakeResponse(200, { templates: this.templates });
     }
     let m = path.match(/^canvas-state\/([^/]+)\/$/);
     if (m && method === 'GET') {

@@ -54,6 +54,20 @@ export function useEditorEnvironment() {
   const [sessionQty, setSessionQty] = useState<number | null>(null);
   const orderQty = sessionQty ?? urlQty;
 
+  // Layout templates ride on the address (the dashboard's ?template= links
+  // and the embed's editor_url alike): the id of the template to start from,
+  // and whether picking one is the first step. Both are re-checked by
+  // /editor/init; a saved design restored for this order wins over them.
+  const { urlTemplateId, templateFlow } = useMemo(() => {
+    if (typeof window === 'undefined') return { urlTemplateId: null as string | null, templateFlow: false };
+    const sp = new URLSearchParams(window.location.search);
+    const id = (sp.get('template') || '').trim();
+    return {
+      urlTemplateId: /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(id) ? id : null,
+      templateFlow: ['1', 'true', 'yes'].includes((sp.get('template_flow') || '').toLowerCase()),
+    };
+  }, []);
+
   // Stable order ID — read from URL or generate a new friendly ID.
   // Written back to the URL immediately so a refresh / share keeps the same ID.
   const [orderId, setOrderId] = useState<string>(() => {
@@ -108,7 +122,7 @@ export function useEditorEnvironment() {
 
   return {
     layoutName, router, session, status, embedToken, parentOrigin, setSessionQty, orderQty,
-    orderId, setOrderId, getAuthHeaders, apiBase, serverHeicConvert,
+    orderId, setOrderId, getAuthHeaders, apiBase, serverHeicConvert, urlTemplateId, templateFlow,
   };
 }
 
