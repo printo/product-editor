@@ -40,7 +40,7 @@ usage() {
   echo -e "${BLUE}Environment overrides:${NC}"
   echo "  ALLOW_STALE_DEPLOY=1   deploy the current checkout even if git pull fails"
   echo "  SKIP_SMOKE_TESTS=1     skip the post-deploy smoke tests"
-  echo "  SMOKE_TESTS=\"embed calendar book\"  which smoke tests to run (default: embed)"
+  echo "  SMOKE_TESTS=\"embed\"       which smoke tests to run (default: embed calendar book)"
   echo "  ROLLBACK_YES=1         skip the rollback confirmation prompt"
   echo "  READY_TIMEOUT=240      seconds to wait for containers to report ready"
   echo "  DEPLOY_BRANCH=main     branch the server is expected to be on"
@@ -1052,9 +1052,11 @@ fi
 #     (the path prod actually serves) rather than the container ports. The
 #     origin cert is a Cloudflare Origin cert, not publicly trusted, so without
 #     CURL_INSECURE every check returns 000 and reads as a total outage.
-#   * embed only. It is the core customer path. calendar/book are read-only
-#     too and can be added via SMOKE_TESTS, but each extra script is another
-#     ~3 s on every deploy.
+#   * all three scripts (embed, calendar, book). Embed is the core customer
+#     path; calendar and book are read-only by default too (their ops-write
+#     steps stay off unless ENABLE_OPS_WRITE=1) and catch a broken holidays or
+#     calendar-styles read or a validator regression that embed never touches.
+#     Each is ~3 s. Narrow with SMOKE_TESTS="embed" if a deploy must be quick.
 #   * SMOKE_RENDER is deliberately NOT set: a real render occupies a Celery
 #     worker slot and writes 300-DPI output, competing with live customer jobs
 #     on the 2-core prod box.
@@ -1063,7 +1065,7 @@ fi
 # you still get the remaining checks and the summary.
 run_smoke_tests() {
   local base="${SMOKE_BASE:-https://localhost}"
-  local tests="${SMOKE_TESTS:-embed}"
+  local tests="${SMOKE_TESTS:-embed calendar book}"
   local key="${SMOKE_API_KEY:-${DIRECT_API_KEY:-}}"
   local name script
 
