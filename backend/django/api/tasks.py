@@ -20,7 +20,7 @@ WORKER_CONCURRENCY = int(os.getenv('CELERY_CONCURRENCY', '2'))
 
 def _extract_frame_transforms(editor_state: dict | None) -> list | None:
     """
-    Flatten per-frame transforms from CanvasData.editor_state into a list
+    Flatten per-frame transforms from the render_state snapshot into a list
     ordered as [canvas0_frame0, canvas0_frame1, canvas1_frame0, ...].
 
     Returns None if editor_state is absent or has no canvases (engine then
@@ -51,7 +51,7 @@ def _extract_frame_transforms(editor_state: dict | None) -> list | None:
 
 def _extract_overlays_per_canvas(editor_state: dict | None) -> list | None:
     """
-    Extract per-canvas overlay lists from CanvasData.editor_state for the
+    Extract per-canvas overlay lists from the render_state snapshot for the
     server-side overlay renderer (Phase 1 of CALENDAR_FEATURE_PRD.md §5).
 
     Returns a list-of-lists indexed by canvas batch:
@@ -77,7 +77,7 @@ def _extract_overlays_per_canvas(editor_state: dict | None) -> list | None:
 
 def _extract_backgrounds_per_canvas(editor_state: dict | None) -> list | None:
     """
-    Extract per-canvas background + paper colours from CanvasData.editor_state
+    Extract per-canvas background + paper colours from the render_state snapshot
     for the server-side renderer (Phase 2 WYSIWYG). Returns a list aligned with
     the canvas order used by _extract_frame_transforms / _extract_overlays:
 
@@ -254,18 +254,21 @@ def _resolve_render_inputs(canvas_data) -> tuple:
     """
     Pick the render contract source and image paths for a render job.
 
-    The contract comes from the submit-time snapshot (render_state); falling
-    back to editor_state keeps jobs enqueued before the 0008 deploy (whose
-    payload lived in editor_state in the old shape) rendering correctly,
-    including acks_late redeliveries.
+    The contract is the submit-time snapshot (render_state) and nothing else.
+    editor_state is the autosave's field and is never read here: a job whose
+    payload lived there predates migration 0008, and no such row can still
+    exist — CanvasData expires after EXPORT_RETENTION_DAYS. A direct-API row
+    (GenerateLayoutView) has no snapshot at all; the engine then falls back
+    to the layout's fit_mode.
 
-    image_paths come from the snapshot, not the row: a post-submit autosave
-    (CanvasStateView) resets CanvasData.image_paths to [] — the snapshot is
-    immutable for the lifetime of the queued job.
+    image_paths come from the snapshot, not the row, when the snapshot has
+    them: a post-submit autosave (CanvasStateView) resets
+    CanvasData.image_paths to [] — the snapshot is immutable for the lifetime
+    of the queued job. Direct-API rows carry their paths on the row.
 
     Returns (render_source, image_paths).
     """
-    render_source = canvas_data.render_state or canvas_data.editor_state
+    render_source = canvas_data.render_state or None
     image_paths = (canvas_data.render_state or {}).get('image_paths') or canvas_data.image_paths
     return render_source, image_paths
 
