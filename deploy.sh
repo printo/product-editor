@@ -38,6 +38,9 @@ usage() {
   echo "                    No git pull, no build, no migrations."
   echo "                    Add backend|frontend to roll back one half."
   echo ""
+  echo -e "${BLUE}Tip:${NC} run it inside tmux (\`tmux new -s deploy\`). A dropped SSH session kills a"
+  echo "  plain deploy between the image build and the container swap (2026-10-13)."
+  echo ""
   echo -e "${BLUE}Environment overrides:${NC}"
   echo "  ALLOW_STALE_DEPLOY=1   deploy the current checkout even if git pull fails"
   echo "  SKIP_SMOKE_TESTS=1     skip the post-deploy smoke tests"
@@ -706,7 +709,10 @@ fi
 # doesn't depend on this step.
 if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
   print_header "Font Cache Refresh"
-  if timeout 300 docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py refresh_fonts; then
+  # -T: no TTY (a TTY-attached `run` is what stalls when the session is flaky);
+  # --no-deps: the services it needs are already up; -k: SIGKILL if SIGTERM is
+  # ignored. 120 s is plenty for a handful of font files.
+  if timeout -k 10 120 docker-compose run --rm -T --no-deps --entrypoint /opt/venv/bin/python backend manage.py refresh_fonts </dev/null; then
     print_status "Fonts refreshed"
   else
     print_warning "Font refresh incomplete — cached fonts kept; prints are unaffected"
