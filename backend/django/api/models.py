@@ -41,7 +41,12 @@ class APIKey(models.Model):
     can_generate_layouts = models.BooleanField(default=True)
     can_list_layouts = models.BooleanField(default=True)
     can_access_exports = models.BooleanField(default=True)
-    max_requests_per_day = models.IntegerField(default=1000, null=True, blank=True)
+    max_requests_per_day = models.PositiveIntegerField(
+        default=None, null=True, blank=True,
+        help_text="Audited API calls this key may make per day (IST). Blank = no cap. "
+                  "Once reached, the key gets 429 until midnight IST. Enforced since migration 0022; "
+                  "before that the number was recorded and never checked.",
+    )
     
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True)

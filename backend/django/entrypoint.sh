@@ -67,7 +67,6 @@ if direct_key:
             description="Direct Ops Team API key",
             is_active=True, is_ops_team=True,
             can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
-            max_requests_per_day=10000,
         ),
     )
     print(f"{'✓ Created' if created else '✓ Updated'} DIRECT API key from environment")
@@ -80,7 +79,6 @@ if external_key:
             description="External Partner API key",
             is_active=True, is_ops_team=False,
             can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
-            max_requests_per_day=1000,
         ),
     )
     print(f"{'✓ Created' if created else '✓ Updated'} EXTERNAL API key from environment")
@@ -93,7 +91,6 @@ if test_key:
             description="Testing API key",
             is_active=True, is_ops_team=False,
             can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
-            max_requests_per_day=5000,
         ),
     )
     print(f"{'✓ Created' if created else '✓ Updated'} TESTING API key from environment")
@@ -118,7 +115,6 @@ if internal_key:
                 description="Next.js internal proxy service account (dashboard/editor traffic)",
                 is_active=True, is_ops_team=True,
                 can_generate_layouts=True, can_list_layouts=True, can_access_exports=True,
-                max_requests_per_day=10000,
             ),
         )
         print(f"{'✓ Created' if created else '✓ Updated'} INTERNAL API key from environment")

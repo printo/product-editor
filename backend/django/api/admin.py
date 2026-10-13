@@ -13,7 +13,7 @@ from .models import APIKey, APIRequest, UploadedFile, ExportedResult
 @admin.register(APIKey)
 class APIKeyAdmin(admin.ModelAdmin):
     change_form_template = 'admin/api/apikey/change_form.html'
-    list_display = ('name', 'key_preview', 'is_active', 'last_used_at', 'created_at')
+    list_display = ('name', 'key_preview', 'is_active', 'max_requests_per_day', 'last_used_at', 'created_at')
     list_filter = ('is_active', 'created_at', 'last_used_at')
     search_fields = ('name', 'key')
     # The full key is shown exactly once — right after it is created or

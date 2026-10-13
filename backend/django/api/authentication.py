@@ -4,6 +4,7 @@ import logging
 from rest_framework import authentication, exceptions
 from django.conf import settings
 from .models import APIKey
+from services.request_quota import is_over_quota, seconds_until_next_day
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +55,25 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
             # WHICH credential performed the action, not just its name.
             raw_request._api_auth_key = api_key
 
+            over_quota = is_over_quota(api_key, now)
             logger.info(f"API Key authenticated: {api_key.name}")
-            return (APIKeyUser(api_key), token)
-            
+
         except APIKey.DoesNotExist:
             return None  # Let other authentication classes try
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
             raise exceptions.AuthenticationFailed('Authentication failed.')
+
+        # Raised outside the try so the catch-all above cannot turn it into a 401.
+        # The key is stamped on the request already, so the audit row names it.
+        if over_quota:
+            cap = api_key.max_requests_per_day
+            logger.warning(f"API key {api_key.name} reached its daily cap ({cap})")
+            raise exceptions.Throttled(
+                wait=seconds_until_next_day(now),
+                detail=f'This API key has used its {cap} requests for today; the cap resets at midnight IST.',
+            )
+        return (APIKeyUser(api_key), token)
 
 
 class PIAAuthentication(authentication.BaseAuthentication):
