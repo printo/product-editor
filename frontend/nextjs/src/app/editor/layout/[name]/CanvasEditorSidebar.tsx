@@ -184,6 +184,56 @@ export function CanvasEditorSidebar({
     return converted.filter(isAllowedImageFile);
   };
 
+  // The add controls of the Icons and Uploads tabs. Shown on their own when
+  // nothing of that kind is selected, and under the selected image's settings
+  // otherwise: until 2026-10-13 selecting an icon or sticker hid them, so a
+  // second one could only be added after selecting some other layer.
+  const addIconBlock = (
+                <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <IconBrowser onAddImage={imgOverlay => {
+                    pushUndo(editingCanvas, true);
+                    const newOverlay: Overlay = { type: 'image', ...imgOverlay };
+                    const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
+                    debouncedRender(updated);
+                    setSelectedLayer({ type: 'image', index: updated.overlays.length - 1 });
+                  }} />
+                </div>
+  );
+  const addPhotoBlock = (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-rose-500 hover:bg-white hover:border-rose-200 transition-all cursor-pointer overflow-hidden shadow-sm">
+                    <div className="p-3 bg-rose-50 rounded-xl shadow-inner group-hover:scale-110 transition-all duration-500">
+                      <ImagePlus className="w-6 h-6" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[11px] font-medium uppercase">Add Photo</p>
+                      <p className="text-[10px] text-slate-400 uppercase tracking-tight opacity-80">Floating overlay</p>
+                    </div>
+                    <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
+                      onChange={async e => {
+                        if (!e.target.files?.length) return;
+                        const rawFiles = Array.from(e.target.files);
+                        e.target.value = '';
+                        const files = await prepareImageFiles(rawFiles, null);
+                        if (files.length === 0) return;
+                        pushUndo(editingCanvas, true);
+                        let updated = { ...editingCanvas };
+                        for (const file of files) {
+                          const newOverlay: Overlay = {
+                            id: Math.random().toString(36).slice(2, 11),
+                            type: 'image', src: getFileUrl(file), originalFile: file,
+                            source: 'local', x: 50, y: 50, width: 30, height: 30,
+                            rotation: 0, opacity: 1, label: file.name,
+                          };
+                          updated = { ...updated, overlays: [...updated.overlays, newOverlay] };
+                        }
+                        debouncedRender(updated);
+                        setSelectedLayer({ type: 'image', index: updated.overlays.length - 1 });
+                      }} />
+                  </label>
+                </div>
+  );
+
   return (
     // Mobile (<md): bottom sheet capped at 45vh so the canvas keeps most of
     // the viewport — the CalendarEditPanel P9.3 recipe. md+: the classic
@@ -537,20 +587,11 @@ export function CanvasEditorSidebar({
                       <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
                         onScale={(w, h) => updateImage({ width: w, height: h })} />
                     </div>
+                    <div className="pt-5 border-t border-slate-100">{addIconBlock}</div>
                   </div>
                 );
               }
-              return (
-                <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <IconBrowser onAddImage={imgOverlay => {
-                    pushUndo(editingCanvas, true);
-                    const newOverlay: Overlay = { type: 'image', ...imgOverlay };
-                    const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
-                    debouncedRender(updated);
-                    setSelectedLayer({ type: 'image', index: updated.overlays.length - 1 });
-                  }} />
-                </div>
-              );
+              return addIconBlock;
             })()}
 
             {/* ── Uploads tab ───────────────────────────────────────────── */}
@@ -620,43 +661,11 @@ export function CanvasEditorSidebar({
                       <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
                         onScale={(w, h) => updateImage({ width: w, height: h })} />
                     </div>
+                    <div className="pt-5 border-t border-slate-100">{addPhotoBlock}</div>
                   </div>
                 );
               }
-              return (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-rose-500 hover:bg-white hover:border-rose-200 transition-all cursor-pointer overflow-hidden shadow-sm">
-                    <div className="p-3 bg-rose-50 rounded-xl shadow-inner group-hover:scale-110 transition-all duration-500">
-                      <ImagePlus className="w-6 h-6" />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-[11px] font-medium uppercase">Add Photo</p>
-                      <p className="text-[10px] text-slate-400 uppercase tracking-tight opacity-80">Floating overlay</p>
-                    </div>
-                    <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
-                      onChange={async e => {
-                        if (!e.target.files?.length) return;
-                        const rawFiles = Array.from(e.target.files);
-                        e.target.value = '';
-                        const files = await prepareImageFiles(rawFiles, null);
-                        if (files.length === 0) return;
-                        pushUndo(editingCanvas, true);
-                        let updated = { ...editingCanvas };
-                        for (const file of files) {
-                          const newOverlay: Overlay = {
-                            id: Math.random().toString(36).slice(2, 11),
-                            type: 'image', src: getFileUrl(file), originalFile: file,
-                            source: 'local', x: 50, y: 50, width: 30, height: 30,
-                            rotation: 0, opacity: 1, label: file.name,
-                          };
-                          updated = { ...updated, overlays: [...updated.overlays, newOverlay] };
-                        }
-                        debouncedRender(updated);
-                        setSelectedLayer({ type: 'image', index: updated.overlays.length - 1 });
-                      }} />
-                  </label>
-                </div>
-              );
+              return addPhotoBlock;
             })()}
 
           </div>
