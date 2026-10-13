@@ -242,7 +242,7 @@ export default function LayoutEditorPage() {
     setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
     calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
-    activeTemplateRef, setActiveTemplate,
+    activeTemplateRef, setActiveTemplate, activeTemplateId: activeTemplate?.id ?? null,
   });
 
   const canvasesRef = useRef<CanvasItem[]>([]);
@@ -331,16 +331,19 @@ export default function LayoutEditorPage() {
     apiBase, getAuthHeaders, layoutName: layout?.name, enabled: !!layout && !isCalendarProduct && !isBookProduct,
   });
   const totalCardCount = surfaceStates.reduce((n, s) => n + s.canvases.length, 0);
-  // The embed's template_flow: the picker opens first, once. Not when a saved
-  // design came back (restore settles before this runs) or the address
-  // already named a template.
+  // Picking a template is the first step: the picker opens by itself, once,
+  // on a fresh design. Always on the dashboard; in the embed only when the
+  // session asked for it (template_flow=1), so printo.in keeps the switch.
+  // Not when a saved design came back (restore settles before this runs) or
+  // the address already named a template.
+  const askTemplateFirst = embedToken ? templateFlow : true;
   const templateFlowOpenedRef = useRef(false);
   useEffect(() => {
-    if (!templateFlow || templateFlowOpenedRef.current || !templatesLoaded || !restoreSettled) return;
+    if (!askTemplateFirst || templateFlowOpenedRef.current || !templatesLoaded || !restoreSettled) return;
     templateFlowOpenedRef.current = true;
     if (templates.length > 0 && !activeTemplate && totalCardCount === 0) setShowTemplatePicker(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateFlow, templatesLoaded, restoreSettled]);
+  }, [askTemplateFirst, templatesLoaded, restoreSettled]);
 
   const {
     openEditor, closeEditor, handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur,
@@ -474,7 +477,8 @@ export default function LayoutEditorPage() {
 
       {showTemplatePicker && (
         <TemplatePickerDialog
-          templates={templates} activeTemplate={activeTemplate} cardCount={totalCardCount} firstStep={templateFlow}
+          templates={templates} activeTemplate={activeTemplate} cardCount={totalCardCount}
+          firstStep={askTemplateFirst && !activeTemplate && totalCardCount === 0}
           onPick={applyTemplate} onClose={() => setShowTemplatePicker(false)}
         />
       )}
@@ -593,8 +597,7 @@ export default function LayoutEditorPage() {
             isProcessing={isProcessing} canvases={canvases} restorePending={restorePending} restoreCount={restoreCount}
             layout={layout} dragOverIdx={dragOverIdx} setDragOverIdx={setDragOverIdx}
             uploadInputRef={uploadInputRef} handleFileChange={handleFileChange}
-            templateCount={templates.length} activeTemplateName={activeTemplate?.displayName ?? null}
-            onOpenTemplates={() => setShowTemplatePicker(true)}
+            activeTemplateName={activeTemplate?.displayName ?? null}
           />
 
           <CanvasGrid
