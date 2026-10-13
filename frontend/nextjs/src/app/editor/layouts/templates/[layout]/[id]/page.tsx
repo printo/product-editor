@@ -91,6 +91,10 @@ export default function TemplateEditorPage() {
     new Set([DEFAULT_OVERLAY_FONT, ...selectedFonts]).forEach(f => loadGoogleFont(f));
   }, [selectedFonts, loadGoogleFont]);
 
+  // Arriving from a scrolled Layouts page, the router keeps the scroll and the
+  // fixed top bar covers the form; start at the top (window API in an effect).
+  useEffect(() => { window.scrollTo(0, 0); }, []);
+
   // Load the layout, the fonts list and (when editing) the template.
   useEffect(() => {
     if (!layoutName) return;
@@ -170,16 +174,23 @@ export default function TemplateEditorPage() {
     }));
   };
 
-  const pickSample = (file: File | null) => {
+  // The side previews are redrawn with the sample in the frames (or without
+  // it), so the page shows the decoration around a real photo at once.
+  const pickSample = async (file: File | null) => {
     setSample(file);
-    setSurfaces(prev => prev.map(s => ({
-      ...s,
-      canvases: s.canvases.map(c => ({
-        ...c,
-        frames: c.frames.map(f => ({ ...f, originalFile: file, fillStyle: file ? 'blur' : undefined })),
+    if (!normalized) return;
+    const raw = normalized._raw;
+    const next = await Promise.all(surfaces.map(async s => {
+      const card: CanvasItem = {
+        ...s.canvases[0],
+        frames: s.canvases[0].frames.map(f => ({ ...f, originalFile: file, fillStyle: file ? 'blur' : undefined })),
         dataUrl: null,
-      })),
-    })));
+      };
+      const def = { ...raw, ...s.def, canvas: s.def.canvas, frames: s.def.frames };
+      const dataUrl = await renderCanvas(card, def, getFileUrl, { thumbnail: true }).catch(() => null);
+      return { ...s, canvases: [{ ...card, dataUrl }] };
+    }));
+    setSurfaces(next);
   };
 
   const save = async () => {

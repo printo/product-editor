@@ -76,6 +76,9 @@ export default function LayoutTemplatesPage() {
   }, [layoutName]);
 
   useEffect(() => { if (layoutName) void load(); }, [layoutName, load]);
+  // Arriving from a scrolled Layouts page, the router keeps the scroll and the
+  // fixed top bar covers the New template button; start at the top.
+  useEffect(() => { window.scrollTo(0, 0); }, []);
 
   const act = async (id: string, run: () => Promise<Response>, failure: string) => {
     setBusyId(id);

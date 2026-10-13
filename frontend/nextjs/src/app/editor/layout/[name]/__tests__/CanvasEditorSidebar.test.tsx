@@ -58,3 +58,23 @@ describe('CanvasEditorSidebar — an added image that could not be recovered', (
     expect(screen.queryByLabelText(/Re-upload image/)).toBeNull();
   });
 });
+
+describe('CanvasEditorSidebar — the add controls stay with an image selected', () => {
+  const icon = {
+    id: 'i1', type: 'image', source: 'icon', src: 'https://api.iconify.design/mdi/cake.svg', label: 'mdi:cake',
+    x: 10, y: 20, width: 20, height: 20, rotation: 0, opacity: 1,
+  } as Overlay;
+
+  it('the Uploads tab shows the selected image’s settings and still offers Add Photo', () => {
+    setup([{ ...lost, originalFile: new File(['x'], 'logo.png') } as Overlay]);
+    expect(screen.getByText('Image Overlay')).toBeInTheDocument();
+    expect(screen.getByText('Add Photo')).toBeInTheDocument();
+  });
+
+  it('the Icons tab shows the selected icon’s settings and still offers Add New Icon', () => {
+    setup([icon]);
+    fireEvent.click(screen.getByRole('button', { name: 'Icons' }));
+    expect(screen.getByText('Icon Overlay')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add New Icon' })).toBeInTheDocument();
+  });
+});
