@@ -15,6 +15,9 @@ import type { NormalizedLayout } from '@/lib/layout-utils';
 import { collectDuplicateFills } from '@/lib/submit-guards';
 import { DEFAULT_OVERLAY_FONT } from '@/lib/overlay-fonts';
 import type { FitMode, CanvasItem, SurfaceState } from './types';
+import { applyTemplateToCards, type LayoutTemplate } from './layout-template';
+import { useLayoutTemplates } from './useLayoutTemplates';
+import { TemplatePickerDialog } from './dialogs/TemplatePickerDialog';
 import { CanvasEditorModal } from './CanvasEditorModal';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import { EmbedSubmittedOverlay } from './EmbedSubmittedOverlay';
@@ -50,7 +53,7 @@ import { TruncatedImagesDialog } from './dialogs/TruncatedImagesDialog';
 export default function LayoutEditorPage() {
   const {
     layoutName, router, session, status, embedToken, parentOrigin, setSessionQty, orderQty,
-    orderId, setOrderId, getAuthHeaders, apiBase, serverHeicConvert,
+    orderId, setOrderId, getAuthHeaders, apiBase, serverHeicConvert, urlTemplateId, templateFlow,
   } = useEditorEnvironment();
 
   const [layout, setLayout] = useState<any | null>(null);
@@ -129,6 +132,14 @@ export default function LayoutEditorPage() {
   const activeSurfaceKeyRef = useRef(activeSurfaceKey);
   useEffect(() => { activeSurfaceKeyRef.current = activeSurfaceKey; }, [activeSurfaceKey]);
   const [normalizedLayoutState, setNormalizedLayoutState] = useState<NormalizedLayout | null>(null);
+  // The layout template in force (template.ts): loaded with the layout from
+  // ?template=, replaced by whatever the restored design saved, picked in the
+  // editor. New cards start with its decoration; the ref is what the card
+  // builder and the re-pick confirm read.
+  const [activeTemplate, setActiveTemplate] = useState<LayoutTemplate | null>(null);
+  const activeTemplateRef = useRef<LayoutTemplate | null>(null);
+  useEffect(() => { activeTemplateRef.current = activeTemplate; }, [activeTemplate]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
   const {
     isBookProduct, bookPageCount, setBookPageCount, bookHiddenPages, setBookHiddenPages, bookHiddenPagesRef,
@@ -163,6 +174,7 @@ export default function LayoutEditorPage() {
     layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
     selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
     setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
+    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning,
   });
 
   const { getFileUrl, fileUrlCache, createdObjectURLs } = useObjectUrls();
@@ -223,13 +235,14 @@ export default function LayoutEditorPage() {
   const renderCanvas = useRenderCanvas(layout, getFileUrl);
 
   const {
-    restorePending, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
+    restorePending, restoreSettled, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
   } = useAutosaveAndRestore({
     layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, legacyOrderIdRef, normalizedLayoutState,
     canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
     setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
     calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
+    activeTemplateRef, setActiveTemplate,
   });
 
   const canvasesRef = useRef<CanvasItem[]>([]);
@@ -285,7 +298,49 @@ export default function LayoutEditorPage() {
     layout, files, isProcessing, setIsProcessing, setError, isCalendarProduct, setRenderProgress, canvasesRef, setCanvases,
     renderCanvas, apiBase, getAuthHeaders, globalFitModeRef, globalBlurFillRef, skipNextGenerateRef, surfaceStates,
     setSurfaceStates, fitModeUserToggledRef, globalFitMode, activeSurfaceKey, blurFillUserToggledRef, globalBlurFill,
+    templateRef: activeTemplateRef,
   });
+
+  // Put a template (or none) on the design: new cards start with it, and
+  // every card already there gets its decoration now, keeping its photos and
+  // the customer's own additions. Also the "Apply template to all cards"
+  // action, with the template already in force. Thumbnails are redrawn here;
+  // the autosave picks the change up like any other edit.
+  const applyTemplate = async (template: LayoutTemplate | null) => {
+    setActiveTemplate(template);
+    activeTemplateRef.current = template;
+    const surfaces = surfaceStatesRef.current;
+    if (!surfaces.some(s => s.canvases.length > 0)) return;
+    const next = await Promise.all(surfaces.map(async s => {
+      if (s.canvases.length === 0) return s;
+      const def = { ...normalizedLayoutState?._raw, ...s.def };
+      const canvases = await Promise.all(
+        applyTemplateToCards(s.canvases, template, s.key).map(async c => ({
+          ...c, dataUrl: await renderCanvas(c, { thumbnail: true, layoutOverride: def }),
+        })),
+      );
+      return { ...s, canvases };
+    }));
+    setSurfaceStates(next);
+    const active = next.find(s => s.key === activeSurfaceKeyRef.current) ?? next[0];
+    if (active) setCanvases(active.canvases);
+  };
+
+  // The layout's published templates (none for calendars and books yet).
+  const { templates, templatesLoaded } = useLayoutTemplates({
+    apiBase, getAuthHeaders, layoutName: layout?.name, enabled: !!layout && !isCalendarProduct && !isBookProduct,
+  });
+  const totalCardCount = surfaceStates.reduce((n, s) => n + s.canvases.length, 0);
+  // The embed's template_flow: the picker opens first, once. Not when a saved
+  // design came back (restore settles before this runs) or the address
+  // already named a template.
+  const templateFlowOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!templateFlow || templateFlowOpenedRef.current || !templatesLoaded || !restoreSettled) return;
+    templateFlowOpenedRef.current = true;
+    if (templates.length > 0 && !activeTemplate && totalCardCount === 0) setShowTemplatePicker(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateFlow, templatesLoaded, restoreSettled]);
 
   const {
     openEditor, closeEditor, handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur,
@@ -310,7 +365,7 @@ export default function LayoutEditorPage() {
     bookHiddenPagesRef, bookOverflowDecidedRef, pendingBookOverflow, setPendingBookOverflow, orderQty, qtyUnder, setQtyUnder,
     intentionalDupesRef, uploadInputRef, createdObjectURLs, fileUrlCache, generateCanvasesForLayout, skipNextGenerateRef,
     expandPdfPages, serverHeicConvert, setHeicConverting, setIsProcessing, setError, setColorWarning, setUploadWarning,
-    setUnsupportedWarning,
+    setUnsupportedWarning, templateRef: activeTemplateRef,
   });
 
   const imposition = useImposition({ layout, surfaceStates, canvases, renderCanvas, setError, setRenderProgress });
@@ -335,12 +390,13 @@ export default function LayoutEditorPage() {
       if (pendingTruncated) return setPendingTruncated(null);
       if (pendingBookOverflow) return setPendingBookOverflow(null);
       if (showImpositionModal) return setShowImpositionModal(false);
+      if (showTemplatePicker) return setShowTemplatePicker(false);
       if (showDownloadModal) return setShowDownloadModal(false);
       if (showEmbedDisclaimer) return setShowEmbedDisclaimer(false);
     };
     document.addEventListener('keydown', onEsc);
     return () => document.removeEventListener('keydown', onEsc);
-  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, pendingTruncated, pendingBookOverflow, setPendingBookOverflow, showImpositionModal, setShowImpositionModal, showDownloadModal, showEmbedDisclaimer, setShowAutoFillPicker, setPendingRepick, setPendingOverFiles, setPendingTruncated]);
+  }, [showAutoFillPicker, pendingRepick, deleteConfirm, pendingOverFiles, pendingTruncated, pendingBookOverflow, setPendingBookOverflow, showImpositionModal, setShowImpositionModal, showDownloadModal, showEmbedDisclaimer, showTemplatePicker, setShowAutoFillPicker, setPendingRepick, setPendingOverFiles, setPendingTruncated]);
 
   // `files` mirrors only the ACTIVE surface, so on a multi-surface product it
   // under-reports the product-wide total (a 4-photo book read as "2"). Sum the
@@ -414,6 +470,13 @@ export default function LayoutEditorPage() {
       {/* ── Re-pick confirm modal (Phase 3 — ask before discarding edits) ──── */}
       {pendingRepick && (
         <RepickConfirmDialog losingCount={pendingRepick.losingCount} onDecide={handleRepickConfirm} />
+      )}
+
+      {showTemplatePicker && (
+        <TemplatePickerDialog
+          templates={templates} activeTemplate={activeTemplate} cardCount={totalCardCount} firstStep={templateFlow}
+          onPick={applyTemplate} onClose={() => setShowTemplatePicker(false)}
+        />
       )}
 
       {/* Hidden input feeding the per-frame photo replace (Phase 3). */}
@@ -509,6 +572,8 @@ export default function LayoutEditorPage() {
             totalUploadedCount={totalUploadedCount} uploadInputRef={uploadInputRef}
             globalFitMode={globalFitMode} setGlobalFitMode={setGlobalFitMode} fitModeUserToggledRef={fitModeUserToggledRef}
             globalBlurFill={globalBlurFill} setGlobalBlurFill={setGlobalBlurFill} blurFillUserToggledRef={blurFillUserToggledRef}
+            templateCount={templates.length} activeTemplateName={activeTemplate?.displayName ?? null}
+            onOpenTemplates={() => setShowTemplatePicker(true)}
             isProcessing={isProcessing} isDownloading={isDownloading} setDisclaimerChecked={setDisclaimerChecked}
             setShowEmbedDisclaimer={setShowEmbedDisclaimer} setShowDownloadModal={setShowDownloadModal}
           />
@@ -528,6 +593,8 @@ export default function LayoutEditorPage() {
             isProcessing={isProcessing} canvases={canvases} restorePending={restorePending} restoreCount={restoreCount}
             layout={layout} dragOverIdx={dragOverIdx} setDragOverIdx={setDragOverIdx}
             uploadInputRef={uploadInputRef} handleFileChange={handleFileChange}
+            templateCount={templates.length} activeTemplateName={activeTemplate?.displayName ?? null}
+            onOpenTemplates={() => setShowTemplatePicker(true)}
           />
 
           <CanvasGrid

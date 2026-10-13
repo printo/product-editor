@@ -20,6 +20,7 @@
  *     cached pixels stale.
  */
 import type { CanvasItem, FrameState, Overlay } from './types';
+import { customerDecoration, type SavedTemplate } from './layout-template';
 
 export function fileKey(f: File): string {
   return `${f.name}:${f.size}:${f.lastModified}`;
@@ -129,10 +130,12 @@ export function planCanvasReuse(
  * re-pick confirm to decide whether replacing photos needs an "are you
  * sure" (Phase 3 — ask before discarding work).
  */
-export function canvasHasRealEdits(canvas: CanvasItem): boolean {
-  if ((canvas.overlays || []).length > 0) return true;
-  if ((canvas.bgColor || '#ffffff').toLowerCase() !== '#ffffff') return true;
-  if ((canvas.paperColor || '#ffffff').toLowerCase() !== '#ffffff') return true;
+export function canvasHasRealEdits(canvas: CanvasItem, template?: SavedTemplate | null, surfaceKey = 'default'): boolean {
+  // Decoration a layout template put there is not the customer's work: a
+  // card that carries only its template never asks "are you sure".
+  const own = customerDecoration(canvas, template, surfaceKey);
+  if (own.overlays.length > 0) return true;
+  if (own.bgChanged || own.paperChanged) return true;
   return (canvas.frames || []).some(f =>
     !!f?.originalFile && (
       f.offset.x !== 0 || f.offset.y !== 0 || f.scale !== 1 || f.rotation !== 0
@@ -148,10 +151,12 @@ export function canvasHasRealEdits(canvas: CanvasItem): boolean {
 export function countCanvasesLosingEdits(
   existing: ReadonlyArray<CanvasItem>,
   newFiles: ReadonlyArray<File>,
+  template?: SavedTemplate | null,
+  surfaceKey = 'default',
 ): number {
   const newKeys = new Set(newFiles.map(fileKey));
   return existing.filter(c =>
-    canvasHasRealEdits(c) &&
+    canvasHasRealEdits(c, template, surfaceKey) &&
     (c.frames || []).some(f => f?.originalFile) &&
     !(c.frames || []).some(f => f?.originalFile && newKeys.has(fileKey(f.originalFile)))
   ).length;

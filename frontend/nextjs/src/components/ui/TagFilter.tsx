@@ -23,7 +23,7 @@ const OPTIONS = ['', ...AVAILABLE_TAGS].map(tag => ({ value: tag, label: tag || 
  *    md+    → in the header, beside the search box
  *    mobile → in the page body, where it gets a usable width
  *  The header row on mobile already carries search, Fonts and the
- *  Dashboard/Templates toggle; adding a fourth control there squeezed the
+ *  Dashboard/Layouts toggle; adding a fourth control there squeezed the
  *  search box to ~70px, so the filter moves out of the row rather than
  *  starving it.
  *

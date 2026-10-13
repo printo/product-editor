@@ -12,6 +12,7 @@ import { reconcilePageCount } from './book-pages';
 import { countCanvasesLosingEdits } from './canvas-merge';
 import { allocateFilesToSurfaces, surfaceFrameCount, totalSurfaceCapacity } from './surface-allocation';
 import type { CanvasItem, FitMode, SurfaceState } from './types';
+import type { SavedTemplate } from './layout-template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;
@@ -28,7 +29,7 @@ export function useFileIntake({
   bookHiddenPagesRef, bookOverflowDecidedRef, pendingBookOverflow, setPendingBookOverflow, orderQty, qtyUnder, setQtyUnder,
   intentionalDupesRef, uploadInputRef, createdObjectURLs, fileUrlCache, generateCanvasesForLayout, skipNextGenerateRef,
   expandPdfPages, serverHeicConvert, setHeicConverting, setIsProcessing, setError, setColorWarning, setUploadWarning,
-  setUnsupportedWarning,
+  setUnsupportedWarning, templateRef,
 }: {
   layout: any;
   files: File[];
@@ -67,6 +68,8 @@ export function useFileIntake({
   setColorWarning: Setter<string | null>;
   setUploadWarning: Setter<string | null>;
   setUnsupportedWarning: Setter<string | null>;
+  /** The layout template in force; its decoration never counts as an edit to lose. */
+  templateRef?: Ref<SavedTemplate | null>;
 }) {
   const [pendingOverFiles, setPendingOverFiles] = useState<File[] | null>(null);
   // Re-pick confirm (Phase 3): held selection + how many edited pages would
@@ -275,7 +278,7 @@ export function useFileIntake({
     // against the new selection; clearing first is what used to wipe every
     // pan/zoom/overlay on any re-pick. When the new selection drops edited
     // photos entirely, ask before discarding that work.
-    const losing = countCanvasesLosingEdits(canvasesRef.current, allFiles);
+    const losing = countCanvasesLosingEdits(canvasesRef.current, allFiles, templateRef?.current ?? null, activeSurfaceKey);
     if (losing > 0 && !repickConfirmedRef.current) {
       setPendingRepick({ files: allFiles, losingCount: losing });
       return;

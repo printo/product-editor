@@ -76,6 +76,8 @@ storage/exports/*
 storage/layouts/
 # Masks are now in S3 — never commit
 storage/masks/
+# Template stickers (ops-owned PNGs; S3 ops-config/stickers/ on prod)
+storage/stickers/
 # Fonts are now in S3 — never commit
 storage/fonts.json
 storage/fonts_retired.json

@@ -61,6 +61,7 @@ def _summarize_layout(data):
             "dpi": dim_src.get("dpi"),
         },
         "updatedAt": data.get("updatedAt"),
+        "templateCount": data.get("templateCount", 0),
     }
 
 
@@ -132,6 +133,13 @@ class ListLayoutsView(APIView):
             # ?fields=summary → slim catalog (name, productType, tags, dimensions,
             # surface/frame counts, updatedAt) instead of the full layout defs.
             # Derived from the same cached full list so one cache serves both.
+            # Published-template counts are read per request, not cached with
+            # the list, so a publish shows at once without clearing anything.
+            from .templates import template_counts
+            counts = template_counts(published_only=True)
+            layouts_data = [
+                {**d, 'templateCount': counts.get(d.get('name'), 0)} for d in layouts_data
+            ]
             if request.query_params.get('fields') == 'summary':
                 payload = [_summarize_layout(d) for d in layouts_data]
             else:

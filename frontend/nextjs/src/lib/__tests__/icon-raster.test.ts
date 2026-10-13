@@ -101,6 +101,18 @@ describe('rasterizeSvgUrl', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:svg');
   });
 
+  it('draws a PNG sticker straight from its bytes, stretched to the requested size', async () => {
+    const png = new Blob(['\x89PNG'], { type: 'image/png' });
+    global.fetch = jest.fn(async () => ({
+      ok: true, headers: { get: (h: string) => (h === 'content-type' ? 'image/png' : null) }, blob: async () => png,
+    })) as unknown as typeof fetch;
+    const file = await rasterizeSvgUrl('https://product-editor.printo.in/api/templates/assets/sticker_abc.png', 240, 180, 'icon-balloon.png');
+    expect(file).toMatchObject({ name: 'icon-balloon.png', type: 'image/png' });
+    expect(drawn).toEqual([[240, 180, 0, 0, 240, 180]]);
+    // The PNG itself went to the canvas; nothing was parsed as SVG.
+    expect(svgBlobs).toEqual([png]);
+  });
+
   it('fails, rather than returning a blank file, when the icon can’t be downloaded', async () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 404, text: async () => '' })) as unknown as typeof fetch;
     await expect(rasterizeSvgUrl('https://api.iconify.design/x/gone.svg', 64, 64, 'icon-x.png')).rejects.toThrow(/404/);

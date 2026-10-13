@@ -611,3 +611,69 @@ class LayoutCatalogue(models.Model):
         if require_public and not layout.is_public:
             raise cls.DoesNotExist(f"'{name}' resolves to a non-public layout")
         return layout
+
+
+class LayoutTemplate(models.Model):
+    """
+    Ops-authored decoration (background, text, stickers) for one layout.
+
+    The customer picks a template and the editor copies its decoration onto
+    every card as the card is created; the decoration then lives on the
+    customer's cards and prints through the ordinary overlay path. The
+    template row is only ever read, so nothing here is in the render path.
+
+    `template_id` is the public identifier printo.in sends in
+    `POST /api/embed/session` and the editor reads from `?template=`. It is
+    chosen by ops at creation and immutable afterwards (same reasoning as
+    `LayoutCatalogue.name`). `decoration` is validated by
+    `services.template_decoration.validate_decoration` before every write and
+    never holds a customer upload. `layout_version` is the layout's version
+    at the last save, so the ops list can flag "layout changed, please
+    review" by comparing it with `LayoutCatalogue.version`.
+    """
+
+    template_id = models.CharField(
+        max_length=80, unique=True, db_index=True,
+        help_text="Public identifier, e.g. 'retro-birthday'. Lowercase letters, digits and hyphens. Immutable.",
+    )
+    layout = models.ForeignKey(
+        LayoutCatalogue, to_field='name', on_delete=models.CASCADE, related_name='templates',
+        db_column='layout_name',
+    )
+    display_name = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=16, default='draft', db_index=True,
+        choices=[('draft', 'Draft'), ('published', 'Published')],
+    )
+    decoration = models.JSONField(default=dict)
+    thumbnail_url = models.CharField(max_length=512, blank=True, default='')
+    layout_version = models.PositiveIntegerField(default=1)
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'layout_templates'
+        ordering = ['display_name', 'template_id']
+        indexes = [
+            models.Index(fields=['layout', 'status', 'is_deleted']),
+        ]
+
+    def save(self, *args, **kwargs):
+        from services.template_decoration import TEMPLATE_ID_RE, STATUSES
+        if not TEMPLATE_ID_RE.match(self.template_id or ''):
+            raise ValueError("LayoutTemplate.template_id must be lowercase letters, digits and hyphens (1-80 chars)")
+        if self.status not in STATUSES:
+            raise ValueError(f"LayoutTemplate.status must be one of {STATUSES}")
+        if self.pk is not None:
+            existing = LayoutTemplate.objects.only('template_id').filter(pk=self.pk).first()
+            if existing is not None and existing.template_id != self.template_id:
+                raise ValueError("LayoutTemplate.template_id is immutable once created")
+        super().save(*args, **kwargs)
+
+    @property
+    def is_published(self) -> bool:
+        return self.status == 'published' and not self.is_deleted
+
+    def __str__(self):
+        return f"LayoutTemplate({self.template_id} on {self.layout_id}, {self.status})"

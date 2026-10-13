@@ -27,6 +27,7 @@ import {
   CalendarDays,
   BookOpen,
   Database,
+  LayoutTemplate as TemplateIcon,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -293,7 +294,7 @@ export default function LayoutCreatorPage() {
 
   useEffect(() => {
     if (isModalOpen) {
-      setTitle(isEditMode ? 'Edit Template' : 'Create Template');
+      setTitle(isEditMode ? 'Edit Layout' : 'Create Layout');
       setDescription('Define canvas dimensions and print areas');
       setCenterActions(null);
       setRightActions(
@@ -313,7 +314,7 @@ export default function LayoutCreatorPage() {
         <div className="flex items-center gap-2 flex-1 min-w-0 md:flex-none md:w-full md:max-w-[900px]">
           {/* !w-auto + min-w-0 override SearchInput's mobile w-[175px] shrink-0 so
               this row (search + filter + Fonts + nav) can fit a 375px viewport. */}
-          <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} className="flex-1 min-w-0 !w-auto" />
+          <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} layouts`} className="flex-1 min-w-0 !w-auto" />
           <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden xl:flex" />
           <button
             onClick={() => setShowFontModal(true)}
@@ -1181,6 +1182,18 @@ export default function LayoutCreatorPage() {
                               <Edit2 className="w-4 h-4" />
                             </button>
                           )}
+                          {!isCalendar && !isBook && (
+                            <Link
+                              href={`/editor/layouts/templates/${encodeURIComponent(layoutStr)}`}
+                              data-testid={`templates-${layoutStr}`}
+                              className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all inline-flex items-center gap-1 text-[10px] font-bold"
+                              title="Templates: ready-made decoration customers can start from"
+                              aria-label={`Templates for ${layoutStr}`}
+                            >
+                              <TemplateIcon className="w-4 h-4" />
+                              {typeof layoutObj === 'object' && typeof layoutObj.templateCount === 'number' && layoutObj.templateCount > 0 ? layoutObj.templateCount : null}
+                            </Link>
+                          )}
                         </>
                       )}
                       <button
@@ -1817,7 +1830,7 @@ export default function LayoutCreatorPage() {
                 className="px-5 py-1.5 bg-indigo-600 text-white text-[11px] font-bold uppercase tracking-tight rounded-lg hover:bg-indigo-700 shadow-sm transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95"
               >
                 {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                {isEditMode ? 'Update Template' : 'Create Template'}
+                {isEditMode ? 'Update Layout' : 'Create Layout'}
               </button>
             </div>
           </div>

@@ -86,7 +86,7 @@ export default function Dashboard() {
   }, [status, session, router]);
 
   const normalizeLayoutItem = useCallback((item: any) => {
-    if (typeof item === 'string') return { id: item, name: item, displayName: item, frames: [], tags: [], canvas: {}, surfaceCount: 0 };
+    if (typeof item === 'string') return { id: item, name: item, displayName: item, frames: [], tags: [], canvas: {}, surfaceCount: 0, templateCount: 0 };
     const isProduct = item.type === 'product' && Array.isArray(item.surfaces);
     const canvas = isProduct ? item.surfaces[0]?.canvas : item.canvas;
     const frames = isProduct ? item.surfaces[0]?.frames || [] : item.frames || [];
@@ -107,6 +107,7 @@ export default function Dashboard() {
       updatedAt: item.updatedAt || null,
       createdBy: item.createdBy || 'System',
       surfaceCount: isProduct ? item.surfaces.length : 0,
+      templateCount: typeof item.templateCount === 'number' ? item.templateCount : 0,
       _raw: item,
     };
   }, []);
@@ -167,7 +168,7 @@ export default function Dashboard() {
       <div className="flex items-center gap-2 flex-1 min-w-0 md:flex-none md:w-full md:max-w-[900px]">
         {/* !w-auto + min-w-0 override SearchInput's mobile w-[175px] shrink-0 so
             search + filter + nav fit a 375px viewport without overlapping. */}
-        <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} templates`} className="flex-1 min-w-0 !w-auto" />
+        <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} layouts`} className="flex-1 min-w-0 !w-auto" />
         <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden md:flex" />
       </div>
     );
@@ -234,6 +235,12 @@ export default function Dashboard() {
                           <>
                             <span>•</span>
                             <span className="text-indigo-500 font-medium">Multi-Surface</span>
+                          </>
+                        )}
+                        {layout.templateCount > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-indigo-500 font-medium">{layout.templateCount} {layout.templateCount === 1 ? 'Template' : 'Templates'}</span>
                           </>
                         )}
                       </p>

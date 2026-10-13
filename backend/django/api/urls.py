@@ -8,6 +8,8 @@ from .views import (
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
     OrientationDetectView, HeicConvertView,
     EditorRenderView, EditorInitView, CSPReportView,
+    TemplatesListView, TemplateDetailView, TemplateManagementView,
+    TemplateAssetUploadView, TemplateAssetDownloadView,
 )
 
 # For public aliases of views whose write handlers are mounted again under
@@ -44,6 +46,17 @@ urlpatterns = [
     path("upload/init", ChunkedUploadInitView.as_view(), name="upload-init"),
     path("upload/<str:upload_id>/chunk", ChunkedUploadChunkView.as_view(), name="upload-chunk"),
     path("upload/<str:upload_id>/complete", ChunkedUploadCompleteView.as_view(), name="upload-complete"),
+
+    # Layout templates — ops-authored decoration a customer starts from.
+    # Customer reads (embed proxy allows GET); `assets/` before `<template_id>`
+    # so a sticker filename is never read as a template id.
+    path("templates", TemplatesListView.as_view(), name="templates-list"),
+    path("templates/assets/<str:filename>", TemplateAssetDownloadView.as_view(), name="template-asset-download"),
+    path("templates/<str:template_id>", TemplateDetailView.as_view(), name="template-detail"),
+    # Ops writes — gated to the Ops tier by the internal proxy (path under ops/).
+    path("ops/templates", TemplateManagementView.as_view(), name="ops-templates-list"),
+    path("ops/templates/assets", TemplateAssetUploadView.as_view(), name="ops-template-asset-upload"),
+    path("ops/templates/<str:template_id>", TemplateManagementView.as_view(), name="ops-templates-detail"),
 
     # Layout management (Ops Team only)
     path("ops/layouts", LayoutManagementView.as_view(), name="ops-layouts-list"),

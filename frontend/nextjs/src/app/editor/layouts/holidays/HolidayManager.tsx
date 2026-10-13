@@ -122,11 +122,11 @@ export function HolidayManager() {
     setRightActions(
       <Link
         href="/editor/layouts"
-        aria-label="Back to Templates"
+        aria-label="Back to Layouts"
         className="flex items-center gap-1.5 p-2.5 md:px-3 md:py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-full md:rounded border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
-        <span className="hidden md:inline">Templates</span>
+        <span className="hidden md:inline">Layouts</span>
       </Link>,
     );
     return () => {

@@ -3,7 +3,7 @@
 import type React from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { clsx } from 'clsx';
-import { Upload } from 'lucide-react';
+import { LayoutTemplate as TemplateIcon, Upload } from 'lucide-react';
 import CanvasCardSkeleton from '@/components/CanvasCardSkeleton';
 import type { CanvasItem } from './types';
 
@@ -13,6 +13,7 @@ type DragTarget = { idx: number, surfaceKey: string | null } | null;
  *  drop zone that opens the photo picker. */
 export function EmptyState({
   isProcessing, canvases, restorePending, restoreCount, layout, dragOverIdx, setDragOverIdx, uploadInputRef, handleFileChange,
+  templateCount = 0, activeTemplateName = null, onOpenTemplates,
 }: {
   isProcessing: boolean;
   canvases: CanvasItem[];
@@ -23,6 +24,10 @@ export function EmptyState({
   setDragOverIdx: Dispatch<SetStateAction<DragTarget>>;
   uploadInputRef: RefObject<HTMLInputElement | null>;
   handleFileChange: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  /** Layout templates (template.ts): offered here when the layout has some. */
+  templateCount?: number;
+  activeTemplateName?: string | null;
+  onOpenTemplates?: () => void;
 }) {
   return (
     <>
@@ -75,6 +80,17 @@ export function EmptyState({
               Drag and drop your photos here to get started
             </p>
           </div>
+          {templateCount > 0 && onOpenTemplates && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onOpenTemplates(); }}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-indigo-200 bg-white text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:bg-indigo-50 transition-colors"
+            >
+              <TemplateIcon className="w-3.5 h-3.5" />
+              {activeTemplateName ? `Template: ${activeTemplateName}` : 'Start with a template'}
+            </button>
+          )}
         </div>
       )}
     </>
