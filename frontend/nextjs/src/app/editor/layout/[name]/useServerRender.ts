@@ -5,7 +5,7 @@ import type { CalendarTheme, CalendarType } from '@/types/calendar';
 import { isAllowedImageFile, unsupportedFilesMessage, uploadFiles } from '@/lib/upload-utils';
 import { getCanvasSpec, type CanvasSpec } from '@/lib/layout-utils';
 import { needsRasterForPrint, overlayRasterSize, rasterFileName, rasterizeSvgUrl } from '@/lib/icon-raster';
-import { formatWait } from './editor-utils';
+import { formatWait, isLostLocalImage } from './editor-utils';
 import type { CanvasItem, FrameState, ImageOverlay, Overlay, SurfaceState } from './types';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
@@ -142,23 +142,36 @@ export function useServerRender({
       // design, block the submit and name the photos to re-upload. This closes
       // the client side of the silent wrong-print bug (the backend now renders
       // such a slot blank instead of shifting other photos into it).
+      // An added image in the same state is worse: it would go out under its
+      // browser-only fileId, which the print can't resolve, and be left out
+      // with nothing but a worker log line. It is blocked the same way.
       const lostFrames: string[] = [];
+      const lostImages: string[] = [];
       allCanvases.forEach((c, ci) => {
+        const page = allCanvases.length > 1 ? `page ${ci + 1}, ` : '';
         c.frames.forEach((frame, fi) => {
           if ((frame.fileId || frame.fileName) && !frame.originalFile) {
-            lostFrames.push(
-              allCanvases.length > 1 ? `page ${ci + 1}, photo ${fi + 1}` : `photo ${fi + 1}`,
-            );
+            lostFrames.push(`${page}photo ${fi + 1}`);
+          }
+        });
+        c.overlays.forEach((ov) => {
+          if (ov.type === 'image' && isLostLocalImage(ov)) {
+            lostImages.push(`${page}${ov.label ? `"${ov.label}"` : 'added image'}`);
           }
         });
       });
-      if (lostFrames.length > 0) {
-        const shown = lostFrames.slice(0, 3).join('; ');
-        const more = lostFrames.length > 3 ? `, and ${lostFrames.length - 3} more` : '';
+      const lost = [...lostFrames, ...lostImages];
+      if (lost.length > 0) {
+        const count = (n: number, noun: string) => `${n} ${noun}${n > 1 ? 's' : ''}`;
+        const what = [
+          lostFrames.length > 0 ? count(lostFrames.length, 'photo') : null,
+          lostImages.length > 0 ? count(lostImages.length, 'added image') : null,
+        ].filter(Boolean).join(' and ');
+        const shown = lost.slice(0, 3).join('; ');
+        const more = lost.length > 3 ? `, and ${lost.length - 3} more` : '';
         setError(
-          `${lostFrames.length} photo${lostFrames.length > 1 ? 's' : ''} could not be ` +
-          `recovered (${shown}${more}). Please re-upload ` +
-          `${lostFrames.length > 1 ? 'them' : 'it'} before continuing so your print ` +
+          `${what} could not be recovered (${shown}${more}). Please re-upload ` +
+          `${lost.length > 1 ? 'them' : 'it'} before continuing so your print ` +
           `matches your design.`,
         );
         return;

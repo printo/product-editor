@@ -1,5 +1,6 @@
 import type { OrientationOutcome } from '@/lib/ml-orientation';
 import type { HolidayEntry } from '@/types/calendar';
+import type { Overlay } from './types';
 
 // ─── Fabric-based imposition / export ─────────────────────────────────────
 
@@ -173,4 +174,14 @@ export function writeCardCountHint(orderId: string, count: number): void {
  */
 export function activatesCard(e: { key: string; target: EventTarget; currentTarget: EventTarget }): boolean {
   return e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ');
+}
+
+/**
+ * A customer's own added image (Uploads tab, or a photo moved out of its
+ * frame) whose File did not come back after a restore: IndexedDB on another
+ * device, blocked in the embed, or full when it was added. The print can only
+ * draw it from an upload, so without the File it would be left out.
+ */
+export function isLostLocalImage(o: Overlay): boolean {
+  return o.type === 'image' && o.source === 'local' && !o.originalFile;
 }

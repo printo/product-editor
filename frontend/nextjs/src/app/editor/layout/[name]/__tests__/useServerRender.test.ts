@@ -169,6 +169,26 @@ describe('useServerRender — what stops a submit', () => {
     expect(result.current.isDownloading).toBe(false);
   });
 
+  it('an added image that could not be recovered blocks the submit and is named', async () => {
+    // Restored on a device whose IndexedDB lacks it: the fileId is the browser's
+    // own id, which the print can't resolve, so the image would silently drop.
+    const lost = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
+    const { result } = setup({ canvases: [canvas([frame(photo('a.jpg'))]), canvas([frame(photo('b.jpg'))], { overlays: [lost] })] });
+    await run(() => result.current.executeBatchDownload());
+    expect(result.current.error).toBe('1 added image could not be recovered (page 2, "logo.png"). Please re-upload it before continuing so your print matches your design.');
+    expect(uploadFiles).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  it('lost photos and lost added images are reported together; one never stored is lost too', async () => {
+    // No fileId: storage was full when it was added, so only its dead blob src survived.
+    const neverStored = { type: 'image', source: 'local', src: 'blob:dead', label: 'heart.png' } as unknown as Overlay;
+    const { result } = setup({ canvases: [canvas([frame(null, { fileId: 'idb-a' })], { overlays: [neverStored] })] });
+    await run(() => result.current.executeBatchDownload());
+    expect(result.current.error).toBe('1 photo and 1 added image could not be recovered (photo 1; "heart.png"). Please re-upload them before continuing so your print matches your design.');
+    expect(uploadFiles).not.toHaveBeenCalled();
+  });
+
   it('an icon that can’t be prepared blocks the submit and is named; trying again redraws it', async () => {
     const overlays = [{ type: 'image', source: 'icon', src: 'https://api.iconify.design/logos/whatsapp.svg', label: 'logos:whatsapp', x: 0, y: 0, width: 10, height: 10, rotation: 0, opacity: 1 }] as unknown as Overlay[];
     jest.mocked(rasterizeSvgUrl).mockRejectedValueOnce(new Error('offline'));

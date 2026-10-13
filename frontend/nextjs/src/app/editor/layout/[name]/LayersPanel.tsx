@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ChevronDown, Lock } from 'lucide-react';
+import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ChevronDown, Lock, AlertTriangle } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { CanvasItem, Overlay } from './types';
+import { isLostLocalImage } from './editor-utils';
 
 export type LayerSelection =
   | { type: 'frame'; index: number }
@@ -71,11 +72,13 @@ export function LayersPanel({
             const oIdx = overlays.length - 1 - revIdx;
             const isSelected = selected?.index === oIdx && (selected.type === overlay.type);
             const canMove = overlays.length > 1;
+            const lost = isLostLocalImage(overlay);
 
             return (
               <div
                 key={`overlay-${overlay.id}`}
                 onClick={() => onSelect({ type: overlay.type, index: oIdx })}
+                title={lost ? "Couldn't be recovered on this device — re-upload or delete it" : undefined}
                 className={clsx(
                   'flex items-center gap-1.5 px-2 py-0.5 cursor-pointer transition-all group rounded-lg border',
                   isSelected 
@@ -87,14 +90,17 @@ export function LayersPanel({
                   isSelected ? 'text-indigo-600' : 'text-slate-400')}>
                   {overlay.type === 'text' && <Type className="w-3 h-3" />}
                   {overlay.type === 'shape' && <Hexagon className="w-3 h-3" />}
-                  {overlay.type === 'image' && <ImageIcon className="w-3 h-3" />}
+                  {overlay.type === 'image' && (lost
+                    ? <AlertTriangle className="w-3 h-3 text-amber-600" />
+                    : <ImageIcon className="w-3 h-3" />)}
                 </div>
 
                 <span className={clsx('text-[10px] font-bold truncate flex-1 uppercase tracking-tight', 
-                  isSelected ? 'text-indigo-600' : 'text-slate-500')}>
+                  lost ? 'text-amber-700' : isSelected ? 'text-indigo-600' : 'text-slate-500')}>
                   {overlay.type === 'text' ? (overlay.text.trim() || 'Text') : 
                    overlay.type === 'shape' ? (overlay.shapeType.replace(/-/g, ' ')) : 
                    overlay.label || 'Icon'}
+                  {lost && ' — missing'}
                 </span>
 
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">

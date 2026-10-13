@@ -501,7 +501,10 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
 
     const currentOverlayCount = editingCanvas.overlays.length;
     const currentFrameCount = editingCanvas.frames.length;
-    const currentTypeSig = editingCanvas.overlays.map(o => o.type).join(',');
+    // An image's src is part of it: re-uploading an image that couldn't be
+    // recovered gives it a src, but it never loaded, so there's no Fabric
+    // object for the in-place update to set it on.
+    const currentTypeSig = editingCanvas.overlays.map(o => (o.type === 'image' ? `image:${o.src}` : o.type)).join(',');
     const currentLayoutName = layout?.name || '';
     // Fill/caption changes don't alter frame/overlay counts, so without this
     // they'd slip through as an in-place update and never add/remove the fill

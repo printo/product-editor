@@ -6,7 +6,7 @@ import { clsx } from 'clsx';
 import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, RotateCw, Trash2 } from 'lucide-react';
 import { LazyImg } from '@/components/LazyImg';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
-import { activatesCard } from './editor-utils';
+import { activatesCard, isLostLocalImage } from './editor-utils';
 import type { CanvasItem, SurfaceState } from './types';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
@@ -94,6 +94,15 @@ export function SurfaceCard({
               >
                 <AlertTriangle className="w-3 h-3" />
                 Photo missing — tap to re-upload
+              </button>
+            ) : surfaceCanvas?.overlays.some(isLostLocalImage) ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); openEditor(0, surface.key); }}
+                className="absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors"
+                title="An image you added couldn't be recovered on this device — tap to re-upload or remove it."
+              >
+                <AlertTriangle className="w-3 h-3" />
+                Added image missing — tap to fix
               </button>
             ) : lowDpiByCard.has(`${surface.key}:0`) && (
               <div
@@ -189,7 +198,7 @@ export function SurfaceCard({
 /** One card of a single-surface product's grid: the print preview and its quick-action rail. */
 export function CanvasCard({
   canvas, idx, layout, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop,
-  handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard,
+  openEditor, handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard,
   handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur, swapSource, setSwapSource, handleQuickDelete,
 }: CardProps & { canvas: CanvasItem; idx: number }) {
   return (
@@ -255,6 +264,15 @@ export function CanvasCard({
           >
             <AlertTriangle className="w-3 h-3" />
             Photo missing — tap to re-upload
+          </button>
+        ) : canvas.overlays.some(isLostLocalImage) ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); openEditor(idx); }}
+            className="absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors"
+            title="An image you added couldn't be recovered on this device — tap to re-upload or remove it."
+          >
+            <AlertTriangle className="w-3 h-3" />
+            Added image missing — tap to fix
           </button>
         ) : lowDpiByCard.has(`:${idx}`) && (
           <div
