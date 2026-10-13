@@ -1070,15 +1070,39 @@ export function CalendarLayoutEditor({
   };
 
   // ── Shared aside: canvas-accurate preview for steps 1 / 3 / 4 ──────────
-  // Renders the photo frame area (green) and calendar block (positioned at
-  // the correct fraction offset) so the aside stays in sync with Step 2.
+  // Renders the photo frame area (green) and the calendar block(s) at their
+  // fraction offsets so the aside stays in sync with Step 2. A 12-page layout
+  // shows one month; a poster shows all 12 on the single sheet, placed the
+  // way the print and the Step 2 canvas place them.
+  const isPoster = draft.mode === 'poster';
+  const previewCells: Array<{ block: LayoutCalendar; year: number; month: number }> = isPoster
+    ? (() => {
+        const custom = posterCustomLayout && draft.calendars.length === 12;
+        const base = primaryCalendar;
+        const cellW = Math.min(base.width, Math.max(0.01, (1 - base.x) / 4));
+        const cellH = Math.min(base.height, Math.max(0.01, (1 - base.y) / 3));
+        return monthTiles.map((t, i) => ({
+          year: t.year,
+          month: t.month,
+          block: custom
+            ? draft.calendars[i]
+            : {
+                x: base.x + (i % 4) * cellW,
+                y: base.y + Math.floor(i / 4) * cellH,
+                width: cellW,
+                height: cellH,
+              },
+        }));
+      })()
+    : [{ block: primaryCalendar, year: previewYear, month: 1 }];
+
   const MonthPreviewAside = (
     <aside
       className="sticky top-6 self-start flex flex-col gap-2"
       data-testid="live-preview"
     >
       <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-        Preview · January {previewYear}
+        {isPoster ? `Preview · Poster, all 12 months` : `Preview · January ${previewYear}`}
       </h3>
       {/* Outer wrapper matches canvas aspect ratio */}
       <div
@@ -1098,27 +1122,29 @@ export function CalendarLayoutEditor({
             }}
           />
         ))}
-        {/* Calendar block — positioned at the fraction given by primaryCalendar */}
-        <div
-          className="absolute overflow-hidden"
-          style={{
-            left:   `${primaryCalendar.x * 100}%`,
-            top:    `${primaryCalendar.y * 100}%`,
-            width:  `${primaryCalendar.width * 100}%`,
-            height: `${primaryCalendar.height * 100}%`,
-          }}
-        >
-          <MonthTileThumb
-            year={previewYear}
-            month={1}
-            weekStart={draft.style.weekStart}
-            cells={{}}
-            holidays={previewHolidays}
-            colors={previewColors}
-            dotCycle={previewDotCycle}
-            ariaLabel={`Preview of ${MONTH_NAMES_EN[0]} ${previewYear}`}
-          />
-        </div>
+        {previewCells.map(({ block, year, month }) => (
+          <div
+            key={`${year}-${month}`}
+            className="absolute overflow-hidden"
+            style={{
+              left:   `${block.x * 100}%`,
+              top:    `${block.y * 100}%`,
+              width:  `${block.width * 100}%`,
+              height: `${block.height * 100}%`,
+            }}
+          >
+            <MonthTileThumb
+              year={year}
+              month={month}
+              weekStart={draft.style.weekStart}
+              cells={{}}
+              holidays={previewHolidays}
+              colors={previewColors}
+              dotCycle={previewDotCycle}
+              ariaLabel={`Preview of ${MONTH_NAMES_EN[month - 1]} ${year}`}
+            />
+          </div>
+        ))}
       </div>
       <p className="text-xs text-zinc-500">
         Grid math matches the 300 DPI render.
