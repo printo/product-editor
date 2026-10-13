@@ -10,7 +10,7 @@ Background — the bug this guards against:
     from under a queued Celery job (silent wrong-print vector).
 
 The fix gives the render pipeline its own snapshot field (render_state,
-migration 0008) resolved via _resolve_render_inputs with a legacy fallback.
+migration 0008) resolved via _resolve_render_inputs, which never reads editor_state.
 
 Run stand-alone:
     cd backend/django && python -m services.tests.test_submit_preserves_autosave
@@ -90,18 +90,20 @@ def test_render_state_wins_over_editor_state():
     assert paths == ['/uploads/a.png'], "image_paths must come from the snapshot"
 
 
-def test_legacy_job_falls_back_to_editor_state():
-    """Jobs enqueued before the 0008 deploy hold the payload in editor_state."""
-    legacy_payload = {'canvases': SUBMIT_SHAPE['canvases'], 'format_version': 1}
+def test_editor_state_is_never_the_render_source():
+    """The autosave's field is not a fallback: a row with no snapshot renders
+    from no contract, even when editor_state holds a submit-shaped payload.
+    (Jobs enqueued before migration 0008 used to be read from there; none can
+    exist any more, since CanvasData expires after EXPORT_RETENTION_DAYS.)"""
     canvas = SimpleNamespace(
         render_state=None,
-        editor_state=legacy_payload,
-        image_paths=['/uploads/legacy.png'],
+        editor_state={'canvases': SUBMIT_SHAPE['canvases'], 'format_version': 1},
+        image_paths=['/uploads/row.png'],
     )
     source, paths = _resolve_render_inputs(canvas)
-    assert source is legacy_payload
-    assert paths == ['/uploads/legacy.png']
-    assert _extract_frame_transforms(source)[0]['scale'] == 1.2
+    assert source is None
+    assert paths == ['/uploads/row.png']
+    assert _extract_frame_transforms(source) is None
 
 
 def test_snapshot_without_image_paths_uses_row():
