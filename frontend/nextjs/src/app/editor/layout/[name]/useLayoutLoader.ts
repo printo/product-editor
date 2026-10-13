@@ -7,7 +7,7 @@ import type { BookLayoutLike } from '@/lib/book-layout';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { reconcilePageCount } from './book-pages';
 import type { FitMode, SurfaceState } from './types';
-import { isLayoutTemplate, type LayoutTemplate } from './template';
+import { isLayoutTemplate, type LayoutTemplate } from './layout-template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 

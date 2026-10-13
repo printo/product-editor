@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { isLayoutTemplate, type LayoutTemplate } from './template';
+import { isLayoutTemplate, type LayoutTemplate } from './layout-template';
 
 /** The published templates for this layout, loaded once the layout is known
  *  (GET /api/templates?layout=, through whichever proxy the page uses). Off

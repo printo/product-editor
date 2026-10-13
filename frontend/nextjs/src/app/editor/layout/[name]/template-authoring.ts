@@ -9,8 +9,8 @@
  * uploads it as a sticker first and swaps it for a `clipart` overlay.
  */
 import type { SurfaceDefinition } from '@/lib/layout-utils';
-import type { TemplateDecoration, TemplateSide } from './template';
-import { templateSide } from './template';
+import type { TemplateDecoration, TemplateSide } from './layout-template';
+import { templateSide } from './layout-template';
 import type { CanvasItem, FrameState, Overlay } from './types';
 
 export const TEMPLATE_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;

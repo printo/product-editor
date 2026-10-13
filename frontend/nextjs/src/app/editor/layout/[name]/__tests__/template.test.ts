@@ -10,7 +10,7 @@
 import {
   applyTemplateToCard, applyTemplateToCards, customerDecoration, isLayoutTemplate, isTemplateOverlay,
   seedCard, templateColours, templateOverlays, templateSide, toSavedTemplate, type LayoutTemplate,
-} from '../template';
+} from '../layout-template';
 import { canvasHasRealEdits, countCanvasesLosingEdits } from '../canvas-merge';
 import type { CanvasItem, Overlay } from '../types';
 

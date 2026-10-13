@@ -20,7 +20,7 @@
  *     cached pixels stale.
  */
 import type { CanvasItem, FrameState, Overlay } from './types';
-import { customerDecoration, type SavedTemplate } from './template';
+import { customerDecoration, type SavedTemplate } from './layout-template';
 
 export function fileKey(f: File): string {
   return `${f.name}:${f.size}:${f.lastModified}`;

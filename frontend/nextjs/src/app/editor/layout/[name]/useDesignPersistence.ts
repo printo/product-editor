@@ -13,7 +13,7 @@ import { MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, readCardCountHint, writeCar
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
 import { collectFileIds, unreferencedFileIds } from './file-refs';
 import type { CanvasItem, FitMode, SurfaceState } from './types';
-import { isLayoutTemplate, toSavedTemplate, type LayoutTemplate, type SavedTemplate } from './template';
+import { isLayoutTemplate, toSavedTemplate, type LayoutTemplate, type SavedTemplate } from './layout-template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;

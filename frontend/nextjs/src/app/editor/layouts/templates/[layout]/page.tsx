@@ -14,7 +14,7 @@ import { ArrowLeft, Copy, Edit2, Eye, EyeOff, Loader2, Plus, Trash2 } from 'luci
 import { clsx } from 'clsx';
 import { useHeader } from '@/context/HeaderContext';
 import { isTemplateId, slugFromName } from '@/app/editor/layout/[name]/template-authoring';
-import type { LayoutTemplate } from '@/app/editor/layout/[name]/template';
+import type { LayoutTemplate } from '@/app/editor/layout/[name]/layout-template';
 
 type OpsTemplate = LayoutTemplate & { status: 'draft' | 'published'; layoutChanged?: boolean };
 

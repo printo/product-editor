@@ -6,7 +6,7 @@
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TemplatePickerDialog } from '../dialogs/TemplatePickerDialog';
-import type { LayoutTemplate } from '../template';
+import type { LayoutTemplate } from '../layout-template';
 
 const tpl = (id: string, displayName: string): LayoutTemplate => ({
   id, displayName, layoutName: 'classic_4x6', thumbnailUrl: null,

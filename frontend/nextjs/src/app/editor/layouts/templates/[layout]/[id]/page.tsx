@@ -28,7 +28,7 @@ import { CanvasEditorModal } from '@/app/editor/layout/[name]/CanvasEditorModal'
 import { renderCanvas } from '@/app/editor/layout/[name]/fabric-renderer';
 import { useObjectUrls } from '@/app/editor/layout/[name]/useCanvasGeneration';
 import type { CanvasItem, SurfaceState } from '@/app/editor/layout/[name]/types';
-import { isLayoutTemplate, type LayoutTemplate, type TemplateDecoration } from '@/app/editor/layout/[name]/template';
+import { isLayoutTemplate, type LayoutTemplate, type TemplateDecoration } from '@/app/editor/layout/[name]/layout-template';
 import {
   blankCard, dataUrlToPngFile, decorationFromCards, isEmptyDecoration, isTemplateId, localImageOverlays, slugFromName, withoutPhotos,
 } from '@/app/editor/layout/[name]/template-authoring';
@@ -126,9 +126,15 @@ export default function TemplateEditorPage() {
         const norm = normalizeLayout(item);
         setNormalized(norm);
         const decoration: TemplateDecoration | null = template?.decoration ?? null;
-        setSurfaces(norm.surfaces.map(def => ({
-          key: def.key, label: def.label, def, files: [], canvases: [blankCard(def, decoration)], globalFitMode: 'cover',
-        })));
+        // Each side's card, drawn so the page shows the decoration at once.
+        const sides = await Promise.all(norm.surfaces.map(async def => {
+          const card = blankCard(def, decoration);
+          const sideDef = { ...norm._raw, ...def, canvas: def.canvas, frames: def.frames };
+          const dataUrl = decoration ? await renderCanvas(card, sideDef, getFileUrl, { thumbnail: true }).catch(() => null) : null;
+          return { key: def.key, label: def.label, def, files: [], canvases: [{ ...card, dataUrl }], globalFitMode: 'cover' as const };
+        }));
+        if (cancelled) return;
+        setSurfaces(sides);
         setActiveKey(norm.surfaces[0]?.key || 'default');
         if (template) {
           setDisplayName(template.displayName);
@@ -143,7 +149,7 @@ export default function TemplateEditorPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [layoutName, routeId, isNew]);
+  }, [layoutName, routeId, isNew, getFileUrl]);
 
   const activeSurface = surfaces.find(s => s.key === activeKey) ?? surfaces[0];
   const editorLayout = useMemo(() => activeSurface && normalized

@@ -1,5 +1,6 @@
 /**
- * Layout templates on the customer side: the one place a template's
+ * Layout templates on the customer side (named layout-template.ts because
+ * `template.ts` in a route folder is a Next.js special file): the one place a template's
  * decoration is copied onto a card.
  *
  * A template (ops-authored, served by GET /api/templates) holds a decoration

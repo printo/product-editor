@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import { Check, LayoutTemplate as TemplateIcon, RefreshCw, X } from 'lucide-react';
 import { useModalA11y } from '@/lib/use-modal-a11y';
-import { templateColours, type LayoutTemplate } from '../template';
+import { templateColours, type LayoutTemplate } from '../layout-template';
 
 /**
  * The customer's template picker: the layout's published templates plus

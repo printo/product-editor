@@ -10,7 +10,7 @@ import { resolveRotation } from './editor-utils';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { planFrameSlots } from './surface-allocation';
 import type { CanvasItem, FitMode, FrameState, SurfaceState } from './types';
-import { seedCard, type SavedTemplate } from './template';
+import { seedCard, type SavedTemplate } from './layout-template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;

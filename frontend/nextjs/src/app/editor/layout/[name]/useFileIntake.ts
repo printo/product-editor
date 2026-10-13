@@ -12,7 +12,7 @@ import { reconcilePageCount } from './book-pages';
 import { countCanvasesLosingEdits } from './canvas-merge';
 import { allocateFilesToSurfaces, surfaceFrameCount, totalSurfaceCapacity } from './surface-allocation';
 import type { CanvasItem, FitMode, SurfaceState } from './types';
-import type { SavedTemplate } from './template';
+import type { SavedTemplate } from './layout-template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;
