@@ -2,7 +2,13 @@ import { act, renderHook } from '@testing-library/react';
 import { useState } from 'react';
 import { useServerRender } from '../useServerRender';
 import { uploadFiles } from '@/lib/upload-utils';
+import { rasterizeSvgUrl } from '@/lib/icon-raster';
 import type { CanvasItem, FrameState, Overlay, SurfaceState } from '../types';
+
+jest.mock('@/lib/icon-raster', () => ({
+  ...jest.requireActual('@/lib/icon-raster'),
+  rasterizeSvgUrl: jest.fn(async (_url: string, _w: number, _h: number, name: string) => new File(['png'], name, { type: 'image/png' })),
+}));
 
 jest.mock('@/lib/upload-utils', () => ({
   ...jest.requireActual('@/lib/upload-utils'),
@@ -111,6 +117,31 @@ describe('useServerRender — the render request', () => {
     expect(sent[2]).toEqual({ type: 'text', text: 'Hello' });
   });
 
+  it('an icon is drawn to a PNG at its print size, uploaded with the photos and sent by upload id', async () => {
+    const src = 'https://api.iconify.design/flat-color-icons/like.svg';
+    const icon = (over: Partial<Overlay> = {}) =>
+      ({ type: 'image', id: 'i1', source: 'icon', src, label: 'flat-color-icons:like', x: 35, y: 35, width: 12, height: 10, rotation: 0, opacity: 1, ...over }) as Overlay;
+    const a = photo('a.jpg');
+    const sides = [{ key: 'default', def: { canvas: { width: 1800, height: 1200 } } }] as unknown as SurfaceState[];
+    // The same icon twice at one size is drawn and uploaded once; at another size it is drawn again.
+    const { result } = setup({
+      surfaceStates: sides,
+      canvases: [canvas([frame(a)], { overlays: [icon(), icon({ id: 'i2', x: 60 }), icon({ id: 'i3', width: 30 })] })],
+    });
+    await run(() => result.current.executeBatchDownload());
+    expect(jest.mocked(rasterizeSvgUrl).mock.calls).toEqual([
+      [src, 216, 120, 'icon-flat-color-icons-like.png'],
+      [src, 540, 120, 'icon-flat-color-icons-like.png'],
+    ]);
+    const uploaded = jest.mocked(uploadFiles).mock.calls[0][0];
+    expect(uploaded.map(f => f.name)).toEqual(['a.jpg', 'icon-flat-color-icons-like.png', 'icon-flat-color-icons-like.png']);
+    const sent = renderBody().canvases[0].overlays;
+    expect(sent.map((o: { fileId: string }) => o.fileId)).toEqual([
+      'up-1-icon-flat-color-icons-like.png', 'up-1-icon-flat-color-icons-like.png', 'up-2-icon-flat-color-icons-like.png',
+    ]);
+    expect(sent[0]).toEqual({ type: 'image', id: 'i1', source: 'icon', src, label: 'flat-color-icons:like', x: 35, y: 35, width: 12, height: 10, rotation: 0, opacity: 1, fileId: 'up-1-icon-flat-color-icons-like.png' });
+  });
+
   it('a calendar sends its choices and day entries; a book its page count', async () => {
     const cells = { '2027-03-08': [{ type: 'text', text: 'B' }] };
     const { result } = setup({ isCalendarProduct: true, calendarTheme: 'modern-genz', calendarType: 'financial', genzPalette: 'neon', calendarCells: cells });
@@ -156,6 +187,18 @@ describe('useServerRender — what stops a submit', () => {
     await run(() => result.current.executeBatchDownload());
     expect(result.current.error).toBe('1 photo and 1 added image could not be recovered (photo 1; "heart.png"). Please re-upload them before continuing so your print matches your design.');
     expect(uploadFiles).not.toHaveBeenCalled();
+  });
+
+  it('an icon that can’t be prepared blocks the submit and is named; trying again redraws it', async () => {
+    const overlays = [{ type: 'image', source: 'icon', src: 'https://api.iconify.design/logos/whatsapp.svg', label: 'logos:whatsapp', x: 0, y: 0, width: 10, height: 10, rotation: 0, opacity: 1 }] as unknown as Overlay[];
+    jest.mocked(rasterizeSvgUrl).mockRejectedValueOnce(new Error('offline'));
+    const { result } = setup({ canvases: [canvas([frame(photo('a.jpg'))], { overlays })] });
+    await run(() => result.current.executeBatchDownload());
+    expect(result.current.error).toBe('1 icon could not be prepared for print (logos:whatsapp). Check your connection and try again, or remove it.');
+    expect(uploadFiles).not.toHaveBeenCalled();
+    await run(() => result.current.executeBatchDownload());
+    expect(rasterizeSvgUrl).toHaveBeenCalledTimes(2);
+    expect(renderBody().canvases[0].overlays[0].fileId).toBe('up-1-icon-logos-whatsapp.png');
   });
 
   it('no photos at all, or a file that can’t print, stops before uploading', async () => {

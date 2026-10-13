@@ -3,8 +3,10 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { CalendarTheme, CalendarType } from '@/types/calendar';
 import { isAllowedImageFile, unsupportedFilesMessage, uploadFiles } from '@/lib/upload-utils';
+import { getCanvasSpec, type CanvasSpec } from '@/lib/layout-utils';
+import { needsRasterForPrint, overlayRasterSize, rasterFileName, rasterizeSvgUrl } from '@/lib/icon-raster';
 import { formatWait, isLostLocalImage } from './editor-utils';
-import type { CanvasItem, FrameState, Overlay, SurfaceState } from './types';
+import type { CanvasItem, FrameState, ImageOverlay, Overlay, SurfaceState } from './types';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 
@@ -52,6 +54,21 @@ export function useServerRender({
   const [submitted, setSubmitted] = useState(false);
   // Job id behind the embed post-submit status panel (Phase 3).
   const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
+  // One PNG per icon and print size, kept so a retried submit sends the same
+  // File again and upload-utils can skip what already went up.
+  const iconRastersRef = useRef(new Map<string, Promise<File>>());
+
+  const rasterForPrint = (ov: ImageOverlay, canvas: CanvasSpec | null | undefined): Promise<File> => {
+    const { width, height } = overlayRasterSize(ov, canvas);
+    const key = `${ov.src}|${width}x${height}`;
+    let raster = iconRastersRef.current.get(key);
+    if (!raster) {
+      raster = rasterizeSvgUrl(ov.src, width, height, rasterFileName(ov.label));
+      iconRastersRef.current.set(key, raster);
+      raster.catch(() => iconRastersRef.current.delete(key));
+    }
+    return raster;
+  };
 
   // All exports go through the server-side pipeline (Celery + Pillow at 300 DPI).
   // The previous "≤20 canvases → render in browser, JSZip" optimisation was
@@ -160,6 +177,37 @@ export function useServerRender({
         return;
       }
 
+      // Icons are remote SVGs the print can't open: draw each to a PNG at its
+      // print size and upload it with the photos (see icon-raster.ts). One
+      // that can't be drawn blocks the submit rather than printing without it.
+      const iconRasters = new Map<Overlay, File>();
+      const rasterJobs = allCanvases.flatMap(c => {
+        const canvasSpec = surfaceStates.find(s => s.key === c.surfaceKey)?.def?.canvas ?? getCanvasSpec(layout);
+        return c.overlays.map(ov => ov.type === 'image' && needsRasterForPrint(ov)
+          ? rasterForPrint(ov, canvasSpec).then(
+              file => { iconRasters.set(ov, file); return null; },
+              () => ov.label || ov.src,
+            )
+          : null);
+      });
+      const failedIcons = (await Promise.all(rasterJobs)).filter((f): f is string => Boolean(f));
+      if (failedIcons.length > 0) {
+        const shown = failedIcons.slice(0, 3).join('; ');
+        const more = failedIcons.length > 3 ? `, and ${failedIcons.length - 3} more` : '';
+        setError(
+          `${failedIcons.length} icon${failedIcons.length > 1 ? 's' : ''} could not be ` +
+          `prepared for print (${shown}${more}). Check your connection and try again, ` +
+          `or remove ${failedIcons.length > 1 ? 'them' : 'it'}.`,
+        );
+        return;
+      }
+      for (const file of iconRasters.values()) {
+        if (!seenFiles.has(file)) {
+          seenFiles.add(file);
+          allFiles.push(file);
+        }
+      }
+
       if (allFiles.length === 0) {
         setError('No files to upload for server render.');
         return;
@@ -219,12 +267,14 @@ export function useServerRender({
         // Phase 2 (WYSIWYG): carry text / shape / image overlays into the print.
         // The engine already renders them (services/overlay_renderer.py); they
         // were just never sent. Shapes already match the backend union. Drop the
-        // non-serialisable File; for a local image overlay set fileId to the
-        // server upload id so the backend can resolve the bytes, and drop the
-        // (revoked) blob src. Clipart/icon overlays keep their src path.
+        // non-serialisable File; set fileId to the server upload id (of the
+        // customer's own image, or of an icon's PNG) so the backend can
+        // resolve the bytes, and drop a local overlay's (revoked) blob src.
+        // Other overlays keep their src; the print never fetches a URL.
         overlays: c.overlays.map((ov) => {
           if (ov.type !== 'image') return ov;
-          const up = ov.originalFile ? uploadResults.get(ov.originalFile) : null;
+          const file = ov.originalFile ?? iconRasters.get(ov);
+          const up = file ? uploadResults.get(file) : null;
           const rest: Record<string, unknown> = { ...ov };
           delete rest.originalFile;
           rest.fileId = up?.uploadId ?? ov.fileId ?? null;

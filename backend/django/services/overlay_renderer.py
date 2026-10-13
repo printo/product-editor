@@ -34,15 +34,18 @@ Image overlays
 ==============
 Local-uploaded images carry a `fileId` (UUID) that maps to a server-side
 upload_id; the caller passes an `uploaded_files: dict[upload_id, file_path]`
-map so we can pull the bytes off disk. Clipart / icon overlays carry an
-`src` URL — for v1 we only resolve `src` that point to a path under
-`STORAGE_ROOT` (no remote fetch); anything else is logged and skipped.
+map so we can pull the bytes off disk. That map is the ONLY way an image
+overlay resolves. `src` is never opened: overlay dicts arrive verbatim from
+the client (the render payload, book `pageOverrides`, the autosaved
+editor_state), so honouring a path in `src` let a crafted submission
+composite any file the worker could read — another order's upload or print —
+into its own output. Icon overlays carry an https `src` and are skipped
+(no remote fetch).
 """
 from __future__ import annotations
 
 import logging
 import math
-import os
 from typing import Optional
 
 from PIL import Image, ImageDraw, ImageOps
@@ -282,18 +285,15 @@ def _paste_image(
 
 
 def _resolve_image_path(o: dict, uploaded_files: dict[str, str]) -> Optional[str]:
-    """Resolve an ImageOverlay to a server-side file path, or None."""
+    """Resolve an ImageOverlay to a server-side file path, or None.
+
+    By `fileId` only — never by `src`, which is client-controlled (see the
+    module docstring). `uploaded_files` is built from this order's own
+    tenant's uploads (tasks._build_uploaded_files_map).
+    """
     file_id = o.get("fileId")
     if file_id and file_id in uploaded_files:
         return uploaded_files[file_id]
-
-    src = o.get("src") or ""
-    # Only honour src values that point to local server paths (no remote
-    # fetch in v1 — would need allowlist + timeout + retry policy).
-    if src and not src.startswith(("http://", "https://", "data:")):
-        if os.path.exists(src):
-            return src
-
     return None
 
 
