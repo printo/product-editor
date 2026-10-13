@@ -34,6 +34,7 @@ lowering it.**
 | Design state | `CanvasData` (incl. `editor_state` dataURL previews, `render_state`) | Yes (photo thumbnails, transforms) | Autosave + submit | `EXPORT_RETENTION_DAYS` | GC row delete; order purge |
 | Embed sessions | `EmbedSession` rows (`order_id`, `callback_url`) | Partial (order id, caller URL) | `POST /api/embed/session` | 2 h token validity (sliding, extended while editing); **rows expire at `expires_at`, swept by GC** (2026-09-10, commit `56a2136`) | Order purge; `garbage_collector_task` deletes rows older than 30 days |
 | API audit trail | `APIRequest` rows (`ip_address`, `user_agent`) | **Yes** (IP) | `APIRequestLoggingMiddleware` (one row per non-exempt API call) | `API_AUDIT_RETENTION_DAYS`, default **90** — deliberately outlives the data it describes, so "who touched this order" is still answerable | `garbage_collector_task`, independent of file retention |
+| Database backups | `backups/daily/pe-db-*.dump`, `backups/weekly/` on the prod host (`scripts/backup.sh`) | **Yes** — every table above that is in Postgres, including `canvas_data.editor_state` and audit IPs | Cron, 03:15 UTC | **7 daily + 4 weekly sets (up to ~28 days)** — longer than the 3-day export retention, and an order purge does not reach them | `scripts/backup.sh` prune only. See "Known gaps" |
 | Client file cache | Browser IndexedDB (`file-store.ts`) | Yes (original photos) | Editor (B1 persistence) | Device-local; stale orders pruned after 7 days, evicted under quota pressure | Client-side prune (Phase 3); never leaves the device |
 | Orientation detection | — | Yes (transient image bytes) | `POST /api/orientation/detect` | **Nothing persisted** — inference is stateless | n/a |
 | HEIC conversion | — | Yes (transient image bytes) | `POST /api/heic/convert` | **Nothing persisted** — decode-and-return | n/a |
@@ -101,7 +102,23 @@ landed, so there was nothing to backfill.
 
 ## Known gaps (recommended follow-ups)
 
-None currently open — see "Closed" below for what used to be tracked here.
+1. **A purged order survives in database backups for up to ~28 days.**
+   `scripts/backup.sh` keeps 7 daily and 4 weekly `pg_dump` sets, and a dump
+   holds `canvas_data`, `embed_sessions`, `uploaded_files` and `api_requests`
+   (IPs). `OrderDataPurgeView` erases the live rows and files only, so a
+   customer erased today is still in last night's dump and restoring one
+   brings the order back. Options, none built: state the window in the privacy
+   notice and have restore re-run the purges recorded since the dump
+   (needs a purge ledger that is not itself personal data), or shorten the
+   weekly tier. `uploads/` are only in the optional `--with-uploads` set, so
+   photos are exposed only when that variant is run.
+2. **The `pe-opsconfig` archive (added 2026-10-13) holds no personal data**
+   (holidays, styles, palettes, fonts), so it needs no purge. If ops-config ever
+   carries customer content, revisit.
+
+Item 2 is a note, not a gap; item 1 is the one open gap. It replaces the earlier
+"none open" line, and the "two gaps still open" wording that CLAUDE.md and
+`docs/README.md` carried after the last two were closed on 2026-10-07.
 
 ### Closed
 
