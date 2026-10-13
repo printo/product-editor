@@ -1384,14 +1384,17 @@ Run only via the `backend` (Gunicorn) container — never from worker or beat co
 
 `_get_client_ip` is module-level and shared with `RateLimitMiddleware` so a spoofed `X-Forwarded-For` can never be trusted by one and rejected by the other.
 
-**`error_message` is NULL for framework-level rejections** — precisely the case
-where you most want the reason. When Django rejects a request before the view
-runs (an oversized body raising `RequestDataTooBig`, say) there is no DRF
-exception for the middleware to record, so the row carries the status and
-nothing else. That cost real time on 2026-09-04: 1,569 `400`s on
-`canvas-state` with no recorded reason, resolved only by correlating
-`request_size_bytes` and then reproducing it with two `curl`s. Worth populating
-from `SuspiciousOperation` next time this middleware is open.
+**`error_message` carries the reason for every 4xx/5xx** (2026-10-13). It used to
+be NULL for framework-level rejections — an oversized body raising
+`RequestDataTooBig` becomes a bare 400 before the middleware sees a response —
+which cost real time on 2026-09-04: 1,569 `400`s on `canvas-state` with no
+recorded reason, resolved only by correlating `request_size_bytes` and
+reproducing it with two `curl`s. `APIRequestLoggingMiddleware.process_exception`
+now stashes `ExceptionType: message`, and `audit_error_message` falls back to
+the DRF body (`detail` / `error` / `message`, else the field errors). A success
+is NULL; a response with neither an exception nor a body is still NULL, never
+guessed. Rows written before this date stay NULL. Pinned by
+`services/tests/test_audit_middleware.py`.
 
 `request_size_bytes` is the field that made that diagnosis possible at all —
 grouping by status and averaging it is the fastest way to find a payload

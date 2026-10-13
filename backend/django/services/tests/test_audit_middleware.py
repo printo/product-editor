@@ -35,7 +35,12 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "product_editor.settings")
 os.environ.setdefault("DEBUG", "1")
 django.setup()
 
-from api.middleware import APIRequestLoggingMiddleware, _get_client_ip  # noqa: E402
+from api.middleware import (  # noqa: E402
+    APIRequestLoggingMiddleware,
+    AUDIT_ERROR_MAX_CHARS,
+    _get_client_ip,
+    audit_error_message,
+)
 
 
 class _Req:
@@ -122,6 +127,50 @@ def test_client_ip_falls_back_to_remote_addr():
 
 def test_client_ip_has_a_last_resort():
     assert _get_client_ip(_Req()) == '0.0.0.0'
+
+
+class _Resp:
+    def __init__(self, status_code, data=None):
+        self.status_code = status_code
+        if data is not None:
+            self.data = data
+
+
+def test_error_message_is_none_for_success():
+    assert audit_error_message(_Req(), _Resp(200, {'detail': 'ignored'})) is None
+    assert audit_error_message(_Req(), _Resp(302)) is None
+
+
+def test_error_message_records_a_framework_rejection():
+    """RequestDataTooBig never reaches DRF, so the response has no body to read."""
+    from django.core.exceptions import RequestDataTooBig
+
+    mw = _mw()
+    req = _Req()
+    assert mw.process_exception(req, RequestDataTooBig("Request body exceeded settings.DATA_UPLOAD_MAX_MEMORY_SIZE.")) is None
+    msg = audit_error_message(req, _Resp(400))
+    assert msg.startswith("RequestDataTooBig: ") and "DATA_UPLOAD_MAX_MEMORY_SIZE" in msg, msg
+
+
+def test_error_message_reads_the_view_body_when_no_exception():
+    assert audit_error_message(_Req(), _Resp(403, {'detail': 'Nope'})) == 'Nope'
+    assert audit_error_message(_Req(), _Resp(400, {'error': 'bad order_id'})) == 'bad order_id'
+    assert 'qty' in audit_error_message(_Req(), _Resp(400, {'qty': ['Too many']}))
+
+
+def test_error_message_exception_wins_over_body():
+    req = _Req()
+    req._audit_error = 'ValueError: boom'
+    assert audit_error_message(req, _Resp(500, {'detail': 'Server error'})) == 'ValueError: boom'
+
+
+def test_error_message_is_none_when_nothing_is_known():
+    assert audit_error_message(_Req(), _Resp(404)) is None
+
+
+def test_error_message_is_bounded():
+    msg = audit_error_message(_Req(), _Resp(400, {'detail': 'x' * 5000}))
+    assert len(msg) == AUDIT_ERROR_MAX_CHARS
 
 
 if __name__ == "__main__":
