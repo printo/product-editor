@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical, CheckCircle2 } from 'lucide-react';
+import { Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
+import { isLostLocalImage } from './editor-utils';
 import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import { convertHeicFiles, type ServerHeicConverter } from '@/lib/heic-convert';
 import type { CanvasItem, FitMode, Overlay, TextOverlay, ImageOverlay } from './types';
@@ -140,7 +141,15 @@ export function CanvasEditorSidebar({
   serverHeicConvert,
 }: CanvasEditorSidebarProps) {
 
-  const [activeAddTab, setActiveAddTab] = useState<TabKey>('text');
+  const tabForSelection = (sel: LayerSelection): TabKey | null => {
+    if (sel.type === 'text') return 'text';
+    if (sel.type !== 'image') return null;
+    const ov = editingCanvas?.overlays[sel.index];
+    return ov?.type === 'image' && ov.source === 'local' ? 'image' : 'icon';
+  };
+  // The modal can open with an image already selected (one that couldn't be
+  // recovered), so the first tab follows the selection too.
+  const [activeAddTab, setActiveAddTab] = useState<TabKey>(() => tabForSelection(selectedLayer) ?? 'text');
 
   // ── Auto-switch tab when overlay is selected on canvas ───────────────────
   // React docs' "adjust state when a prop changes" pattern — guard a
@@ -151,13 +160,8 @@ export function CanvasEditorSidebar({
   const [lastSelectionKey, setLastSelectionKey] = useState(selectionKey);
   if (selectionKey !== lastSelectionKey) {
     setLastSelectionKey(selectionKey);
-    if (selectedLayer.type === 'text') {
-      setActiveAddTab('text');
-    } else if (selectedLayer.type === 'image') {
-      const ov = editingCanvas?.overlays[selectedLayer.index];
-      const src = (ov as any)?.source;
-      setActiveAddTab(src === 'local' ? 'image' : 'icon');
-    }
+    const tab = tabForSelection(selectedLayer);
+    if (tab) setActiveAddTab(tab);
   }
 
   if (!editingCanvas) return null;
@@ -167,6 +171,16 @@ export function CanvasEditorSidebar({
     pushUndo(editingCanvas, true);
     debouncedRender({ ...editingCanvas, overlays: editingCanvas.overlays.filter((_, i) => i !== idx) });
     setSelectedLayer({ type: 'frame', index: 0 });
+  };
+
+  // PDF pages are expanded first (see pdf-import.ts), then iPhone HEIC photos
+  // are converted to JPEG (see heic-convert.ts), then unsupported types (e.g.
+  // .svg) are dropped — they'd preview in the browser but fail to render
+  // server-side.
+  const prepareImageFiles = async (picked: File[], maxSelectable: number | null) => {
+    const expandedFiles = await expandPdfPages(picked, { maxSelectable });
+    const { converted } = await convertHeicFiles(expandedFiles, serverHeicConvert);
+    return converted.filter(isAllowedImageFile);
   };
 
   return (
@@ -549,6 +563,17 @@ export function CanvasEditorSidebar({
                   const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as any });
                 };
+                // Keeps the lost image's place, size and rotation. The fileId is
+                // cleared so the new File is stored for the next restore.
+                const replaceLostImage = async (picked: File[]) => {
+                  const [file] = await prepareImageFiles(picked, 1);
+                  if (!file) return;
+                  pushUndo(editingCanvas, true);
+                  const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx && o.type === 'image'
+                    ? { ...o, src: getFileUrl(file), originalFile: file, fileId: undefined, label: file.name }
+                    : o);
+                  debouncedRender({ ...editingCanvas, overlays: newOverlays });
+                };
                 return (
                   <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
@@ -561,6 +586,24 @@ export function CanvasEditorSidebar({
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
+                    {isLostLocalImage(imgOverlay) && (
+                      <div className="space-y-3 p-3 rounded-xl border border-amber-300 bg-amber-50">
+                        <p className="flex gap-2 text-[11px] text-amber-800">
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                          This image couldn&apos;t be recovered on this device, so it won&apos;t print. Re-upload it to keep its place, or delete it.
+                        </p>
+                        <label className="w-full h-9 flex items-center justify-center gap-2 rounded-lg bg-amber-600 text-white text-[11px] font-medium uppercase hover:bg-amber-700 transition-colors cursor-pointer">
+                          <ImagePlus className="w-4 h-4" />
+                          Re-upload image
+                          <input type="file" accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
+                            onChange={e => {
+                              const picked = Array.from(e.target.files ?? []);
+                              e.target.value = '';
+                              if (picked.length) void replaceLostImage(picked);
+                            }} />
+                        </label>
+                      </div>
+                    )}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <label className="text-[11px] font-medium text-slate-500 uppercase">Opacity</label>
@@ -594,14 +637,7 @@ export function CanvasEditorSidebar({
                         if (!e.target.files?.length) return;
                         const rawFiles = Array.from(e.target.files);
                         e.target.value = '';
-                        // PDF pages are expanded first (see pdf-import.ts), then
-                        // iPhone HEIC photos are converted to JPEG (see
-                        // heic-convert.ts), then unsupported types (e.g. .svg)
-                        // are dropped — they'd preview in the browser but fail
-                        // to render server-side.
-                        const expandedFiles = await expandPdfPages(rawFiles, { maxSelectable: null });
-                        const { converted } = await convertHeicFiles(expandedFiles, serverHeicConvert);
-                        const files = converted.filter(isAllowedImageFile);
+                        const files = await prepareImageFiles(rawFiles, null);
                         if (files.length === 0) return;
                         pushUndo(editingCanvas, true);
                         let updated = { ...editingCanvas };

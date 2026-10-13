@@ -12,6 +12,7 @@ import { type LayerSelection } from './LayersPanel';
 // Type-only import: erased at compile time, zero bundle impact
 import type { FabricEditorHandle } from './FabricEditor';
 import { CanvasEditorSidebar } from './CanvasEditorSidebar';
+import { isLostLocalImage } from './editor-utils';
 import type { ServerHeicConverter } from '@/lib/heic-convert';
 
 // Dynamically import FabricEditor so that Fabric.js (~2 MB) is excluded from
@@ -66,7 +67,12 @@ export function CanvasEditorModal({
 
   // ── Local state (editor-only) ──────────────────────────────────────────────
   const [viewZoom, setViewZoom] = useState(1.0); // 1.0 = fit to viewport
-  const [selectedLayer, setSelectedLayer] = useState<LayerSelection>({ type: 'frame', index: 0 });
+  // Open on an added image that couldn't be recovered, so its Re-upload / Delete
+  // is the first thing shown: it never draws on the canvas, so it can't be clicked.
+  const [selectedLayer, setSelectedLayer] = useState<LayerSelection>(() => {
+    const lostIdx = editingCanvas.overlays.findIndex(isLostLocalImage);
+    return lostIdx >= 0 ? { type: 'image', index: lostIdx } : { type: 'frame', index: 0 };
+  });
   const [undoCount, setUndoCount] = useState(0);
   const [redoCount, setRedoCount] = useState(0);
 

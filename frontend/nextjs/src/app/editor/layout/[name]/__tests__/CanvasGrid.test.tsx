@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { SetStateAction } from 'react';
 import { CanvasGrid } from '../CanvasGrid';
 import { CanvasCard, SurfaceCard, type CardProps } from '../CanvasCard';
-import type { CanvasItem, FrameState, SurfaceState } from '../types';
+import type { CanvasItem, FrameState, Overlay, SurfaceState } from '../types';
 
 const frame = (over: Partial<FrameState> = {}) => ({ id: 0, originalFile: new File(['x'], 'a.jpg'), ...over }) as FrameState;
 const canvas = (over: Partial<CanvasItem> = {}, frames = [frame()]): CanvasItem =>
@@ -102,6 +102,29 @@ describe('CanvasCard', () => {
     expect(props.requestReplacePhoto).toHaveBeenCalledWith(2, 1);
   });
 
+  it('an added image lost on this device opens the editor to fix it', () => {
+    const lostImage = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
+    const recovered = { type: 'image', source: 'local', originalFile: new File(['x'], 'ok.png'), src: 'blob:ok', label: 'ok.png' } as unknown as Overlay;
+    const { props } = setup({}, canvas({ overlays: [recovered, lostImage] }));
+    fireEvent.click(screen.getByRole('button', { name: /Added image missing/ }));
+    expect(props.openEditor).toHaveBeenCalledWith(2);
+    expect(props.handleCardClick).not.toHaveBeenCalled();
+  });
+
+  it('a lost photo takes the badge over a lost added image', () => {
+    const lostImage = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
+    setup({}, canvas({ overlays: [lostImage] }, [frame({ originalFile: null, fileId: 'idb-a' } as Partial<FrameState>)]));
+    expect(screen.getByRole('button', { name: /Photo missing/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Added image missing/ })).toBeNull();
+  });
+
+  it('a recovered added image, or clipart, shows no badge', () => {
+    const recovered = { type: 'image', source: 'local', originalFile: new File(['x'], 'ok.png'), src: 'blob:ok', label: 'ok.png' } as unknown as Overlay;
+    const clipart = { type: 'image', source: 'clipart', src: '/clipart/star.svg', label: 'Star' } as unknown as Overlay;
+    setup({}, canvas({ overlays: [recovered, clipart] }));
+    expect(screen.queryByRole('button', { name: /missing/ })).toBeNull();
+  });
+
   it('a low-resolution photo shows its DPI', () => {
     setup({ lowDpiByCard: new Map([[':2', { canvasIdx: 2, frameIdx: 0, surfaceKey: null, dpi: 92.4, severity: 'critical' as const }]]) });
     expect(screen.getByText(/Low res ~92 DPI/)).toBeInTheDocument();
@@ -148,6 +171,15 @@ describe('SurfaceCard', () => {
     expect(props.handleQuickDelete).toHaveBeenCalledWith(0, 'back');
     fireEvent.click(within(card).getByTitle('Swap Photo'));
     expect(applied((props.setSwapSource as jest.Mock).mock.calls[0][0], null)).toEqual({ idx: 0, surfaceKey: 'back' });
+  });
+
+  it('a side with a lost added image opens the editor on that side', () => {
+    const props = cardProps();
+    const lostImage = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
+    render(<SurfaceCard surface={surface('back', 'Back', canvas({ overlays: [lostImage] }))} {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: /Added image missing/ }));
+    expect(props.openEditor).toHaveBeenCalledWith(0, 'back');
+    expect(props.handleCardClick).not.toHaveBeenCalled();
   });
 
   it('drags as its side', () => {
