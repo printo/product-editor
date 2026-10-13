@@ -15,9 +15,17 @@
 # Deliberately EXCLUDED from the daily set:
 #   - exports/  : pure derivatives (regenerable by re-render; GC'd every 6 hours)
 #   - uploads/  : transient + potentially tens of GB (GC'd). Use --with-uploads
-#                 for a weekly set — CanvasData.editor_state references upload
+#                 for an ad-hoc set (daily tier only, never copied into the weekly tier) — CanvasData.editor_state references upload
 #                 paths, so a DB restore without uploads can't re-render
 #                 in-flight orders.
+#
+# Retention and personal data (docs/DATA_LIFECYCLE.md): customer rows and photos
+# live 3 days in the app, so the long-lived tier must not outlive that. The DAILY
+# set (7 days) is full. The WEEKLY set (4 weeks) is PII-free: pe-db-nopii-<ts>.dump
+# is a pg_dump with the data of the customer tables left out (schema, API keys,
+# layouts and the other config survive), and its storage archive never holds
+# uploads/. Restore a weekly set only for disaster recovery of config; customer
+# tables come back empty.
 #
 # Cron (document in deploy notes): run at 03:15 UTC. garbage_collector_task
 # sweeps at 00:00, 06:00, 12:00 and 18:00 UTC, so 03:15 falls between sweeps and
@@ -32,7 +40,8 @@ WITH_UPLOADS=0
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST="backups/daily"
-mkdir -p "$DEST" backups/weekly
+WEEKLY="${WEEKLY_DIR:-backups/weekly}"
+mkdir -p "$DEST" "$WEEKLY"
 
 PG_USER="${POSTGRES_USER:-postgres}"
 PG_DB="${POSTGRES_DB:-product_editor}"
@@ -49,6 +58,7 @@ TAR_INCLUDE=()
 for p in "${STORAGE_PATHS[@]}"; do
   [[ -e "storage/$p" ]] && TAR_INCLUDE+=("$p")
 done
+CONFIG_INCLUDE=("${TAR_INCLUDE[@]}")   # without uploads/, for the weekly tier
 if [[ $WITH_UPLOADS == 1 && -d storage/uploads ]]; then
   TAR_INCLUDE+=(uploads)
   echo "[backup]   including uploads/ (weekly variant)"
@@ -95,12 +105,27 @@ prune "$DEST" "pe-storage-*.tgz" 7
 prune "$DEST" "pe-opsconfig-*.tgz" 7
 prune "$DEST" "pe-manifest-*.json" 7
 
-if [[ "$(date -u +%u)" == "7" ]]; then
-  cp "$DEST/pe-db-$TS.dump" "$DEST/pe-storage-$TS.tgz" backups/weekly/
-  [[ -f "$DEST/pe-opsconfig-$TS.tgz" ]] && cp "$DEST/pe-opsconfig-$TS.tgz" backups/weekly/
-  prune backups/weekly "pe-db-*.dump" 4
-  prune backups/weekly "pe-storage-*.tgz" 4
-  prune backups/weekly "pe-opsconfig-*.tgz" 4
+if [[ "$(date -u +%u)" == "7" || "${FORCE_WEEKLY:-0}" == "1" ]]; then
+  echo "[backup] weekly set (no customer data)…"
+  # Data of every table that holds customer content or IPs is left out; the
+  # tables themselves are still created so a restore boots a working schema.
+  PII_TABLES=(canvas_data embed_sessions uploaded_files render_jobs exported_results api_requests)
+  EXCLUDES=()
+  for t in "${PII_TABLES[@]}"; do EXCLUDES+=("--exclude-table-data=$t"); done
+  $DC exec -T db pg_dump -U "$PG_USER" -Fc "${EXCLUDES[@]}" "$PG_DB" > "$WEEKLY/pe-db-nopii-$TS.dump"
+  tar -czf "$WEEKLY/pe-storage-$TS.tgz" -C storage "${CONFIG_INCLUDE[@]}"
+  [[ -f "$DEST/pe-opsconfig-$TS.tgz" ]] && cp "$DEST/pe-opsconfig-$TS.tgz" "$WEEKLY/"
+  prune "$WEEKLY" "pe-db-nopii-*.dump" 4
+  prune "$WEEKLY" "pe-storage-*.tgz" 4
+  prune "$WEEKLY" "pe-opsconfig-*.tgz" 4
+  # Before 2026-10-13 the weekly tier held full dumps (pe-db-<ts>.dump). They
+  # carry customer data for up to four weeks, so remove them now that a
+  # PII-free set exists. Only the legacy name matches; nopii sets are untouched.
+  for old in "$WEEKLY"/pe-db-[0-9]*.dump; do
+    [[ -e "$old" ]] || continue
+    echo "[backup]   removing legacy full weekly dump $(basename "$old")"
+    rm -f "$old"
+  done
 fi
 
 # S3 upgrade path (uncomment + configure rclone remote):
