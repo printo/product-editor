@@ -35,6 +35,39 @@ def _get_client_ip(request):
     return request.META.get('REMOTE_ADDR', '0.0.0.0')
 
 
+AUDIT_ERROR_MAX_CHARS = 1000
+
+
+def _truncate(text: str) -> str:
+    return text if len(text) <= AUDIT_ERROR_MAX_CHARS else text[:AUDIT_ERROR_MAX_CHARS - 1] + '…'
+
+
+def audit_error_message(request, response):
+    """
+    Why a request failed, for the audit row; None for a success.
+
+    An exception the view raised (captured by `process_exception`) wins. Next
+    is the body the view returned: DRF puts the reason under `detail`/`error`
+    (or a field-keyed dict for validation errors). Only a streamed or non-JSON
+    response yields nothing, and that is recorded as None, never guessed.
+    """
+    status = getattr(response, 'status_code', 200)
+    if status < 400:
+        return None
+    exc = getattr(request, '_audit_error', None)
+    if exc:
+        return exc
+    data = getattr(response, 'data', None)
+    if isinstance(data, dict) and data:
+        for key in ('detail', 'error', 'message'):
+            if data.get(key):
+                return _truncate(str(data[key]))
+        return _truncate(str(data))
+    if isinstance(data, (list, str)) and data:
+        return _truncate(str(data))
+    return None
+
+
 class APIRequestLoggingMiddleware(MiddlewareMixin):
     """
     Logs API activity to the container log AND to the APIRequest table.
@@ -90,6 +123,17 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
 
         return response
 
+    def process_exception(self, request, exception):
+        """
+        Remember why a view blew up. Framework-level rejections (an oversized
+        body raising RequestDataTooBig, a malformed multipart body) are turned
+        into a bare 400/500 before the response reaches `__call__`, so without
+        this the audit row carries a status and no reason. Returns None so
+        Django's normal handling is untouched.
+        """
+        request._audit_error = _truncate(f"{type(exception).__name__}: {exception}")
+        return None
+
     def _should_audit(self, path: str) -> bool:
         if not path.startswith('/api/'):
             return False
@@ -120,6 +164,7 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
                 # left-most hop is client-controlled and trivially spoofed.
                 ip_address=_get_client_ip(request),
                 user_agent=(request.META.get('HTTP_USER_AGENT') or '')[:500],
+                error_message=audit_error_message(request, response),
             )
         except Exception as exc:  # noqa: BLE001 — audit must never break traffic
             logger.warning("Audit write failed for %s: %s", request.path, exc)
