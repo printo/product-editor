@@ -147,8 +147,11 @@ class EmbedSessionView(APIView):
                     required=False,
                     default=False,
                     help_text=(
-                        "Make picking a template the editor's first step (the customer can "
-                        "skip it). Appends `template_flow=1` to `embed_url_template`."
+                        "Make picking a template the editor's first step, over the dimmed page, "
+                        "with a Start blank choice. Without it the customer is not asked and "
+                        "reaches templates from the toolbar; the empty page itself does not offer "
+                        "them. A returning customer's saved design is never interrupted either "
+                        "way. Appends `template_flow=1` to `embed_url_template`."
                     ),
                 ),
             },
