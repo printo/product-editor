@@ -2,138 +2,78 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**This file holds current rules and current state only.** The incidents, measurements and dated reversals that explain *why* a rule exists live in [docs/HISTORY.md](docs/HISTORY.md), organised under the same headings as this file. When a rule here seems arbitrary, look it up there before relaxing it. When you learn something new the hard way, add the rule here and the story there.
+
 ## What This Project Does
 
 Product Editor is a full-stack print-file generator for Printo.in. Customers upload and compose photos on an interactive canvas editor; the system asynchronously renders 300-DPI print files (PNG, with PDF as an alternate format) and delivers them either via direct download (dashboard users fetch the ZIP) or via a signed webhook to the embed caller's `callback_url` (printo.in's storefront then pulls the same download URL from its backend). The app does NOT push files to any internal OMS — it's a standalone generator.
 
 ## Docs — and which of them to trust
 
-**This file is the current-state reference.** `docs/` is mostly *not*: four of its files describe present behaviour and the rest are shipped-feature design records or unstarted plans. (Count them with `ls docs/*.md` rather than trusting a number here — this sentence claimed "ten" while the real count was twelve.) Index with per-file status: [docs/README.md](docs/README.md). Reading a shipped PRD as documentation is the main way to get a wrong answer from that folder — **where a doc and the code disagree, the code wins**, and where a doc and this file disagree, this file was more recently verified.
+**This file is the current-state reference.** `docs/` is mostly *not*: a few files describe present behaviour and the rest are shipped-feature design records or plans. Count them with `ls docs/*.md` rather than trusting a number written anywhere. Index with per-file status: [docs/README.md](docs/README.md). **Where a doc and the code disagree, the code wins**, and where a doc and this file disagree, this file was more recently verified.
 
-The four to actually rely on:
+The ones to actually rely on:
 
 | Doc | Use it for |
 |---|---|
-| [docs/INTEGRATION.md](docs/INTEGRATION.md) | The only doc with an **external** audience — printo.in's storefront team. Webhook payload, HMAC verification, the four download URLs, drop-in Node/Python handlers. Changing `notify_caller_webhook_task` means updating this. |
-| [docs/DATA_LIFECYCLE.md](docs/DATA_LIFECYCLE.md) | Any retention or DPDP question. One clock (`EXPORT_RETENTION_DAYS`, default 7, **prod runs 3**), what the purge deletes, backups (customer data lives at most 7 days there, and a restore re-erases purged orders), no gaps open. |
+| [docs/INTEGRATION.md](docs/INTEGRATION.md) | The only doc with an **external** audience — printo.in's storefront team. Webhook payload, HMAC verification, the four download URLs, the daily request cap, drop-in Node/Python handlers. Changing `notify_caller_webhook_task` means updating this. |
+| [docs/DATA_LIFECYCLE.md](docs/DATA_LIFECYCLE.md) | Any retention or DPDP question. One clock (`EXPORT_RETENTION_DAYS`, default 7, **prod runs 3**), what the purge deletes, backups (customer data lives at most 7 days there, and a restore re-erases purged orders). |
 | [docs/AI_GUARDRAILS.md](docs/AI_GUARDRAILS.md) | Condensed rules that exist because breaking them already cost something. Overlaps this file deliberately. |
+| [docs/HISTORY.md](docs/HISTORY.md) | The incidents and reversals behind the rules in this file, dated. |
 | [docs/LOAD_BASELINE.md](docs/LOAD_BASELINE.md) | Load numbers. Append runs, never edit old ones. |
 
-Nothing in `docs/` is checked by CI, so no claim there is self-verifying. If you correct a fact in one, check whether this file or `docs/AI_GUARDRAILS.md` states it too — they were out of sync on worker memory, migration numbers, and retention windows until 2026-08-14.
+Nothing in `docs/` is checked by CI, so no claim there is self-verifying. If you correct a fact in one, check whether this file or `docs/AI_GUARDRAILS.md` states it too.
 
 ## Knowledge Graph
 
 A knowledge graph of this codebase lives in `graphify-out/`. Before investigating architecture questions, tracing data flows, or understanding how components interact, query it first — it's much faster than grepping.
 
 ```bash
-# Ask a question about the codebase
 graphify query "how does the render pipeline work"
-graphify query "what calls LayoutEngine"
-graphify query "how does the embed session flow work"
-
-# Trace the path between two concepts
 graphify path "EditorRenderView" "notify_caller_webhook_task"
-graphify path "FabricEditor" "LayoutEngine"
-
-# Explain a specific node
 graphify explain "render_canvas_task"
-graphify explain "CalendarState"
 ```
 
-The graph covers 453 files — **4,105 nodes, 8,733 edges, 229 communities** (full `/graphify` rebuild 2026-10-13 from `main` @ `a2ea33e`: every doc re-extracted by six subagents, 176 community names carried across by node overlap and 29 new ones named by hand, none left as `Small group`; the committed graph it replaced held 4,044 / 8,377 / 241 from `16b501b6`, a build nobody recorded here; the 2026-10-08 refresh from `79ba213` held 3,616 / 7,334 / 219: the docs changed since the `662b18e` full rebuild — CLAUDE.md, LARGE_FILE_SPLIT_PLAN.md, docs/README.md — re-extracted from their diffs, plus #220's code, keeping the community partition and names below; the refresh 2026-10-07 from `main` @ `5f6e06e` held 3,615 / 7,321 / 219, made with `scripts/graphify-refresh.py` once the editor `page.tsx` split was finished, keeping the doc extraction and community names of that day's full `/graphify` rebuild from `662b18e`, which held 3,564 / 7,115 / 213; the 2026-10-06 refresh from `0a7cb5f` held 3,198 / 6,379 / 232 and that day's full rebuild from `88f86eb` 3,255 / 6,462 / 229; the `afec3a3` refresh after the dead-code PRs #183–#185 held 3,195 / 6,376 / 234; the AST-only refresh earlier that day from `1a6d41f` held 3,972 / 7,289 / 340 — the drop is stale doc nodes, per-heading doc nodes and the newly-ignored migrations, not lost code; the 2026-09-29 build from `f098f3f` held 3,952 / 7,249 / 333, and the 2026-09-04 build 2,974 / 5,345 / 213). **Read the counts out of `graphify-out/GRAPH_REPORT.md`, not from here.** This line claimed 5,282 nodes / 17,271 edges / 321 files until 2026-09-04, when the committed graph actually held 2,297 / 3,977 — those figures came from an older doc-inclusive build and `graphify update .` (AST-only) does not reproduce them. The report states its own source commit under "Graph Freshness"; compare it to `git rev-parse HEAD` to see whether the graph is stale. Key communities:
+**Read the node/edge/community counts and the source commit out of `graphify-out/GRAPH_REPORT.md`** ("Graph Freshness"), never from a doc; compare the commit to `git rev-parse HEAD` to see whether the graph is stale. Key communities: Render Pipeline Core, Book Layout Engine, Calendar Layout Engine, Auth & API Key System, Validators & Parity Tests, Canvas Editor UI, Layout Templates, Data Lifecycle & DPDP. The doc nodes (this file, the PRDs) are hubs because they reference so much code; `S3Backend` is the in-memory S3 test double in `services/tests/fake_s3.py`, not production code.
 
-- **Render Pipeline Core** — render_canvas_task, layout_engine/engine.py, _composite_canvas
-- **Book Layout Engine** — services/book_layout.py, materialize_pages, gutter mirroring, pagesToSpreads
-- **Calendar Layout Engine** — materialize_surfaces, calendar_layout.py, per-surface overrides
-- **Auth & API Key System** — APIKeyUser, BearerTokenAuthentication, PIAAuthentication
-- **Validators & Parity Tests** — validate_book_layout, validate_calendar_layout, TS↔Python parity suites
-- **Canvas Editor UI** — FabricEditor, CanvasEditorModal, surface-allocation.ts
-- **Calendar Cell Upload** — lib/calendar-cell-upload.ts
-- **Data Lifecycle & DPDP** — EXPORT_RETENTION_DAYS, order data purge, UploadedFile.order_id, orphan exports
+Rules for maintaining it:
 
-The 2026-10-06 full rebuild re-extracted every doc from its full text and named all communities, clearing the stale **Printo Architecture Audit** nodes (source removed 2026-09-07) and the 50 `Community N` placeholders. The 2026-10-07 rebuild re-extracted the 12 changed docs (CLAUDE.md, PRD, AI_GUARDRAILS, INTEGRATION, LARGE_FILE_SPLIT_PLAN, …), repointed doc edges from the retired `api_views_*` nodes to the split `views_*` modules, and named every community again (none left as `Community N` or `Small group`). Doc edits between full rebuilds can be folded in cheaply: hand a subagent the doc's existing nodes/edges from `graph.json` plus `git diff` and have it emit the updated extraction, then `build_merge` it — but `build_merge` keeps only the incoming hyperedges (it dropped 14 of 19 on 2026-10-08), so re-add the old ones, and keep the existing community partition rather than re-clustering (re-clustering after a 9-file change reshuffled ~70 of 213 communities). **Run graph builds from the repo root or normalise IDs afterwards:** a build from a scratchpad worktree bakes its path into shell-script node IDs (`private_tmp_…_scratchpad_wt_…_deploy_sh__entry`); `grep -c private_tmp graphify-out/graph.json` must be 0. **Don't refresh with `graphify update .` after a full rebuild:** on 2026-10-06 it re-added the old per-heading doc nodes the full rebuild had removed (+430 nodes) and dropped 41 communities back to unnamed `Community N`. Use `scripts/graphify-refresh.py` instead (below); that's how the `afec3a3` refresh was done. Doc *changes* only reach the graph through another full `/graphify` run (subagent extraction — no API key needed). `.graphifyignore` excludes `backend/django/*/migrations/` (60 low-value nodes; the Migrations table below covers them). The `_AnyContentTypeParser` name-collision noise (~28 INFERRED edges to unrelated classes) is gone since it moved into `api/views/uploads.py`.
-
-God nodes (highest connectivity, `a2ea33e` build): `LayoutEngine` (73 edges), `S3Backend` (68), `S3Storage` (55), `LayoutCatalogue` (54), this file's own node (52), `CanvasItem` (44 — the shared editor canvas type every split hook imports), the split plan's `Part 2: editor page.tsx split into hooks and components` (43), `LocalStorage` (40), `CanvasData` (39), `Env` (38 — the fake-Google test harness in `services/tests/test_google_fonts.py`). The doc nodes are hubs because those docs reference so much code. (`79ba213` build, for comparison: `Product Editor PRD` 64, `Calendar Feature PRD` 63, `LayoutEngine` 58, `AI Guardrails` 50, `LayoutCatalogue` 44, `S3Backend` 44.) The storage backends and `LayoutManagementView` joined this list once layouts moved into Postgres; `S3Backend` is the in-memory S3 test double in `services/tests/fake_s3.py` (PR #174), not production code. `editor/layout/[name]/page.tsx` is the file most likely to break something else when edited — it and `api/views.py` topped the older doc-inclusive graph. Both have since been split ([docs/LARGE_FILE_SPLIT_PLAN.md](docs/LARGE_FILE_SPLIT_PLAN.md)): `api/views.py` into the `api/views/` package (largest module ~725 lines), and `page.tsx` (~620 lines now) into hooks and components beside it, the largest being `useDesignPersistence.ts` and `useCardActions.ts`.
-
-To update the graph after significant code changes:
-```bash
-$(cat graphify-out/.graphify_python) scripts/graphify-refresh.py
-```
-
-It re-extracts the code (AST only — no LLM, no API key, a few seconds), keeps the committed graph's doc nodes, drops nodes whose source file is gone, carries community names across by overlap, and rewrites `graph.json`, `GRAPH_REPORT.md`, `graph.html` and the manifest. It prints an `unlabeled>=3` count: a genuinely new community of 3+ nodes shows up there as `Small group: …` until someone names it.
-
-**Don't use `graphify update .` or `graphify . --update`.** `update` re-adds the old per-heading doc nodes a full rebuild removes and unnames communities (it did both on 2026-10-06: +430 nodes, 41 back to `Community N`). The `--update` flag form tries semantic re-extraction and aborts with `error: no LLM API key found` unless `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / etc. is set (none is, on this machine). Doc *changes* need a full `/graphify` run, which uses subagents and no API key.
-
-Open `graphify-out/graph.html` in a browser for the interactive visualisation.
+- **Committed:** `graph.json`, `GRAPH_REPORT.md`, `manifest.json`, `cost.json`, `.graphify_labels.json`. **Not committed:** `graph.html` — regenerate it with `graphify export html` (seconds, no API key) and open it in a browser. It was committed until 2026-10-13, when its history made up most of the repository's size.
+- **After code changes:** `$(cat graphify-out/.graphify_python) scripts/graphify-refresh.py` — AST only, no LLM, a few seconds. Keeps the committed doc nodes, drops nodes whose file is gone, carries community names across by overlap, and prints an `unlabeled>=3` count for new communities to name.
+- **After doc changes:** only a full `/graphify` run re-extracts docs (subagents, no API key). Build from the repo root so shell-script node IDs match the committed graph (`grep -c private_tmp graphify-out/graph.json` must be 0), validate each subagent chunk's ids against the AST before merging (`[name]` files come out as `name_…`, inner hook functions have no AST node and map to their hook), and carry community names across from the old `graph.json` by node overlap rather than re-clustering from scratch.
+- **Don't use `graphify update .` or `graphify . --update`.** The first re-adds per-heading doc nodes a full rebuild removes and unnames communities; the second needs an LLM API key the graphify Python doesn't have.
+- `.graphifyignore` excludes the vendored Scalar bundle, `backend/django/*/migrations/`, the e2e fixture photos and `public/icons/` (trivial nodes, a vision agent each).
+- The health check's ~1,100 "dangling-endpoint" edges are AST imports of external packages (react, os, django) with no node in the corpus. Normal. The semantic layer should show zero.
 
 ---
 
 ## Hard constraints — git and shipping
 
-Mirrors the equivalent section in `PIA/pops-prod-ui/CLAUDE.md`, adapted: this
-repo has no `staging` branch, so **`main` is production**. `deploy.sh` git-pulls
-`main` on the server, which means anything merged is one deploy away from
-customers. The gate between "written" and "live" is your check-in with the
-user — there is nothing else.
+This repo has no `staging` branch, so **`main` is production**. `deploy.sh` git-pulls `main` on the server; anything merged is one deploy away from customers. The gate between "written" and "live" is your check-in with the user — there is nothing else.
 
-- **BEFORE ANY CODE EDIT: create a branch from freshly-pulled `main`.**
-  **NO EXCEPTIONS. NO COMMITS ON MAIN.** Do this FIRST, before opening any file to edit:
+- **BEFORE ANY CODE EDIT: create a branch from freshly-pulled `main`. NO EXCEPTIONS. NO COMMITS ON MAIN.**
   ```bash
   git checkout main && git pull && git checkout -b feature/your-name
   ```
-  **THIS IS NOT OPTIONAL.** Even a trivial one-line fix must be branched first.
-  Never `git checkout -b` from wherever the tree happens to be. Never edit files
-  on `main`. Never commit to `main` — all commits go on a feature branch.
-  This checkout is shared with other Claude Code sessions, so local `main` goes
-  stale within minutes — stale base means your PR will conflict or test against
-  wrong code. Twice on 2026-08-08, a `git pull` failed silently and work began
-  against a base 7 commits behind. **Branch first, edit second. Commit only on
-  the branch, never on main.**
-
-- **Never push, open a PR, or merge without checking in first.** A request to do
-  the work is not a request to ship it. Do the work, run the checks, then STOP
-  and report what changed and what you verified — then wait for an explicit
-  go-ahead before `git push`, `gh pr create`, or `gh pr merge`. Chaining
-  implement → test → commit → push → PR → merge into one autonomous pass is the
-  failure mode. It ran that way throughout 2026-08-08 (PRs #41–#53): each change
-  was individually sound and verified, but the user was left reviewing merges
-  rather than deciding them.
-
-- **Run `git status` and `git log --oneline -5` before every commit.** With
-  several sessions in one directory, uncommitted files may not be yours. **Never
-  `git add -A` or `git commit -a` in this repo — stage explicit paths.** On
-  2026-08-08 a session found four modified and two untracked files belonging to
-  another session; they were only safe to discard after verifying each was
-  byte-identical to `origin/main`.
-
-- **Say what you found and left behind.** If another session's work is sitting
-  in the tree, name the files rather than silently working around them.
-
-- **Never delete a branch — local or remote — without asking first and getting
-  an explicit yes.** This includes `git branch -d`/`-D`, `git push origin
-  --delete <branch>`, and `gh pr merge --delete-branch`. Branch pileup is a
-  real problem (13 merged branches had accumulated by the end of 2026-08-08,
-  and every `git pull` on the production server prints the whole list as
-  `[new branch]`, burying the output that matters) — but cleaning that up is
-  the user's call every time, not something to do on autopilot right after a
-  merge. Ask ("merged — want me to delete `<branch>`?") and wait for the yes.
-
-- **A PR number is not something to predict.** Use the URL `gh pr create`
-  returns. On 2026-08-08 a PR was referenced as "#47" before it existed; #47
-  turned out to be an unrelated PR from another session.
+  Even a one-line fix. Never branch from wherever the tree happens to be. This checkout is shared with other Claude Code sessions, so local `main` goes stale within minutes and another session may switch the branch under you mid-task; prefer a scratchpad worktree (`git worktree add <dir> -b <branch> origin/main`) for anything longer than a few minutes.
+- **Never push, open a PR, or merge without checking in first.** A request to do the work is not a request to ship it. Do the work, run the checks, STOP and report what changed and what you verified, then wait for an explicit go-ahead before `git push`, `gh pr create`, or `gh pr merge`.
+- **Run `git status` and `git log --oneline -5` before every commit. Never `git add -A` or `git commit -a` — stage explicit paths.** Uncommitted files in the shared tree may not be yours. **Say what you found and left behind**, naming the files.
+- **Never delete a branch — local or remote — without asking first and getting an explicit yes.** Includes `git branch -d`/`-D`, `git push origin --delete`, `gh pr merge --delete-branch`. Ask ("merged — want me to delete `<branch>`?") every time.
+- **A PR number is not something to predict.** Use the URL `gh pr create` returns.
 
 ## Commands
 
 ### Frontend (Next.js)
 ```bash
 cd frontend/nextjs
-pnpm dev          # Development server (http://localhost:3000 direct, or http://localhost:5004 via Docker)
+pnpm dev          # http://localhost:3000 direct, or http://localhost:5004 via Docker
 pnpm dev:clean    # rm -rf .next first — use when routes 404 in dev
-pnpm build        # Production build
-pnpm typecheck    # tsc --noEmit (full strict mode) — run before pushing
+pnpm build
+pnpm typecheck    # tsc --noEmit, full strict mode — run before pushing
 pnpm lint         # eslint src
-pnpm lint:fix     # auto-fix
+pnpm lint:fix
 ```
+The dev Mac's system node is v16; prefix `PATH=$HOME/.nvm/versions/node/v22.23.2/bin:$PATH` on every pnpm command.
 
 ### Backend (Django)
 ```bash
@@ -145,69 +85,58 @@ python manage.py shell
 
 ### Tests
 
-Three harnesses, not two — frontend Jest, backend DB-free `services/tests/`, and backend DB-backed `api/tests/`. The first two are **deliberately lightweight and need no database**; `api/tests/` is the deliberate exception, covered in its own section below.
+Three harnesses: frontend Jest, backend DB-free `services/tests/`, and backend DB-backed `api/tests/`.
 
-**Frontend — Jest** (`next/jest` + SWC transforms + `@happy-dom/jest-environment`; config in `frontend/nextjs/jest.config.ts`). Only `src/**/__tests__/**` is collected. happy-dom is used instead of jsdom specifically because jsdom auto-requires the native `canvas` module that Fabric.js peer-deps.
+**Frontend — Jest** (`next/jest` + SWC + `@happy-dom/jest-environment`; config in `frontend/nextjs/jest.config.ts`). Only `src/**/__tests__/**` is collected. happy-dom rather than jsdom because jsdom auto-requires the native `canvas` module Fabric.js peer-deps.
 
 ```bash
 cd frontend/nextjs
-pnpm test                                        # whole suite
-pnpm test:watch                                  # watch mode
-pnpm test -- src/lib/__tests__/dpi-utils.test.ts # one file
-pnpm test -- -t "clamps the offset"              # one test by name
-pnpm test:parity                                 # calendar TS↔Python parity suites only
+pnpm test
+pnpm test:watch
+pnpm test -- src/lib/__tests__/dpi-utils.test.ts
+pnpm test -- -t "clamps the offset"
+pnpm test:parity          # calendar TS↔Python parity suites only
 ```
 
-**Editor page characterization suite** — `src/app/editor/layout/[name]/__tests__/page.characterization.test.tsx` renders the whole editor page under Jest against `FakeBackend` (`editor-page-harness.tsx`), with the canvas library, image decoding, orientation, HEIC/PDF, auth and routing stubbed, and pins what the page sends and when: Add-Files appends, autosave only after the restore settles and without `data:` previews (both PR #166 paths), the quantity rules, the embed render payload and its `pe:render_job` target origin, the dashboard download hand-off, the calendar holiday gate, the book page count, that Escape cancels the incomplete-photo and book-overflow prompts, that the print-sheet (imposition) window takes focus and Escape closes it, that the toolbar pins once scrolled past, and that keys pressed on a card's own buttons reach those buttons. It is the safety net for splitting `page.tsx` ([docs/LARGE_FILE_SPLIT_PLAN.md](docs/LARGE_FILE_SPLIT_PLAN.md)) and must pass unchanged across those PRs. Real timers, so it takes ~35 s. Two gotchas if you extend it: `useRouter`/`useParams` stubs must return the **same object every render** (several effects depend on `router`; a fresh object per render loops forever), and the over-quantity prompt is `role="alertdialog"`, not `dialog`.
+**Editor page characterization suite** — `src/app/editor/layout/[name]/__tests__/page.characterization.test.tsx` renders the whole editor page under Jest against `FakeBackend` (`editor-page-harness.tsx`) and pins what the page sends and when (Add-Files appends, autosave only after restore settles and without `data:` previews, the quantity rules, the embed render payload and `pe:render_job` target origin, the dashboard download hand-off, the calendar holiday gate, the book page count, Escape behaviour in the prompts, the pinned toolbar, card keyboard handling, the template-first rule). It must pass unchanged across any editor refactor. Real timers, ~35 s. Gotchas: `useRouter`/`useParams` stubs must return the **same object every render**, and the over-quantity prompt is `role="alertdialog"`.
 
-**Editor smoke suite (Playwright)** — `cd frontend/nextjs && pnpm e2e`. Drives the installed Google Chrome against the local stack and a production build of the frontend (started on :3057 for the run): embed journeys inside a fake storefront page (`pe:back` / `pe:render_job` to the parent, the `frame-ancestors` policy, a non-printo.in site refused), the slow-restore check timed inside the page, quantity rules, HEIC, the canvas editor, the dashboard (signed in by a minted cookie — never PIA credentials) with a real server render to a ZIP and imposition, the calendar preview, and a phone-profile tap-to-swap. Local only, refuses non-local targets, purges every order it creates. The server-render test needs a Celery worker and skips without one. Setup, settings and gotchas: [frontend/nextjs/e2e/README.md](frontend/nextjs/e2e/README.md).
+**Editor smoke suite (Playwright)** — `pnpm e2e`. Drives Chrome against the local stack and a production build on :3057: embed journeys inside a fake storefront, the slow-restore check, quantity rules, HEIC, the canvas editor, the dashboard (minted cookie, never PIA credentials) with a real render to a ZIP, the calendar preview, a phone-profile tap-to-swap. Local only, purges what it creates, skips the render test without a Celery worker. Setup: [frontend/nextjs/e2e/README.md](frontend/nextjs/e2e/README.md).
 
-**Backend — standalone modules, no pytest, no `manage.py test`.** Every file in `backend/django/services/tests/test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions and prints a pass count. CI globs them, so the count is pinned nowhere — get it with `ls backend/django/services/tests/test_*.py | wc -l` rather than trusting a number in a doc (this file claimed 18 and 19 in consecutive paragraphs while the real count was 24).
+**Backend — `services/tests/`: standalone modules, no pytest, no `manage.py test`.** Every `test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions. CI globs them, so a new module needs no workflow edit. Keep them DB-free and mediapipe-free (CI installs a mediapipe-stripped requirements subset). Count them with `ls backend/django/services/tests/test_*.py | wc -l`.
 
-Run one **through the container** — the dev Mac's system Python has no Pillow/Django, so this is the practical local route. Override the entrypoint: it ignores `$@` and would otherwise boot gunicorn and hang forever (see Deployment). **The backend image bakes in source via `COPY`, same as frontend — only `./storage` is bind-mounted (see `docker-compose.yml`).** `docker-compose run backend` after editing backend source tests whatever the image was last built with, not your working tree, and fails silently: no error, just a stale result (a freshly-added test module reads as "not found" rather than "not rebuilt"). `docker-compose build backend` first.
+Run through the container — the dev Mac has no Pillow/Django. **Override the entrypoint**: it ignores `$@` and would boot gunicorn and hang. **The image bakes in source via `COPY`**; `docker-compose run backend` tests the last build, not your tree, and a new module reads as "not found" rather than "not rebuilt". Either `docker-compose build backend` first, or mount the tree over `/app`:
 
 ```bash
 docker-compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
+# or, against a worktree without rebuilding:
+docker run --rm --network product-editor_web --env-file .env -e DEBUG=1 -e SENTRY_DSN= \
+  -v "$PWD/backend/django:/app" -w /app --entrypoint /opt/venv/bin/python product-editor-backend:latest \
+  -m services.tests.test_caption_layout
 ```
 
-All of them, the way CI does it:
-
+All of them, as CI does:
 ```bash
 docker-compose run --rm --entrypoint bash backend -c 'for f in services/tests/test_*.py; do /opt/venv/bin/python -m "services.tests.$(basename "$f" .py)" || echo "FAIL $f"; done'
 ```
+With a local venv the bare form works; `DEBUG=1` is mandatory or the production `DJANGO_SECRET_KEY` fail-fast aborts first.
 
-If you *do* have a local venv with `requirements.txt` installed, the bare form works too — `DEBUG=1` is mandatory, or the production `DJANGO_SECRET_KEY` fail-fast in `settings.py` aborts before any test runs:
-
-```bash
-cd backend/django && DJANGO_SETTINGS_MODULE=product_editor.settings DEBUG=1 python -m services.tests.test_caption_layout
-```
-
-**Writing new backend tests:** copy the `__main__` footer from an existing module. CI auto-discovers `services/tests/test_*.py`, so a new file is picked up with no workflow edit. Keep them DB-free and mediapipe-free — CI installs a mediapipe-stripped requirements subset.
-
-**Backend — `api/tests/`, ordinary Django `TestCase`s, real Postgres + Redis, `manage.py test`.** A second, intentionally separate convention: `LayoutCatalogue` is a real Postgres model and `invalidate_layout_caches` drives the real `django_redis` cache backend, so testing either honestly needs a live DB and a live cache — the opposite of the `services/tests/` contract above. Don't move these into `services/tests/` and don't fake the DB with sqlite either: the model docstring's case-sensitivity guarantee is a Postgres collation behaviour that sqlite won't reproduce.
+**Backend — `api/tests/`: ordinary Django `TestCase`s, real Postgres + Redis, `manage.py test`.** For things that genuinely need the DB or the real cache (`LayoutCatalogue` collation, `invalidate_layout_caches`, order purge, templates, the API-key daily cap). Don't fake the DB with sqlite — the case-sensitivity guarantee is Postgres collation. `api/tests/__init__.py` must exist or discovery crashes.
 
 ```bash
 docker-compose up -d db redis backend
 docker-compose exec backend python manage.py test api.tests --verbosity 2
 ```
+**If you touch `invalidate_layout_caches` or `LayoutCatalogue`, run this suite** — nothing else catches a regression there.
 
-These two files (`test_layout_catalogue.py`, `test_cache_invalidation.py`) shipped with the LayoutCatalogue migration (PR #111, 2026-09-04) but were never wired into CI and, until 2026-09-15, weren't even reliably runnable: `api/tests/` had no `__init__.py`, so `manage.py test api.tests` — the natural invocation — crashed with `TypeError: expected str, bytes or os.PathLike object, not NoneType` (a namespace package has no `__file__` for unittest's discovery to dirname), and `manage.py test api` silently found and ran 0 tests. Only the fully-qualified dotted form (`manage.py test api.tests.test_layout_catalogue`) actually worked, which is presumably how whoever wrote them last ran them. Once you could actually run the suite, one test was failing: `test_invalidate_preserves_other_layouts` asserted a *different* layout's cache entry was cleared (with a comment rationalizing why), directly contradicting both its own name and `invalidate_layout_caches`'s actual (correct) scoped-glob behavior — fixed to assert the entry survives, matching what the function is actually supposed to do. **If you touch `invalidate_layout_caches` or `LayoutCatalogue`, run this suite** — nothing else will catch a regression in either.
-
-**Writing new tests here:** they belong in `api/tests/` only when the thing under test genuinely needs Postgres or the real cache — anything that can be tested DB-free belongs in `services/tests/` instead. New `api/tests/test_*.py` files are auto-discovered by `manage.py test api.tests`; no workflow edit needed as long as they subclass `TestCase`.
-
-**CI** (`.github/workflows/ci.yml`, push/PR to `main`): three jobs — `backend` (the DB-free loop above + OpenAPI schema validation), `backend-db` (spins up real `postgres:16-alpine` + `redis:7-alpine` service containers, then `manage.py test api.tests`), and `frontend` (`pnpm typecheck` → `pnpm lint` → `pnpm test -- --ci`). Note the org is on GitHub Free with Actions billing-locked, so the checks may show red for reasons unrelated to the code — verify locally.
+**CI** (`.github/workflows/ci.yml`, push/PR to `main`): `backend` (the DB-free loop + OpenAPI schema validation), `backend-db` (Postgres 16 + Redis 7 service containers, `manage.py test api.tests`), `frontend` (`typecheck` → `lint` → `test -- --ci`). The org is on GitHub Free with Actions billing-locked, so checks may show red for reasons unrelated to the code — verify locally.
 
 ### Verifying UI changes in a real browser (no PIA login)
 
-The unit suites don't cover the canvas, and PIA credentials can't be typed into
-an automated browser. Two routes in, depending on the page:
-
-**Editor route** (`/editor/layout/[name]`) — not auth-gated, so use an embed token:
+**Editor route** (`/editor/layout/[name]`) is not auth-gated; use an embed token:
 
 ```bash
 docker-compose up -d db redis backend        # backend on :8000
-# frontend must run from source (pnpm dev) — the Docker image serves a BUILD,
-# so it will not contain your local edits
+# frontend must run from source (pnpm dev) — the Docker image serves a BUILD
 KEY=$(grep -E "^DIRECT_API_KEY=" .env | cut -d= -f2-)
 curl -s -X POST http://localhost:8000/api/embed/session \
   -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
@@ -215,11 +144,7 @@ curl -s -X POST http://localhost:8000/api/embed/session \
 # → open http://localhost:3000/editor/layout/<name>?token=<token>
 ```
 
-**Auth-gated pages** (`/dashboard`, `/editor/layouts`) — mint a NextAuth cookie
-rather than logging in. Run this **inside `frontend/nextjs`** so `next-auth`
-resolves, and read `AUTH_SECRET` from `frontend/nextjs/.env.local` — it differs
-from the root `.env`, and using the wrong one silently yields a cookie the
-server rejects:
+**Auth-gated pages** (`/dashboard`, `/editor/layouts`) — mint a NextAuth cookie. Run **inside `frontend/nextjs`** so `next-auth` resolves, with `AUTH_SECRET` from `frontend/nextjs/.env.local` (it differs from the root `.env`; the wrong one silently yields a rejected cookie):
 
 ```js
 import { encode } from 'next-auth/jwt';
@@ -227,78 +152,45 @@ const now = Math.floor(Date.now() / 1000);
 await encode({ salt: 'authjs.session-token', secret: AUTH_SECRET, token: {
   id: 'LOCAL-DEV', name: 'Local Dev', email: 'local@printo.in',
   role: 'admin',
-  is_staff: false,                           // ADMIN tier — gates /django-admin/
-  is_ops_team: true,                         // OPS tier — template/calendar/holiday writes
-  registration_status: 'ACTIVE',              // anything else is refused per request
+  is_staff: false,                 // ADMIN tier — gates /django-admin/
+  is_ops_team: true,               // OPS tier — template/calendar/holiday writes
+  registration_status: 'ACTIVE',    // anything else is refused per request
   accessToken: 'x', refreshToken: 'x', accessTokenExpires: (now + 3600) * 1000,
   sub: 'LOCAL-DEV', iat: now, exp: now + 3600 } });
 // then: document.cookie = "authjs.session-token=<jwt>; path=/"
 ```
 
-Mint one token per tier you need to test — `is_staff: true` for Admin,
-`is_ops_team: true` alone for Ops, both false for Editor. `role: 'admin'` is
-legacy and expresses none of the three; see "Role model" below. Omit
-`registration_status` and it counts as active.
+Mint one per tier (`is_staff: true` Admin; `is_ops_team: true` alone Ops; both false Editor). `role: 'admin'` is legacy and expresses none of the tiers.
 
-**You cannot swap that cookie a second time from JavaScript.** It works once.
-As soon as the page calls `/api/auth/session`, NextAuth re-issues the cookie
-**HttpOnly**, and from then on `document.cookie` can neither read nor
-overwrite it: a second `document.cookie = "authjs.session-token=<other jwt>"`
-is silently ignored and the app keeps serving the FIRST role. That failure is
-invisible — the page renders fine, and only `/api/auth/session` reveals the
-stale flags. Clear it server-side first:
+**You cannot swap that cookie a second time from JavaScript.** Once the page calls `/api/auth/session`, NextAuth re-issues it HttpOnly and a second `document.cookie` write is silently ignored. Sign out server-side first:
 
 ```js
 const { csrfToken } = await fetch('/api/auth/csrf').then(r => r.json());
 await fetch('/api/auth/signout', { method: 'POST',
   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   body: new URLSearchParams({ csrfToken, json: 'true' }) });
-// /api/auth/session now returns null — plant the next cookie and reload
 ```
+Corollary: **`authjs.session-token` missing from `document.cookie` does not mean there is no session.** Read `/api/auth/session` and assert on the flags there. Local dev only; delete the script afterwards.
 
-Corollary: **`authjs.session-token` missing from `document.cookie` does not
-mean there is no session.** Once it is HttpOnly it is invisible to JS while
-still being sent on every request. Read `/api/auth/session` to see the truth —
-and assert on the flags there, not on the cookie, before concluding a
-role-gated element rendered correctly.
+**Getting a photo onto the canvas:** draw on an off-screen canvas, wrap in `File`/`DataTransfer`, assign through the native setter (`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'files').set`) on the input with `multiple=true` (the other is the replace-photo input), then dispatch a bubbling `change`.
 
-Local dev only — it depends on having the local `AUTH_SECRET`. Delete the
-script afterwards.
-
-**Getting a photo onto the canvas:** draw on an off-screen canvas, wrap in
-`File`/`DataTransfer`, and assign through the **native setter**
-(`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'files').set`) on
-the input with `multiple=true` — the non-multiple one is the replace-photo
-input. Then dispatch a bubbling `change`.
-
-**Known automation limits — don't spend time rediscovering these:**
-
-- **The layout-card action buttons (View Raw JSON / Delete / Edit / Duplicate)
-  do not respond to synthetic clicks** — mouse or keyboard, handler never
-  fires, no console error. Reproduced on unmodified `main`, so it is an
-  automation artifact, not a bug. Header buttons and canvas interactions work
-  fine. Verify those flows via code + `curl` and ask the user for one manual
-  click.
-- To assert Fabric object state (stroke colours, guide visibility), walk the
-  React fiber from `canvas.lower-canvas` (`__reactFiber$…`) up through
-  `memoizedState` for a hook whose `.current` has `_objects` + `renderAll`.
-  `fc.fire('object:moving', {target})` then exercises the real handlers.
-- Pixel-sampling a Fabric canvas must allow for alpha blending — guides draw at
-  0.7–0.8 opacity over white, so test hue dominance (`g - r > 40`), not an exact
-  hex match.
-- `next.config.mjs` is **not** hot-reloaded; restart the dev server after
-  editing it.
-- Routes 404ing in dev → `rm -rf .next` and restart (see B5 in Known Issues).
+**Known automation limits:**
+- The layout-card action buttons (View Raw JSON / Delete / Edit / Duplicate) do not respond to synthetic clicks. Automation artifact, reproduced on unmodified `main`. Verify via code + `curl` and ask the user for one manual click.
+- To assert Fabric object state, walk the React fiber from `canvas.lower-canvas` (`__reactFiber$…`) up through `memoizedState` for a hook whose `.current` has `_objects` + `renderAll`; `fc.fire('object:moving', {target})` exercises the real handlers.
+- Pixel-sampling a Fabric canvas must allow for alpha blending (guides draw at 0.7–0.8 opacity): test hue dominance, not an exact hex.
+- `next.config.mjs` is **not** hot-reloaded; restart the dev server after editing it.
+- Routes 404ing in dev → `pnpm dev:clean`.
+- IntersectionObserver never fires in automated browser panes; screenshots force delivery.
 
 ### Docker (primary workflow)
 ```bash
 docker-compose up -d
-docker-compose exec backend python manage.py migrate   # Always run migrations via backend container
+docker-compose exec backend python manage.py migrate   # always via the backend container
 docker-compose ps celery-worker-standard celery-beat
 docker-compose logs -f <service>
 ```
 
-**First run on a fresh clone:** `docker-compose up -d` alone will crash-loop the `proxy` (nginx) service — it bind-mounts `proxy/nginx/certs/{origin.crt,origin.key}`, which are gitignored and don't exist yet. Either run `./deploy.sh` once (it generates a self-signed bootstrap cert automatically), or generate it yourself before `docker-compose up -d`:
+**First run on a fresh clone:** the `proxy` service bind-mounts `proxy/nginx/certs/{origin.crt,origin.key}`, which are gitignored. Run `./deploy.sh` once (it generates a self-signed bootstrap cert) or:
 ```bash
 mkdir -p proxy/nginx/certs
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
@@ -306,20 +198,20 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -subj "/CN=localhost/O=product-editor self-signed"
 chmod 600 proxy/nginx/certs/origin.key
 ```
-Also copy `.env.example` → `.env` and fill in the required secrets (`DJANGO_SECRET_KEY`, `AUTH_SECRET`, `EMBED_INTERNAL_SECRET`, `INTERNAL_API_KEY`, `POSTGRES_PASSWORD`, `DIRECT_API_KEY`) before the backend will boot — see `.env.example` for the full list and generation commands.
+Copy `.env.example` → `.env` and fill the required secrets (`DJANGO_SECRET_KEY`, `AUTH_SECRET`, `EMBED_INTERNAL_SECRET`, `INTERNAL_API_KEY`, `POSTGRES_PASSWORD`, `DIRECT_API_KEY`). Sibling projects take 5432/5004; this repo's `.env` remaps to 5434/5005.
 
 ### Utilities
 ```bash
-./deploy.sh                                                    # Production deployment
-./fresh-install.sh                                             # Fresh environment setup
-./reset-db.sh                                                  # Reset database
-./benchmark.sh                                                 # Performance benchmarking
-API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # embed flow end-to-end (session, proxy allowlist, qty cap, chunked upload)
+./deploy.sh                                                    # Production deployment (on the server)
+./fresh-install.sh
+./reset-db.sh
+./benchmark.sh
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # embed flow end-to-end
 API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-calendar.sh    # calendar/ops surface
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-book.sh
 ./scripts/test-backup-restore.sh                               # restore into a throwaway DB + assert row counts
 ```
-
-Both smoke tests default to `BASE=http://localhost:5004`. If you're exercising the **nginx edge** (the path prod actually uses) point them at `BASE=https://localhost` and wrap `curl` with `-k` — the local origin cert is self-signed. Rebuild the frontend image before testing frontend-side changes; the container serves a build, not your working tree.
+Smoke tests default to `BASE=http://localhost:5004`; for the nginx edge use `BASE=https://localhost` with `-k`. Rebuild the frontend image before testing frontend-side changes. The scripts print their own pass/fail totals — read those. The shared colour/print helpers are `scripts/lib/print.sh` (deploy, reset-db) and `scripts/lib/smoke.sh` (the smoke tests).
 
 ## Architecture
 
@@ -330,47 +222,36 @@ Both smoke tests default to `BASE=http://localhost:5004`. If you're exercising t
 
 ### Key Data Flow
 
-All exports go through one unified server-side pipeline. The previous client-side "≤ 20 canvases → render in browser" shortcut was removed in v1.8 — every Submit/Download triggers a Celery render job, regardless of canvas count. Trade-off: small jobs pay an extra ~10–20 s of upload + poll latency; gains a single contract that handles webhooks, large batches, and resumable uploads identically.
+All exports go through one unified server-side pipeline: every Submit/Download triggers a Celery render job regardless of canvas count (the client-side shortcut was removed in v1.8).
 
-**Access-mode invariant:** dashboard login flow and iframe embed/widget flow must produce the same print output for the same layout id/SKU, uploaded assets, transforms, overlays, calendar data, background colours, `export_format`, and `include_uploads` choice. Authentication and delivery differ, but preview/editor state, render behaviour, and download artifact contract must not. The stricter cleanup/target architecture is captured in `docs/API_SURFACE_SEPARATION_PRD.md`.
+**Access-mode invariant:** the dashboard login flow and the iframe embed flow must produce the same print output for the same layout, uploads, transforms, overlays, calendar data, colours, `export_format` and `include_uploads`. Authentication and delivery differ; editor state, render behaviour and the artifact contract must not.
 
 **Editor → render → delivery:**
 
-1. Customer interacts with Fabric.js canvas editor (`frontend/nextjs/src/app/editor/`).
-2. On Save & Continue (embed) or Download (dashboard), `executeServerRender()` in `page.tsx`:
-   - Uploads every `File` via the chunked upload API (2 MB chunks, 4 parallel) using `src/lib/upload-utils.ts`
-   - POSTs to `/api/editor/render` with `{ layout_name, order_id, canvases[] }` (per-frame `upload_id` + transform data)
-3. Backend creates `CanvasData` + `RenderJob`, dispatches `render_canvas_task` to Celery.
-4. Celery worker: `LayoutEngine` consumes the submit-time `CanvasData.render_state` snapshot (falling back to `editor_state` only for pre-migration jobs) → Pillow renders at 300 DPI (PNG by default; PDF when `export_format='pdf'`).
-5. After render, files sit on disk under `EXPORTS_DIR/<job_id>/`, ready to be served by `GET /api/jobs/<job_id>/download/`.
-6. **Delivery — embed flow:** if `EmbedSession.callback_url` was set at session creation, `notify_caller_webhook_task` POSTs `{ order_id, job_id, status, download_url, print_download_url, mock_download_url, uploads_download_url, expires_at, file_count, layout_name, export_format, qty_summary }` to that URL plus an `X-Signature: sha256=<hmac>` header signed with the api_key. The caller fetches the ZIP(s) it wants using their api_key as Bearer auth — the combined archive, or the three single-part archives. *No internal OMS push exists.*
-7. **Delivery — dashboard flow:** no webhook task fires. The browser polls `/api/render-status/{job_id}/` with exponential backoff, then fetches the ZIP from `/api/jobs/{job_id}/download/` directly.
-8. Frontend behaviour after submit:
-   - **Embed**: fires `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` so the parent's UI can show "your design is being prepared". The actual file delivery happens via the webhook (above), not via postMessage.
-   - **Dashboard**: polls + downloads as in step 7.
+1. Customer composes on the Fabric.js editor (`frontend/nextjs/src/app/editor/`).
+2. On Save & Continue (embed) or Download (dashboard), `executeServerRender()` (`useServerRender.ts`) uploads every `File` via the chunked upload API (2 MB chunks, 4 parallel; `src/lib/upload-utils.ts`), then POSTs `/api/editor/render` with `{ layout_name, order_id, canvases[] }`.
+3. Backend creates `CanvasData` + `RenderJob` through `RenderSubmissionService` and dispatches `render_canvas_task`.
+4. Celery: `LayoutEngine` consumes the submit-time `CanvasData.render_state` snapshot — **and only that**; `editor_state` is the autosave's field and is never read by the pipeline — and Pillow renders at 300 DPI (PNG, or PDF when `export_format='pdf'`).
+5. Files land under `EXPORTS_DIR/<job_id>/`, served by `GET /api/jobs/<job_id>/download/`.
+6. **Embed delivery:** if `EmbedSession.callback_url` was set, `notify_caller_webhook_task` POSTs the payload below with `X-Signature: sha256=<hmac>` signed with the api_key; the caller fetches the ZIP(s) with Bearer auth. *No internal OMS push exists.*
+7. **Dashboard delivery:** the browser polls `/api/render-status/{job_id}/` with backoff and fetches the ZIP directly.
+8. After submit the embed posts `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` for the parent's "preparing your design" UX; files travel by webhook, not postMessage.
 
-**Direct partner API callers (`GenerateLayoutView`):**
-- `GenerateLayoutView` still exists for partners who hit `/api/layout/generate` with their own api_key (no embed session). Same output contract: `export_format` is `'png'` (default) or `'pdf'`. The old `soft_proof` / `tiff_cmyk` / `callback_url` body params were all removed in v1.8 — direct callers must poll `/api/render-status/<job_id>/`. Webhooks are configured exclusively via `EmbedSession.callback_url`.
-- Current cleanup target: keep `/api/layout/generate` as the direct partner API, but remove the unreachable synchronous helper inside `GenerateLayoutView` and route direct partner API + editor/embed render submissions through one shared backend render-submission service. See `docs/API_SURFACE_SEPARATION_PRD.md`.
-
-**Access flows to preserve:**
-- Dashboard: login → dashboard layout selection → `/editor/layout/[name]` preview/editor → shared server render → browser download.
-- Embed/widget: partner backend creates `/api/embed/session` with api_key + layout id/SKU/order_id → iframe opens `/editor/layout/[name]?token=...` → embed proxy calls shared render → signed webhook + partner backend downloads ZIP.
-- Direct partner API: partner backend posts `/api/layout/generate` server-to-server → shared render → poll status → download ZIP.
+**Direct partner API (`GenerateLayoutView`, `POST /api/layout/generate`)** shares the same `RenderSubmissionService` and output contract; direct callers poll `/api/render-status/<job_id>/`. Webhooks are configured only via `EmbedSession.callback_url`. External partners have been told embed-only; the direct endpoints are kept deliberately.
 
 ```mermaid
 flowchart TD
   DashboardUser["Dashboard User"] -->|PIA / Google login| Dashboard["Dashboard layout selection"]
   Dashboard --> EditorPageA["Shared preview/editor route"]
-  DirectPartner["Direct Partner Backend"] -->|Bearer API key| GenerateLayout["Direct API Adapter\nPOST /api/layout/generate"]
-  PartnerBackend["Partner Backend"] -->|Bearer API key + layout id/SKU| EmbedSession["POST /api/embed/session"]
+  DirectPartner["Direct Partner Backend"] -->|Bearer API key| GenerateLayout["POST /api/layout/generate"]
+  PartnerBackend["Partner Backend"] -->|Bearer API key + layout id| EmbedSession["POST /api/embed/session"]
   EmbedSession --> Iframe["Iframe Editor\n/editor/layout/:name?token=..."]
   Iframe --> EditorPageB["Shared preview/editor route"]
   EditorPageB -->|X-Embed-Token| EmbedProxy["Next.js Embed Proxy\n/api/embed/proxy/*"]
-  EmbedProxy -->|Bearer real API key + injected headers| EditorRender["Shared Editor Adapter\nPOST /api/editor/render"]
+  EmbedProxy -->|Bearer real API key + injected headers| EditorRender["POST /api/editor/render"]
   EditorPageA -->|NextAuth cookie| InternalProxy["Next.js Internal Proxy\n/api/internal/proxy/*"]
   InternalProxy -->|Bearer INTERNAL_API_KEY| EditorRender
-  GenerateLayout --> RenderService["Shared Render Submission Service"]
+  GenerateLayout --> RenderService["RenderSubmissionService"]
   EditorRender --> RenderService
   RenderService --> CanvasData["CanvasData + RenderJob"]
   RenderService --> Celery["render_canvas_task"]
@@ -379,1152 +260,254 @@ flowchart TD
 ```
 
 ### Frontend Structure
-- `src/pia-auth.ts` — NextAuth v5 config; Credentials provider hits PIA; `jwt`/`session`/`redirect` callbacks; custom `CredentialsSignin` subclasses for outage vs. timeout; PIA fetches use `AbortSignal.timeout(10_000)`
-- `src/proxy.ts` — Next.js 16 proxy file (formerly `middleware.ts`). Server-side auth gate for `/dashboard/*` and `/editor/layouts/*`; bounces logged-in users away from `/login`. Excludes `/editor/layout/[name]` because that route serves both dashboard and embed flows.
-- `src/app/login/page.tsx` + `src/app/actions/auth.ts` — login form + server action; per-IP rate limit (5/min, in-memory); maps `PiaTimeout` / `PiaServiceUnavailable` codes to user-facing messages
-- `src/types/next-auth.d.ts` — type augmentation for `Session` (`error`, `is_ops_team`, `accessToken`, `user.role`) and `JWT` — never use `(session as any)`
-- `src/app/editor/layout/[name]/page.tsx` — Main editor page. Single render path via `executeServerRender()` regardless of canvas count. `handleSubmitDesign` (embed "Save & Continue") and `executeBatchDownload` (dashboard "Download") are thin wrappers that both call it. Dual-mode (dashboard session vs. embed token). **"Add Files" appends, it does not replace** — a native `<input type=file>` selection is never cumulative (each pick contains only that pick's files), so `handleFileChange` must merge onto the existing selection before handoff. Feeding the raw pick into `setFiles()` wipes every earlier canvas; that was a live bug until PR #24. Multi-surface layouts are excluded from the merge — each surface holds exactly one photo, so there's no "next canvas" to append to. The page is being split into hooks and components ([docs/LARGE_FILE_SPLIT_PLAN.md](docs/LARGE_FILE_SPLIT_PLAN.md)); so far the helpers and constants that sat above the component are in `editor-utils.ts`, the amber pre-submit notices in `EditorNotices.tsx`, the embed post-submit panel in `EmbedSubmittedOverlay.tsx`, and the eight dialogs (delete, re-pick, over-quantity, incomplete images, book overflow, auto-fill picker, download options, embed disclaimer) in `dialogs/`. The page keeps their state and show conditions and passes values and handlers in as props. Imposition (print sheets) is `useImposition.ts` — its settings, the Fabric sheet preview and the full-resolution export — plus `ImpositionModal.tsx`; the page calls the hook where the imposition effects used to sit, so effect order is unchanged. The page's chrome is in four files: `useStickyToolbar.ts` (pins the toolbar under the top bar once scrolled past, and measures it), `EditorToolbar.tsx` (the toolbar itself, plus `useDashboardHeader`, which puts the title and Back to Templates in the app's top bar on the dashboard), `EditorBanners.tsx` (the floating warnings, the under-quantity banner and the error message) and `ProcessingOverlay.tsx` (the progress card and the HEIC card). The beforeunload guard and the Escape handler stay in the page: they read state that later split phases move into separate hooks. The main content is in five more: `CanvasGrid.tsx` (the cards — one per side for a multi-surface product, else the grid), `CanvasCard.tsx` (`SurfaceCard` and `CanvasCard`: the preview, the low-res and missing-photo badges, the quick-action rail, drag and tap-to-swap), `EmptyState.tsx` (restore placeholders, then the drop zone), `BookSpreadPreview.tsx` (`BookPageCount` and the spread preview) and `CalendarSection.tsx` (the 12-month preview, the day editor and its photo picker). The handlers the cards call are in `useCardActions.ts`: opening and closing the editor (and the `?canvas=` deep link), the quick actions (rotate, fit/cover, blur — all through `updateCanvasState`, which the editor waits on so it never opens mid-toggle), remove, tap-to-swap and drag-and-drop (`swapCards`, `handleDrop`); drag-to-pan is `usePanGesture.ts`, called from it. Building the cards is `useCanvasGeneration.ts`: `useObjectUrls` (one blob URL per photo File; the page still revokes them on unmount and on a fresh pick), `useRenderCanvas` (the preview renderer, drawing with the current layout through a ref), and `useCanvasGeneration` (`generateCanvases` / `generateCanvasesForLayout` — orientation via `resolveRotation`, smart crop, each photo's previous edits kept by file identity — plus the effects that rebuild on new photos and re-render on the customer's whole-design Fit/Cover or Blur toggle). Getting photos in is `useFileIntake.ts`: `handleFileChange` (Add Photos — it **appends**), `processSelectedFiles` (CMYK, the calendar's 12-page cap, the quantity check, multi-surface dealing, the book overflow offer, the re-pick-over-edits prompt), per-frame Replace, and the decisions for the over-quantity (hard cap: Keep first N, or Choose again, which reopens the picker), incomplete-photo, re-pick and book-overflow prompts, plus filling an order with repeats. The prompt state lives there. `duplicateFills` stays in the page: it reads `intentionalDupesRef`, which the fill-with-repeats handler writes, during render. Save & Continue and Download are `useServerRender.ts`: `executeServerRender` (collect canvases — a blank side is sent blank under its own key, never dropped — upload each photo once, build the render payload, then post `pe:render_job` to `parentOrigin` in the embed or poll and download the ZIP on the dashboard), `executeBatchDownload`, `handleSubmitDesign`, and the submit-side state (progress label, include-uploads, disclaimer tick, the embed's submitted panel). `totalUploadedCount` and `qtyNeeded` are computed before that hook is called, above the page's loading early returns. Saving and restoring the design is `useDesignPersistence.ts`: `useAutosaveAndRestore` (the restore-placeholder state, the one debounced writer `scheduleAutosave` and its three triggers, the run-once restore, the card-count hint, the save timers and their unmount cancellation, and the bookkeeping of which stored photos this tab may delete — `reclaimUnusedFiles`) and `usePhotoStore` (the effect that stores each photo in IndexedDB once and writes its id back). Between them the page keeps the `canvasesRef` mirror, which other hooks read. With that the split is complete: `page.tsx` (~620 lines) holds the page's shared state, the active-side sync effects, the hook calls in their original order, and the markup. The page's setup and loading logic is in three hooks: `useEditorEnvironment.ts` (layout name, embed token, parent origin, order id and its URL sync, ordered quantity, which proxy to call; plus `useLoginRedirect`), `useLayoutLoader.ts` (the `/editor/init` load that seeds the page — it adopts the embed session's order id *before* setting the layout, so the restore runs with it — and the font loading; plus `useActiveSurfaceLayout`) and `useSubmitGuards.ts` (blank-side and low-resolution warnings). Calendar editing is `useCalendarEditor.ts`: the customer's theme, type, palette and per-day entries (`calendarCells`), the day being edited (a month tile opens its 1st; `selectCalendarDate` moves it to any date in `visibleCalendarMonths`, the 12 months the print covers), the day-photo upload and `printedHolidays` (`useCalendarEditor`), plus `useCalendarDefaults`, which applies the layout's theme/type/Gen-Z-palette defaults and fetches the palettes and the holidays the print carries, called where that effect ran. Book pages are `useBookPages.ts`: the page count, the pages held back when it shrinks (`bookHiddenPages` + its ref), the "more photos than pages" prompt state, the page-count change (always through `reconcilePageCount`), and the spread-preview and spine memos. The prompt's decision handler (`handleBookOverflowDecision`) is still in the page, beside the file intake it re-enters. Their state stays in the page; the hooks receive the setters. The duplicate-photo guard (`duplicateFills`) is still in the page: it reads `intentionalDupesRef` during render, which React's compiler lint only tolerates in `page.tsx` because that component suppresses hook rules elsewhere.
-- `src/components/` — React components (FabricEditor.tsx is the canvas core). In the canvas editor's sidebar (`editor/layout/[name]/CanvasEditorSidebar.tsx`) the Icons and Uploads tabs keep their add controls (Add New Icon, Add Photo) under the selected image's settings; until 2026-10-13 selecting an icon or sticker hid them, so a second one could only be added after selecting another layer.
-- `src/components/ServiceWorkerRegistration.tsx` — registers `/sw.js` in production after `window.load`. No-op in dev so cache doesn't mask code changes. Wired into `app/layout.tsx`.
-- `public/sw.js` — minimal cache-first Service Worker for `/_next/static/*` and `/static/*`. `CACHE_VERSION` constant gates cache buckets; bump to bust everything. See `## Service Worker` section.
-- `src/lib/fabric-renderer.ts` — Off-screen canvas renderer for previews and exports; uses pre-computed `frameRects[]` array to avoid repeated coordinate recalculation. `calculateSmartCropOffsets` clamps the returned offset to the frame's actual per-axis pan room — see v1.10 fix.
-- `src/lib/image-utils.ts` — Image metadata extraction; WeakMap caches only `{width, height, orientation}` (not the HTMLImageElement — would OOM at 200 files). `getImageSize()` is the cache-first dims-only accessor for sweeps that must not re-decode.
-- `src/lib/dpi-utils.ts` — Effective print-DPI estimation for the low-res warning (Phase 2). Mirrors the fabric-renderer/engine placement math exactly (rotated bbox → cover/contain baseScale → × zoom); thresholds `DPI_WARN=150` / `DPI_CRITICAL=100`, strict `<` so exactly 150 doesn't warn. Card pills (in `page.tsx`) and the pre-submit notice (`LowDpiWarning` in `EditorNotices.tsx`, shown in both pre-submit dialogs) are non-blocking by design. If the placement math changes in either renderer, update this module too.
-- `src/lib/upload-utils.ts` — Chunked upload utility: `uploadFile()` (single, sequential chunks) and `uploadFiles()` (batched, 4 parallel)
-- `src/lib/zip-utils.ts` — Chunked ZIP generation still used for imposition-sheet downloads. Do not delete it as part of the retired client-side render ZIP cleanup; the old browser render/download path is gone, but imposition still imports `createZipFromDataUrls` / `downloadBlob`.
-- `src/lib/file-store.ts` — IndexedDB-backed File persistence keyed by `(orderId, fileId)`; recovers `originalFile` after page refresh. See "B1 — Canvas state file persistence" below.
-- `src/app/api/embed/proxy/[...path]/route.ts` — Embed proxy; resolves embed token → `{ apiKey, orderId, callbackUrl, includeUploads, qty }`; injects `X-Order-ID`, `X-Callback-URL`, `X-Include-Uploads` and `X-Order-Qty`; caches in-process (110 min TTL, 10k cap). **Anything injected as a header must be in the cached tuple** — a field resolved but not cached is present on a session's first request and silently absent for the remaining 110 minutes.
-- `src/types/` — TypeScript interfaces for layouts, surfaces, frames
+
+- `src/pia-auth.ts` — NextAuth v5 config; Credentials providers (PIA password, Google ID token); `jwt`/`session`/`redirect` callbacks; `CredentialsSignin` subclasses for outage vs. timeout; PIA fetches use `AbortSignal.timeout(10_000)`.
+- `src/proxy.ts` — Next.js 16 proxy file (formerly `middleware.ts`). Server-side auth gate for `/dashboard/*` and `/editor/layouts/*`; bounces logged-in users off `/login`. Excludes `/editor/layout/[name]`, which serves both the dashboard and the embed.
+- `src/app/login/page.tsx` + `src/app/actions/auth.ts` — login form + server action; per-IP rate limit (5/min, in-memory, single-process — swap for Redis if the frontend is ever scaled).
+- `src/types/next-auth.d.ts` — type augmentation for `Session`/`JWT`; never `(session as any)`.
+- `src/app/editor/layout/[name]/` — the editor page and its split. `page.tsx` (~700 lines) holds shared state, the active-side sync effects, the hook calls in their original order, and the markup. **"Add Files" appends, it does not replace** (a native file input is never cumulative). Pieces beside it:
+
+  | File | Owns |
+  |---|---|
+  | `editor-utils.ts` | helpers and constants (`resolveRotation`, `activatesCard`, `isLostLocalImage`, …) |
+  | `useEditorEnvironment.ts` | layout name, embed token, parent origin, order id and its URL sync, ordered qty, `?template=`/`template_flow`, which proxy to call; `useLoginRedirect` |
+  | `useLayoutLoader.ts` | the `/editor/init` load (adopts the embed session's order id *before* setting the layout), fonts, templates; `useActiveSurfaceLayout` |
+  | `useSubmitGuards.ts` | blank-side and low-resolution warnings |
+  | `useCanvasGeneration.ts` | `useObjectUrls`, `useRenderCanvas`, `generateCanvases` (orientation, smart crop, edits kept by file identity, template seeding) |
+  | `useFileIntake.ts` | `handleFileChange` (appends), `processSelectedFiles` (CMYK, calendar 12-page cap, qty check, multi-surface dealing, book overflow, re-pick-over-edits), Replace, the prompt decisions and state |
+  | `useCardActions.ts` | open/close the canvas editor (`?canvas=` deep link), quick actions via `updateCanvasState`, remove, tap-to-swap, drag-and-drop; `usePanGesture.ts` |
+  | `useServerRender.ts` | `executeServerRender` (blank sides sent blank under their key, each photo uploaded once, `pe:render_job` to `parentOrigin` or poll+download), `executeBatchDownload`, `handleSubmitDesign`, submit-side state |
+  | `useDesignPersistence.ts` | `useAutosaveAndRestore` (one debounced writer `scheduleAutosave`, run-once restore, `reclaimUnusedFiles`), `usePhotoStore` (IndexedDB) |
+  | `useCalendarEditor.ts` | theme/type/palette/per-day entries, `selectCalendarDate`, day-photo upload, `printedHolidays`; `useCalendarDefaults` |
+  | `useBookPages.ts` | page count via `reconcilePageCount`, pages held back on shrink, overflow prompt state, spread/spine memos |
+  | `useImposition.ts` + `ImpositionModal.tsx` | print-sheet settings, Fabric sheet preview, full-res export |
+  | `useStickyToolbar.ts`, `EditorToolbar.tsx` (+`useDashboardHeader`), `EditorBanners.tsx`, `ProcessingOverlay.tsx`, `EditorNotices.tsx`, `EmbedSubmittedOverlay.tsx` | page chrome |
+  | `CanvasGrid.tsx`, `CanvasCard.tsx`, `EmptyState.tsx`, `BookSpreadPreview.tsx`, `CalendarSection.tsx`, `dialogs/` (eight dialogs) | main content |
+  | `FabricEditor.tsx`, `CanvasEditorModal.tsx`, `CanvasEditorSidebar.tsx`, `AlignmentToolbar.tsx`, `IconBrowser.tsx` | the canvas editor modal |
+  | `fabric-renderer.ts`, `frame-fill.ts` | the thumbnail renderer and the client-shared frame fill |
+  | `canvas-merge.ts`, `layout-template.ts`, `template-authoring.ts`, `imposition.ts`, `pinch-utils.ts` | pure logic |
+
+  Two things stay in `page.tsx` on purpose: `duplicateFills` (reads `intentionalDupesRef` during render, tolerated only there by the compiler lint) and the document-level Escape handler plus beforeunload guard (they read state several hooks own).
+- `src/components/` — shared React components; `ui/Dropdown.tsx` and `ui/NumberField.tsx` are the on-brand controls; `CalendarLayoutEditor.tsx` and `BookLayoutEditor.tsx` are the ops authoring UIs (same-named `draftToLayoutJson`/`validateDraft` in each are different schemas, not a duplicate).
+- `src/components/ServiceWorkerRegistration.tsx` + `public/sw.js` — production-only cache-first SW for `/_next/static/*` and `/static/*`; bump `CACHE_VERSION` to bust.
+- `src/lib/` — pure modules: `fabric-renderer`-adjacent maths (`dpi-utils.ts`, `caption-layout.ts`, `calendar.ts`, `book-layout.ts` — each with a Python twin and parity tests), `upload-utils.ts`, `zip-utils.ts` (still used by imposition; don't delete), `file-store.ts` (IndexedDB, falls back to memory under Safari ITP), `file-identity.ts` (`fileExtension`, `fileFingerprint` — the one place a File's identity string is defined), `heic-convert.ts`, `pdf-import.ts`, `ml-orientation.ts`, `submit-guards.ts`, `roles.ts`, `ops-guard.ts`, `read-error.ts`, `units.ts`, `layout-utils.ts` (`getCanvasSpec`, `getFrames`), `icon-raster.ts`, `overlay-fonts.ts`, `overlay-text.ts`, `overlay-geometry.ts`, `shape-catalog.ts`.
+- `src/app/api/embed/proxy/[...path]/route.ts` — embed proxy; resolves token → `{ apiKey, orderId, callbackUrl, includeUploads, qty }`, injects `X-Order-ID`, `X-Callback-URL`, `X-Include-Uploads`, `X-Order-Qty`, caches in-process (110 min, 10k cap). **Anything injected as a header must be in the cached tuple.** Streams upstream bodies.
+- `src/app/api/internal/proxy/[...path]/route.ts` — dashboard proxy; NextAuth session → `INTERNAL_API_KEY`; the ops-tier gate lives here (see Role model). Streams upstream bodies.
+- `src/app/dev/calendar-preview/` — developer page, `notFound()` in production builds.
 
 ### Backend Structure
-- `api/views/` — the API views, a package split by area in October 2026 ([docs/LARGE_FILE_SPLIT_PLAN.md](docs/LARGE_FILE_SPLIT_PLAN.md)); it was one 4,500-line `views.py`. `__init__.py` only re-exports, so `from api.views import X` (urls.py, tests, management commands) keeps working: `render.py` (`GenerateLayoutView`, `EditorRenderView` — chunked-upload render submission — `RenderStatusView`), `downloads.py` (`RenderJobDownloadView`, `SecureExportDownloadView`), `embed.py` (`EmbedSessionView`, `EmbedSessionValidateView`, `EditorInitView`, `CanvasStateView`), `uploads.py` (`ChunkedUploadInitView/ChunkView/CompleteView`), `layouts.py` (public layout reads: `ListLayoutsView`, `GetLayoutView`, `ExternalLayoutDetailView`, `MaskDownloadView`, `_read_layout_def`), `layout_admin.py` (`LayoutManagementView`, `invalidate_layout_caches`), `calendar_assets.py` (`FontsView`, `CalendarStylesView`, `HolidaysView` and their storage helpers and cache keys), `system.py` (`HealthView` — `GET /api/health`, public, used by Docker healthchecks — plus `ConfigView`, `CSPReportView`), `ops.py` (`CeleryMonitoringView`, `OrderDataPurgeView`), `media.py` (`OrientationDetectView`, `HeicConvertView`). **A test that patches a name must patch the module the view lives in** (`api.views.calendar_assets._write_holidays`, not `api.views._write_holidays`): the package re-export is a second reference, so patching it changes nothing the view sees. **Pillow's 500 MP decompression-bomb ceiling is set at startup**, in `api/apps.py` `ready()` from `services/image_loader.MAX_IMAGE_PIXELS`, so the web process and the workers both get it; the render engine applies the same constant on import. Until 2026-10-07 the web process got it only because `__init__.py` imported `layout_engine.engine` for that side effect, so any process that set up Django without loading the views refused uploads above Pillow's default (~179 MP) — pinned by `services/tests/test_image_pixel_cap.py`. `is_safe_layout_name`, the layout-name path guard five views share, lives in `api/views/_common.py` (it used to be three identical methods).
-- `api/tasks.py` — `render_canvas_task` (calls `_extract_frame_transforms` + `_extract_overlays_per_canvas` + `_build_uploaded_files_map` → `LayoutEngine`), `notify_caller_webhook_task` (only dispatched when `canvas.callback_url` is set; signs payload with HMAC-SHA256 of api_key), `garbage_collector_task` (has `soft_time_limit=3300` / `time_limit=3600`)
-- `api/models.py` — `APIKey`, `EmbedSession` (+ `order_id` + `callback_url` + `qty` fields), `CanvasData` (+ `editor_state` JSON, + `callback_url` propagated from EmbedSession), `RenderJob`, `UploadedFile` (+ `upload_session_id`), `ExportedResult`
-- `api/validators.py` — `MAX_FILE_SIZE_MB` reads from `settings.MAX_UPLOAD_FILE_SIZE_MB` (single source via env)
-- `layout_engine/engine.py` — Pillow-based high-res PNG/PDF renderer at 300 DPI; `_smart_downscale()` pre-shrinks source images to 2× frame target (BOX resample); 90/180/270° rotation fast-path via `Image.transpose`; per-frame pan/zoom/rotation from `frame_transforms`; explicit `Image.close()` + `gc.collect()` between canvases. CMYK/soft-proof pipeline removed in v1.8. **As of CALENDAR_FEATURE_PRD Phase 1**: `_composite_canvas` now also accepts `overlays` + `uploaded_files` and invokes `services.overlay_renderer.render_overlays` after frame compositing and before the layout mask, so text/shape/image overlays appear in the 300 DPI output (previously preview-only).
-- `services/overlay_renderer.py` — `render_overlays(canvas, overlays, canvas_w_px, canvas_h_px, uploaded_files)` draws text / shape / image overlays via Pillow `ImageDraw`. A text overlay prints in its `fontFamily` at its `fontWeight` (default 400 — the editor never sets one) through `services/google_fonts.py`; no family, a CSS generic (`sans-serif`, …), `Inter`, or a name not on the fonts list prints in the bundled Inter — the default on both sides, since the editor draws a missing or generic family as Inter too (`lib/overlay-fonts.ts`). PRD §11.7's "one font, no picker" was reversed 2026-10-13: until then `fontFamily` was ignored, so a script font previewed as script and printed as Inter. **`FontUnavailable` is the one exception it never swallows**, and the engine re-raises it past its own overlay catch-all, so the render task retries and then fails the job rather than printing a listed font in another one. **Text is laid out as the Fabric `Textbox` in both previews lays it out (2026-10-13):** `fontSize` is print px and is used unscaled (the editor canvas is the layout's print size — until then the print multiplied it by `canvas height ÷ 800`, 2.25× on an 1800 px layout), words wrap greedily and are never broken inside a box of `width` % of the canvas (80 when absent, `lib/overlay-text.ts` on the clients — a word wider than the box widens it, as Fabric does), lines are `fontSize × 1.13 × 1.16` apart with the block centred on `y`, and an absent `textAlign` is centre. Shapes come from `services/shape_catalog.py`, the Python twin of `lib/shape-catalog.ts` (parity fixture `storage/parity-fixtures/shape-catalog.json`): the catalogue geometry, Fabric's placement (`x/y` is the corner of the box *including* the stroke, the stroke centred on the edge, a Path placed by its own bounds and its stroke scaled with it), `strokeWidth` in print px; a path the flattener can't draw (arcs) is skipped with a warning, never printed as a rectangle. Pinned by `services/tests/test_overlay_text_layout.py`, `test_overlay_shape_geometry.py` and `test_shape_catalog_parity.py`. Phase 1 deliverable; foundation for Phase 4 (calendar renderer).
-- `services/google_fonts.py` — `get_overlay_font(family, size_px, weight)`, plus the fonts list itself. **Google Fonts only:** `active_fonts()` drops CSS generics and returns `['Inter']` when ops chose nothing; the ops picker no longer offers "System" fonts and the editor drops generics from its list (`pickerFonts`). **Ops never delete a font, they switch it off:** `save_fonts` (behind `PUT /api/fonts`) moves a font left out of the list onto a second list, `fonts/retired` (S3 `ops-config/fonts/retired.json`, locally `storage/fonts_retired.json`, archived by `backup.sh`), and re-adding takes it off again. The print allows active ∪ retired, so a design never loses a font it was made with; a name on neither list was pasted or tampered in and prints in Inter with a warning, never a failed job. Font files: memory → durable cache in storage (`read_font_file` / `write_font_file`: S3 `<prefix>/font-cache/<slug>/<weight>.ttf` on prod, `storage/font_cache/` locally, gitignored) → Google, only from `fonts.googleapis.com/css2` (truetype for a non-browser UA) and a TTF on `fonts.gstatic.com`; redirects refused, timeouts, size caps, family names regex-checked before any request. A weight the family lacks (Google 400s on `Lobster:wght@700`) falls back to the family's default face. For a *listed* font, every failure — Google unreachable, S3 cache read failing, fonts list unreadable, not a font file — is `FontUnavailable`; a failed cache *write* only logs. Weight on a variable font goes through `fonts.set_weight` (by tag). **Refreshed on every deploy:** `deploy.sh` runs `manage.py refresh_fonts` after migrations and before the container swap; it re-fetches each cached file, overwrites it only if Google's changed, keeps the old copy on any failure, and only ever warns. Pinned by `services/tests/test_google_fonts.py` (offline: fake Google serving `services/tests/fixtures/Parisienne-Regular.ttf`, OFL) and `src/lib/__tests__/overlay-fonts.test.ts`.
-- `services/image_loader.py` — **the single choke point for opening customer photos server-side** (`open_source_rgba(path)`): EXIF orientation + ICC→sRGB colour management (Display-P3 iPhone photos, AdobeRGB, CMYK-tagged JPEGs) via lcms2, fail-open on malformed profiles. All three render paths (frames in `engine.py`, image overlays, calendar cell images) load through it; output PNGs are tagged with an explicit sRGB profile (`srgb_profile_bytes()`). Never call `Image.open(...).convert("RGBA")` directly on customer photos — it silently discards the embedded profile and shifts colours in print.
-- `services/template_decoration.py` — the layout-template rules, pure: `validate_decoration` (no customer files, percent coordinates), `editor_url`, `png_filename`. `api/views/templates.py` holds the views. See "Layout templates".
-- `services/order_qty.py` — the server half of the `qty` rule (`parse_order_qty`, `is_qty_enforceable`, `count_placed_photos`, `qty_violation`). Pure functions, no Django, no DB. Python twin of `checkOrderQty`; see "Order quantity" for why it is deliberately narrower than the browser's version and why it fails open.
-- `services/fonts.py` — `get_font(size_px, weight)` returns a cached `PIL.ImageFont` for the bundled `services/fonts_assets/Inter-Variable.ttf`. Uses the variable axis to serve any weight from a single 859 KB .ttf. **Axes are set by tag, never by position** — Inter's fvar order is `[opsz, wght]`, and until 2026-09-29 `set_variation_by_axes([weight])` wrote the weight into `opsz`, so every server-rendered weight printed as 400 (at the Display optical size). `opsz` is held at its default (14) to match the Google Fonts Inter in the preview. The fvar parsing (`axis_records(bytes)`) and `set_weight(font, records, weight)` are public so `google_fonts.py` applies the same rule to downloaded fonts. Pinned by `services/tests/test_fonts.py`. Falls back to PIL default on missing-font (logged once). Boot-time `startup_check()` warns if the font is absent.
-- `services/fonts_assets/Inter-Variable.ttf` — Inter Variable (Apache 2.0 / SIL OFL 1.1) bundled in the image. Install convention: [docs/BUNDLED_FONTS.md](docs/BUNDLED_FONTS.md).
-- `product_editor/celery.py` — Queue routing (all three tasks → `standard`; the `priority` queue has no producer — see Async Queue below), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`
-- `product_editor/settings.py` — `csp.middleware.CSPMiddleware` is wired in after `SecurityMiddleware`; CSP starts in report-only mode via `CSP_REPORT_ONLY`
-- **Backend Dockerfile** is multi-stage — builder installs `build-essential` + `libpq-dev` to compile wheels; runner ships only `libpq5` + the venv. Drops ~250 MB from the final image. The `collectstatic` `RUN` supplies an **inline build-only `DJANGO_SECRET_KEY`** (build-time only, not baked into the image ENV) so the settings.py fail-fast guard doesn't abort the build — see `## Deployment` for the full rationale.
+
+- `api/views/` — a package split by area; `__init__.py` re-exports so `from api.views import X` works. `render.py` (`GenerateLayoutView`, `EditorRenderView`, `RenderStatusView`), `downloads.py`, `embed.py` (`EmbedSessionView`, `EmbedSessionValidateView`, `EditorInitView`, `CanvasStateView`), `uploads.py`, `layouts.py`, `layout_admin.py` (`LayoutManagementView`, `invalidate_layout_caches`, `_store_uploaded_masks`), `templates.py`, `calendar_assets.py`, `system.py` (`HealthView`, `ConfigView`, `CSPReportView`), `ops.py`, `media.py`, `_common.py` (`is_safe_layout_name`). **A test that patches a name must patch the module the view lives in**, not the package re-export. **Pillow's 500 MP pixel ceiling is set at startup** in `api/apps.py` from `services/image_loader.MAX_IMAGE_PIXELS`, pinned by `services/tests/test_image_pixel_cap.py`.
+- `api/render_submission.py` — `RenderSubmissionService`, the one place a render is accepted (CanvasData upsert, RenderJob, queue, dispatch).
+- `api/tasks.py` — `render_canvas_task`, `notify_caller_webhook_task` (only when `callback_url` set; HMAC-SHA256 of api_key), `notify_caller_render_failed_task`, `garbage_collector_task` (`soft_time_limit=3300` / `time_limit=3600`).
+- `api/models.py` — `APIKey`, `EmbedSession`, `CanvasData`, `RenderJob`, `UploadedFile`, `ExportedResult`, `APIRequest`, `LayoutCatalogue`, `LayoutTemplate`.
+- `api/authentication.py` — `BearerTokenAuthentication` (API keys; enforces the daily cap), `PIAAuthentication`.
+- `api/middleware.py` — `APIRequestLoggingMiddleware` (audit rows + the quota counter), `RateLimitMiddleware`; `_get_client_ip` is shared so both trust the same hop.
+- `api/validators.py` — `MAX_FILE_SIZE_MB` from `settings.MAX_UPLOAD_FILE_SIZE_MB`; `validate_calendar_layout`, `validate_book_layout`.
+- `api/purge.py` — `purge_order_data` (DPDP erasure); `services/purge_ledger.py` records each purge so a restore can re-apply it.
+- `layout_engine/engine.py` — Pillow renderer at 300 DPI; `_smart_downscale` to 2× frame target; transpose fast-path for 90/180/270; per-frame pan/zoom/rotation; explicit `Image.close()` + `gc.collect()` between canvases; `_composite_canvas` calls `services.overlay_renderer.render_overlays` after frames and before the mask; `_load_mask` reads local disk then `get_storage().read_mask()` and never prints without the mask.
+- `services/` — pure modules: `overlay_renderer.py`, `shape_catalog.py` (Python twin of `lib/shape-catalog.ts`), `google_fonts.py` + `fonts.py` (variable-font axes set **by tag**, never by position), `image_loader.py` (**the single choke point for opening customer photos** — never `Image.open(...).convert("RGBA")` directly, it drops the ICC profile), `heic.py`, `calendar_layout.py`, `calendar_renderer.py`, `calendar_holidays.py`, `holiday_refresh.py`, `book_layout.py`, `template_decoration.py`, `order_qty.py`, `request_quota.py`, `storage.py` (`LocalStorage`, `S3Storage`, `get_storage`), `asset_store.py`, `fs_utils.py` (`is_uuid`, `dir_size_bytes` — shared by the GC sweeps), `orphan_exports.py`, `chunk_staging.py`, `gc_status.py`, `jobs_per_day.py`, `url_safety.py`, `ops_config_backup.py`.
+- `product_editor/celery.py` — queue routing (all tasks → `standard`), `worker_max_tasks_per_child = 50`, `worker_prefetch_multiplier = 1`, `task_acks_late`, and `close_old_connections` on **both** `task_prerun` and `task_postrun`.
+- `product_editor/settings.py` — `CONN_HEALTH_CHECKS: True`; django-csp after `SecurityMiddleware`, report-only via `CSP_REPORT_ONLY`; Redis split: `REDIS_URL` db 0 is the durable broker, `REDIS_CACHE_URL` (`redis-cache`, allkeys-lru) is the Django cache.
+- **Backend Dockerfile** is multi-stage; `collectstatic` runs at build time with an inline build-only `DJANGO_SECRET_KEY`. Verify Dockerfile/settings-import changes with a **clean** build.
 
 ### API reference (Scalar) — `GET /docs/api/`
 
-The public API reference is [Scalar](https://scalar.com) rendering the OpenAPI
-document that drf-spectacular generates from the `@extend_schema` decorators in
-the `api/views/` package. Schema JSON is at `/api/schema/`; the page itself is
-`api/templates/scalar.html`, served outside `/api/` because it is a docs page.
+Scalar renders the OpenAPI document drf-spectacular generates from `@extend_schema` decorators. Schema at `/api/schema/`; page template `api/templates/scalar.html`.
 
-**The schema is generated, so it can only be as good as the decorators.** Two
-things make that easy to get wrong, and both were wrong until 2026-09-03:
+- **A view with no `@extend_schema` is dropped from the document**, not merely undocumented. Body-carrying methods need explicit `request=`, every operation explicit `responses=`.
+- Auth schemes come from `OpenApiAuthenticationExtension` subclasses in `api/schema.py`, registered from `ApiConfig.ready()`. (`SECURITY_DEFINITIONS` is a drf-yasg name and is ignored.) `api/schema.py` also holds `ProductEditorAutoSchema`, which names a detail route after its trailing parameter so dual-mounted views get stable operationIds.
+- `FontsView`, `CalendarStylesView`, `HolidaysView` declare `AllowAny` and gate writes in the handler; their operations carry explicit `auth=` (`auth=[]` on reads, `OPS_WRITE_AUTH` on writes). **If you add a method to one of these, set `auth=` explicitly.**
 
-- **A view with no `@extend_schema` is not merely undocumented — it is
-  *dropped*.** drf-spectacular emits `unable to guess serializer … Ignoring view
-  for now` and the operation appears with no request or response body at all.
-  15 handlers were in that state. A decorator also needs an explicit `request=`
-  on any body-carrying method and an explicit `responses=`; without them the
-  same error fires even though the decorator is present.
-- **`SECURITY_DEFINITIONS` is a drf-yasg setting name.** It sat in
-  `SPECTACULAR_SETTINGS` being silently ignored, so every operation referenced a
-  `BearerAuth` scheme that `components.securitySchemes` never defined — an
-  invalid document, and an empty Authorize dropdown in Scalar. Auth schemes come
-  from `OpenApiAuthenticationExtension` subclasses instead; ours are in
-  **`api/schema.py`**, registered from `ApiConfig.ready()` because an extension
-  only takes effect when its module is imported.
-
-`api/schema.py` also holds **`ProductEditorAutoSchema`** (wired via
-`DEFAULT_SCHEMA_CLASS`). drf-spectacular strips every path variable when
-building an operationId, so a view mounted at both a collection and a detail
-route produces one id twice and the duplicate gets a `_2` suffix assigned by
-traversal order. The subclass names the detail variant after its trailing
-parameter — `ops_layouts_by_name_retrieve` — which is stable and self-describing.
-
-**Three views declare `permission_classes = [AllowAny]` and then gate writes on
-the ops team inside the handler** (`FontsView`, `CalendarStylesView`,
-`HolidaysView`). drf-spectacular reads `permission_classes`, so it advertised
-those destructive methods as needing no credentials. They now carry an explicit
-per-operation `auth=` — `auth=[]` on the public reads, `OPS_WRITE_AUTH` on the
-writes. **If you add a method to one of these views, set `auth=` explicitly** or
-it will inherit the same lie.
-
-Verify after touching any decorator — this is fast and catches all of the above:
-
+Verify after touching any decorator (must exit 0 silently; not in CI; rebuild first or you validate the last build):
 ```bash
 docker-compose run --rm --entrypoint /opt/venv/bin/python backend \
   manage.py spectacular --validate --fail-on-warn --file /dev/null
 ```
 
-It must exit 0 silently. Anything printed is a real defect in the reference.
-Not covered by CI, and the backend image bakes source in via `COPY`, so
-`docker-compose build backend` first or you are validating the last build.
-
 ### Async Queue
 
-**One** Celery worker service: `celery-worker-standard`, consuming `-Q priority,standard`.
+**One** Celery worker service, `celery-worker-standard`, consuming `-Q priority,standard`. Nothing routes to `priority`; the worker drains it anyway so a task someone sends there cannot sit in Redis forever. It is a safety net, **not** a QoS tier — Celery round-robins across `-Q` queues. Express orders that need to jump the line need a second worker *and* a dispatch site.
 
-There were two until Aug 2026 — a second worker bound to `priority` alone, for the soft-proof/CMYK express path. That pipeline was retired in v1.8 and nothing routed to `priority` afterwards: all three `task_routes` entries in `product_editor/celery.py` point at `standard`, and both dispatch sites (`GenerateLayoutView` and `EditorRenderView`) hardcode `queue_name = 'standard'`. The container had never executed a task, while holding a full Django + Pillow + MediaPipe process resident. It was removed rather than left looking like capacity it never provided.
+Concurrency auto-detects from CPU count per replica (2 slots on the 2-core prod box); cap with `CELERY_CONCURRENCY`. Memory cap 2 GB per replica. Scale: `docker compose up -d --scale celery-worker-standard=4`.
 
-**The surviving worker deliberately drains both queues.** `celery.py` still documents `apply_async(queue='priority')` as an opt-in, and with no consumer on that queue such a task would sit in Redis forever — the render would silently never happen, with no error anywhere. Listening to both closes that trap at zero cost. It is a safety net, **not** a QoS tier: Celery round-robins across `-Q` queues, so naming `priority` first buys no actual precedence. If express orders ever need to genuinely jump the line, that requires a second worker *plus* a dispatch site that routes to it — don't assume the current config provides it.
+Retry: `self.retry()` with exponential backoff (2s → 4s → 8s), max 3; `MemoryError` and `SoftTimeLimitExceeded` skip retries. **Never `autoretry_for`.** `render_canvas_task` has a poison-pill guard (counts only genuine broker redeliveries via `delivery_info.redelivered`, aborts after 3) and a 500 MB disk pre-flight. Always `transaction.on_commit(lambda: task.apply_async(...))` **inside** the `atomic()` block.
 
-Concurrency is **auto-detected from CPU count** per replica (no `CELERY_CONCURRENCY` set in compose), so the worker scales with whatever the host has — 2 render slots on the current 2-core prod box. Override via `.env` if you need to cap it on a shared server. Memory cap is 2 GB per replica.
+### Garbage collection
 
-The service name still says `standard`, which is now a slight misnomer. It was kept to avoid renaming the container on prod and touching `deploy.sh` / `restore.sh` / dashboards for cosmetics.
+`garbage_collector_task` runs **every 6 hours** (00/06/12/18 UTC): exports expire in a 03:00–12:00 UTC wave, so a nightly sweep lagged a day. If retention or the customer timezone changes, re-plot expiries by hour before trusting the schedule.
 
-Scale horizontally under load: `docker compose up -d --scale celery-worker-standard=4`.
-
-Worker config (in `product_editor/celery.py`):
-- `worker_prefetch_multiplier = 1` — fetch one task at a time per slot
-- `worker_max_tasks_per_child = 50` — recycle workers periodically; relies on `engine.py` calling `Image.close()` + `gc.collect()` after each canvas to avoid drift
-- `task_acks_late = True` + `task_reject_on_worker_lost = True` — requeue if a worker dies
-
-Retry strategy: `self.retry()` with exponential backoff (2s → 4s → 8s), max 3 retries. `MemoryError` and `SoftTimeLimitExceeded` skip retries. Never use `autoretry_for` — this codebase uses `self.retry()` exclusively.
-
-`garbage_collector_task` runs every 6 hours (00:00 / 06:00 / 12:00 / 18:00 UTC — see "Why the GC runs every 6 hours, not nightly" below) and has `soft_time_limit=3300` / `time_limit=3600` so a hung GC sweep can never permanently block a worker slot.
-
-**Check whether the GC is actually running via `garbage_collector.stale` on `GET /api/celery/monitor/`** (ops-only). Do NOT try to infer it from the database: the sweep flags rows `is_deleted=True` and then hard-deletes those same tombstones later in the *same* pass, so `ExportedResult.objects.filter(is_deleted=True).count()` reads **0** whether the GC ran an hour ago or has never run at all. It looks like a "did it run?" signal and is not one — that misreading cost real debugging time on 2026-08-13.
-
-`services/gc_status.py` records each completed sweep (timestamp + counters) to `storage/gc_last_run.json`, atomically, and `CeleryMonitoringView` reads it back. A file under `STORAGE_ROOT` rather than a DB row because `./storage` is bind-mounted and therefore survives container recreation — the exact thing that lost the log evidence during that incident — and because it needs no migration. It is runtime state, not config: gitignored, unlike the other JSON files in that directory.
-
-**Alert on `stale` OR `failing`** — they answer different questions. `stale` means no *successful* sweep recently (never recorded, unreadable record, or older than `GC_STALE_AFTER_HOURS`, default 36). `failing` means the most recent *attempt* raised, with `last_error` saying how; a sweep can be failing while not yet stale.
-
-That second field exists because its absence is genuinely expensive. The first version recorded only successes, on the reasoning that a crash would surface as staleness. It does — but staleness cannot say *why*, and it reads identically to "never scheduled". On 2026-08-14 that ambiguity let a wrong diagnosis run for two days: with no failure record, "the sweep broke" and "the sweep was never dispatched" look the same from outside. **The answer was in the worker log the whole time** — so read `docker-compose logs --since 24h celery-worker-standard` for the window *before* theorising. Those logs live only in Docker's json-file log and do **not** survive container recreation (see "Observability" below), so capture them first. `api/tasks.py` now hooks `task_failure` for the sweep, which leaves retry semantics untouched. Deliberately absent from `GET /api/health`: that endpoint is public and drives the Docker healthcheck, so failing it on a stale GC would restart containers over a non-fatal condition.
-
-The same endpoint carries a **live `disk` block** (`used_percent`, `free_gb`, `pressure` at >80%), read at request time rather than lifted from the last sweep's stats. That distinction is the point: `garbage_collector.stats.disk_usage_percent` is only as fresh as the last sweep, so at the moment it matters most — nothing sweeping — it is absent or stale. Production hit 89% unnoticed twice for that reason.
-
-### Why the GC runs every 6 hours, not nightly
-
-`garbage_collector_task` runs at **00:00 / 06:00 / 12:00 / 18:00 UTC**. It used to run once daily at 02:00, which was very nearly the worst possible hour.
-
-Retention is 3 days and Printo's orders arrive in Indian business hours, so exports expire at roughly the clock time they were created — a wave spanning **03:00–12:00 UTC** and essentially nothing outside it. A 02:00 sweep sat in the trough immediately *before* that wave: of 7,647 rows pending on 2026-08-14 it collected the 151 expiring at 01:00–02:00 (**2%**), and the other 98% waited up to 23 hours for the next run.
-
-Effective retention was therefore ~4 days rather than 3, carrying a permanent extra day of exports and uploads. Disk sawtoothed 82% → 93% overnight **while the sweep itself was perfectly healthy** — it ran and succeeded in 0.19s every night. Diagnosing that as a broken GC produced two wrong root causes (a non-firing beat, then a stale DB connection) before anyone plotted expiries by hour. If disk grows again, plot that histogram before suspecting the sweep:
-
-```bash
-docker compose exec backend /opt/venv/bin/python manage.py shell -c "
-from api.models import ExportedResult
-from django.db.models import Count
-from django.db.models.functions import ExtractHour
-for r in (ExportedResult.objects.filter(is_deleted=False).annotate(h=ExtractHour('expires_at'))
-          .values('h').annotate(n=Count('id')).order_by('h')):
-    print('%02d:00 UTC %6d' % (r['h'], r['n']))
-"
-```
-
-Four sweeps a day caps the lag at ~6h. A no-op sweep costs 0.19s and a full one 2.3s, both far inside `soft_time_limit=3300`. **If retention or the customer timezone changes, re-plot before assuming the schedule still fits.**
+- **Check whether it is running via `garbage_collector.stale` / `.failing` on `GET /api/celery/monitor/`** (ops-only), recorded by `services/gc_status.py` to `storage/gc_last_run.json`. Do NOT infer it from `ExportedResult.is_deleted` — the sweep tombstones and hard-deletes in the same pass, so that count reads 0 either way. Alert on `stale` OR `failing`; they answer different questions. Read `docker-compose logs --since 24h celery-worker-standard` before theorising; those logs die on container recreation.
+- The same endpoint carries a live `disk` block (`used_percent`, `free_gb`, `pressure` at >80%), read at request time.
+- **Orphaned export directories** (`services/orphan_exports.py`): the one sweep that deletes on the *absence* of a DB row. `GC_ORPHAN_SWEEP` = `off` | `dry_run` | `delete` (prod runs `delete`). Five conditions must all hold (`_classify`): UUID name, no `RenderJob`, no `ExportedResult` path, no `CanvasData.order_id`, mtime older than retention + 1 day. **Any new export-directory naming convention must be added there.** A DB failure keeps everything.
+- **Abandoned chunk staging** (`services/chunk_staging.py`): reclaims `UPLOADS_DIR/.chunks/<uuid>/` untouched for `CHUNK_STAGING_MAX_AGE_HOURS` (24), judged by the newest mtime of the directory *and its contents*. Deletes by default — part files are unusable without `/complete`.
+- Expired `EmbedSession` rows older than 30 days and `APIRequest` rows older than `API_AUDIT_RETENTION_DAYS` are swept here too. **Before adding a sweep, grep the whole of `garbage_collector_task`** — an existing one may report under an unexpected counter name.
 
 ### Celery and stale database connections
 
-`CONN_MAX_AGE` does nothing in a worker on its own. Django enforces it from its `request_started`/`request_finished` signals, and Celery has no requests — so a connection opened by a worker's first task stays checked out for the life of that process, however long it idles, until Postgres or Docker drops the socket. The next query then raises `InterfaceError: connection already closed`.
+`CONN_MAX_AGE` does nothing in a worker on its own (no request signals). Two halves, both required: `close_old_connections` on `task_prerun` **and** `task_postrun` in `celery.py`, and `CONN_HEALTH_CHECKS: True` in settings. Pinned by `services/tests/test_gc_status.py`.
 
-**This has not been observed biting in production** — treat the hooks below as hardening, not a fix for a known incident. The 2026-08-14 nightly sweep ran and succeeded in 0.19s; a plausible-sounding story about it dying on a stale connection turned out to be wrong when the worker logs were finally read. `worker_max_tasks_per_child = 50` recycles the process periodically, which is probably why the risk has stayed latent.
+## Layout Loading
 
-The risk is nonetheless real and was unguarded, verified both directions: kill `connection.connection`, and the next query raises `InterfaceError: connection already closed` without the hook and succeeds with it.
+**Layouts load from the Postgres `LayoutCatalogue`, not disk.** Every path — dashboard, embed init, embed submit, direct API sync and async — queries `LayoutCatalogue` and passes the definition in:
 
-Two halves, both required:
-- `product_editor/celery.py` connects `close_old_connections` to **`task_prerun` and `task_postrun`**. Postrun matters as much as prerun: it stops an idle worker sitting on a connection waiting to go stale.
-- `settings.py` sets **`CONN_HEALTH_CHECKS: True`** so Django validates a pooled connection before reuse rather than discovering it is dead via the query.
-
-Don't remove either when touching Celery config. The pinning test is `services/tests/test_gc_status.py`, plus a manual check that survives review: kill `connection.connection` and confirm the next query still works.
-
-### Orphaned export directories
-
-Every sweep in `garbage_collector_task` except one starts from a DB row and follows it to a file, so none of them can reclaim a file whose row is gone. `services/orphan_exports.py` is the exception: it enumerates `EXPORTS_DIR` and removes directories nothing in the database accounts for.
-
-They formed because the async-render cleanup used to filter on `status='completed'`. A job killed mid-render (worker OOM, SIGKILL, container recreate) never reached that state, so its output files were skipped; later its `CanvasData` expired, the cascade removed the `RenderJob`, and the only pointer to those files went with it. 62 directories (54 MB) had stranded that way by 2026-08-13. **That filter is now gone** — the sweep matches on the *canvas* having expired plus a `created_at` guard of one day, which is safe because a render has a 55-minute soft limit while the canvas window is a full retention period.
-
-`GC_ORPHAN_SWEEP` controls the reclamation: `off` | `dry_run` (default) | `delete`. It defaults to reporting only, because unlike every other sweep this one deletes on the *absence* of evidence — a subtly wrong query would destroy live print files rather than merely miss some. Read a night of dry-run counts from `garbage_collector.stats.orphan_exports` before arming it.
-
-Five independent conditions must all hold before a directory is touched (`_classify`): the name parses as a UUID, no `RenderJob` has that id, no `ExportedResult` path references it, no `CanvasData.order_id` matches it (a partner order id can legitimately be UUID-shaped), and its mtime is older than retention + 1 day. **Any new export-directory naming convention must be added there**, or those directories will look like orphans. A DB failure keeps everything rather than treating an empty result set as "all orphans".
-
-### Abandoned chunk-upload staging
-
-`POST /upload/init` creates `UPLOADS_DIR/.chunks/<upload_id>/` and each chunk `PUT` drops a `<n>.part` file in it. `assemble_chunks` removes the directory once `/complete` succeeds, so a **normal upload cleans up after itself**. An upload that never completes — tab closed mid-upload, connection lost, embed token expired — does not: every other sweep starts from a DB row, and a half-finished upload has no `UploadedFile` row to start from. Production held **93 such directories** (384 KB) when this was found on 2026-08-25.
-
-`services/chunk_staging.py::sweep_stale_chunk_staging` reclaims them, and **deletes by default** — deliberately unlike `orphan_exports`. That module infers garbage from the *absence* of a DB row, so a wrong query would destroy live print files; a stale staging dir needs no inference, because `.part` fragments are unusable without the `/complete` call that would have consumed them. Three conditions must still hold: the entry is a directory directly under `.chunks/`, its name parses as a UUID (the same guard the chunk endpoints apply to request-derived paths), and nothing inside has changed for `CHUNK_STAGING_MAX_AGE_HOURS` (default 24).
-
-That last check takes the **newest** mtime of the directory *and its contents*, which is what makes it safe beside live traffic — a slow client still uploading is never a candidate. Counters land under `garbage_collector.stats.chunk_staging` on `GET /api/celery/monitor/`. Pinned by `services/tests/test_chunk_staging.py`.
-
-**This module briefly duplicated an existing sweep.** `tasks.py` had carried an inline "Stale chunked-upload staging cleanup" block since 2026-04-08, cleaning the same directories on the same 24h threshold — just without the UUID-name guard or the newest-mtime-of-*contents* check above (it used the directory's own mtime, which a same-index chunk re-PUT can leave stale without adding a new entry). It wasn't found while writing this module because it was buried mid-function in `garbage_collector_task` and surfaced under an unrelated-looking counter name (`stale_chunk_sessions_cleaned`, not `chunk_staging`). Because it ran earlier in the same task, it always emptied `.chunks/` first — so `chunk_staging.scanned` read `0` in production for the first day (2026-08-25) this module was live, even though the sweep was working. Removed 2026-08-26 in favor of this module. **If you're hunting for prior art before adding a new sweep, grep the whole of `garbage_collector_task`, not just for the feature name** — the counter it reports under may not match what you'd search for.
-
-
-Always call `transaction.on_commit(lambda: task.apply_async(...))` **inside** the `atomic()` block so the callback fires only after the DB commit. Calling it outside an open transaction executes immediately (which works but is non-standard and fragile).
-
-## Layout Loading (Storage Migration)
-
-**Layouts are loaded from Postgres LayoutCatalogue, not disk** (as of 2026-09-04, PR #111). This is critical for all render paths:
-
-### All Render Paths Load from LayoutCatalogue
-
-| Path | Entry | Load Point | Status |
-|------|-------|-----------|--------|
-| Dashboard | EditorRenderView.post() | render_canvas_task queries LayoutCatalogue | ✅ |
-| Embed | EditorInitView.get() | EditorInitView queries LayoutCatalogue | ✅ |
-| Embed submit | EditorRenderView.post() | render_canvas_task queries LayoutCatalogue | ✅ |
-| Direct API (sync) | GenerateLayoutView._handle_async() | Queries LayoutCatalogue before LayoutEngine | ✅ |
-| Direct API (async) | GenerateLayoutView.post() | render_canvas_task queries LayoutCatalogue | ✅ |
-
-### Critical: LayoutEngine Constructor
-
-`LayoutEngine` must receive `layout_definition` parameter:
 ```python
 layout_obj = LayoutCatalogue.objects.get(name=layout_name, is_deprecated=False)
-engine = LayoutEngine(
-    storage.layouts_dir(),      # Still passed for fallback only
-    job_exports_dir,
-    layout_definition=layout_obj.definition  # ← REQUIRED
-)
+engine = LayoutEngine(storage.layouts_dir(), job_exports_dir, layout_definition=layout_obj.definition)
 ```
-
-**Missing `layout_definition` causes `[Errno 2] No such file or directory` on render.** All calls to `LayoutEngine()` must load the layout from LayoutCatalogue first and pass it. The LayoutEngine will use the pre-loaded definition if available, falling back to disk only for legacy scenarios.
-
-### Audit Trail (2026-09-04)
-
-Four issues were found during audit and fixed:
-1. `render_canvas_task` wasn't passing `layout_definition` → Fixed
-2. `GenerateLayoutView._handle_async()` wasn't passing `layout_definition` → Fixed  
-3. `_layout_exists()` queried disk instead of LayoutCatalogue → Fixed
-4. `LocalStorage.list_layouts()` enumerated `/app/storage/layouts/` → Fixed
-
-**Prevention**: Any code instantiating `LayoutEngine` must query LayoutCatalogue first and pass the result.
+**Missing `layout_definition` causes `[Errno 2] No such file or directory` on render.** Customer-facing lookups go through `LayoutCatalogue.resolve_active(name)` (walks `renamed_to`).
 
 ## Server-Side Render Flow
 
-### When It Triggers
-
-Always. The embed "Save & Continue" button (`handleSubmitDesign`) and the dashboard ZIP download button (`executeBatchDownload`) both call `executeServerRender()` unconditionally. The previous threshold-based split was removed in v1.8.
-
-### Frontend Steps (`executeServerRender`)
+**Triggers:** always — `handleSubmitDesign` (embed) and `executeBatchDownload` (dashboard) both call `executeServerRender()`.
 
 | Step | Detail |
 |---|---|
-| Collect files | Iterate all canvases → frames → `frame.originalFile`; deduplicate with a `Set<File>` |
-| Upload | `uploadFiles()` from `upload-utils.ts` — 2 MB chunks, 4 files parallel; progress 0 → 60% |
-| Build payload | Per-frame: `{ upload_id, offset_x, offset_y, scale, rotation, fit_mode }` |
-| Submit | `POST /api/editor/render` (or `/api/embed/proxy/editor/render`); `order_id` in body |
-| Embed branch | `postMessage({ type: 'pe:render_job', jobId, orderID })` → `setSubmitted(true)` |
-| Dashboard/direct branch | Poll `/api/render-status/{job_id}/` every 4 s; fetch ZIP when `status === 'completed'` |
+| Collect files | every canvas → frame → `originalFile`, deduplicated; a lost `source: 'local'` image (`isLostLocalImage`) blocks the submit and is named |
+| Upload | `uploadFiles()` — 2 MB chunks, 4 parallel; resumes acked chunks; a GC'd session (404) restarts once |
+| Build payload | per frame `{ upload_id, offset_x, offset_y, scale, rotation, fit_mode }`; per canvas the **real `surface_key`** (`surfaceStates[0]?.key ?? activeSurfaceKey` — a literal matched no surface and printed blank) |
+| Submit | `POST /api/editor/render` (or via the embed proxy); `order_id` in body |
+| Embed | `postMessage({ type: 'pe:render_job', jobId, orderID })` → submitted panel |
+| Dashboard | poll `/api/render-status/{job_id}/`; fetch the ZIP on `completed` |
 
 ### Chunked Upload API
 
 ```
-POST /upload/init               { filename, file_size, total_chunks }
-  → { upload_id, chunk_size }   # upload_id is UUID v4; 50 MB per-file limit
-
-PUT  /upload/{upload_id}/chunk?index=N   body: raw bytes
-  → { chunk_index, received, total }
-
-POST /upload/{upload_id}/complete
-  → { file_path, filename, file_size }   # file_path stored in UploadedFile.file_path
+POST /upload/init               { filename, file_size, total_chunks }  → { upload_id, chunk_size }   # UUID v4; 50 MB per file
+PUT  /upload/{upload_id}/chunk?index=N   raw bytes                       → { chunk_index, received, total }
+POST /upload/{upload_id}/complete                                        → { file_path, filename, file_size }
 ```
-
-- UUID v4 regex guard on both chunk and complete views (prevents path traversal)
-- Chunks staged in `UPLOADS_DIR/.chunks/{upload_id}/`; assembled on complete with size + PIL integrity validation
-- `UploadedFile.upload_session_id` stores the UUID — `EditorRenderView` queries this to map `upload_id → file_path`
+UUID v4 regex guard on chunk and complete; chunks staged in `UPLOADS_DIR/.chunks/{upload_id}/`, assembled with size + PIL validation; `UploadedFile.upload_session_id` maps `upload_id → file_path`. `total_chunks` is bounded, disk is pre-checked (507), each chunk body is capped at 2× `CHUNK_SIZE`.
 
 ### POST /api/editor/render
 
 ```json
-{
-  "layout_name": "circle_48mm",
-  "order_id": "EXT-JOB-123",
-  "export_format": "png",
-  "canvases": [
-    {
-      "canvas_index": 0,
-      "surface_key": "front",
-      "frames": [
-        {
-          "frame_index": 0,
-          "upload_id": "<uuid from /upload/init>",
-          "offset_x": -12.5,
-          "offset_y": 3.0,
-          "scale": 1.2,
-          "rotation": 0,
-          "fit_mode": "cover"
-        }
-      ]
-    }
-  ]
-}
+{ "layout_name": "circle_48mm", "order_id": "EXT-JOB-123", "export_format": "png",
+  "canvases": [ { "canvas_index": 0, "surface_key": "front",
+      "frames": [ { "frame_index": 0, "upload_id": "<uuid>", "offset_x": -12.5, "offset_y": 3.0, "scale": 1.2, "rotation": 0, "fit_mode": "cover" } ] } ] }
 ```
-
-Response `202`:
-```json
-{ "job_id": "<uuid>", "order_id": "EXT-JOB-123", "status_url": "/api/render-status/<uuid>/", "queue": "standard" }
-```
-
-`order_id` resolution priority: `X-Order-ID` header (embed proxy injects from `EmbedSession.order_id`) → request body `order_id`.
+Response `202`: `{ "job_id", "order_id", "status_url": "/api/render-status/<uuid>/", "queue": "standard" }`. `order_id` priority: `X-Order-ID` header (embed proxy) → body.
 
 ### Embed Session & Order ID Flow
 
 ```
-Caller (printo.in)  →  POST /api/embed/session
-                       { order_id: "EXT-JOB-123",
-                         callback_url: "https://printo.in/api/internal/pe-callback",
-                         qty: 12 }
-                    ←  { token: "<uuid>", order_id, callback_url, qty, expires_at }
-
-iframe loads with  ?token=<uuid>
-
-Every iframe request → embed proxy resolveSession(token)
-                    → checks path allowlist (rejects /ops, /admin, etc. with 403)
-                    → caches { apiKey, orderId, callbackUrl, includeUploads, qty, exp } for 110 min
-                    → injects X-Order-ID + X-Callback-URL + X-Include-Uploads + X-Order-Qty on every upstream request
-
-EditorRenderView reads X-Order-ID + X-Callback-URL + X-Include-Uploads headers,
-persists callback_url onto CanvasData, snapshots include_uploads in
-render_state, and rejects a submission carrying more photos than qty (400) —
-qty itself is looked up directly from EmbedSession (order_id + api_key), NOT
-from a header, so the cap holds even for a request that never went through
-the embed proxy (see "Order quantity" below)
-
-After Celery render completes — only when canvas.callback_url is set:
-notify_caller_webhook_task → POSTs webhook payload to canvas.callback_url
-                          → HMAC-SHA256(api_key.key, raw_body) in X-Signature header
+Caller → POST /api/embed/session { order_id, callback_url, qty, include_uploads, template_id, template_flow }
+       ← { token, order_id, callback_url, qty, expires_at, editor_url }
+iframe loads ?token=<uuid>; every request → embed proxy resolveSession(token)
+       → path+method allowlist (403 before token resolution) → cache 110 min
+       → inject X-Order-ID, X-Callback-URL, X-Include-Uploads, X-Order-Qty
+EditorRenderView persists callback_url onto CanvasData, snapshots include_uploads into render_state,
+and looks qty up from EmbedSession (order_id + api_key) — NOT the header — to reject over-count with 400.
+After render, only when canvas.callback_url is set: notify_caller_webhook_task POSTs with X-Signature.
 ```
 
-Neither `order_id` nor `callback_url` ever appears in the iframe URL — they flow: caller → session DB → proxy in-process cache → `X-Order-ID` / `X-Callback-URL` headers → Django.
+Neither `order_id` nor `callback_url` ever appears in the iframe URL. Validation at session creation: `order_id` `^[A-Za-z0-9_.\-]{1,64}$`; `qty` via `parse_order_qty` — a whole positive integer ≤ `MAX_ORDER_QTY` (10,000), **numeric strings and integral floats accepted** (`"12"`, `12.0`), absent means NULL (unchecked), `0`/negative/fraction/bool rejected 400 — NULL and 0 must stay distinguishable; `callback_url` https, ≤ 2000 chars, SSRF-checked, no domain allowlist (the api_key is the auth).
 
-`order_id` is validated server-side at session creation: `^[A-Za-z0-9_.\-]{1,64}$`. Anything else is rejected with 400.
+**Sliding session TTL:** 2 h at creation; `EmbedSessionValidateView` extends by 1 h when under 30 min remain.
 
-`qty` (optional) is validated at session creation by `parse_order_qty`: a whole positive integer up to `MAX_ORDER_QTY` (10,000). Absent/empty means "the caller did not say" and stores NULL; `0`, a negative, a fraction, a bool and an unparseable value are rejected with 400. **A numeric string and an integral float are deliberately accepted** — `"12"`, `" 12 "` and `12.0` all store 12, because JSON has no int/float distinction and a caller's form value legitimately arrives as a string. Don't "tighten" that to a type check; `docs/INTEGRATION.md` claimed strings were rejected until 2026-09-04 and it was simply wrong. NULL and 0 must stay distinguishable — NULL disables the check, and a 0 that ever reached the column would cap every order at nothing.
-
-`callback_url` (optional) is validated at session creation: must be `https://`, max 2000 chars. No domain allowlist — auth is enforced by the api_key the caller already holds, and the HMAC signature lets them verify the request actually came from us.
-
-**Webhook payload (sent to `EmbedSession.callback_url` on completion):**
-
+**Webhook payload:**
 ```json
-{
-  "order_id":      "EXT-JOB-123",
-  "job_id":        "<RenderJob uuid>",
-  "status":        "completed" | "failed",
-  "download_url":         "https://product-editor.printo.in/api/jobs/<uuid>/download/",
-  "print_download_url":   "https://product-editor.printo.in/api/jobs/<uuid>/download/?content=print",
-  "mock_download_url":    "https://product-editor.printo.in/api/jobs/<uuid>/download/?content=mock",
-  "uploads_download_url": "https://product-editor.printo.in/api/jobs/<uuid>/download/?content=uploads",
-  "expires_at":    "<ISO 8601>",
-  "file_count":    12,
-  "layout_name":   "circle_48mm",
-  "export_format": "png",
-  "qty_summary":   { "ordered_qty": 12, "placed_photos": 8, "shortfall": 4, "customer_acknowledged_shortfall": true, "summary": "Customer agreed to proceed with 8 photos instead of the 12 ordered." }
-}
+{ "order_id", "job_id", "status": "completed|failed",
+  "download_url", "print_download_url", "mock_download_url", "uploads_download_url",
+  "expires_at", "file_count", "layout_name", "export_format",
+  "qty_summary": { "ordered_qty", "placed_photos", "shortfall", "customer_acknowledged_shortfall", "summary" } }
 ```
+`X-Signature: sha256=<hex>` = HMAC-SHA256(api_key, raw body). `download_url` is the combined archive (`1_customer_uploads/`, `2_mock/`, `3_print/`); the three `*_download_url`s are the same job split by `?content=print|mock|uploads` on one endpoint, nothing duplicated on disk; `uploads_download_url` is `null` when `include_uploads=false`; `content=mock` on a job without previews is 404. `qty_summary` is `null` unless the session set an enforceable qty; counts are server-derived, only `customer_acknowledged_shortfall` comes from the editor. `file_count` counts output files, not photos.
 
-`qty_summary` is `null` unless the session set an enforceable `qty`. Counts are server-derived (`services/order_qty.qty_summary`, snapshotted into `render_state` at submit); only `customer_acknowledged_shortfall` comes from the editor (`qty_shortfall_acknowledged` in the render body, true when `QtyShortfallWarning` was showing at submit).
-
-Headers: `Content-Type: application/json`, `X-Signature: sha256=<hex>`. Caller verifies with `hmac.compare_digest(hmac.new(api_key, raw_body, sha256).hexdigest(), signature)`. Then fetches whichever URL it needs with their api_key as `Authorization: Bearer <key>` to get the ZIP.
-
-**One archive or three.** `download_url` is the combined archive — `1_customer_uploads/` + `2_mock/` + `3_print/` in one file — and is unchanged, so a caller already reading it needs no migration. The three `*_download_url` fields are the SAME job packaged one part per archive, each flat at the archive root, for callers that store mock and print artefacts in separate fields (printo.in does). `uploads_download_url` is `null` when the session set `include_uploads=false` — there is nothing behind it, so it is not advertised.
-
-The split is served by `?content=` on the one endpoint (`all` — the default — `print`, `mock`, `uploads`); nothing is duplicated on disk. Requesting `content=mock` on a job whose previews could not be built returns 404 rather than a valid-looking empty ZIP.
-
-**Embed proxy allowlist — path AND method** ([route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts)). `ALLOWED_PATH_METHODS` maps each prefix to the verbs an embed session may use on it; a listed prefix rejects every method it does not name:
+**Embed proxy allowlist — path AND method** (`ALLOWED_PATH_METHODS` in [route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts); pinned by `__tests__/allowlist.test.ts`):
 
 | Prefix | Methods |
 |---|---|
-| `layouts`, `layouts/masks`, `templates`, `editor/init`, `render-status`, `jobs`, `fonts`, `holidays`, `calendar-styles`, `config`, `embed/session` | **GET** only |
-| `canvas-state` | GET, PUT (autosave) |
-| `upload` | POST (init/complete), PUT (chunk) |
+| `layouts`, `layouts/masks`, `templates`, `templates/assets`, `editor/init`, `render-status`, `jobs`, `fonts`, `holidays`, `calendar-styles`, `config`, `embed/session` | **GET** only |
+| `canvas-state` | GET, PUT |
+| `upload` | POST, PUT |
 | `editor/render`, `orientation`, `heic` | POST |
 
-Anything else returns 403 *before* token resolution, so an attacker can't probe Django auth surfaces with a stolen embed token.
+Fail-closed: anything else is 403 before token resolution. **The method half is load-bearing**: the proxy injects the session's real api_key, and `fonts`/`holidays`/`calendar-styles` accept ops writes upstream. **A new customer-facing endpoint must be added here AND in `allowlist.test.ts`**; ops/admin paths (`ops/*`, `exports/*`, `celery/monitor`, `django-admin`) must never be.
 
-**Intentionally excluded endpoints — documented for clarity** (requests return 403 via embed proxy):
+### HEIC decoding (iPhone photos)
 
-| Backend Path | Customer-facing? | Routing | Why Excluded |
-|---|---|---|---|
-| `/api/exports/<path>` | No | Via `/api/jobs/<job_id>/download/` instead | Direct access not needed; all downloads routed through render job endpoints with built-in auth |
-| `/api/ops/layouts*` | No | Via `/api/internal/proxy/` + PIA session | Template authoring is ops-only; embed tokens are customer-facing URLs and must never reach ops surfaces |
-| `/api/ops/templates*` | No | Via `/api/internal/proxy/` + ops tier | Template authoring and sticker upload are ops-only; the customer reads are `templates` (GET) above |
-| `/api/ops/orders/<id>/purge` | No | Via `/api/internal/proxy/` + ops tier | Data erasure is ops-only administrative action |
-| `/api/celery/monitor/` | No | Via `/api/internal/proxy/` + ops tier | Admin surface for render queue health monitoring |
-| `/api/health` | Public | Direct (not via embed) | Internal status endpoint; no need for customer requests |
-| `/django-admin/*` | No | nginx auth_request gate | Administrative interface; SSO boundary |
-
-The allowlist is **fail-closed by design**: any endpoint not explicitly listed is rejected with 403 before the token is even validated, preventing accidental exposure of new admin/ops surfaces. **When adding a new customer-facing endpoint to the backend**, you must update `ALLOWED_PATH_METHODS` in [route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts) AND add a test case in [allowlist.test.ts](frontend/nextjs/src/app/api/embed/proxy/__tests__/allowlist.test.ts), or the endpoint is unreachable from the iframe.
-
-**The method half is load-bearing, not tidiness.** This list was prefix-only until 2026-09-03, with "GET only" written in a comment rather than enforced. `fonts`, `holidays` and `calendar-styles` all accept ops writes upstream, and **the proxy injects the session's real api_key** — so with an ops-flagged key behind the session, an embed token (which lives in a URL in the customer's browser) could `PUT` holiday data. `DIRECT` is ops-flagged and is exactly what the local embed recipe above uses. Django's `_gate_ops` was the only thing in the way, and it *passes* for an ops key. Ops writes reach these same endpoints through the **internal** proxy with a PIA session, so restricting the embed side costs the ops UI nothing. Pinned by `src/app/api/embed/proxy/__tests__/allowlist.test.ts` — **add a method there when you add a prefix**, or the prefix is unreachable.
-
-`orientation` covers `POST /api/orientation/detect` (v1.11 auto-orient). Stateless inference — reads the posted image, returns `{rotation, confidence, source}`, persists nothing. Returns 503 when `AUTO_ORIENTATION_MODE=off`. `config` is the public `AllowAny` flags endpoint the editor reads on mount to decide whether to call `orientation/detect` at all — keep secrets out of it.
-
-`heic` covers `POST /api/heic/convert` — see "HEIC decoding" below. Stateless: decodes the posted bytes and returns `image/jpeg`, persisting nothing.
-
-## HEIC decoding (iPhone photos)
-
-Three decoders are tried in order by `convertHeicFileIfNeeded` ([lib/heic-convert.ts](frontend/nextjs/src/lib/heic-convert.ts)); the first that succeeds wins:
-
-| # | Decoder | Works when | Cost |
-|---|---|---|---|
-| 1 | `heic2any` (bundled libheif, **2021**) | older/simpler HEICs | none — pure client |
-| 2 | the browser's own codec (`createImageBitmap`) | **Safari/iOS only** | none — pure client |
-| 3 | `POST /api/heic/convert` → `services/heic.py` (pillow-heif, libheif 1.19) | always | one upload + ~1 s CPU |
-
-**Why all three exist.** Current iPhones (iOS 18) write a `tmap` derived image — Apple's ISO 21496-1 gain-map HDR — whose pixels live in `grid` tiles. `heic2any` predates that format and fails outright on it; it was last published in 2021, so there is no newer version to upgrade to. Chrome and Firefox ship **no HEIC codec at all**, so decoder 2 does not exist for them. That combination means a modern iPhone photo is undecodable in Chrome without the server, which is what `services/heic.py` is for. Verified against a real 24 MP iOS 18 gain-map photo: the server decode matches macOS's own decode to RMSE 0.26.
-
-Two details in `services/heic.py` worth not "simplifying":
-- It preserves the embedded **ICC profile** on the JPEG instead of flattening to sRGB. `services/image_loader.open_source_rgba` already colour-manages at render time; converting early would drop the Display-P3 profile these photos carry and shift the print's colours.
-- It writes **no EXIF**. libheif applies the container's `irot`/`imir` while decoding, so the pixels come back upright — re-attaching the source EXIF would make `exif_transpose` downstream rotate a second time.
-
-It does NOT `register_heif_opener()`: that patches Pillow globally for the whole process. Opening explicitly via `pillow_heif.open_heif` keeps the effect local to the call.
-
-**Sliding session TTL** — sessions are created with a 2-hour expiry, but `EmbedSessionValidateView` extends by 1 hour whenever the remaining lifetime drops below 30 min. Active editing sessions stay alive without a hard cutoff; idle sessions still expire on schedule. One DB write per hour of activity in the worst case.
-
-**iframe `frame-ancestors`** ([next.config.mjs](frontend/nextjs/next.config.mjs)) — `/layout/*` and `/editor/layout/*` get a CSP `frame-ancestors` header allowing `'self'`, `https://printo.in`, and `https://*.printo.in`. Override per-environment via `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS`. (The legacy `/embed/layout/*` SVG-preview route was removed — it read the raw `?apiKey=` from the URL, violating the "API keys must never appear in URLs" rule.)
+`convertHeicFileIfNeeded` (`lib/heic-convert.ts`) tries, in order: `heic2any` (bundled libheif, 2021), the browser's own codec (Safari/iOS only), then `POST /api/heic/convert` → `services/heic.py` (pillow-heif). Current iPhones write gain-map HDR HEICs that `heic2any` cannot decode and Chrome has no codec for, so the server path is what makes them work there. `services/heic.py` preserves the ICC profile (colour-managed later by `image_loader`), writes **no EXIF** (libheif already applied `irot`/`imir`), and does not `register_heif_opener()` (global Pillow patch).
 
 ### Order quantity (`qty`)
 
-The number of items the customer ordered. **Stored on `EmbedSession`** (`qty`,
-nullable). For the *browser's* copy: caller → `POST /api/embed/session` →
-session row → embed-proxy in-process cache → `X-Order-Qty` header → Django's
-`EditorInitView`, which echoes it back so the editor can show/cap it in the
-UI. It never appears in the iframe URL, so the browser has nothing to edit.
-
-**The submission-time cap does NOT trust that header.** It was originally
-implemented as "read `X-Order-Qty`, reject if over" in `EditorRenderView` —
-which is real for iframe traffic, but a caller who holds the real api_key
-(which they must, to create embed sessions at all) can POST to
-`/api/editor/render` directly with no proxy in the path, and then the header
-simply never arrives. Verified directly (2026-09-15): a qty=5 session, 7
-files uploaded, POSTed straight to the endpoint with the real key — **202,
-no cap, job queued with all 7**. Fixed by having `EditorRenderView` look
-`EmbedSession.qty` up itself, by `(order_id, api_key)`, instead of trusting
-the header — so the cap now holds regardless of which path the request took.
-Most-recent-session-for-that-order-id wins if more than one exists.
-
-**The rule is deliberately asymmetric, and the asymmetry is the point:**
+Stored on `EmbedSession.qty` (nullable). The browser's copy reaches the editor via `X-Order-Qty` → `EditorInitView`; **the submission-time cap does not trust that header** — `EditorRenderView` looks `EmbedSession.qty` up by `(order_id, api_key)`, most recent wins, so a direct POST with the real key is capped too.
 
 | Photos placed | Behaviour |
 |---|---|
-| **Over** `qty` | **Hard cap, both sides.** `processSelectedFiles` holds the pick and the modal offers *Keep first N* / *Choose again* — no proceed-with-all path. `EditorRenderView` independently re-derives the qty from `EmbedSession` and rejects an over-count submission with **400** — true even for a direct API call that skips the editor and the proxy entirely (see above). |
-| **Under** `qty` | **Warn and proceed, both sides.** Auto-fill / pick-to-fill banner, plus a `QtyShortfallWarning` notice in both pre-submit modals. Submit still works, and the server accepts the shortfall too. |
+| **Over** `qty` | **Hard cap, both sides.** The picker offers *Keep first N* / *Choose again* (which must actively reopen the picker); the server rejects with 400. |
+| **Under** `qty` | **Warn and proceed, both sides.** Banner + `QtyShortfallWarning`; submit works. |
 
-Under-upload must **not** become blocking. `qty` is supplied by the caller, so a
-wrong value would strand a real order at checkout — the cost of a customer who
-can't buy exceeds the cost of one who orders 12 and submits 8. Over-upload has
-no such downside: the customer just removes photos. **`qty_violation` therefore
-has one `>` in it and no lower bound; don't add one.**
-
-Single-surface products only. `checkOrderQty` opts out on `surfaceCount > 1`;
-`is_qty_enforceable` opts out on `type: "product"` + `surfaces[]` **and** on
-`productType` `calendar` / `book`. The server half is deliberately **narrower
-than the browser's** — the client normalizer flattens a calendar template to one
-`default` surface and so caps it, while the server exempts it. Being more
-permissive server-side can never 400 a submission the editor allowed; the
-reverse could. Keep it that way when you touch either.
-
-**The server half also fails open.** An unreadable layout, an absent header, a
-header that won't parse — all mean "don't check", never "reject". A tamper guard
-that can 400 a legitimate order on its own uncertainty is worse than no guard.
-
-Where the two halves live:
+Under-upload must never block (a wrong caller-supplied qty would strand a real order). **`qty_violation` has one `>` and no lower bound; don't add one.** Single-surface products only: `checkOrderQty` opts out on `surfaceCount > 1`; the server also exempts `productType` calendar/book — **the server half is deliberately narrower than the browser's and fails open** (unreadable layout, absent or unparseable value → don't check). Both halves count *placements* (frames with an `upload_id`), not distinct uploads — auto-fill repeats one photo. The legacy `?qty=N` URL param is a fallback the editor reads when the session carries none; nothing server-side honours it.
 
 | | File |
 |---|---|
-| Browser rule | `checkOrderQty` — [src/lib/submit-guards.ts](frontend/nextjs/src/lib/submit-guards.ts), tests in `src/lib/__tests__/submit-guards.test.ts` |
-| Server rule | [backend/django/services/order_qty.py](backend/django/services/order_qty.py) (`parse_order_qty`, `is_qty_enforceable`, `count_placed_photos`, `qty_violation`), tests in `services/tests/test_order_qty.py` |
-| Header plumbing | [embed proxy route.ts](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts), tests in `src/app/api/embed/proxy/__tests__/order-qty.test.ts` |
+| Browser rule | `checkOrderQty` — `src/lib/submit-guards.ts` |
+| Server rule | `backend/django/services/order_qty.py` |
+| Header plumbing | embed proxy `route.ts` |
 
-**Counting matters.** Both halves count *photo placements* — frames holding an
-`upload_id` — not distinct uploads and not canvases. The qty auto-fill
-deliberately repeats one photo across the remaining slots, so 3 uploads filling
-a 12-item order arrive as 12 placements and must read as 12. Counting distinct
-uploads would read that as 3 and let a tampered 12-item order carry 40.
+### API key daily request cap
 
-**The legacy `?qty=N` URL param still works, as a fallback only.** The editor
-prefers the session value (`/editor/init` echoes it as `qty`) and falls back to
-the URL when the session carries none, so callers that haven't moved the value
-into the session body keep working. Nothing server-side honours the URL param —
-a caller that wants the cap enforced must send `qty` in the session body.
-The completion webhook reports the outcome in `qty_summary` (`ordered_qty`,
-`placed_photos`, `shortfall`, `customer_acknowledged_shortfall`) — server-counted
-placements, with only the acknowledgement taken from the editor's
-`qty_shortfall_acknowledged` render-body flag. `file_count` counts output files,
-not photos, so don't use it as the photo count.
+`APIKey.max_requests_per_day` is enforced (`services/request_quota.py`): one counter per key per **IST calendar day** in the Redis cache, advanced by `APIRequestLoggingMiddleware` for exactly the requests the audit trail records (same exemptions; a 429 is not spend), checked by `BearerTokenAuthentication`, which answers **429 with `Retry-After`** until midnight IST once reached. **Blank = no cap (the default); 0 blocks.** Fails open when Redis is unavailable. Set it in the Django admin; `entrypoint.sh` deliberately does not seed a value, so an admin-set cap survives deploys. Pinned by `services/tests/test_request_quota.py` and `api/tests/test_apikey_quota.py`; the partner-facing description is in `docs/INTEGRATION.md`.
 
 ### postMessage Contract
 
-| Type | Sender | When | Payload |
-|---|---|---|---|
-| `pe:render_job` | Product Editor iframe | After every embed submit; parent's frontend uses this for "preparing your design" UX. Actual file delivery is via the webhook (see `EmbedSession.callback_url`). | `{ type, jobId, orderID }` |
-| `pe:back` | Product Editor iframe | Customer taps the embed's Back button (top-left, before the logo, editor page only). | `{ type, orderID }` |
+| Type | When | Payload |
+|---|---|---|
+| `pe:render_job` | after every embed submit | `{ type, jobId, orderID }` |
+| `pe:back` | customer taps the embed's Back button | `{ type, orderID }` |
 
-**Why `pe:back` exists instead of just calling browser history.** An iframe does not have its own back/forward stack — the WHATWG spec has ONE joint session history per browser tab, shared across the parent page and every frame in it. `history.back()`/`router.back()` called from inside the iframe therefore acts on the *whole tab's* history, not "steps taken inside the editor." Verified empirically (real nested `<iframe>`, not just a browser tab) before landing on this: it can walk the parent page backward through printo.in's own history — which might be fine — or, if the tab's history has nothing printo.in-related immediately before this point, carry the customer off printo.in's site entirely, mid-checkout, with no warning. `pe:back` sidesteps that by not touching navigation at all — it just tells the parent "customer tapped back," and printo.in's frontend decides what that means in their own flow (same trust boundary as `pe:render_job`). **No-op until printo.in's team adds a listener** — see [docs/INTEGRATION.md](docs/INTEGRATION.md).
+`pe:back` exists because an iframe shares the tab's one session history: `history.back()` inside the frame can walk the *parent* off printo.in mid-checkout. The parent decides what Back means. **`targetOrigin` is never `'*'`**: `parentOrigin` = `ancestorOrigins[0]` → `document.referrer` origin → `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` → `https://printo.in`.
 
-**targetOrigin is locked, never `'*'`.** Resolution chain in [editor page](frontend/nextjs/src/app/editor/layout/[name]/page.tsx) `parentOrigin`: `window.location.ancestorOrigins[0]` (Chromium/Safari) → `document.referrer` origin → `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` env → `https://printo.in` default. So an unrelated outer page can't eavesdrop on completion payloads (which include order_id, job_id, and dataUrls for client-rendered jobs).
+### Engine behaviour worth knowing
 
-### Engine Improvements
-
-- **Smart downscaling** (`_smart_downscale`): pre-shrinks source image to `(frame_target_w × 2, frame_target_h × 2)` before compositing. 12 MP photo → 400 px frame reduces working pixels from 12 M to ~0.64 M (~95% memory reduction per frame).
-- **PNG output**: written without `optimize=True` because the extra DEFLATE pass was a download bottleneck under high concurrency. ZIP archives use `STORED` (no compression) — most images are already PNG-compressed, so DEFLATE on top adds latency without meaningful size reduction.
-- **Memory hygiene**: source images are loaded inside a `with Image.open(...) as src` block so file handles release immediately. After each canvas, `_generate_for_surface` calls `.close()` on the canvas + intermediate Images, `del` the references, and runs `gc.collect()`. Mask images and resized masks are also closed. Without this, 200-canvas batches accumulated several GB of resident PIL state before the worker recycled.
-- **Per-frame transforms** (applied by `_composite_canvas`):
-  1. Rotation: `img.rotate(-rotation, expand=True)`
-  2. Smart downscale to 2× target
-  3. `extra_scale` multiplier from `FrameState.scale`
-  4. Cover/contain resize to exact frame dimensions
-  5. Pan: `pan_x = int(offset_x)`, `pan_y = int(offset_y)` applied during paste
+- `_smart_downscale` pre-shrinks sources to 2× the frame target (BOX resample) before compositing; the defensive `.copy()` was removed, callers reassign the return value.
+- PNGs are written without `optimize=True`; ZIPs use `STORED`.
+- Source images open inside `with Image.open(...)`; canvases, intermediates and masks are closed and `gc.collect()`ed per canvas.
+- Per-frame transform order: rotate (`expand=True`) → smart downscale → `extra_scale` → cover/contain → pan (`int(offset)`) at paste.
+- Partial failure on a multi-surface/calendar/book render removes every output so far and raises a tagged error naming the surface; the retry re-renders all.
 
 ### Known Limitations
 
-- **50 MB per-file limit** enforced in `ChunkedUploadInitView`; professional RAW files may exceed this
-- **Proxy memory for large ZIPs**: `RenderJobDownloadView` uses `StreamingHttpResponse` but the Next.js proxy reads the full `ArrayBuffer` before returning to browser — can buffer 100–500 MB for 200-photo jobs
-- **No duplicate render guard**: if the same `order_id` is submitted twice, a new `RenderJob` is created each time (`CanvasData` is upserted). The submit/download button is disabled during `isDownloading` preventing most double-submits
+- **50 MB per-file limit** (`ChunkedUploadInitView`); RAW files may exceed it.
+- **No duplicate render guard**: the same `order_id` submitted twice creates a new `RenderJob` each time; the button is disabled during `isDownloading`.
 
 ## Auth & Login Flow
 
-The dashboard side is auth-gated; the embed iframe is **not** (it uses an embed token, not a session).
+The dashboard side is auth-gated; the embed iframe is not (embed token, not session).
 
-### Stack
+- **NextAuth v5** in `src/pia-auth.ts`; Credentials provider POSTs to `${PIA_API_BASE_URL}/auth/`; JWT strategy; the `jwt` callback silent-refreshes via `/auth/token/refresh/`.
+- **Server gate** `src/proxy.ts` for `/dashboard/*` and `/editor/layouts/*`.
+- **Login server action** (`actions/auth.ts`): per-IP limit 5/60 s (IP from `X-Forwarded-For` as nginx sets it), then `signIn("credentials", …)`, mapping `PiaTimeout` / `PiaServiceUnavailable` to messages.
 
-- **NextAuth v5** (`next-auth@^5-beta`) configured in `src/pia-auth.ts` with a single Credentials provider that POSTs to PIA at `${PIA_API_BASE_URL}/auth/`.
-- **Strategy**: JWT (no DB session). `accessToken` and `refreshToken` are stored on the JWT cookie; the `jwt` callback silent-refreshes via `/auth/token/refresh/` when expiry approaches.
-- **Server gate**: `src/proxy.ts` (Next.js 16 renamed `middleware.ts` → `proxy.ts`). Wraps NextAuth's `auth()` to gate `/dashboard/:path*` and `/editor/layouts/:path*`, and bounces logged-in users away from `/login`. Configured matcher excludes `/editor/layout/[name]` because that route serves both the dashboard editor and the embed iframe — page-level logic decides which.
-
-### Login server action
-
-`src/app/actions/auth.ts` is the entry point from the login form. Responsibilities:
-
-1. **Per-IP rate limit** — 5 attempts per 60 s, fixed window, in-memory `Map`. Single-process; if you scale the frontend container horizontally, swap to Redis. IP is read from `X-Forwarded-For` (nginx sets it from CF's `CF-Connecting-IP`; see `proxy/nginx/nginx.conf`).
-2. **`signIn("credentials", { username, password, redirectTo })`** — dispatches to NextAuth.
-3. **Error mapping** — distinguishes failure modes via the `code` field on `CredentialsSignin` subclasses thrown from `authorize()`:
-   - `PiaTimeout` → "Login is taking too long…"
-   - `PiaServiceUnavailable` → "The authentication service is temporarily unavailable…"
-   - default → "Invalid credentials. Please try again."
-
-### authorize() distinctions
-
-`pia-auth.ts:authorize` separates *bad credentials* from *upstream outage* so users don't retype passwords during a PIA incident:
-
-| PIA response | authorize behavior | UX |
+| PIA response | `authorize` | UX |
 |---|---|---|
-| 2xx + `access` token | return user object | logged in |
-| 4xx (incl. 401) | return `null` | "Invalid credentials" |
-| 5xx | throw `PiaServiceUnavailableError` | "Service temporarily unavailable" |
-| timeout / network error | throw `PiaTimeoutError` | "Login is taking too long…" |
+| 2xx + `access` | user object | logged in |
+| 4xx | `null` | "Invalid credentials" |
+| 5xx | `PiaServiceUnavailableError` | "temporarily unavailable" |
+| timeout | `PiaTimeoutError` | "taking too long" |
 
-PIA fetches use `AbortSignal.timeout(10_000)` (10 s) on both `/auth/` and `/auth/token/refresh/`.
+**Google Sign-In:** a second Credentials provider (`id: "google"`) takes a GIS ID token (client-id only) and POSTs `{ id_token }` to `{PIA_API_BASE_URL}/auth/google/login/`, which returns the same payload as `/auth/`. The `@printo.in` domain gate is enforced server-side in `authorize` (`hd === 'printo.in'` or verified email) → `GoogleDomainNotAllowedError`. Client ID from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (build-time). `/login` carries no CSP; if it ever does, GIS needs `script-src`/`frame-src`/`connect-src https://accounts.google.com`. Anything reading PIA flags must fail closed — the Google path has omitted fields before.
 
-### Google Sign-In
+**Open-redirect protection:** the `redirect` callback clamps `callbackUrl` to same-origin.
 
-A second `Credentials` provider (`id: "google"`) in `pia-auth.ts` handles "Sign in with Google". The login page renders a Google Identity Services (GIS) button — client-id only, **no client secret** — which returns a Google **ID token** to the browser. `googleLoginAction` (`app/actions/auth.ts`, same per-IP rate limit as the password flow) dispatches `signIn("google", { id_token })`; the provider POSTs `{ id_token }` to **`{PIA_API_BASE_URL}/auth/google/login/`**, which returns the *same* `{ access, refresh, employee_id, full_name, is_staff, is_ops_team, is_deliveryq, pia_access, registration_status }` payload as `/auth/` (**`is_staff` is confirmed present on the Google path — 2026-09-05. Full parity across the two endpoints is still not confirmed in writing, and the Google path has omitted a field the password path sent before, so anything reading these must fail closed.**). So the `jwt`/`session` callbacks, token refresh, and Django Bearer auth are all identical to the password flow — Google is just a different way to obtain PIA tokens.
-
-- **Domain gate (`@printo.in`)**: enforced server-side in `authorize`. After PIA validates the token (proving its claims genuine), the ID token is decoded and rejected unless `hd === 'printo.in'` or the verified email ends in `@printo.in` → throws `GoogleDomainNotAllowedError` (code `GoogleDomainNotAllowed` → "Please sign in with your @printo.in Google account."). The client `hd` hint is advisory only.
-- **Client ID**: public; read from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (inlined at build time, so set it before `pnpm build`) with printo.in's ID as a hardcoded fallback in `login/page.tsx`. The endpoint path is the const `PIA_GOOGLE_AUTH_PATH` in `pia-auth.ts`.
-- **No CSP/COOP changes**: `/login` carries no CSP from `next.config.mjs` (only the embed/layout routes get `frame-ancestors`), and there are no COOP headers, so the GIS script + popup load freely. If CSP is ever enforced on `/login`, the GIS button needs `script-src`/`frame-src`/`connect-src https://accounts.google.com`.
-- GIS types live in `src/types/google-gsi.d.ts` (minimal `window.google.accounts.id` surface — no `as any`).
-
-### Open-redirect protection
-
-The `redirect` callback in `pia-auth.ts` clamps `callbackUrl`: relative paths join to `baseUrl`; absolute URLs only allowed if same origin; malformed URLs fall back to `baseUrl`. So `?callbackUrl=https://evil.com` is harmless.
-
-### Session shape
-
-Type-augmented in `src/types/next-auth.d.ts` — never use `(session as any)`:
+**Session shape** (`src/types/next-auth.d.ts`):
 
 ```ts
-session.user.id          // PIA employee_id
-session.user.name        // PIA full_name
-session.user.email       // login username
-session.user.role        // "admin" | "user" — legacy, derived at login. Does NOT
-                         // express the three tiers; use lib/roles.ts for decisions.
-session.accessToken      // PIA JWT — forwarded by /api/internal/proxy as Bearer
-session.is_staff         // PIA's "may administer" flag — the ADMIN tier. Gates
-                         // /django-admin/ (nginx auth_request → verify-django-admin)
-                         // and the Django admin link. Granted per person by PIA's
-                         // tech team. Read it through lib/roles.ts, never directly.
-session.is_ops_team      // OPS tier — template / calendar / holiday management.
-                         // Admin implies ops; see lib/roles.ts.
-session.registration_status  // "ACTIVE" etc. PIA's /auth/ does NOT refuse a login for
-                         // a deactivated employee, so we check this ourselves at login
-                         // AND per request. An ABSENT status counts as active on
-                         // purpose — failing closed would lock everyone out the moment
-                         // PIA shipped a payload without it.
-session.is_deliveryq     // Other PIA products. Nothing here gates on them; carried
-session.pia_access       // only so the [pia-login] log can report them.
-                         // NOTE: `is_super_user` never existed in PIA and is gone from
-                         // this session. `is_superuser` (their spelling) is DISPUTED:
-                         // PIA called it a courier service account denied app access,
-                         // then sent it `true` for a human with full access
-                         // (2026-09-07). Removed from the payload 2026-09-11. Nothing
-                         // reads it — never gate on it if it reappears.
-session.error            // "RefreshAccessTokenError" when refresh has failed → app redirects to /login
+session.user.id / name / email
+session.user.role            // "admin" | "user" — legacy; expresses none of the tiers. Use lib/roles.ts.
+session.accessToken          // PIA JWT, forwarded by /api/internal/proxy as Bearer
+session.is_staff             // ADMIN tier — /django-admin/. Read via lib/roles.ts.
+session.is_ops_team          // OPS tier — template / calendar / holiday writes. Admin implies ops.
+session.registration_status  // checked at login AND per request; ABSENT counts as active on purpose
+session.is_deliveryq, session.pia_access   // other PIA products; nothing gates on them
+session.error                // "RefreshAccessTokenError" → redirect to /login
 ```
+`is_super_user` never existed in PIA; `is_superuser` there is disputed and nothing reads it — never gate on it. **PIA flags are captured only at sign-in**; a flag granted later needs a sign-out/in. `[pia-login]` in the frontend logs prints what PIA sent. `session.error === 'RefreshAccessTokenError'` is checked by `proxy.ts`, the internal proxy and every protected page — keep them in sync.
 
-`session.error === 'RefreshAccessTokenError'` is checked by `proxy.ts`, the internal proxy, and every protected page's `useEffect` — keep these in sync if you change the flow.
+### Role model (three tiers)
 
-## Coordinate System
-
-Fabric.js uses pixels; layouts specify mm. Confirm DPI-based conversion is applied consistently in both `fabric-renderer.ts` (client) and `engine.py` (server). ICC profiles + CMYK pipeline were retired in v1.8 — output is now PNG (default) or PDF only.
-
-## Adding a New Layout Property
-
-1. Update `src/types/` in the frontend
-2. Update rendering logic in `fabric-renderer.ts`
-3. Update `layout_engine/engine.py` for high-res export
-4. Ensure `api/views/layout_admin.py` (`LayoutManagementView`) persists the new property correctly
-
-## Three Frame Renderers — the drift trap
-
-Anything drawn *inside a frame* exists in **three** independent implementations. Add a feature to one and it silently disagrees with the other two:
-
-| Renderer | File | Surface |
-|---|---|---|
-| Live editor | `editor/layout/[name]/FabricEditor.tsx` | the interactive modal the customer edits in |
-| Thumbnail / preview | `editor/layout/[name]/fabric-renderer.ts` | off-screen canvas → card thumbnails |
-| Print | `backend/django/layout_engine/engine.py` | the 300-DPI file that actually ships |
-
-Two shared modules exist precisely to stop this drift — extend them rather than adding parallel drawing code:
-
-- **`editor/layout/[name]/frame-fill.ts`** — unifies the two *client* renderers for fill-sides background (blur/border) and per-frame captions. This module exists because the blur once appeared in the thumbnail and print but not in the live editor.
-- **`src/lib/caption-layout.ts` ↔ `LayoutEngine._resolve_caption_box`** — caption placement maths, deliberately duplicated across the language boundary and pinned by parity tests on both sides (`src/lib/__tests__/caption-layout.test.ts` and `services/tests/test_caption_layout.py`). Change one formula and both suites must be updated together, or a positioned caption lands somewhere different in the print than in the preview.
-
-The same TS↔Python parity-test pattern guards the calendar grid (`src/lib/calendar.ts` ↔ `services/calendar_renderer.py`, `pnpm test:parity` + `services/tests/test_calendar_renderer.py`, fixture `storage/parity-fixtures/calendar-grid.json`), the calendar's year (`resolveDefaultYear` / `yearOfMonth` ↔ `services/calendar_layout.py::resolve_default_year`, fixture `calendar-year.json`, Python side `services/tests/test_calendar_year_parity.py` — anything that shows calendar months must resolve the year through `resolveDefaultYear`, never `new Date()`, or a year ops pinned previews as today's while the print uses the pinned one. `resolveBaseYear` / `todayInIST` / `startMonthFor` are module-private since PR #171, so they can't be imported past this rule. The ops authoring UI follows it too since that PR: preview holidays and the "Fixed year" seed both go through `resolveDefaultYear`), whether the calendar carries holidays at all (`printedHolidayLocale` ↔ the `holidaySource` gate in `materialize_surfaces`, fixture `calendar-holidays.json`, Python side `services/tests/test_calendar_holidays_parity.py` — anything that shows holidays must gate on it, the ops `CalendarLayoutEditor` included: it opens existing layouts through `holidaySourceAsPrinted`, held to the same fixture since PR #175) and the order-quantity rule (`checkOrderQty` in `src/lib/submit-guards.ts` ↔ `services/order_qty.py`, whose `test_matches_the_browser_verdicts_it_mirrors` re-runs the browser suite's cases through the server half). The qty pair is deliberately NOT symmetric — the server is narrower and fails open; see "Order quantity" for why.
-
-Captions render only when `layout.frameCaptionsEnabled` is set — off by default.
-
-## Layout Identity in LayoutCatalogue
-
-A layout's identifier is its **unique `LayoutCatalogue.name` field** (as of 2026-09-04, PR #111). This is case-sensitive and matches the former filename stem (`classic_A4.json` → `name='classic_A4'`).
-
-**Why the migration mattered:** When layouts lived on disk, identity and filesystem path were coupled. A mismatch between the stored `name` field and filename (`classic_A4.json` carrying `"name": "classic_a4"`) would make the layout unopenable on production Linux (case-sensitive filesystem) but mysteriously work on Mac (case-insensitive). Moving to the database decouples identity from the OS, making behavior predictable across platforms. Queries now use the `name` column directly, never the definition's internal field.
-
-### Layout identity: `name` (immutable) vs `display_name` (ops-editable) (2026-09-16)
-
-Two fixes, same day, same root cause. `LayoutCatalogue.name` used to be both the ops-editable display text **and** the identifier printo.in hardcodes into their iframe embed URL (`/editor/layout/<name>?token=...`) and their own SKU→layout mapping (which they own — see "Storage Files & Layout Migration" below). An ops rename was invisible to them until someone said so, so it silently 404'd their embed. First fix: an alias mechanism, so a rename stays non-breaking (below). Shipped right after, on the same day: renaming was retired outright and a dedicated `display_name` field took over the "customer-facing name" job, so there's no rename button left to press wrong. Both are described here because the alias mechanism is still live — see "Why keep both" at the end.
-
-**`display_name` is the ops-editable customer-facing name — `name` never was, only looked like it.** It's a real `LayoutCatalogue` column, editable any time via the "Display Name" field on the ops Templates page and on `CalendarLayoutEditor` / `BookLayoutEditor` (their own "Display name" field — see "Three Frame Renderers" for why calendar/book have separate authoring UIs). Every layout-serving response carries it as `displayName`: `GET /api/layouts`, `GET /api/layouts/<name>`, `GET /api/editor/init`, and the ops layout endpoints. The embed/dashboard editor heading and the dashboard template grid both read it. `default_display_name_for(name)` (`api/models.py`) — de-underscore, title-case — auto-fills it wherever a caller hasn't set one, and is mirrored exactly by the frontend's `formatLayoutDisplayName()` so neither side ever disagrees on the fallback. Migration `0020` backfilled every existing layout with this fallback so nothing regressed to blank on rollout. **Editing an existing layout without sending `display_name` never blanks or resets it** — `LayoutManagementView.post` only overwrites it when a caller actually sends a non-empty value, which matters because the calendar/book ops editors don't have full parity here yet (their own "Display name" field exists and is sent, but any *older* client build without it would otherwise have clobbered a curated name on every save).
-
-**`name` is immutable once a row exists — enforced twice.** `POST /api/ops/layouts/<name>` still creates or updates a layout, but a second POST can never move it to a different `name`: sending `old_name`/`originalName` that differs from `name` is rejected with 400, not attempted. First enforcement layer is the view — there is no rename branch left in it at all. Second is the model: `LayoutCatalogue.save()` raises `ValueError` if `.name` differs from what's already stored for that row, so a future code path that tries to resurrect renaming by mutating `.name` directly fails loudly instead of silently working. All three ops surfaces that write a layout (`editor/layouts/page.tsx`, `CalendarLayoutEditor`, `BookLayoutEditor`) lock their identifier input once editing an existing layout (`isExistingLayout` prop) and no longer construct an `old_name` payload at all.
-
-**The alias mechanism from the first fix stays, as a safety net only.** `LayoutCatalogue.renamed_to` + `LayoutCatalogue.resolve_active(name)` (walks the pointer, multi-hop, cycle-guarded) are still consulted by every customer/partner-facing lookup — `GetLayoutView`, `ExternalLayoutDetailView`, `EditorInitView`, the qty-policy lookup (`_read_layout_def`), `GenerateLayoutView`'s existence check, `render_canvas_task`'s render-time load — so a name that got renamed before renaming was retired keeps resolving. Nothing can create a *new* `renamed_to` pointer any more. **A rename made before 2026-09-16 is not retroactively fixed by any of this** — its `renamed_to` is `NULL` until someone points it at the surviving row by hand (`old.renamed_to = new; old.save()` in `manage.py shell`).
-
-Ops-only endpoints (`GET /api/ops/layouts` and `/api/ops/layouts/<name>`) surface `isDeprecated` and `renamedTo` on each layout so a deprecated row's fate — safely aliased vs. a genuine dead end — is visible without a DB query.
-
-**Why keep both:** the alias mechanism makes a rename non-breaking; `display_name` + immutable `name` removes the temptation to rename at all. Keeping the alias mechanism costs nothing now that it's built, and it's the only thing that fixes the one layout that was already renamed before either fix existed.
-
-## Code Style
-
-Use comments sparingly. Only comment complex or non-obvious logic.
-
-**No direct DOM manipulation.** Don't reach for `document.getElementById` / `querySelector`, `innerHTML`, or `appendChild` to build or mutate UI — drive it through React state, props, and refs. Mutating nodes React owns desyncs the virtual DOM and produces bugs that only show up in production builds; `innerHTML` is also an XSS sink. Exempt: off-screen `document.createElement('canvas')` for image work, Fabric.js/Three.js roots held via `useRef`, transient `<a>` elements for downloads, and `window`/`document` listeners registered in an effect with cleanup. If you find existing violations, raise them rather than silently rewriting them.
-
-**TypeScript:** `tsconfig.json` is in **full strict mode** as of v1.9 (`strict: true`). All implicit-any checks pass. Fabric.js custom properties (`__frameIdx`, `__paper`, `__fabricEditor` discriminator, etc.) are typed via module augmentation in `src/types/fabric-augmentation.d.ts` — direct property access is type-checked, no `as any` needed. No explicit `as any` casts remain in non-test source (removed 2026-10-13); where a Fabric API needs coercion use a narrow typed cast (`as Partial<CircleProps>`, `as TMat2D`) rather than `any`. Run `pnpm typecheck` (`tsc --noEmit`) before pushing.
-
-**Lint:** `eslint.config.mjs` is the active flat config; `pnpm lint` runs `eslint src`. `pnpm lint:fix` auto-fixes the easy ones. Both `eslint-config-next/core-web-vitals` and `eslint-config-next/typescript` presets are loaded. `@typescript-eslint/no-explicit-any` is demoted to `off` because untyped values (`layout: any`, `NormalizedLayout._raw`, Fabric event handlers) still exist, even though no `as any` casts remain (see TypeScript section). The react-hooks v7 strict rules are all promoted to `error` (offenders fixed in v1.10) so regressions break CI.
-
-**Scripts:** `pnpm dev`, `pnpm dev:clean` (rm `.next` first — use if routes 404 in dev), `pnpm build`, `pnpm start`, `pnpm clean`, `pnpm lint`, `pnpm lint:fix`, `pnpm typecheck`.
-
-## UI Conventions
-
-- Glassmorphism style: blur, transparency, vibrant gradients
-- Icons: `lucide-react`
-- Conditional classes: `clsx`
-- **JSX backtick warning**: A missing closing `` ` `` in a `className={`...`}` template literal triggers ~17 cascade TypeScript errors downstream
-
-### Brand colours — `indigo` is not indigo
-
-`tailwind.config.ts` **overrides Tailwind's built-in `indigo` scale** with a purple ramp anchored at `600 = #64318E` (Printo brand purple). So `bg-indigo-600`, `ring-indigo-500`, `hover:text-indigo-700` etc. all render purple, everywhere, and the class name lies about the colour. This was done deliberately — it re-skinned every existing call site at once instead of touching hundreds of them. Don't "fix" a class back to a literal hex, and don't add a second purple scale alongside it. The accent orange is `#F17A26` and has no scale; it appears as literal hex.
-
-Other conventions from the same rework (PR #24):
-
-- **`components/ui/Dropdown.tsx` over native `<select>`** wherever the selected-option highlight must be on-brand — a native select's open list is drawn by the OS and ignores CSS. `CalendarLayoutEditor`'s selects stay native on purpose: its Jest suite drives them via `userEvent.selectOptions`, which can't operate a custom listbox.
-- **Header height is measured, not hardcoded** — `HeaderContext.headerHeight` is published from a `ResizeObserver` + `useLayoutEffect`. Sticky-offset consumers read it rather than duplicating a height class, so the two-row mobile header and one-row desktop header stay in sync.
-- **z-index ladder**: the fixed header sits at `z-[2000]`; full-screen modals need to clear it (the JSON Specification modal went `z-[60]` → `z-[200000]` after rendering behind it). The editor's download options, embed disclaimer and print-sheet window sit at `z-[2001]`: just above the bar, still below the toasts (`z-[3000]`) and everything else they sat under. Until 2026-10-07 they were at `z-[100]`, so the bar stayed bright and Back to Templates stayed clickable while they were open; an e2e test now checks that a click there lands on the dialog's backdrop.
-- `TagFilter` + `lib/product-tags.ts` (`AVAILABLE_TAGS`) are shared verbatim by the dashboard and template library — chip row on desktop, `Dropdown` on mobile.
-
-## Export Flag
-
-The `isExport` flag controls whether frame outlines and preview overlays are rendered. These must be absent in download output. If they appear in exported files, the flag is not being passed correctly to `FabricEditor.tsx` or `fabric-renderer.ts`.
-
-## Storage Files & Layout Migration
-
-**Layout definitions are now in Postgres** (as of 2026-09-04, PR #111). This eliminates the git-sync deployment conflicts that previously made production diverge from version control.
-
-### Current Storage Architecture
-
-| Resource | Location | Endpoint | Editable by | Status |
-|---|---|---|---|---|
-| **Layouts** | `LayoutCatalogue` model (Postgres) | `GET /api/layouts`, `GET/PUT/DELETE /api/ops/layouts/<name>` | ops team | ✅ Live |
-| **Fonts** | S3 `ops-config/fonts/fonts.json` (+ `retired.json`, the switched-off fonts) on prod; `storage/fonts.json` / `fonts_retired.json` locally (and as the S3 default) | `GET/PUT /api/fonts` | ops team | S3 on prod. Google Fonts only; defaults to `Inter`. See `services/google_fonts.py` |
-| **Masks** | S3 `product-editor/masks/<file>` on prod (`S3Storage.mask_key`); `storage/masks/` locally | `GET /api/layouts/masks/<file>` (302 to the CDN on prod; presigned S3 URL when `S3_CDN_DOMAIN` is empty) | ops team | S3 on prod — the print reads it from there too (see below) |
-| **Calendar styles** | S3 `ops-config/calendar_styles/` on prod; git seeds `storage/calendar_styles/*.json` as the default | `GET/PUT /api/ops/calendar-styles/<name>` | ops team | S3 on prod, seeds until edited |
-| **Holidays** | S3 `ops-config/holidays/<locale>/<year>.json` on prod; git seeds `storage/holidays/…` as the default | `GET/PUT/DELETE /api/ops/holidays/<locale>/<year>` | ops team | S3 on prod, seeds until edited |
-
-### LayoutCatalogue Model
-
-Layouts are now queryable, versioned, and audited:
-- **Primary key**: `name` (unique, case-sensitive)
-- **Fields**: `definition` (full layout JSON), `product_type`, `category`, `is_public`, `is_deprecated` (soft-delete)
-- **Audit trail**: `version`, `created_at`, `updated_at`, `imported_at`, `imported_by`
-- **Migrations applied**:
-  - `0016_import_layout_catalogue`: Created schema + import function (idempotent)
-  - `0017_import_prod_layouts`: Imported all 14 production layouts on 2026-09-04
-
-**Why This Matters**
-- ✅ No git conflicts on production (layouts no longer in version control)
-- ✅ Full audit trail (created/updated/version/imported)
-- ✅ Soft-delete support (no data loss, compliance-friendly)
-- ✅ S3-ready for scaled deployments
-- ✅ Queryable and replicatable (included in `pg_dump`)
-- ✅ Single source of truth in Postgres
-
-### Pre-Migration State
-
-Production had diverged badly from main branch:
-- 20 tracked layouts deleted in ops UI (not committed)
-- 11 renamed layouts under new names (`classic_A4.json` → `classic_prints_-_4x6_in.json`)
-- 1 new mask file
-- Modified `fonts.json`
-- Every `git pull` on prod would fail when commits touched layout files
-
-### Migration Process (2026-09-04)
-
-1. Exported 14 production layouts via `backend/scripts/export_layout_catalogue.py`
-2. Committed dump to `backend/migrations/prod_layouts.json`
-3. Ran migration 0017 which imported all layouts into LayoutCatalogue
-4. Verified: `LayoutCatalogue.objects.filter(is_deprecated=False).count() == 14`
-5. Deleted disk files: `storage/layouts/` (14 files) and `storage/masks/` (1 file)
-6. Updated `.gitignore` to prevent re-creation
-
-### Backwards Compatibility
-
-Views query LayoutCatalogue first; no fallback to disk. If a migration is reverted:
-- Disk files are gone (no recovery from disk)
-- Set `STORAGE_BACKEND=local` in env to avoid S3 errors
-- Create missing layouts via ops UI or manual DB inserts
-
-**There is no SKU→layout mapping here.** It was removed on 2026-09-04 (`storage/sku_layouts.json` plus `SKULayoutView`): printo.in resolves an ordered SKU to a layout on its own side and passes the resolved layout name when it creates the embed session. Both smoke tests assert `/api/sku-layouts/` returns 404.
-
-### Future: S3 Migration
-
-Masks and calendar assets are S3-ready (the `StorageBackend` abstraction is complete). Enable with:
-```bash
-STORAGE_BACKEND=s3
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-S3_BUCKET=...
-```
-
-The code defaults to `STORAGE_BACKEND=local`, but **production runs `STORAGE_BACKEND=s3`** — verified from the running `backend` and `celery-worker-standard` containers on 2026-09-29 (the S3 `ops-config/` folder marker dates from 2026-09-04). So the S3 code paths are live, not future; don't reason about prod from the default. Until 2026-09-29 calendar-asset reads never actually hit S3 (key mismatch — see the amendment in [docs/CALENDAR_S3_READINESS.md](docs/CALENDAR_S3_READINESS.md)), so an ops edit to holidays, calendar styles or fonts would have been written to S3 and silently never read back. None had been attempted: the audit trail held zero writes to those endpoints and `ops-config/` held only the empty marker.
-
-**Masks print from S3 too (2026-10-12).** The ops upload writes a mask to S3 and the preview is served from that key, but `LayoutEngine._load_mask` used to look only at local disk, which on prod holds no masks: a layout with Mask on Export on would preview its frame and then fail every render on `None.size`. It now reads local disk first, then `get_storage().read_mask()`. A missing mask raises `FileNotFoundError` naming the file and an S3 outage raises `MaskUnavailable` (retried) — it never prints without the mask. Since 2026-10-12 the key is `<prefix>/masks/<file>` (`S3Storage.mask_key`, used by upload, preview and print); it was `masks/<file>` at the bucket root, outside the `product-editor/` prefix the IAM user is scoped to, and nothing had ever been stored there. Pinned by `services/tests/test_mask_loading.py`. Nothing live was affected: prod's only masked layout (`laptop_sleeve`) has Mask on Export off.
-
-**Mask previews go through a CDN (2026-10-12).** Prod sets `S3_CDN_DOMAIN=cdn-product-editor.printo.in`, so `MaskDownloadView` answers `302` to `https://cdn-product-editor.printo.in/product-editor/masks/<file>` (presigned S3 URLs only when the variable is empty — a quick fallback if the CDN ever breaks). Until 2026-10-12 that hostname had no DNS record at all, so every mask preview on prod was broken while prints were fine. The setup, all in AWS account `175642122291` and Cloudflare zone `printo.in`:
-
-| Piece | Value |
-|---|---|
-| CloudFront distribution | `product-editor-masks`, `E3C4UVH2TRZVQ` → `dzbmx4blhpg8b.cloudfront.net`, **Free** flat-rate plan |
-| Origin | `pia-oms-uploads.s3.ap-southeast-1.amazonaws.com`, no origin path, OAC `product-editor-masks-oac` (`E1RJHHTJJ4KVHP`, signs requests) |
-| Behaviour | Redirect HTTP→HTTPS, GET/HEAD/OPTIONS, `CachingOptimized`, response headers **`CORS-With-Preflight`** — required: `fabric-renderer.ts` loads masks with `crossOrigin: 'anonymous'`, and without the header the browser drops the image |
-| Certificate | existing ACM `*.printo.in` (us-east-1, shared, valid to Apr 2027) |
-| Bucket policy | one statement, `AllowCloudFrontOACReadProductEditorMasks`: `s3:GetObject` on `pia-oms-uploads/product-editor/masks/*` for that distribution only. A second statement of the same shape, for template stickers under `product-editor/ops-config/stickers/*`, was added 2026-10-13 and verified the same day (302 → CDN `200`, `image/png`, CORS `*`); see "Layout templates" |
-| DNS | Cloudflare CNAME `cdn-product-editor` → `dzbmx4blhpg8b.cloudfront.net`, **DNS only** (proxied would clash with CloudFront's certificate) |
-
-**The bucket is shared.** `pia-oms-uploads` also serves RiderPro media, POPS uploads and Wiki images through a different distribution (`E1E3K1H0JIB2SL`, `cdn-riderpro` / `cdn-pia`) with their own policy statements. Edit the policy by *adding* statements, never by replacing it, and don't let CloudFront's "Allow private S3 bucket access" option write it for you — it grants the whole bucket. Block Public Access stays on.
-
-Because the CDN caches by URL, uploaded masks are named with a content fingerprint (`<layout>[_<target>]_mask_<sha256[:10]>.png`, PR #236): a replaced mask gets a new URL, so no invalidation is ever needed. Verified on prod by a full upload → CDN preview (200, CORS `*`, `image/png`) → render → cleanup run; direct S3 reads and non-mask paths through the CDN both return 403.
-
-**S3 writes need the IAM grant.** `pia-oms-user` must have `s3:PutObject` on `pia-oms-uploads/product-editor/*` (granted 2026-10-12). Before that every ops-config write (holidays, calendar styles, fonts) and every mask upload on prod failed with `AccessDenied` — nothing had ever been written under `product-editor/`. If those saves start failing again, check this grant first.
-
-Under S3 the git-seeded files under `STORAGE_ROOT` (`holidays/`, `calendar_styles/`, `calendar_palettes/`) are a **default for keys S3 has never held**, nothing more. Two things must never reach them, both enforced in `S3Storage.read_calendar_asset`: a key ops deleted (`delete_calendar_asset` writes an empty tombstone object flagged `x-amz-meta-pe-tombstone: 1` rather than removing the key — a removed key read as "never written" and resurrected the seed), and a read S3 couldn't answer (outage, bad credentials), which raises `CalendarAssetUnavailable` instead of guessing. That exception is a **503, uncached**, on the preview endpoints, the **defaults, uncached** for the fonts list, and a **retried render** in the print — never "no holidays". Only `NoSuchKey` and `AccessDenied` count as absent (S3 returns 403 for a missing key when the caller lacks `s3:ListBucket`; prod's key *has* ListBucket and gets `NoSuchKey`, verified 2026-09-29). Pinned by `services/tests/test_calendar_assets_s3.py`.
-
-The style and Gen-Z palette **lists** come from `S3Storage.list_calendar_assets`: the seeds plus what S3 holds, minus tombstones. They used to list the local seed files only, so a style ops created under a new name never appeared in the dropdown. Fonts keep their historical local path, `storage/fonts.json` (`_LOCAL_PATH_OVERRIDES`) — PR #111 had moved it to `storage/fonts/fonts.json`, which neither `backup.sh` nor `.gitignore` covers. **`scripts/backup.sh` also archives S3 `ops-config/`** (`pe-opsconfig-<ts>.tgz`, `manage.py backup_ops_config`; tombstones are kept as tombstones, so a restore never resurrects a deleted seed) and `scripts/restore.sh` puts it back with `restore_ops_config`. Until 2026-10-13 only the local seeds were archived. A backup that cannot read S3 fails the whole run. The code is `services/ops_config_backup.py`, pinned by `services/tests/test_ops_config_backup.py`. The S3 versions of the objects are a second line of defence only if bucket versioning is on, which is not confirmed. **The weekly tier is PII-free (2026-10-13):** on Sundays `backup.sh` writes `pe-db-nopii-<ts>.dump` (a `pg_dump` with the data of `canvas_data`, `embed_sessions`, `uploaded_files`, `render_jobs`, `exported_results` and `api_requests` left out) and a storage archive without `uploads/`, so customer data lives at most 7 days in backups, not ~28. `restore.sh weekly:<ts>` restores config only; `test-backup-restore.sh` proves the exclusion by restoring the weekly dump and counting zero rows. **If you add a table that holds customer content or IPs, add it to `PII_TABLES` in `scripts/backup.sh` and to the test.** The first run after deploy deletes the legacy full weekly dumps (`pe-db-<ts>.dump` in `backups/weekly/`).
-
-### These files are git-tracked AND written by the running app
-
-**Status 2026-09-29, verified on the prod box:** `git status storage/` is clean,
-`storage/layouts/` is empty (layouts live in Postgres — the "not in Postgres"
-paragraph below predates PR #111), `storage/fonts.json` does not exist (already
-absent from the oldest backup, 2026-09-06), and under `STORAGE_BACKEND=s3` the
-ops UI writes holidays, styles and fonts to S3, not to these files. What
-follows is the history, and still the rule for a `STORAGE_BACKEND=local` box.
-
-That combination is the source of a recurring deploy failure and a standing
-data-loss hazard, so it is worth stating plainly: `storage/layouts/`,
-`storage/masks/`, `storage/fonts.json`, `storage/holidays/` and
-`storage/calendar_styles/` are all committed to git *and* rewritten at runtime
-by the ops UI. `storage/uploads/`, `storage/exports/` and `gc_last_run.json`
-are correctly gitignored; this set never got the same treatment.
-
-**Production has diverged badly.** As of 2026-09-04 `git status` on the prod box
-showed 20 tracked layouts deleted, 11 untracked ones under new names
-(`classic_4x6.json` → `classic_prints_-_4x6_in.json`), a new mask, and a
-modified `fonts.json`. Ops rebuilt the catalogue through the UI and none of it
-was ever committed.
-
-Two consequences:
-
-- **`git pull` on prod fails** whenever a commit touches a file that also
-  changed on disk. Removing `sku_layouts.json` did exactly that on 2026-09-04.
-  Resolve it by checking out the *one* named file, never a directory.
-- **Never run `git reset --hard` or `git checkout -- storage/` on prod.** Either
-  resurrects the 20 obsolete layouts *alongside* the live ones — duplicate
-  products under two naming schemes, and a customer can open the wrong one.
-
-**Layouts are not in Postgres.** There is no `Layout` model; `services/storage.py`
-does `os.listdir(LAYOUTS_DIR)`. So `pg_dump` covers none of the catalogue —
-`scripts/backup.sh`'s storage tarball is the only thing that does. The agreed
-fix is to move layout JSON into Postgres (a data migration imports prod's live
-catalogue automatically on deploy, so nothing needs copying by hand) and put
-masks and calendar background artwork behind the `S3Storage` seam already
-stubbed in `services/storage.py` — **not** in a `bytea` column, because every
-nightly `pg_dump` would then carry the artwork forever. Not started.
-
-## Layout templates (2026-10-13)
-
-**Status:** shipped in PR #259 on 2026-10-13 (its prerequisite, the overlay print drift fix, in PR #258 the same day) and deployed to prod at `7996d8c`; migration `0021_layouttemplate` is applied there. The sticker CDN read on prod is closed: the bucket-policy statement for `product-editor/ops-config/stickers/*` was added and verified 2026-10-13 (see Storage below). The "all cards" question is decided (2026-10-13): "Apply to all cards" in the picker is the only whole-design action, and the per-edit "this card only / all cards" prompt will not be built (see Ops pages below). Still open: (1) No Playwright coverage and no smoke-test script for templates; the browser check was done by hand. (2) No end-to-end render of a design carrying a sticker has been run (the raster path is the one icons already use). (3) Calendars and books. Prod held no templates at deploy; the first one ops publish is the first real use.
-
-A **template** is ops-authored decoration (background and paper colour, text, stickers) for one layout. The customer picks it, adds photos, and every card gets the decoration. Plan and audit: the "Layout Templates Plan" artifact (13 Oct 2026). Not for calendars and books yet; nothing speculative was built for them.
-
-**The decoration lives on the customer's cards, not in the render path.** `layout-template.ts` ([editor/layout/[name]/layout-template.ts](frontend/nextjs/src/app/editor/layout/[name]/layout-template.ts)) is the one place a template is copied onto a card: `seedCard` when `useCanvasGeneration` builds a card with no previous edits to carry, `applyTemplateToCards` when the customer picks a template over an existing design (previous template overlays replaced, photos and the customer's own overlays kept) or asks for it to be re-applied. Every copied overlay carries `templateId`; that tag is how `canvasHasRealEdits` / `countCanvasesLosingEdits` (`canvas-merge.ts`) leave template decoration out of the re-pick confirm, and how a re-apply knows what to replace. The print needs no new step: a card's overlays already print, and a **sticker is an image overlay with `source: 'clipart'` and an absolute `/api/templates/assets/<file>` address**, which `useServerRender` rasterises at submit and uploads with the photos exactly like an Iconify icon (`lib/icon-raster.ts`, PR #240; it now draws a PNG as well as an SVG). `src` stays a client-only field server-side (PR #239).
-
-**A template never holds a customer file.** `services/template_decoration.py::validate_decoration` refuses `source: 'local'` and any `fileId` (a customer upload is gone after `EXPORT_RETENTION_DAYS`), checks percent coordinates, hex colours, and that an image `src` is https or an ops sticker. The ops editor uploads Uploads-tab images as stickers before saving (`template-authoring.ts`).
-
-**Where it rides.** `?template=<id>` and `?template_flow=1` on the editor address, read by `useEditorEnvironment` like `order_id`; `useLayoutLoader` asks `/editor/init?template=` for the template with the layout (a 404 or 400 there retries without it and shows a notice, so a stale link never takes the editor down). `POST /api/embed/session` validates `template_id` and answers with a ready `editor_url`; `template_flow` only appends `template_flow=1` to `embed_url_template`. **The session row stores nothing new and the proxy injects nothing** — the id is not a secret (the picker offers every published template anyway) and init re-validates it. **A restored design wins:** the autosave keeps `template` (`useDesignPersistence`, `toSavedTemplate`), and the restore sets it from the saved design, or to none, over whatever the address said. **The picker opens first on a fresh design** (`askTemplateFirst` in `page.tsx`): always on the dashboard, in the embed only with `template_flow=1`, so printo.in keeps the switch. It waits for `restoreSettled`, templates loaded, no template in force and no cards; in that first-step form its close control reads "Start blank" and does that, so there is no third outcome. The empty page carries no "Start with a template" button (removed 2026-10-13), only a badge naming the template in force; changing it later is the toolbar's Templates button. **A pick before the first photo is saved and restored on its own:** `activeTemplateId` is an autosave trigger in `useAutosaveAndRestore` (a pick with no cards touches nothing else the autosave watches), and the restore sets the template from the saved design *outside* its cards guard. Until 2026-10-13 both were missing, so a reload before the first photo forgot the choice and asked again, and the post-restore autosave then wrote `template: null` over it. Pinned in the characterization suite.
-
-**Server.** `api/views/templates.py`: `GET /api/templates?layout=` and `GET /api/templates/<id>` (published only, embed-proxy GET), `GET/POST/DELETE /api/ops/templates[/<id>]` (drafts included, `layoutChanged` = `LayoutCatalogue.version` moved since the save; soft delete), `POST /api/ops/templates/assets` (PNG ≤ 5 MB, ≤ 4096 px a side, content-fingerprint named `sticker_<sha256[:16]>.png`, never deleted), `GET /api/templates/assets/<file>` (local file, or a 302 to the CDN on S3, `AllowAny` like masks). **`templateCount` on `GET /api/layouts` (and `?fields=summary`) and the ops list is read per request** (`template_counts`), not cached with the list, so a publish shows at once with no cache clearing. `/editor/init?template=` is outside the layout cache for the same reason.
-
-**Storage.** Local `storage/stickers/` (gitignored, in `backup.sh`'s `STORAGE_PATHS`); S3 `<prefix>/ops-config/stickers/<file>` (`S3Storage.sticker_key`), so `backup_ops_config` archives them with the rest of ops-config. **Sticker previews on prod go through the mask CDN**, which needed a second bucket-policy statement granting the `product-editor-masks` distribution `s3:GetObject` on `pia-oms-uploads/product-editor/ops-config/stickers/*` — added 2026-10-13 beside the mask statement, never replacing it (see the mask CDN table). Verified the same day: `GET /api/templates/assets/<file>` answers 302 to the CDN, which serves the PNG with `200`, `image/png` and CORS `*`. Until that statement existed a sticker preview on prod 302'd to a URL the CDN answered 403 for; the editor and print were never affected.
-
-**Ops pages** (under `/editor/layouts`, so `proxy.ts` keeps them to the Ops tier and the internal proxy's `^ops/` gate makes the writes ops-only): `/editor/layouts/templates/<layout>` lists a layout's templates with New, Edit, Duplicate (a draft copy), Publish/Unpublish, Delete; `/editor/layouts/templates/<layout>/<id|new>` is the customer `CanvasEditorModal` on a blank card per side (frame outlines, no photos, an optional sample photo that is never saved). The thumbnail is the first side rendered without photos and uploaded like a mask; picking a sample photo redraws every side's preview with it. Both pages scroll to the top on mount: arriving from a scrolled Layouts page the router kept the scroll and the fixed top bar covered the New template button (2026-10-13). Reached from a Templates link on each generic layout card. **"This card only / all cards" is not a per-edit prompt, by decision (Kanna, 2026-10-13):** edits stay on the card, and the picker offers "Apply to all cards" for the template in force (the existing whole-design-toggle precedent). The per-edit prompt would need every save of the canvas editor intercepted and will not be built; don't reopen it without a new product ask.
-
-**Tests.** `services/tests/test_template_decoration.py` (rules), `api/tests/test_layout_templates.py` (Postgres: model, reads, ops writes, sticker upload/serve, session `template_id`/`template_flow`, init `template`, live counts), `__tests__/template.test.ts`, `template-authoring.test.ts`, `TemplatePickerDialog.test.tsx`, `useLayoutTemplates.test.ts`, the PNG case in `icon-raster.test.ts`, the `templates` cases in `allowlist.test.ts`. The characterization harness answers `GET templates?layout=`, and the suite pins the first-step rule: the dashboard asks by itself, the embed only with `template_flow=1`.
-
-## Calendar product type (v1.13)
-
-A calendar layout is a regular multi-surface layout PLUS `productType: "calendar"` and a `monthRange + calendars[] + calendar` style block. The ops authoring UI is at `/editor/layouts/calendar/[name]`; customers edit a calendar in the shared editor route (`/editor/layout/[name]` — `CalendarSection.tsx`, `useCalendarEditor.ts`), in both the dashboard and embed flows. `/dev/calendar-preview` is a leftover developer page from before that integration — it renders `CalendarProductPreview` on its own, nothing links to it, and it is not a customer route.
-
-### Render path
-
-1. `LayoutEngine.generate()` detects `productType === "calendar"` and calls `services/calendar_layout.py::materialize_surfaces()` to expand the single template into 12 per-month surface dicts (auto-derived `displayLabel`, `year`, `month`, `holidays`, `activePalette`).
-2. **Poster aggregation** (P7.3): when `monthRange.count == 1`, the 12 surfaces are merged into ONE aggregate surface before rendering so all 12 calendars composite onto a single physical page.
-3. Each surface routes through `_generate_for_surface` → `_composite_canvas` → `services/calendar_renderer.py::render_calendar()`.
-4. Output filenames come from `displayLabel` (P7.1, PRD §11.6): `January 2026.png`, `February 2026.png`, …, `December 2026.png`. Non-calendar multi-surface products also use their ops-set displayLabel when present.
-5. Partial-failure handling (P7.2, PRD §11.5): if any 1 of N surfaces fails, partial outputs are cleaned up from disk and a tagged `RuntimeError("Render failed on March 2026 (surface 3 of 12): …")` is raised. Customer-facing retry re-renders all N.
-
-### Calendar-specific storage
-
-All under `STORAGE_ROOT` (env-driven). See [docs/CALENDAR_S3_READINESS.md](docs/CALENDAR_S3_READINESS.md) for the full audit.
-
-| Path | Owner | Purpose |
-|---|---|---|
-| `storage/holidays/<locale>/<year>.json` | `services/calendar_holidays.py` | Auto-loaded holidays. Locales seeded: `en-IN`, `generic`. Years seeded: 2026–2030. Refresh: `manage.py refresh_holidays --year <y>` (annual ops task; `--dry-run` prints the merged list). Source is the offline `holidays` package, pinned in `requirements.txt` — it replaced Nager.Date, which **does not cover India** (HTTP 204), so the en-IN refresh had never fetched anything. Reads and writes through storage (S3 on prod), keeps custom entries, maps the package's names onto the seeds' (`NAME_ALIASES`) so a refresh never doubles a pill, and warns when a stored holiday sits on a different day than the source. **The en-IN seeds for 2026–2030 were regenerated 2026-10-13** with `manage.py refresh_holidays` (the pinned `holidays` package: Holi, Diwali, Good Friday, Eid, Dussehra and the rest, with Eid dates from 2027 marked "estimated" by the package) and the 2026 Diwali moved from Nov 4 to Nov 8. The refresh *keeps* a stored entry that disagrees with the source (it warns instead), so a wrong hand-curated date must be removed first, as the Nov 4 Diwali was. Ops can still correct a date by hand at **`/editor/layouts/holidays`** (the Holidays button beside Fonts on the Templates page, or "Manage holidays →" in the calendar editor): one locale + year at a time, edits held in the browser until Save PUTs the whole year, and Clear year DELETEs it. `src/proxy.ts` already keeps the Editor tier off `/editor/layouts`; the page also hides its write controls for them, as a second line. |
-| `storage/calendar_palettes/genz/<name>.json` | `services/calendar_layout.py::_resolve_genz_palette` | Gen-Z palette swatches. Customer picks ONE per render. |
-| `storage/calendar_styles/<name>.json` | `api/views/calendar_assets.py::CalendarStylesView` | Theme preset metadata (modern-minimalist / modern-genz / weekday-highlight). |
-
-### Calendar-feature components
-
-- **Server**:
-  - `backend/django/services/calendar_layout.py` — `materialize_surfaces()` expands one template into 12 surfaces; honours `surfaceOverrides` per PRD §10.2.1.
-  - `backend/django/services/calendar_renderer.py` — `render_calendar()` draws the grid + pills + holidays; Pillow `ImageFont` binary-search auto-fit for pill text per §4.4.
-  - `backend/django/services/calendar_holidays.py` — locale/year file loader.
-  - `backend/django/api/validators.py::validate_calendar_layout` — server-side schema validation. Mirrors `validateDraft` in `CalendarLayoutEditor.tsx`.
-- **Client**:
-  - `frontend/nextjs/src/lib/calendar.ts` — shared month-grid math (TypeScript twin of the Python renderer's grid logic, with parity tests).
-  - `frontend/nextjs/src/lib/calendar-cell-upload.ts` — cell-image upload orchestrator (chunked upload + IDB persist + optional auto-orient, Phase 8).
-  - `frontend/nextjs/src/components/CalendarProductPreview.tsx` — customer-facing 12-tile grid with theme/palette/calendarType controls. Draws whatever `holidays` it is given; the editor page passes an empty list unless `printedHolidayLocale` says the print carries them.
-  - `frontend/nextjs/src/components/CalendarEditPanel.tsx` — per-cell editor (text/image/hide overrides). Renders as side rail on `md+`, bottom sheet on narrow viewports (P9.3). Its `dateNavigation` slot holds `CalendarDayPicker.tsx` (added 2026-10-12): a month grid with previous/next month, dots on dates with entries or holidays, arrow/PageUp/PageDown/Home/End keys, limited to the printed months. Until then the customer could only ever edit the 1st of each month.
-  - `frontend/nextjs/src/components/CalendarLayoutEditor.tsx` — ops authoring UI with per-month override modal. **Preview holidays come in through the `loadHolidays(locale, year)` prop** (the host page, `editor/layouts/calendar/[name]/page.tsx`, points it at `/api/internal/proxy/holidays/<locale>/<year>`; the component never calls `fetch` itself). It asks for exactly the years its month tiles fall in — both years of an Apr–Mar range — and asks again when the year anchor, calendar type or locale changes, caching per locale/year. A 404 is an empty year, not an error. Nothing is loaded or shown while `holidaySource.enabled` is off, matching `materialize_surfaces`. **An existing layout opens with the holiday settings its print actually uses** (PR #175) — `holidaySourceAsPrinted`, built on `printedHolidayLocale`: an absent block is *off* and a missing locale is `generic`, and the preview resolves its locale by the same rule. Only a brand-new layout defaults to on (`en-IN`); that is a product default, not a mismatch. Until PR #171 the page fetched `en-IN/<browser year>` once on mount, so a Financial or pinned-year layout previewed with no holiday dots. **Auto-load (plus the locale) is the only holiday switch.** A second checkbox, "Show holiday pills on cells" (`holidaySource.showInCells`), was removed on 2026-09-29 (PR #177): nothing ever read it, and a day cell is the only place holidays are drawn (a named pill in the print and the Fabric preview, a dot in the month thumbnails), so "off" could only have duplicated switching auto-load off. Stored layouts may still carry the field. It has no effect, a `calendar-holidays.json` case pins that on both the print and preview sides, and the next ops save drops it. Don't gate on it if it reappears.
-
-**Photo frames are edited in millimetres (2026-10-13).** The wizard's Layout step (step 2) lists each photo frame with X / Y / Width / Height in mm beside drag-on-canvas; the print area for a calendar is these frames, there is no separate print-area control and no bleed (the calendar schema and engine have none for frames). Stored values stay fractions of the canvas (0..1): typed mm are divided by `canvasWidthMm` / `canvasHeightMm` and clamped inside the canvas, at least 1 mm wide/tall. The old "Precise values" fraction fields for frames were removed as redundant; that disclosure now holds only the calendar block's fractions. Frame cards are `frame-card-<i>`, their mm fields `frame-mm-<i>`.
-
-**Mask uploads (2026-10-12).** The calendar editor's mask picker used to copy only the file's *name* into `maskUrl` and send JSON, so the PNG never reached the server. It now keeps the file and the page posts multipart (`mask` + `layout_data`); the server stores it and sets `maskUrl`. One mask covers every month. On the server, `_store_uploaded_masks` (`api/views/layout_admin.py`) handles `mask` (layout-wide) and `mask_<target>` — a surface key on a multi-surface product, or `cover` / `innerPage` / `backCover` on a book. The generic editor had always sent `mask_<surface key>`, which was silently dropped until then. Unknown targets and non-PNG files are a 400, checked before any file is written. Pinned by `services/tests/test_mask_uploads.py`.
-
-### Editor → ZIP delivery (calendar variant)
-
-Identical to the standard editor flow except:
-- Per-day entries are ONE flat product-wide `{ iso_date: [CellOverride] }` map (`calendarState.cells` in the autosave, `calendar.cells` on every canvas in the render payload). Entries anchor to globally-unique ISO dates, not tile positions — so photo-canvas count and English↔Financial flips can never lose or misplace them. Legacy 12-slot `cellsPerCanvas` arrays are still read (restore + `_extract_calendar_state` both merge them flat).
-- `tasks.py::_extract_calendar_state()` pulls customer-side calendar choices (themePreset / calendarType / palette), merges cells flat, and passes `num_canvases` so the engine can slice photos per month.
-- **Photo → month mapping (Phase 2):** the frontend caps photo canvases at 12 for calendar products; the engine renders exactly 12 outputs, month *i* compositing photo-canvas *(i mod N)* — 1 uploaded photo cycles to all 12 months, 12 photos map one-per-month. Upload order therefore matters. (Previously N photos produced 12·N files in the ZIP.)
-- Theme colours resolve server-side at materialize time (`_resolve_theme_style` reads `storage/calendar_styles/<preset>.json`, ops layout colours win) so weekday-highlight/Gen-Z prints match the preview. Gen-Z paints the palette background; the palette loader reads under `settings.STORAGE_ROOT` (the old `default_storage` path never resolved at render time). An untouched palette is the layout's `calendar.defaultGenzPalette`, else `butter` (`FALLBACK_GENZ_PALETTE`, also used when the named palette can't be read) — the editor starts on the same one (`useCalendarDefaults`; until 2026-10-12 it ignored the ops default and previewed the first palette).
-- Materialized surface overlays (ops month artwork) now render in the print, under customer overlays. An opt-in `calendar.monthTitle` style block (`{enabled, x, y, fontSize, color, textAlign}`) synthesizes a "January 2026" text overlay per month without any overlay-authoring UI.
-- ZIP filenames embed `displayLabel` (above).
-
-### Customer-facing fail-safes (PRD §11)
-
-- **Feb 29 toast** (P9.2, §11.8): when the customer has Feb 29 entries but the resolved render year is non-leap, the preview shows a dismissible amber banner "X entries on Feb 29 won't appear in YYYY." The entries are NOT deleted — they reappear if the customer flips back to a leap year.
-- **Image expired prompt** (P8.2, §11.3): when the server can't resolve an `image` cell-override's uploadId (GC'd, session lapsed, manually purged), the cell editor surfaces an amber "Image expired — please re-upload" banner with Re-upload + Clear actions.
-- **Calendar-type flip warning** (P5.2, §11.4): switching English ↔ Financial pops a modal if any existing entries would orphan under the new range. Orphan count is computed by `countOrphanedEntries`.
-- **Partial render-failure cleanup** (P7.2, §11.5): see Render path above.
-
-### Embed proxy allowlist for calendar
-
-`frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts` allowlists these calendar-related paths so the customer-facing editor can load palettes/holidays from inside the iframe:
-
-```
-holidays
-calendar-styles
-```
-
-(In addition to `layouts`, `editor/init`, `editor/render`, `upload`, `render-status`, `jobs`, `canvas-state`, `fonts`, `embed/session`, `orientation` — the universal set.)
-
-### Smoke test
-
-`scripts/smoke-test-calendar.sh` — covers list endpoint, layout schema, style presets, palettes, holidays, SKU mapping, validator gate, and (with `EMBED_BASE` set) the embed-proxy allowlist. Runs in ~3 s against the local stack. Both smoke scripts print their own pass/fail totals — read those rather than a count written down here, which drifts (this line claimed 19 while the script ran 18). Negative test confirms `/ops/layouts` is still rejected with 403 through the proxy.
-
-### Performance
-
-12-surface multi-surface calendar render: **~1.8 s** wall time on the dev Docker container (P9.5 baseline, May 24 2026). Target was ≤ 90 s; current margin is 88 s. Per-surface mean ~150 ms; RSS delta < 1 MB. That Phase 9 bench script was a /tmp artifact and is gone; re-benchmark by timing a 12-surface calendar render through the engine on the local stack.
-
-## Book / booklet / photobook product type (backend 2026-08-14; ops editor and customer editor shipped since)
-
-Design: [docs/BOOK_LAYOUT_PRD.md](docs/BOOK_LAYOUT_PRD.md) — D1/D2/D2a/D4/D5/D6/D7 all answered. Deliberately mirrors the calendar's *materialize* architecture (one template → N surfaces at render time), not its renderer — a book page is just frames, so there is no `book_renderer.py`.
-
-**What exists:** `productType: "book"` schema, server-side materializer, validator and engine dispatch, the ops Book Editor (`/editor/layouts/book/[name]`, `components/BookLayoutEditor.tsx`), and the customer page-count stepper, spread preview and more-photos-than-pages prompt. Not built: a smoke-test script and Playwright coverage. This line said the ops UI and customer editor didn't exist until 2026-10-12, long after both shipped.
-
-**Book Editor masks and saves (2026-10-12).** Each role (front cover, inner page, back cover) has its own mask PNG upload and "Apply mask on export"; the page posts multipart `mask_<role>` and the server sets that role's `maskUrl` (`_store_uploaded_masks`). The engine already applied per-role masks; there was no way to set one. Saving used to rebuild the layout from the editor's fields alone, deleting `pageOverrides`, overlays, frame ids and any mask added by hand; it now merges into the stored layout (`draftToLayoutJson(draft, baseLayout)`). A pixels-only role canvas now loads at its real size instead of the 210×297 mm fallback, and a save shows "✓ Saved".
-
-- The ops author writes exactly TWO page templates — `book.cover` and `book.innerPage` — plus an optional `book.backCover` (falls back to the cover's canvas when omitted). Each carries its **own** `canvas` block, so a hardcover wrap can be physically larger than the block it binds with no extra schema concept — `_generate_for_surface` already reads `canvas` per surface.
-- Page count is **customer state**, not template state: `book.pageCount: {min, max, step, default}` declares the allowed range: `services/book_layout.py::resolve_page_count` clamps a requested count onto that grid, snapping **up** (never down) to the nearest step so the customer never silently loses a page. Covers sit outside the count and are addressed by role (`cover` / `inner` / `backCover`), never by index, so changing the count can't renumber them.
-- `services/book_layout.py::materialize_pages()` expands the template into a **flat list** of pages in physical print order — front cover, page 1 … page N, back cover (D1) — mirroring `calendar_layout.py::materialize_surfaces()`'s contract exactly: same override semantics (`pageOverrides`, keyed by 1-based page index, same shape as calendar `surfaceOverrides`), same auto-derived `displayLabel`.
-- **Gutter mirroring (D5):** one `book.gutterMm` figure on the template is mirrored by page parity — odd pages (recto) bind left, even pages (verso) bind right (`gutter_side_for`). The shift is `gutterMm / 2` per page, applied **uniformly** across every frame/overlay on that page and capped by whichever element has the least headroom, so a collage page's elements move together rather than distorting apart. Covers are never gutter-shifted (a wrap's fold sits mid-canvas, not at an edge).
-- **Collage vs single-photo inner pages need no schema flag** — an inner-page template with 1 frame is a single-photo page; with N frames it's a collage. The materializer stamps whatever frame set it's given.
-- **Spine width (D4):** `spine_width_mm(pageCount, paperThicknessMm, coverThicknessMm)` = `(pageCount / 2) × paperThicknessMm + 2 × coverThicknessMm` — **leaves, not printed sides** (a 24-page book is 12 leaves thick). ⚠️ This differs from the `pageCount × paperThicknessMm` sketch in the PRD's §4 D4, which double-counts. Which convention Catalog Ops actually means by "paper thickness" (per-leaf vs per-side) is **unconfirmed** — sign off against a real printed sample before any cover ships (still open 2026-10-13: no sample received yet). Recomputed on every page-count change; resolved on cover surfaces only.
-- **Filenames (D1/U6):** `display_label_for` produces a zero-padded ordinal + role/page ("`01 Front Cover`", "`02 Page 01`", … "`26 Back Cover`") so a plain alphabetical ZIP listing is already collation order — print ops never reasons about page order. One ZIP, no separate archive part for covers (open question in the PRD resolved 2026-08-14 in favor of this).
-- **Engine dispatch** (`layout_engine/engine.py::generate`, new `book_state` param): detects `productType == "book"`, calls `materialize_pages()`, then renders each page through the existing `canvases_meta`-keyed per-surface grouping — the same Phase 3 wrong-print fix multi-surface products already use, keyed on `materialize_pages`'s `key` convention (`"cover"`, `"page_01"`, …, `"back_cover"`). Partial-failure handling mirrors the calendar's P7.2: one failing page cleans up every output rendered so far and raises a tagged error naming which page broke.
-- **`GenerateLayoutView` (the direct-partner sync `/api/layout/generate` endpoint) does not support books** and raises rather than silently misrendering: it never builds `canvases_meta`, and without per-page photo assignment a book would flood every page with the caller's whole photo list — the wrong-print class the whole `canvases_meta` mechanism exists to prevent. Submit book renders through `POST /api/editor/render` only.
-- `api/tasks.py::_extract_book_state` pulls the customer's page count + any per-page ops overrides out of `editor_state`, mirroring `_extract_calendar_state`'s contract exactly (`None` when the payload carries no book block → engine falls back to the template default count).
-- `api/validators.py::validate_book_layout` enforces the two-template contract, per-role canvas presence, the pageCount step grid, and reuses the calendar validator's overlay percent-coordinate check (`_check_overlays`, now module-level so both validators share it).
-
-**R1 — customer-variable surface count (resolved).** Books are the first product where the surface count is chosen by the customer rather than fixed by the layout template. The backend materializer handles that, and the frontend now does too: the page count is customer state in `useBookPages.ts` (`reconcilePageCount`, the pages held back when the count shrinks, the spread-preview and spine memos), the more-photos-than-pages prompt is answered in the page beside the file intake it re-enters, and the autosave carries the count. Until 2026-10-13 this paragraph said that work had not started.
-
-**Files:** `backend/django/services/book_layout.py` (materializer — no renderer needed), `frontend/nextjs/src/lib/book-layout.ts` (TS twin, parity-tested), tests in `backend/django/services/tests/test_book_{layout,validator,layout_parity}.py` and `frontend/nextjs/src/lib/__tests__/book-layout{,.parity}.test.ts`, shared fixtures at `storage/parity-fixtures/book-layout.json`.
-
-## Auto-orientation (server-side MediaPipe Pose)
-
-The editor decides whether to rotate an uploaded photo 90°/180°/270° in two layers, combined per photo by `resolveRotation` ([editor-utils.ts](frontend/nextjs/src/app/editor/layout/[name]/editor-utils.ts), pinned by `__tests__/editor-utils.test.ts`). **Rotate-to-fill runs first and wins** — an ops decision (2026-05-19): filling the print frame beats keeping people upright, and a canvas can be turned back by hand. (This section listed the pose model as primary and the aspect rule as its fallback until 2026-10-07; the code has worked the other way round since that decision.)
-
-1. **Rotate-to-fill** (`shouldAutoRotate90`, v1.10). Turns the photo 90° only when that brings its aspect at least 30% closer to the frame's — and never in a near-square frame (ratio 0.8–1.25, e.g. the retro-polaroid window), where turning can't improve the fill and only lays the subject on its side; the Blur Effect fills any letterbox instead.
-2. **Server-side MediaPipe Pose Landmarker** (v1.11) decides when rotate-to-fill doesn't turn the photo. Inline endpoint at `POST /api/orientation/detect` runs BlazePose, computes the nose-to-shoulder-midpoint vector in image coords, snaps it to the nearest cardinal with a 30° dead-zone, and returns `{rotation, confidence, source}`. ~30–150 ms per photo on CPU. Catches photos whose subject is stored sideways in the bytes (camera held wrong, scanned prints, WhatsApp-stripped EXIF) — what the aspect rule can't see, and the only way a photo in a near-square frame gets turned. No confident pose, mode off (503) or an error → no model rotation.
-
-PDF-derived pages skip both. Calendar cell images (`lib/calendar-cell-upload.ts`, optional auto-orient) use the pose model only, without rotate-to-fill.
-
-**Mode switch** via `.env`:
-```bash
-AUTO_ORIENTATION_MODE=mediapipe   # BlazePose Lite, ~5 MB, recommended for ≤ 2 cores
-# AUTO_ORIENTATION_MODE=hybrid    # BlazePose Full, ~9 MB, recommended for ≥ 4 cores
-# AUTO_ORIENTATION_MODE=off       # disable ML; aspect heuristic only
-```
-Changing the mode only needs `docker compose restart backend` (no image rebuild). The `/api/config` endpoint exposes the active mode to the frontend so the client skips the detect call when `off`. `detectFileOrientation` in `src/lib/ml-orientation.ts` fetches it once per session (memoised in `getRuntimeConfig`) and short-circuits to the aspect heuristic without uploading. If `/api/config` is unreachable it falls through to the detect request, so the server stays authoritative — a 503 there produces the same outcome.
-
-**Model files** live in [`backend/django/services/ml_models/`](backend/django/services/ml_models/) — both Lite (5.5 MB) and Full (9 MB) `.task` files are committed (Apache 2.0, downloaded from Google's public MediaPipe model store). The service module ([`services/orientation.py`](backend/django/services/orientation.py)) lazy-loads the variant matching `AUTO_ORIENTATION_MODE` once per gunicorn worker process, then reuses it.
-
-**Why inline (not Celery + ml-worker)**: `generateCanvases` needs the rotation **before** drawing the canvas preview. Polling for a Celery result would either delay the preview or force a double-render. At our scale (~4 parallel uploads per session, ~50 ms inference each) the gunicorn thread pool absorbs it easily.
-
-**Frontend client** at [`src/lib/ml-orientation.ts`](frontend/nextjs/src/lib/ml-orientation.ts) — per-file memoised by `name:size:lastModified` so the same file never re-uploads for inference within a session. Coalesces concurrent calls.
-
-**Docker layer cost**: `mediapipe==0.10.18` + bundled OpenCV + TFLite ≈ 200 MB on the backend image. The runtime needs `libgl1` + `libglib2.0-0` (system libs OpenCV links against); both are installed in the runner stage of [`backend/django/Dockerfile`](backend/django/Dockerfile). Without them `import mediapipe` raises `ImportError: libGL.so.1: cannot open shared object file` and the orientation service silently disables itself.
-
-## Service Worker
-
-The frontend ships a minimal Service Worker at [`public/sw.js`](frontend/nextjs/public/sw.js) registered by [`ServiceWorkerRegistration`](frontend/nextjs/src/components/ServiceWorkerRegistration.tsx) in the root layout.
-
-**What it does:**
-- Cache-first for `GET` requests under `/_next/static/*` and `/static/*` (both content-hashed → safe forever).
-- Same-origin only; non-static paths fall through to network.
-- `skipWaiting` + `clients.claim` → updates apply on reload, no hard-refresh required.
-- On `activate`, sweeps any cache that doesn't match the current `CACHE_VERSION`.
-
-**What it deliberately does NOT do:**
-- Cache HTML, API responses, or anything auth-gated.
-- Pre-cache anything on install (would bloat first-load).
-- Offline routing, push, background sync.
-
-**Registration is production-only** — `process.env.NODE_ENV !== 'production'` short-circuits in `ServiceWorkerRegistration.tsx`. This is deliberate: in dev you want every change to hit the network.
-
-**Cache bust:** bump `CACHE_VERSION = 'pe-static-v1'` in `public/sw.js`. The activate handler clears any prior `pe-static-*` bucket on the next page load.
-
-**Verification on prod:**
-- DevTools → Application → Service Workers → expect `activated and is running` on `/sw.js`
-- Network tab on a warm reload → static chunks show `(ServiceWorker)` in the **Size** column
-- Cache Storage → `pe-static-v1` populating with chunks as you navigate
-
-## Phases 3 & 4 Hardening (2026-07-11)
-
-Key surfaces added in the resilience/compliance pass — grep these before touching related code:
-
-- **Never-lose-edits** — `src/app/editor/layout/[name]/canvas-merge.ts` plans canvas/frame reuse BY FILE IDENTITY (name:size:lastModified), not grid position, so re-pick/add/remove/reorder keeps pans/zooms/overlays on the right page. `page.tsx` drives it; delete splices the whole frame-count block; restore repopulates `files` from hydrated frames and gates the smartcrop-recompute effect behind `fitModeUserToggledRef` (only a real user Fit/Cover toggle recomputes offsets). Per-frame "Replace photo" + a "Photo missing" badge when `(fileId||fileName) && !originalFile`. **Added images get the same treatment (2026-10-13)** — a `source: 'local'` image overlay (the Uploads tab, or a photo moved out of its frame) whose File didn't come back, checked by `isLostLocalImage` in `editor-utils.ts`. It keys on the missing `originalFile` alone, not the fileId, because an image added while storage was full never got one. Until then such an image went to the render under its browser-only IndexedDB fileId with `src: null`, which `overlay_renderer` can't resolve, so the print silently left it out with only a worker log line. Now `executeServerRender` blocks the submit and names it (in one message with any lost photos), the card shows "Added image missing — tap to fix", and the canvas editor opens on that image with Re-upload (keeps its place, size and rotation; clears the fileId so the new File is stored) or Delete, while Layers marks it "— missing". `FabricEditor` folds each image overlay's `src` into its rebuild signature for this: the lost image never loaded, so the in-place update has no Fabric object to set the new `src` on, and a re-upload would not draw until the editor was reopened.
-- **Autosave never writes before the restore lands** — every `canvas-state` PUT goes through `scheduleAutosave` (in `useDesignPersistence.ts` since the split), which refuses to arm until `restoreSettled` flips in the restore effect's `finally`. Autosave deliberately writes empty state ("delete all"), so any write that fires while the restore GET is in flight replaces the customer's saved design with blank pre-restore state. Gate on `restoreSettled`, **not** `restorePending`: the latter starts from `?order_id=` in the URL, which the embed iframe never has, so it only drives the skeleton placeholders. Don't add a trigger that PUTs `canvas-state` any other way — the calendar and book triggers once did, and layout-load defaults fired them mid-restore (PR #166). Chrome holds a same-URL PUT behind an in-flight GET, which masks this; reproduce with the GET delayed and read `PerformanceResourceTiming.startTime` for when the page *issued* the write.
-- **Embed order id** — the iframe adopts the EmbedSession order id: `EditorInitView` echoes `X-Order-ID` as `order_id`; `page.tsx` `setOrderId(payload.order_id)` before `setLayout`; `CanvasStateView.put` prefers the `X-Order-ID` header over the path param (get() keeps the path so the pre-adoption legacy-id restore fallback works).
-- **Mobile** — `pinch-utils.ts` + FabricEditor pointer handlers give two-finger pinch→FrameState (Fabric discarded the 2nd touch); `swapCards`/tap-to-swap (touch has no HTML5 drag); CanvasEditorSidebar is a bottom sheet `<md` with safe-area padding; `layout.tsx` exports `viewport.viewportFit:'cover'`. Each canvas card's quick-action rail carries BOTH a per-card Blur Effect toggle (Droplets icon, `handleQuickToggleBlur`) and the tap-to-swap button (ArrowLeftRight, `swapSource`→`swapCards`) — added PR #21, swap re-added PR #22 (Jul 2026) since the customer base is mostly phone/tablet.
-- **Storage degrade** — `file-store.ts` falls back to an in-memory map when IndexedDB is blocked (Safari ITP in a cross-site iframe), exposes `getPersistenceMode()`, and `pruneStaleOrders()` age/quota-evicts other orders (never the current one). `FileStoreQuotaError` on genuine exhaustion. `FrameState` now carries `fileName`/`fileSize` so the lost-photo guard fires even when persistence failed.
-- **Upload resume** — `upload-utils.ts` keeps a WeakMap of `{uploadId, acked chunks}` per File; a failed submit re-sends only the failed files (allSettled + aggregated error), skipping already-acked chunks; byte-weighted progress; a GC'd session (404) restarts once.
-- **Per-surface render grouping** — the render payload tags each canvas with `surface_key`; `tasks._extract_canvases_meta` → `engine.generate(canvases_meta=…)` slices photos/transforms/overlays/backgrounds per surface so a multi-surface product renders each side with ITS OWN photos (an omitted side prints blank, not the other side's photo). **The frontend must send the REAL surface key** — `page.tsx` executeServerRender uses `surfaceStates[0]?.key ?? activeSurfaceKey` even for a single surface (a literal `'canvas'` matched no surface and printed blank). Gated on `canvases_meta` so direct partner `GenerateLayoutView` callers are byte-identical.
-- **Submit guards** — `lib/submit-guards.ts`: empty-surface + duplicate-fill warnings (qty auto-fill fingerprints are exempt via `intentionalDupesRef`). Warn-and-proceed, never block.
-- **SSRF** — `services/url_safety.py`: `validate_public_https_url` (https-only, resolves + rejects private/reserved/loopback/link-local/metadata) at session-create AND `post_webhook_safely` at send time, which PINS the socket (scoped `socket.getaddrinfo` override under a lock) to the validated IP so DNS can't rebind, `allow_redirects=False`. Both webhook tasks use it. **Never `requests.post` a customer callback_url directly.**
-- **Rate-limit IP** — `middleware._get_client_ip` and `actions/auth.ts` `clientIp()` trust nginx's `X-Real-IP` (else the RIGHT-most XFF hop), never the spoofable left-most hop.
-- **Queue** — Redis split into a durable broker (`redis`, noeviction + appendonly, keeps `redis_data`) and a disposable cache (`redis-cache`, allkeys-lru); `REDIS_CACHE_URL` points at it. Workers have `celery inspect ping` healthchecks. `render_canvas_task` has a poison-pill guard (counts ONLY genuine broker redeliveries via `delivery_info.redelivered`, aborts after 3 crash-redeliveries — NOT self.retry() re-runs) and a 500 MB disk-full pre-flight. `ChunkedUploadInitView` bounds `total_chunks` and pre-checks disk (507); the chunk endpoint caps each body at 2× CHUNK_SIZE.
-- **DPDP purge** — `api/purge.py` + `OrderDataPurgeView` (`DELETE /api/ops/orders/<order_id>/purge`, ops-only, NOT on the embed-proxy allowlist). Hard-deletes uploads/exports/CanvasData/EmbedSession rows AND files. Scope to one key with `?api_key=<name>`; cross-tenant (all keys) requires explicit `?all_tenants=true`. Keeps upload files shared with a surviving order. An order counts as found if it has a saved design, an embed session, an upload row, or (all-tenant only) its upload folder; only an all-tenant purge sweeps that folder, because order ids are unique only per key — a key-scoped purge used to delete another key's photos for the same order id (fixed 2026-10-07, pinned by `api/tests/test_order_purge.py`). See `docs/DATA_LIFECYCLE.md`.
-- **Purge ledger (2026-10-13)** — `services/purge_ledger.py`. Every successful `purge_order_data` appends `{HMAC(order id, key or "*"), timestamp}` to `storage/purge_ledger.jsonl` (gitignored, outside Postgres so a restore cannot roll it back). `scripts/restore.sh` runs `manage.py reapply_purges --since <dump ts>` right after `pg_restore`, which re-erases any order purged after the dump, key-scoped entries matching only their own key. The ledger holds no order id; `SECRET_KEY` rotation orphans old entries. A failed ledger write is reported as `ledger_recorded: false` and never fails the erasure. The GC trims entries older than `PURGE_LEDGER_RETENTION_DAYS` (default 45). Pinned by `services/tests/test_purge_ledger.py` and `api/tests/test_purge_ledger_replay.py` (the latter against Postgres). **Any test that calls `purge_order_data` must override `STORAGE_ROOT`**, or it writes the real ledger.
-- **Backups** — `scripts/backup.sh` (pg_dump + ops-config tar + exact-count manifest, 7-daily/4-weekly), `scripts/restore.sh` (gated), `scripts/test-backup-restore.sh` (restores into a throwaway DB + asserts row counts). **Scheduled on prod at 03:15 UTC and running since 2026-08-28** — this file claimed "not scheduled" until 2026-09-04, which was simply wrong; check `crontab -l` before repeating it. The `pe-storage-*.tgz` is verified to contain the live layout catalogue. The cron comment in the script header justifies 03:15 as "after the 02:00 UTC GC", which is stale — the GC moved to every 6 hours. 03:15 still falls between sweeps, so the time is fine and only the reasoning is out of date.
-- **CI** — `.github/workflows/ci.yml`: backend (mediapipe-free install, auto-discovers `services/tests/test_*.py`) + frontend (typecheck/lint/jest) on push/PR to main. **New backend test modules are auto-run** — no workflow edit needed. `scripts/load-baseline.sh` + `docs/LOAD_BASELINE.md`.
-- **Deploy fail-fast** — production now REQUIRES `EMBED_INTERNAL_SECRET`, `AUTH_SECRET`, `DJANGO_SECRET_KEY`, `INTERNAL_API_KEY` in `.env`: compose aborts on missing `AUTH_SECRET` (`:?`), Django won't boot with a default `DJANGO_SECRET_KEY` under `DEBUG=0`, the internal proxy 500s without `INTERNAL_API_KEY` (the `NEXT_PUBLIC_DIRECT_API_KEY` build-arg was removed). Internal ports bind `127.0.0.1` only.
-- **a11y** — `lib/use-modal-a11y.ts` moves focus into a modal when it opens (its first control, or `initialFocusRef`), keeps Tab inside, returns focus to the opener on close, and optionally closes on Escape. `PdfPagePickerModal` uses it with Escape. The eight editor dialogs in `editor/layout/[name]/dialogs/` and the print-sheet window (`ImpositionModal.tsx`) use it with `onClose: null`: the page's one document-level handler closes all nine on Escape, so one press closes one dialog, and on the file-pick prompts (over-quantity, incomplete images, book overflow) Escape cancels the pick. That handler sits after the `useImposition` call, because it reads the print-sheet window's state. The delete and re-pick confirms open on their safe choice (Cancel / "Keep my edits"), and the print-sheet window on Close. All nine carry a `dialog` or `alertdialog` role, `aria-modal` and an accessible name. The print-sheet window's number fields are tied to their labels, and its sheet-size and orientation buttons say which one is chosen (`aria-pressed`); until 2026-10-07 none of that was there. The hook reads `onClose` through a ref, so a caller that passes a new function every render (the PDF picker does) no longer bounces focus on each re-render. Canvas cards are `role=button` + Enter/Space, but only when the card itself has focus (`activatesCard` in `editor-utils.ts`): a key pressed on a button inside a card (Remove Photo, Rotate, Swap, …) goes to that button. Until 2026-10-07 the card caught those keys, cancelled the button's click and opened the canvas editor, so keyboard users couldn't use the card's buttons at all. The canvas editor modal has its own dialog semantics. Pinned by `lib/__tests__/use-modal-a11y.test.tsx`, `__tests__/dialogs.test.tsx`, `__tests__/ImpositionModal.test.tsx`, three Escape cases and two card-key cases in the characterization suite, and three e2e tests.
-
-## Migrations
-
-Run only via the `backend` (Gunicorn) container — never from worker or beat containers. Current latest migration: `0021_layouttemplate`.
-
-| Migration | Change |
-|---|---|
-| 0001 | Initial schema |
-| 0002 | `CanvasData.callback_url` |
-| 0003 | `CanvasData.editor_state` + `UploadedFile.upload_session` |
-| 0004 | `CanvasData.updated_at` + GC index |
-| 0005 | `CanvasData` uniqueness changed to `(order_id, api_key)` — tenant isolation |
-| 0006 | `EmbedSession.order_id` — stores caller's job ID; injected as `X-Order-ID` by embed proxy |
-| 0007 | v1.8 bundle: `(is_deleted, created_at)` partial index on `ExportedResult` (GC speedup) + drop `CanvasData.soft_proof` (CMYK retired) + `CanvasData.export_format` choices=('png','pdf') + `EmbedSession.callback_url` (webhook URL, propagated to CanvasData via `X-Callback-URL` header) |
-| 0008 | `CanvasData.render_state` — submit-time render payload snapshot. Separates the two writers that shared `editor_state` (autosave vs submit): submit no longer wipes the customer's auto-saved design, and a post-submit autosave can't strip a queued job's payload. `render_canvas_task` reads `render_state or editor_state` (legacy fallback for jobs enqueued pre-deploy). |
-| 0009 | Consolidates drifted model state: two `RenderJob` indexes (`queue_name/status/created_at`, `status/completed_at`) that existed in the model but never got a migration, drops a duplicate `celery_task_id` index, renames the 0007 partial index to Django's auto-name. |
-| 0010 | `EmbedSession.include_uploads` (default `True`) — opt out to keep customer originals out of the delivered ZIP for faster downloads. Propagated to the render via the `X-Include-Uploads` header the embed proxy injects, and snapshotted into `CanvasData.render_state`. |
-| 0011 | `UploadedFile.order_id` — order linkage recorded at upload time (from `X-Order-ID` / request). DPDP erasure previously found a customer's files only via `CanvasData.image_paths`, which autosave blanked every 2 s, so `purge_order_data` deleted the rows, reported `files_deleted: 0` and left the photos on disk. Blank default — direct-API uploads carry no order context. See `docs/DPDP_ERASURE_GAP_PRD.md`. |
-| 0012 | `UploadedFile.expires_at` / `ExportedResult.expires_at` gain a `default` (the fields already existed, unpopulated), plus a backfill of `created_at + EXPORT_RETENTION_DAYS` for existing rows. The GC swept these two on `created_at + retention` **recomputed at sweep time**, so lowering `EXPORT_RETENTION_DAYS` acted RETROACTIVELY — deleting files whose expiry had already been sent to a partner as webhook `expires_at`. Silently: `CanvasData` and async render outputs use a stored `expires_at` so their print files survived, but the uploads went early and `RenderJobDownloadView` skips missing files with only a log line, handing back a ZIP without `1_customer_uploads/`. All four sweeps now run off one clock. **The backfill reads the retention in force at migration time — deploy before lowering the env var.** |
-| 0013 | `CanvasData.image_paths` gains `default=list`. `CanvasStateView.put` deliberately keeps `image_paths` out of `update_or_create`'s `defaults` (writing `image_paths or []` blanked recorded paths every 2 s — the 0011 erasure bug), but the column is NOT NULL with no default, so INSERT wrote NULL and the **first autosave for any new order 500'd**. No row was created, so every retry took the same path and a new order never persisted its editor state at all. A model default applies on INSERT only, never UPDATE: creates succeed, autosave still can't clobber submit-time paths. |
-| 0014 | `APIRequest.api_key` → nullable `SET_NULL`, plus `APIRequest.auth_source`. The table existed from the initial commit with **nothing ever writing to it**, so `APIRequest.objects.count()` returned 0 for every key forever — which reads as proof a credential was never used and is really proof nothing was recorded. `SET_NULL` keeps history across a key rotation (`CASCADE` erased it) and lets PIA/anonymous ops actions be recorded; `auth_source` denormalises the actor so the row still names it after the key row is gone. See "API audit trail" below. |
-| 0015 | `EmbedSession.qty` (nullable positive integer) — the ordered quantity, moved off the browser-editable `?qty=N` iframe URL param onto the session so `EditorRenderView` can enforce it. Nullable rather than 0-defaulted: "the caller did not send a quantity" and "the caller ordered nothing" must stay distinguishable, and every pre-existing session reads NULL, which means unchecked — the behaviour those sessions already had. See "Order quantity" above. |
-| 0016 | `LayoutCatalogue` model — schema + an idempotent import function (RunPython, `update_or_create`-based so re-running on a populated table is safe). See "Layout Loading (Storage Migration)". |
-| 0017 | Imported all 14 production layouts into `LayoutCatalogue` from the committed `backend/migrations/prod_layouts.json` dump. |
-| 0018 | Renames four `LayoutCatalogue` indexes to Django's auto-generated names. No functional change. |
-| 0019 | `LayoutCatalogue.renamed_to` (self-FK, keyed on `name`, nullable) — set on the OLD row when an ops rename supersedes it. `LayoutCatalogue.resolve_active(name)` walks it so a renamed-away identifier keeps resolving instead of 404ing. See "Layout identity: `name` (immutable) vs `display_name` (ops-editable)" above. |
-| 0020 | `LayoutCatalogue.display_name` (blank-default) + a `RunPython` backfill seeding it from `default_display_name_for(name)` for every existing row. Shipped alongside retiring the rename endpoint — see "Layout identity" above. |
-| 0021 | `LayoutTemplate` — ops-authored decoration for a layout (`layout_templates`): immutable slug `template_id`, FK to `LayoutCatalogue.name`, display name, draft/published, `decoration` JSON per side, thumbnail URL, the layout `version` it was saved against, soft delete. See "Layout templates". |
-
-**Ownership contract (post-0008):** `editor_state` is frontend-owned — written ONLY by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written ONLY by `EditorRenderView` at submit (`{canvases, image_paths, format_version}`), read by `render_canvas_task` via `_resolve_render_inputs`. Never cross the streams.
-
-## API audit trail (0014)
-
-`APIRequest` rows are written by `api/middleware.py::APIRequestLoggingMiddleware` — one per API call, carrying the resolved credential, `auth_source`, endpoint, status, duration, sizes, client IP and user agent.
-
-**Why this matters:** the model existed from the initial commit and *nothing ever wrote to it*. `APIRequest.objects.count()` returned 0 for every key, forever. That is worse than an empty table — during a leaked-key investigation it reads as proof the credential was never used, when it only proves nothing was recorded. Container logs were the sole history, capped at 50 MB × 3 and reset on every container recreate.
-
-- **Not everything is recorded.** `/api/health`, `/api/config`, `/api/render-status/` and chunk `PUT`s are exempt — render-status alone produced ~1,500 rows/hour during one large job. The `/complete` call that finalises a stored file *is* recorded. If you add a high-frequency endpoint, add it to `AUDIT_EXEMPT_PREFIXES`; if you add one that touches customer data, make sure it is **not** matched by an exemption, or you create a silent blind spot. `services/tests/test_audit_middleware.py` pins both directions.
-- **The write can never break a request** — it is wrapped, and a failure only logs a warning. An audit trail that can 500 the API is worse than none.
-- **Status is the view's, not the wire's,** for `APPEND_SLASH` redirects: the middleware sits after `CommonMiddleware`, so its response phase runs first and sees the pre-redirect 404 while the client receives a 301. Attribution (credential, path, time, IP) is unaffected.
-- **Rows are swept by the GC** on `API_AUDIT_RETENTION_DAYS` (default 90), independent of file retention.
-- **Jobs per day comes from here, not from `RenderJob`.** `GET /api/celery/monitor/` carries a `jobs_per_day` block (`services/jobs_per_day.py`): accepted `POST /api/editor/render` (202) per IST day for the last 14 days, split `dashboard` / `embed`, plus `by_source`. A RenderJob is deleted by cascade when its CanvasData expires, so it remembers only ~`EXPORT_RETENTION_DAYS`; counting those undercounts anything older than a few days. The split is by `auth_source`: `DIRECT` and `INTERNAL` are the dashboard, every other key is embed. **Prod has no `INTERNAL` row** — while `INTERNAL_API_KEY` equals `DIRECT_API_KEY` the entrypoint skips seeding it, so dashboard jobs are labelled `DIRECT`, which also carries QA embed sessions; read `dashboard` as an upper bound until the two keys are split. A `0` before 2026-09-04 (when audit logging went live) is a missing record, not a quiet day. Pinned by `services/tests/test_jobs_per_day.py`.
-
-`_get_client_ip` is module-level and shared with `RateLimitMiddleware` so a spoofed `X-Forwarded-For` can never be trusted by one and rejected by the other.
-
-**`error_message` carries the reason for every 4xx/5xx** (2026-10-13). It used to
-be NULL for framework-level rejections — an oversized body raising
-`RequestDataTooBig` becomes a bare 400 before the middleware sees a response —
-which cost real time on 2026-09-04: 1,569 `400`s on `canvas-state` with no
-recorded reason, resolved only by correlating `request_size_bytes` and
-reproducing it with two `curl`s. `APIRequestLoggingMiddleware.process_exception`
-now stashes `ExceptionType: message`, and `audit_error_message` falls back to
-the DRF body (`detail` / `error` / `message`, else the field errors). A success
-is NULL; a response with neither an exception nor a body is still NULL, never
-guessed. Rows written before this date stay NULL. Pinned by
-`services/tests/test_audit_middleware.py`.
-
-`request_size_bytes` is the field that made that diagnosis possible at all —
-grouping by status and averaging it is the fastest way to find a payload
-problem. Keep it.
-
-## Deployment (`deploy.sh`)
-
-`./deploy.sh [frontend|backend|workers|both]` (default `both`) runs **on the prod server** and **git-pulls `main` first** — so **push to `main` before deploying**. It rebuilds images, migrates *before* swapping containers, force-recreates, and health-checks. Prod `.env` lives at `/home/ubuntu/product-editor/.env` and is **not** the same as local `.env` (different host ports, hostnames) — edit it in place (back up as `.env.bak.<ts>` first), **never scp local over it**. A running `deploy.sh` can't reload itself, so a deploy.sh change only takes effect on the deploy *after* the one that pulls it — `git pull` on the server manually if you need it live immediately.
-
-**A changed `nginx.conf` needs the proxy RECREATED, not reloaded.** `nginx.conf`
-is bind-mounted as a single **file**, and a single-file bind mount binds the
-*inode*, not the path. `git pull` replaces that file rather than editing it, so
-a running proxy keeps serving the config it booted with — indefinitely, across
-any number of pulls and deploys — and `nginx -s reload` cannot help because it
-re-reads the same stale inode. `APP_SERVICES` also deliberately excludes
-`proxy` (nginx resolves upstreams at request time, so a recreated backend needs
-no reload), which is correct for upstream IPs and silently wrong for a config
-change.
-
-`deploy.sh::sync_proxy_config` now closes this: it compares the file the
-container has open against the one on disk, recreates the proxy only when they
-differ (so the ~1s TLS blip is paid only when it buys something), and
-**verifies** afterwards. Don't remove that step, and don't assume a pull is
-enough. Manual equivalent:
-
-```bash
-docker-compose up -d --force-recreate proxy   # NOT `nginx -s reload`
-docker-compose exec proxy nginx -T | grep -c <something-your-change-added>
-```
-
-This went unnoticed for a long time because no earlier nginx.conf edit mattered
-to a running feature. On 2026-09-04 the admin-SSO identity headers were pulled
-onto prod, the deploy reported success, and the proxy was still on an
-`nginx.conf` from 13 August — the feature simply did not work, with nothing
-anywhere saying why. `certs/` is a **directory** mount and has no such problem.
-
-**`entrypoint.sh` (web path) IGNORES its `$@`.** For the backend/web container it *always* runs `migrate` → seeds DIRECT/EXTERNAL/TESTING APIKey rows from env → `exec gunicorn`, regardless of the command passed. Consequences:
-- **Never** `docker-compose run backend <cmd>` expecting `<cmd>` to run alone — it starts a full gunicorn server that never exits and hangs whatever's waiting on it. Use `docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py <cmd>` to bypass. (This was the `deploy.sh` pre-swap-migrate hang, fixed in `0c5a0b5`.)
-- The celery-worker / celery-beat paths *do* honor `$1` (`celery-worker` / `celery-beat`) and skip DB setup.
-- The backend container self-migrates on every boot, so a plain `docker-compose up -d` fully deploys already-built images.
-
-**collectstatic runs at image BUILD time** (Dockerfile `RUN`), before any runtime `.env` exists. Under `DEBUG=0` (the default) the `settings.py` `DJANGO_SECRET_KEY` fail-fast guard fires on the dev-default key and aborts the build. The Dockerfile supplies an **inline build-only** `DJANGO_SECRET_KEY` scoped to that one command (never baked into the image ENV); runtime still requires the real key from `env_file` (fixed in `bc880b4`). **Verify any Dockerfile / settings-import change with a CLEAN build** (`docker compose build <svc>`, confirm the `collectstatic` layer is NOT `CACHED`) — a cached layer or a stale running container hides the failure until `deploy.sh` does its clean build.
-
-**Recovery when a deploy hangs mid-run:** `pkill -f "deploy.sh"`, remove the throwaway `*-backend-run-*` container (`docker rm -f`), then `docker-compose up -d` — images are already built and the entrypoint migrates on boot. Verify: all 9 containers `(healthy)`, and `https://product-editor.printo.in/api/health` → 200.
-
-## Observability — owned outside this repo
-
-**This stack ships no monitoring services.** Loki, Promtail, Grafana and Grafana
-Alloy (the Faro RUM receiver) lived here behind a `monitoring` compose profile
-from 2026-08-08 (`ac28d51`) until **2026-09-07**, when they were removed: the
-server lead maintains monitoring separately, and two half-owned stacks is worse than one
-owned one. Removed with them: `monitoring/`, the nginx `^~ /grafana/` and
-`^~ /faro/` locations, `scripts/setup-observability.sh`, the `GRAFANA_*` /
-`GF_AUTH_GOOGLE_*` / `NEXT_PUBLIC_FARO_URL` / `GOOGLE_CHAT_WEBHOOK` env vars, and
-the `@grafana/faro-*` frontend SDK.
-
-**Don't add them back here.** Point the external collector at the containers'
-stdout instead — every service inherits the `x-default-logging` anchor in
-`docker-compose.yml`, so Docker's json-file driver already captures and rotates
-each one at 50 MB × 3.
-
-What remains in-repo:
-
-| Signal | Where |
-|---|---|
-| Exceptions | **Sentry** — `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`, blank by default. `src/lib/observability.ts` (client) is Sentry-only now. |
-| Container logs | `docker-compose logs <service>` — json-file, 50 MB × 3, **lost on container recreation** |
-| nginx access log | JSON to stdout (`json_analytics` format), so it lands in the same place |
-| GC health | `garbage_collector.stale` / `.failing` + the live `disk` block on `GET /api/celery/monitor/` (ops-only) |
-| API audit trail | `APIRequest` rows, 90-day retention — see "API audit trail (0014)" |
-
-**The 50 MB × 3 ceiling is the thing to remember when debugging.** Worker logs do
-not survive `docker-compose up -d --force-recreate`, which every `deploy.sh` run
-does. Capture the log window you need *before* redeploying.
-
-**Never put the production `SENTRY_DSN` in a local `.env`.** Local runs use
-`DEBUG=0`, so `settings.py` labels events `production` (unless `ENVIRONMENT`
-says otherwise) and traces every request (`SENTRY_TRACES_SAMPLE_RATE` defaults
-to 1.0). Until 2026-10-07 the local `.env` held the production address, so the
-local stack, the `docker-compose run` test commands above and any test
-container built from that `.env` reported into production Sentry as
-production — test CSP-violation warnings and request traces included. Only the
-backend and workers read `SENTRY_DSN`; the frontend reads
-`NEXT_PUBLIC_SENTRY_DSN`. Keep it blank locally, as `.env.example` does, and if
-you enable Sentry locally on purpose, set `ENVIRONMENT=local` so its events
-can't pass for production. Leave `ENVIRONMENT` unset on the server.
-
-## Frontend Proxy Routes
-
-The Next.js frontend never exposes API keys to the browser. All backend calls go through one of two server-side proxy routes:
-
-- **`/api/internal/proxy/[...path]`** — Dashboard + editor. Authenticated via NextAuth session cookie (`pia-auth.ts` validates against `PIA_API_BASE_URL`). Uses `INTERNAL_API_KEY` (server-side only). Returns 401 if `session.error === 'RefreshAccessTokenError'`. **No per-path privilege gate** — see "Ops privilege model" immediately below.
-
-### Role model (three tiers, 2026-09-05)
-
-One flag per tier, confirmed with PIA's team. The rules live in
-**`src/lib/roles.ts`** — the gate and the header badge both import them, so the
-badge can never claim a privilege a gate would refuse. For an administrator the
-badge under their name reads **Django Admin** and *is* the link to
-`/django-admin/` (`headerRoleBadge` in `lib/header-role-label.ts`, PR #260,
-2026-10-13). It replaced a separate Django Admin button in the Templates page's
-toolbar, which overlapped the Fonts button on narrower screens. The name and
-badge block is hidden below the `lg` breakpoint, so phones and tablets carry no
-Django admin link — deliberate, the console is a desktop tool.
+Rules live in **`src/lib/roles.ts`**; the gate and the header badge both import them. For an administrator the badge reads **Django Admin** and *is* the link to `/django-admin/` (`lib/header-role-label.ts`); hidden below `lg`.
 
 | Tier | Flag | Gets |
 |---|---|---|
@@ -1532,235 +515,260 @@ Django admin link — deliberate, the console is a desktop tool.
 | **Ops** | `is_ops_team` | template / calendar / holiday **writes** |
 | **Editor** | authenticated | upload, generate, download |
 
-**Who holds `is_staff` (2026-09-05): two people** — Merving and Kanna
-(employee 12180) — granted by PIA's tech team on request. That narrowness is
-what makes the tier meaningful; if the population ever grows to "most of
-engineering", the gate stops being an admin gate and this table needs
-revisiting rather than quietly widening.
+`is_staff` is held by two people, granted by PIA's tech team; if it ever widens to most of engineering, revisit the table rather than quietly widening the gate.
 
-**This reverses PR #24.** That PR removed the internal proxy's `ops/*` gate by
-product decision, opening template management to any authenticated user; the
-Editor tier above restores it. A designer who edited templates before
-2026-09-05 loses that unless they are flagged into the ops team — intended, not
-a side effect.
+**Why the gate has to be in the internal proxy:** everything through it presents the shared ops-flagged `INTERNAL_API_KEY`, so Django's `IsOpsTeam` sees one privileged identity whoever is signed in. **A Django-side permission class cannot substitute.** `requiresOpsTier()` is method-aware (reads stay open; POST/PUT/PATCH/DELETE under `ops/` and on `OPS_OWNED_PATHS` — `fonts`, `calendar-styles`, `holidays` — need Ops). **Views mounted on a second, non-`ops/` path must be gated on both sides**: `OPS_OWNED_PATHS` in the proxy and `http_method_names=READ_ONLY` in `api/urls.py` (pinned by `lib/__tests__/ops-guard.test.ts`, `ops-tier-gate.test.ts`, `services/tests/test_ops_write_routes.py`). `isDestructiveOpsPath()` keeps the DPDP purge gated regardless of method. Deactivated employees are rejected per request (`isRegistrationActive` in the proxy and `verify-django-admin`). `ops/*` is absent from the embed allowlist.
 
-**Reads stay open.** `requiresOpsTier()` is method-aware: `GET ops/layouts` is
-how the editor and template library list templates, so gating it would break
-the Editor tier outright. Only POST/PUT/PATCH/DELETE need the Ops tier — under
-`ops/`, plus the ops-owned paths outside it listed in `OPS_OWNED_PATHS`
-(`fonts`, `calendar-styles`, `holidays`).
+### Django admin SSO
 
-**A namespace check alone is not enough — views are mounted twice.**
-`CalendarStylesView` and `HolidaysView` serve both the public read paths and
-their `ops/` twins, and their write handlers never check the route. Until
-2026-09-29 the proxy gated only `ops/*` and `fonts`, so an Editor-tier session
-could `PUT calendar-styles/<name>` or `PUT|DELETE holidays/<locale>/<year>` and
-land in the ops-only handlers with the ops-flagged key. Closed on both sides:
-`OPS_OWNED_PATHS` gates the aliases here, and `api/urls.py` mounts the public
-routes with `http_method_names=READ_ONLY` so Django answers 405 to any write on
-them, from anyone. **If you mount a write-capable view on a second, non-`ops/`
-path, do both** — pinned by `lib/__tests__/ops-guard.test.ts`,
-`app/api/internal/proxy/__tests__/ops-tier-gate.test.ts` and
-`services/tests/test_ops_write_routes.py`.
+Passing the nginx `auth_request` gate signs you into the admin: `verify-django-admin` returns `X-PE-Admin-Id/-Email/-Exp/-Sig`, nginx forwards them, `product_editor/admin_sso.py` verifies and provisions an `auth_user` with `is_staff` + `is_superuser` and no usable password. **The signature is not decoration** — anything reaching `backend:8000` on the Docker network could otherwise mint itself superuser. Key = `HMAC(EMBED_INTERNAL_SECRET, "django-admin-sso/v1")` over `id\nemail\nexp`, 60 s TTL; pinned by `services/tests/test_admin_sso.py`. Flags are asserted on **every** request, so a deliberately-limited `auth_user` whose username collides with a PIA id is raised to superuser. The admin mounts at `/django-admin/`; the "must arrive via the proxy" middleware keys off `admin_sso.ADMIN_PATH_PREFIX` — don't reintroduce a literal.
 
-**Why the gate has to be in the proxy.** Everything reaching Django through the
-internal proxy presents the shared, ops-flagged `INTERNAL_API_KEY` service
-account, so Django's `IsOpsTeam` sees one privileged identity no matter who is
-signed in. The proxy is the only place that knows the human, so it is the only
-place a per-user rule can be enforced. **A Django-side permission class cannot
-substitute** — that is the trap PR #24 fell into.
+## Coordinate System
 
-`isDestructiveOpsPath()` is kept alongside, matching on path *shape*
-(`^ops/orders/[^/]+/purge/?$`), so the DPDP purge stays gated regardless of
-method. Covered by `src/lib/__tests__/ops-guard.test.ts` and `roles.test.ts`.
+Fabric.js uses pixels; layouts specify mm. DPI conversion must match in `fabric-renderer.ts` and `engine.py`. Output is PNG or PDF only.
 
-**Deactivated employees are rejected per request, not just at login.** A session
-minted before someone was deactivated stays valid for its whole lifetime, so
-`isRegistrationActive` is re-checked in the internal proxy and in
-`verify-django-admin`.
+## Adding a New Layout Property
 
-`ops/*` is still absent from the **embed** proxy allowlist, so none of this is reachable from the customer iframe — the exposure is authenticated-staff-only.
-- **`/api/embed/proxy/[...path]`** — Customer-facing iframe embed. Authenticated via short-lived `X-Embed-Token` created at `/api/embed/session`.
+1. `src/types/` 2. `fabric-renderer.ts` 3. `layout_engine/engine.py` 4. `api/views/layout_admin.py` (`LayoutManagementView`) persists it.
 
-Auth env vars required for the internal proxy: `AUTH_SECRET`, `PIA_API_BASE_URL` (default: `https://pia.printo.in/api/v1`).
+## Three Frame Renderers — the drift trap
 
-Note: `src/proxy.ts` (the auth gate) is unrelated to these `/api/*/proxy` routes despite the name overlap. It's the Next.js 16 successor to `middleware.ts` — see "Auth & Login Flow" above.
+Anything drawn *inside a frame* exists in **three** implementations; add a feature to one and it silently disagrees with the other two:
+
+| Renderer | File |
+|---|---|
+| Live editor | `editor/layout/[name]/FabricEditor.tsx` |
+| Thumbnail / preview | `editor/layout/[name]/fabric-renderer.ts` |
+| Print | `backend/django/layout_engine/engine.py` (+ `services/overlay_renderer.py`) |
+
+Shared modules exist to stop the drift — extend them rather than adding parallel drawing code: `frame-fill.ts` (client blur/border/captions), and the TS↔Python twins pinned by parity tests on both sides with fixtures under `storage/parity-fixtures/`: `caption-layout.ts` ↔ `_resolve_caption_box`; `calendar.ts` ↔ `calendar_renderer.py`; `resolveDefaultYear` ↔ `resolve_default_year` (anything showing calendar months resolves the year through it, never `new Date()`); `printedHolidayLocale` ↔ the `holidaySource` gate in `materialize_surfaces` (anything showing holidays gates on it; an absent block is *off*, a missing locale is `generic`); `shape-catalog.ts` ↔ `shape_catalog.py`; `overlay-text.ts` ↔ `overlay_renderer` text layout; `book-layout.ts` ↔ `book_layout.py`; `checkOrderQty` ↔ `order_qty.py` (deliberately asymmetric, see above). Change one formula and both suites must change together.
+
+**Text overlays** lay out as Fabric's `Textbox` on all three sides: `fontSize` is print px used unscaled, words wrap greedily in a box of `width` % of the canvas (80 when absent; a word wider than the box widens it), lines `fontSize × 1.13 × 1.16` apart centred on `y`, absent `textAlign` is centre. A text overlay prints in its `fontFamily` at its `fontWeight` through `services/google_fonts.py`; unknown or generic families print in the bundled Inter. **Shapes** come from the shared catalogue with Fabric's placement rules (`x/y` is the corner including the stroke, `strokeWidth` in print px, Paths placed by their bounds); a path the flattener can't draw is skipped with a warning, never printed as a rectangle. Pinned by `test_overlay_text_layout.py`, `test_overlay_shape_geometry.py`, `test_shape_catalog_parity.py` and the client twins. Captions render only when `layout.frameCaptionsEnabled` is set.
+
+**Fonts:** `active_fonts()` returns Google Fonts only (`['Inter']` when ops chose nothing). **Ops never delete a font, they switch it off** — `save_fonts` moves it to `fonts/retired`, and the print allows active ∪ retired so a design never loses its font. For a *listed* font every failure is `FontUnavailable`, which the engine re-raises so the job retries and then fails rather than printing in another font. Font files cache memory → storage (`font-cache/`) → Google (`fonts.googleapis.com/css2` + `fonts.gstatic.com` only, redirects refused, names regex-checked). `deploy.sh` runs `manage.py refresh_fonts`. `services/fonts.py` serves the bundled `Inter-Variable.ttf`; axes set **by tag** (fvar order is `[opsz, wght]`).
+
+## Layout Identity
+
+A layout's identifier is its **unique, case-sensitive, immutable `LayoutCatalogue.name`**. `display_name` is the ops-editable customer-facing name, carried as `displayName` on every layout-serving response, auto-filled by `default_display_name_for(name)` (mirrored by `formatLayoutDisplayName()`), and never blanked by a save that omits it. **`name` cannot be renamed** — the view rejects a differing `old_name` with 400 and `LayoutCatalogue.save()` raises if `.name` changed. The alias mechanism (`renamed_to` + `resolve_active`) remains so a pre-retirement rename keeps resolving; nothing can create a new pointer. Ops endpoints surface `isDeprecated` and `renamedTo`.
+
+## Code Style
+
+Use comments sparingly; only for complex or non-obvious logic.
+
+**No direct DOM manipulation.** Drive UI through React state, props and refs. Exempt: off-screen `document.createElement('canvas')`, Fabric/Three roots via `useRef`, transient `<a>` for downloads, `window`/`document` listeners in an effect with cleanup. Raise existing violations rather than silently rewriting them.
+
+**TypeScript:** full `strict` mode. Fabric custom properties are typed via `src/types/fabric-augmentation.d.ts`. No explicit `as any` casts in non-test source; use narrow typed casts. Plain `any` annotations still exist, so `@typescript-eslint/no-explicit-any` stays `off`. Run `pnpm typecheck` before pushing.
+
+**Lint:** `eslint.config.mjs` (flat); `pnpm lint` exits 0 with 0 warnings and must stay that way; react-hooks rules are `error`; `^_` prefix marks intentionally unused bindings.
+
+**Don't copy a helper into a second file.** `fileExtension`/`fileFingerprint` live in `lib/file-identity.ts`, `is_uuid`/`dir_size_bytes` in `services/fs_utils.py`, the shell print helpers in `scripts/lib/`, `NumberField` in `components/ui/`, `readError` in `lib/read-error.ts`.
+
+## UI Conventions
+
+- Glassmorphism: blur, transparency, vibrant gradients. Icons `lucide-react`; conditional classes `clsx`.
+- A missing closing `` ` `` in a `className={`...`}` literal triggers ~17 cascade TypeScript errors.
+- **`indigo` is not indigo:** `tailwind.config.ts` overrides Tailwind's `indigo` scale with Printo purple (`600 = #64318E`). Don't "fix" a class back to a hex and don't add a second purple scale. The accent orange `#F17A26` has no scale.
+- `components/ui/Dropdown.tsx` over native `<select>` where the highlight must be on-brand; `CalendarLayoutEditor`'s selects stay native (its Jest suite drives them with `selectOptions`).
+- Header height is measured (`HeaderContext.headerHeight` from a `ResizeObserver`), never hardcoded.
+- **z-index ladder:** header `z-[2000]`; editor dialogs and the print-sheet window `z-[2001]`; toasts `z-[3000]`; full-screen modals that must clear the header (the JSON Specification modal) `z-[200000]`.
+- `TagFilter` + `lib/product-tags.ts` shared by dashboard and template library.
+- **a11y:** `lib/use-modal-a11y.ts` for every modal (focus in, Tab trap, focus return, optional Escape). The nine editor dialogs pass `onClose: null` and the page's one document-level handler closes them on Escape (cancelling the pick on the file-pick prompts). All carry `dialog`/`alertdialog`, `aria-modal`, an accessible name. Canvas cards are `role=button` + Enter/Space only when the card itself has focus (`activatesCard`).
+
+## Export Flag
+
+`isExport` controls frame outlines and preview overlays; they must be absent from download output. If they appear, the flag isn't reaching `FabricEditor.tsx` or `fabric-renderer.ts`.
+
+## Storage
+
+| Resource | Location | Endpoint | Editable by |
+|---|---|---|---|
+| **Layouts** | `LayoutCatalogue` (Postgres) | `GET /api/layouts`, `GET/PUT/DELETE /api/ops/layouts/<name>` | ops |
+| **Templates** | `LayoutTemplate` (Postgres) | `GET /api/templates`, `/api/ops/templates[/<id>]` | ops |
+| **Fonts** | S3 `ops-config/fonts/fonts.json` + `retired.json` (local `storage/fonts.json`) | `GET/PUT /api/fonts` | ops |
+| **Masks** | S3 `<prefix>/masks/<file>` (`S3Storage.mask_key`; local `storage/masks/`) | `GET /api/layouts/masks/<file>` (302 to the CDN) | ops |
+| **Stickers** | S3 `<prefix>/ops-config/stickers/<file>` (local `storage/stickers/`) | `GET /api/templates/assets/<file>` (302 to the CDN) | ops |
+| **Calendar styles / holidays / palettes** | S3 `ops-config/…`; git seeds under `storage/` are the default for keys S3 has never held | `/api/ops/calendar-styles/<name>`, `/api/ops/holidays/<locale>/<year>` | ops |
+
+**Production runs `STORAGE_BACKEND=s3`** (the code default is `local`); the S3 paths are live. Rules that keep them honest:
+
+- `S3Storage.read_calendar_asset`: a key ops deleted is a **tombstone** object (`x-amz-meta-pe-tombstone: 1`), never a removed key, so the seed cannot resurrect; a read S3 couldn't answer raises `CalendarAssetUnavailable` (503 uncached on previews, defaults uncached for fonts, retried render in the print) — never "no holidays". Only `NoSuchKey`/`AccessDenied` count as absent. Pinned by `test_calendar_assets_s3.py`.
+- Lists come from `list_calendar_assets` (seeds ∪ S3 − tombstones).
+- Masks print from S3 too: `_load_mask` reads local then S3, raises `FileNotFoundError`/`MaskUnavailable`, never prints without the mask (`test_mask_loading.py`). Uploaded masks and stickers are content-fingerprint named (`<layout>[_<target>]_mask_<sha256[:10]>.png`, `sticker_<sha256[:16]>.png`) so the CDN never needs invalidation.
+- **Mask/sticker CDN:** `S3_CDN_DOMAIN=cdn-product-editor.printo.in` → CloudFront `product-editor-masks` (`E3C4UVH2TRZVQ`, OAC, `CORS-With-Preflight` response headers — `fabric-renderer.ts` loads masks `crossOrigin: 'anonymous'`), Cloudflare CNAME **DNS only**. Bucket `pia-oms-uploads` is **shared** with RiderPro/POPS/Wiki: edit its policy by *adding* statements (one for `product-editor/masks/*`, one for `product-editor/ops-config/stickers/*`), never replace it, never let CloudFront write it. `pia-oms-user` needs `s3:PutObject` on `product-editor/*` — check that grant first if ops saves start failing.
+- **Backups:** `scripts/backup.sh` (pg_dump + ops-config from S3 via `backup_ops_config`, tombstones kept, + exact-count manifest; 7 daily / 4 weekly; runs on prod at 03:15 UTC), `scripts/restore.sh` (gated; runs `reapply_purges --since <dump ts>` after restore), `scripts/test-backup-restore.sh`. **The weekly tier is PII-free**: `PII_TABLES` in `backup.sh` are dumped schema-only and `uploads/` is left out, so customer data lives at most 7 days in backups. **Add any new table holding customer content or IPs to `PII_TABLES` and to the test.**
+- Never `git reset --hard` or `git checkout -- storage/` on prod (see HISTORY: storage divergence).
+
+**There is no SKU→layout mapping here.** printo.in resolves SKU → layout name and passes it to `POST /api/embed/session`. Both smoke tests assert `/api/sku-layouts/` is 404.
+
+## Layout templates
+
+A **template** is ops-authored decoration (background and paper colour, text, stickers) for one generic layout; the customer picks it, adds photos, every card gets the decoration. Not for calendars and books.
+
+- **The decoration lives on the customer's cards, not in the render path.** `layout-template.ts` is the one place a template is copied onto a card (`seedCard`, `applyTemplateToCards`); every copied overlay carries `templateId`, which keeps template decoration out of the re-pick confirm (`canvasHasRealEdits`) and tells a re-apply what to replace. A **sticker is an image overlay with `source: 'clipart'`** and an absolute `/api/templates/assets/<file>` src, rasterised at submit like an icon (`lib/icon-raster.ts`).
+- **A template never holds a customer file**: `services/template_decoration.py::validate_decoration` refuses `source: 'local'` and any `fileId`, checks percent coordinates, hex colours, https or ops-sticker `src`.
+- `?template=<id>` and `?template_flow=1` ride the editor address; `/editor/init?template=` returns the template with the layout (a 404/400 retries without it and shows a notice). `POST /api/embed/session` validates `template_id` and answers with `editor_url`; the session stores nothing new. **A restored design wins** over the address. **The picker opens first on a fresh design**: always on the dashboard, in the embed only with `template_flow=1`; "Start blank" is its close control. A pick before the first photo is autosaved (`activeTemplateId` trigger) and restored outside the cards guard.
+- Server: `api/views/templates.py`; `templateCount` on `GET /api/layouts` and the ops list is read per request, not cached. Ops pages under `/editor/layouts/templates/<layout>[/<id|new>]` (Ops tier). **"This card only / all cards" is not a per-edit prompt, by decision (2026-10-13)**: the picker's "Apply to all cards" is the only whole-design action; don't reopen without a new product ask.
+- Open: no Playwright or smoke coverage; no end-to-end render of a sticker design has been run.
+
+## Calendar product type
+
+A calendar layout is a multi-surface layout plus `productType: "calendar"` and a `monthRange + calendars[] + calendar` style block. Ops authoring at `/editor/layouts/calendar/[name]` (`CalendarLayoutEditor.tsx`, frames edited in **mm**, fractions stored); customers edit in the shared editor route (`CalendarSection.tsx`, `useCalendarEditor.ts`, `CalendarEditPanel.tsx` with `CalendarDayPicker.tsx`).
+
+**Render:** `LayoutEngine.generate()` calls `services/calendar_layout.py::materialize_surfaces()` (one template → 12 per-month surfaces with `displayLabel`, `year`, `month`, `holidays`, `activePalette`; honours `surfaceOverrides`); `monthRange.count == 1` aggregates all 12 onto one poster surface; each surface → `calendar_renderer.py::render_calendar()`; filenames from `displayLabel` (`January 2026.png`). Theme colours resolve server-side from `storage/calendar_styles/<preset>.json` (ops layout colours win); Gen-Z palette from `calendar.defaultGenzPalette` else `butter`; `calendar.monthTitle` can synthesise a per-month title overlay.
+
+**Customer state:** per-day entries are ONE flat `{ iso_date: [CellOverride] }` map (`calendarState.cells`); legacy 12-slot `cellsPerCanvas` arrays are still read and merged flat. **Photo → month:** the frontend caps photo canvases at 12; month *i* composites photo-canvas *(i mod N)*. `_extract_calendar_state` in `tasks.py` carries the customer's theme/type/palette and cells.
+
+**Holidays:** `storage/holidays/<locale>/<year>.json` (S3 on prod), locales `en-IN`, `generic`, years 2026–2030; refresh with `manage.py refresh_holidays --year <y>` (offline `holidays` package; keeps custom entries; maps names via `NAME_ALIASES`; *keeps* a stored date that disagrees with the source and warns — remove a wrong hand date first). Ops edit at `/editor/layouts/holidays`. **Auto-load (plus the locale) is the only holiday switch**; `holidaySource.showInCells` is retired and ignored — don't gate on it if it reappears. Previews show holidays only where the print carries them (`printedHolidayLocale` / `holidaySourceAsPrinted`).
+
+**Fail-safes (PRD §11):** Feb 29 toast when the resolved year is non-leap (entries kept); "Image expired — re-upload" banner when a cell image's upload is gone; English↔Financial flip warning counting orphaned entries; partial-render cleanup.
+
+Smoke: `scripts/smoke-test-calendar.sh`. Benchmark: a 12-surface render was ~1.8 s on the dev container; re-time through the engine if you need a number.
+
+## Book product type
+
+`productType: "book"`: the ops author writes `book.cover` and `book.innerPage` (optional `book.backCover`), each with its **own `canvas`**; page count is **customer state** (`book.pageCount: {min, max, step, default}`, `resolve_page_count` snaps **up** to the step grid); covers are addressed by role, never index. `services/book_layout.py::materialize_pages()` expands to a flat print-order list (front cover, page 1…N, back cover), mirroring `materialize_surfaces` (same `pageOverrides` semantics, `displayLabel`s like `"02 Page 01"` so an alphabetical ZIP listing is collation order). **Gutter mirroring:** `book.gutterMm / 2` shifted by page parity (odd binds left, even right), uniformly across a page's elements, capped by the least headroom; covers never shift. **Spine:** `(pageCount / 2) × paperThicknessMm + 2 × coverThicknessMm` — leaves, not sides; whether Catalog Ops means per-leaf is **unconfirmed** (sign off against a printed sample before a cover ships). Engine dispatch keys on `materialize_pages`'s `key`s (`cover`, `page_01`, …, `back_cover`); `_extract_book_state` carries the count. **`GenerateLayoutView` does not support books** and raises. Ops editor `/editor/layouts/book/[name]` (`BookLayoutEditor.tsx`; per-role mask upload `mask_<role>`; saves merge into the stored layout). Customer: `useBookPages.ts`. Files: `services/book_layout.py`, `lib/book-layout.ts`, parity fixtures `storage/parity-fixtures/book-layout.json`. Not built: smoke script, Playwright.
+
+## Auto-orientation
+
+`resolveRotation` (`editor-utils.ts`) combines two layers per photo; **rotate-to-fill runs first and wins** (ops decision): `shouldAutoRotate90` turns the photo 90° only when that brings its aspect ≥30% closer to the frame's and never in a near-square frame (ratio 0.8–1.25). Then **server-side MediaPipe Pose** (`POST /api/orientation/detect`, `services/orientation.py`, ~30–150 ms CPU) decides when rotate-to-fill didn't turn it. PDF pages skip both; calendar cell images use the pose model only.
+
+`AUTO_ORIENTATION_MODE=mediapipe|hybrid|off` (`docker compose restart backend` is enough); `/api/config` exposes it so the client skips the call when `off`; `detectFileOrientation` (`lib/ml-orientation.ts`) memoises per file identity. Models in `services/ml_models/` (Lite 5.5 MB, Full 9 MB). Runtime needs `libgl1` + `libglib2.0-0` or `import mediapipe` fails and the service silently disables itself. Inline rather than Celery because `generateCanvases` needs the rotation before drawing.
+
+## Hardening surfaces (grep these before touching related code)
+
+- **Never-lose-edits** — `canvas-merge.ts` plans reuse BY FILE IDENTITY; restore repopulates `files` from hydrated frames; "Replace photo" + "Photo missing" badge when `(fileId||fileName) && !originalFile`; lost added images (`isLostLocalImage`) block the submit and open the editor on Re-upload/Delete.
+- **Autosave never writes before the restore lands** — every `canvas-state` PUT goes through `scheduleAutosave`, armed only after `restoreSettled` flips (not `restorePending`, which the embed never sets). Autosave deliberately writes empty state, so an early write wipes the saved design. Don't add another writer.
+- **Embed order id** — `EditorInitView` echoes `X-Order-ID` as `order_id`; the page adopts it before `setLayout`; `CanvasStateView.put` prefers the header.
+- **Mobile** — `pinch-utils.ts` + pointer handlers for two-finger pinch; tap-to-swap (`swapCards`); bottom-sheet sidebar `<md`; per-card Blur toggle and swap button on the quick-action rail.
+- **Storage degrade** — `file-store.ts` falls back to memory when IndexedDB is blocked; `pruneStaleOrders()`; `FileStoreQuotaError`; photos stored once per `File` (`fileIdByFileRef`), reclaimed after a successful autosave (`reclaimUnusedFiles`, only this tab's records) and on restore (`pruneUnreferencedFiles`, >24 h); reference collection is a deep walk over every `fileId` (`file-refs.ts`), deliberately over-inclusive.
+- **Per-surface render grouping** — `surface_key` on every canvas → `_extract_canvases_meta` → `engine.generate(canvases_meta=…)`; an omitted side prints blank.
+- **Submit guards** — `lib/submit-guards.ts`: empty-surface + duplicate-fill warnings (qty auto-fill exempt via `intentionalDupesRef`). Warn-and-proceed.
+- **SSRF** — `services/url_safety.py`: `validate_public_https_url` at session-create AND `post_webhook_safely` at send time (pins the socket to the validated IP, `allow_redirects=False`). **Never `requests.post` a customer callback_url directly.**
+- **Rate-limit IP** — `_get_client_ip` and `clientIp()` trust nginx's `X-Real-IP` (else the right-most XFF hop), never the left-most.
+- **DPDP purge** — `DELETE /api/ops/orders/<order_id>/purge` (ops-only, not on the embed allowlist): hard-deletes uploads/exports/CanvasData/EmbedSession rows and files; `?api_key=<name>` scopes to one key, `?all_tenants=true` for all; only an all-tenant purge sweeps the upload folder (order ids are unique only per key). Every purge is recorded in `storage/purge_ledger.jsonl` (HMAC of order id, no order id stored) and `restore.sh` re-applies them. **Any test that calls `purge_order_data` must override `STORAGE_ROOT`.**
+- **Deploy fail-fast** — production requires `EMBED_INTERNAL_SECRET`, `AUTH_SECRET`, `DJANGO_SECRET_KEY`, `INTERNAL_API_KEY`; internal ports bind `127.0.0.1`.
+
+## Migrations
+
+Run only via the `backend` container. Current latest: `0022_apikey_daily_cap_opt_in`.
+
+| Migration | Change |
+|---|---|
+| 0001 | Initial schema |
+| 0002 | `CanvasData.callback_url` |
+| 0003 | `CanvasData.editor_state` + `UploadedFile.upload_session` |
+| 0004 | `CanvasData.updated_at` + GC index |
+| 0005 | `CanvasData` unique on `(order_id, api_key)` — tenant isolation |
+| 0006 | `EmbedSession.order_id` |
+| 0007 | `(is_deleted, created_at)` partial index on `ExportedResult`; drop `CanvasData.soft_proof`; `export_format` choices `png`/`pdf`; `EmbedSession.callback_url` |
+| 0008 | `CanvasData.render_state` — submit-time snapshot, separating the autosave writer from the submit writer |
+| 0009 | Consolidates drifted `RenderJob` indexes |
+| 0010 | `EmbedSession.include_uploads` |
+| 0011 | `UploadedFile.order_id` — order linkage at upload time, so erasure can find files |
+| 0012 | `expires_at` defaults + backfill on `UploadedFile` / `ExportedResult` — all sweeps on one stored clock. **Deploy before lowering `EXPORT_RETENTION_DAYS`.** |
+| 0013 | `CanvasData.image_paths` `default=list` (first autosave for a new order 500'd without it) |
+| 0014 | `APIRequest.api_key` → nullable `SET_NULL`, + `auth_source` |
+| 0015 | `EmbedSession.qty` (nullable) |
+| 0016 | `LayoutCatalogue` + idempotent import |
+| 0017 | Imported the production layouts |
+| 0018 | Index renames |
+| 0019 | `LayoutCatalogue.renamed_to` |
+| 0020 | `LayoutCatalogue.display_name` + backfill |
+| 0021 | `LayoutTemplate` |
+| 0022 | `APIKey.max_requests_per_day` → `PositiveIntegerField`, default blank (no cap), every existing unchosen value blanked; the field is enforced from here on |
+
+**Ownership contract:** `editor_state` is frontend-owned — written only by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written only by `EditorRenderView` at submit, read only by `render_canvas_task`. Never cross the streams.
+
+## API audit trail
+
+`APIRequest` rows are written by `APIRequestLoggingMiddleware`, one per API call (credential, `auth_source`, endpoint, status, duration, sizes, IP, UA, `error_message`). `/api/health`, `/api/config`, `/api/render-status/` and chunk `PUT`s are exempt (`AUDIT_EXEMPT_PREFIXES`); `/complete` is recorded. **If you add a high-frequency endpoint, exempt it; if you add one that touches customer data, make sure it is not exempt** (`test_audit_middleware.py` pins both). The write can never break a request. Rows are swept on `API_AUDIT_RETENTION_DAYS` (90). `error_message` carries the reason for every 4xx/5xx (framework rejections via `process_exception`); `request_size_bytes` grouped by status is the fastest way to find a payload problem. **Jobs per day comes from here, not from `RenderJob`** (`jobs_per_day` on `/api/celery/monitor/`, IST days, `dashboard` = `DIRECT` + `INTERNAL`, else embed — prod has no `INTERNAL` row while the two keys are equal, so `dashboard` is an upper bound). The daily request cap counts the same requests.
+
+## Deployment (`deploy.sh`)
+
+`./deploy.sh [frontend|backend|workers|both]` runs **on the prod server** (`ssh -i … ubuntu@…`, `/home/ubuntu/product-editor`) and **git-pulls `main` first** — push to `main` before deploying. It rebuilds images, migrates *before* swapping containers, force-recreates, health-checks, refreshes fonts, and syncs the nginx config. Prod `.env` is `/home/ubuntu/product-editor/.env`, not the same as local — edit in place (back up as `.env.bak.<ts>`), **never scp local over it**. A `deploy.sh` change takes effect on the deploy *after* the one that pulls it.
+
+- **A changed `nginx.conf` needs the proxy RECREATED, not reloaded** — it is a single-file bind mount (binds the inode; `git pull` replaces the file). `deploy.sh::sync_proxy_config` does this and verifies; manually: `docker-compose up -d --force-recreate proxy`, then `docker-compose exec proxy nginx -T | grep -c <your change>`.
+- **`entrypoint.sh` (web path) IGNORES its `$@`**: it always runs `migrate` → seeds `DIRECT`/`EXTERNAL`/`TESTING`/`INTERNAL` keys from env → `exec gunicorn`. Use `docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py <cmd>`. The celery paths honour `$1`. The container self-migrates on every boot.
+- **collectstatic runs at image build time** with an inline build-only secret; verify Dockerfile/settings changes with a clean build.
+- **Recovery when a deploy hangs:** `pkill -f "deploy.sh"`, `docker rm -f` the throwaway `*-backend-run-*` container, `docker-compose up -d`; verify 9 containers `(healthy)` and `/api/health` → 200.
+- Prod's `docker-compose` is the hyphenated 2.37.1 binary; profile-disabled services behave differently there than under the newer plugin.
+
+## Observability — owned outside this repo
+
+**This stack ships no monitoring services** (Loki/Grafana/Alloy were removed 2026-09-07; the server lead maintains monitoring). **Don't add them back**; point the external collector at container stdout — every service inherits `x-default-logging` (json-file, 50 MB × 3).
+
+| Signal | Where |
+|---|---|
+| Exceptions | **Sentry** — `SENTRY_DSN` (backend/workers), `NEXT_PUBLIC_SENTRY_DSN` (frontend), blank by default |
+| Container logs | `docker-compose logs <service>` — **lost on container recreation**, which every `deploy.sh` does; capture before redeploying |
+| nginx access log | JSON to stdout |
+| GC health | `garbage_collector.stale` / `.failing` + `disk` on `GET /api/celery/monitor/` |
+| API audit trail | `APIRequest` rows, 90 days |
+
+**Never put the production `SENTRY_DSN` in a local `.env`** (local runs label events `production`); if you enable Sentry locally set `ENVIRONMENT=local`.
+
+## Frontend Proxy Routes
+
+- **`/api/internal/proxy/[...path]`** — dashboard + editor; NextAuth session cookie → `INTERNAL_API_KEY`; 401 on `RefreshAccessTokenError`; the ops-tier gate (above).
+- **`/api/embed/proxy/[...path]`** — customer iframe; `X-Embed-Token` from `/api/embed/session`; the allowlist (above).
+
+`src/proxy.ts` (the auth gate) is unrelated to these despite the name.
 
 ## Environment Variables
 
-The runtime is driven by env vars (no per-environment Python/JS config files). All listed in `.env.example`.
-
-**Required in production:**
-
-| Var | Purpose |
-|---|---|
-| `PUBLIC_HOST` | Hostname nginx accepts (e.g. `product-editor.printo.in`); also baked into the bootstrap self-signed cert's CN |
-| `AUTH_SECRET` | NextAuth JWT signing secret (≥ 32 chars) |
-| `INTERNAL_API_KEY` | API key the internal proxy sends to Django. Its own independent value — as of `feat/independent-internal-api-key`, no longer required to equal `DIRECT_API_KEY`. `entrypoint.sh` seeds a dedicated `is_ops_team=True` "INTERNAL" row from it on every web boot (mirroring `DIRECT`'s access, since `/ops/*` proxy paths need the same reach — Django's `IsOpsTeam` inspects this service account's `is_ops_team` flag, not the human session, and a `create_api_key`-minted key is NOT ops-flagged by default). If this still holds an old value equal to `DIRECT_API_KEY` (from before the two were split), the seed step logs a warning and skips rather than failing the boot — dashboard/editor traffic keeps resolving via the `DIRECT` row in the meantime, so there's no rush to rotate it. |
-| `PIA_API_BASE_URL` | Upstream auth (default `https://pia.printo.in/api/v1`) |
-| `POSTGRES_*` / `REDIS_URL` | Standard infra |
-
-**Tunables with safe defaults:**
+**Required in production:** `PUBLIC_HOST`, `AUTH_SECRET` (≥ 32 chars), `INTERNAL_API_KEY` (its own value; `entrypoint.sh` seeds an ops-flagged `INTERNAL` row from it, skipping with a warning if it still equals `DIRECT_API_KEY`), `PIA_API_BASE_URL` (default `https://pia.printo.in/api/v1`), `POSTGRES_*` / `REDIS_URL`.
 
 | Var | Default | Effect |
 |---|---|---|
-| `DEBUG` | `0` | Defaults off — production-safe even when var is missing |
-| `MAX_UPLOAD_FILE_SIZE_MB` | `50` | Single source of truth — read by `settings.py`, `validators.py`, and chunked-upload init |
-| `MAX_IMAGE_DIMENSION_PX` | `16384` | Max allowed image side (px) at upload validation (`validators.py`). Raised from 8192 so high-res photos (48–65 MP) upload. Decompression-bomb guard only — Pillow's pixel ceiling (`Image.MAX_IMAGE_PIXELS`, 500 MP, set at startup in `api/apps.py`) caps total pixels and the engine smart-downscales sources |
-| `DB_CONN_MAX_AGE` | `600` | Persistent DB connection age in seconds; raise / set to `0` if PgBouncer is in front |
-| `CSP_REPORT_ONLY` | `True` | Both halves of the CSP emit headers but enforce nothing — flip to `False` once policy is validated. Read at runtime by Django but at **image build time** by the frontend (`next.config.mjs` `headers()` is baked into the build; docker-compose passes it as a build arg), so a flip only reaches the editor after a frontend rebuild — `./deploy.sh` does one, a restart or `up -d` does not. Check with `curl -sI https://product-editor.printo.in/login \| grep -i security-policy` |
-| `CELERY_CONCURRENCY` | unset | Celery auto-detects from CPU count; set to cap on shared servers |
-| `GC_STALE_AFTER_HOURS` | `36` | Age at which the last GC sweep reports `stale: true` on `/api/celery/monitor/`. 36 rather than 24 so a merely-late run doesn't cry wolf while a single missed night still trips it |
-| `GC_ORPHAN_SWEEP` | `dry_run` | Reclamation of export dirs no DB row accounts for: `off` / `dry_run` / `delete`. Reports only by default — it is the one sweep that deletes on absence of evidence. See "Orphaned export directories" |
-| `CHUNK_STAGING_MAX_AGE_HOURS` | `24` | Age at which an abandoned `UPLOADS_DIR/.chunks/<uuid>/` staging dir is reclaimed by the GC. Unlike the orphan sweep this one deletes by default — a stale staging dir holds only `.part` fragments unusable without the `/complete` call. See "Abandoned chunk-upload staging" |
-| `API_AUDIT_RETENTION_DAYS` | `90` | How long `APIRequest` audit rows are kept. Deliberately much longer than `EXPORT_RETENTION_DAYS` — the trail has to outlive the data it describes to answer "who touched this order". Swept by `garbage_collector_task` |
-| `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | Set to `False` if nginx already redirects HTTP→HTTPS (which it does by default; this var is redundant in the current setup) |
-| `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | Only honored when `DEBUG=1` |
-| `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` | `https://printo.in` | Last-resort fallback for `postMessage` targetOrigin if `ancestorOrigins` and `referrer` are both unavailable |
-| `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS` | `'self' https://printo.in https://*.printo.in` | CSP `frame-ancestors` directive applied to iframe entry pages. Override for staging / partner hosts |
-| `REDIS_URL` | `redis://redis:6379/0` | Celery broker (db **0**) |
-| `REDIS_CACHE_URL` | derived (`redis://redis:6379/1`) | Django cache (db **1**). Auto-derived by swapping the `REDIS_URL` trailing `/0` → `/1`. Override only if cache and broker need to live on different Redis instances |
+| `DEBUG` | `0` | Production-safe default. Don't flip it. |
+| `MAX_UPLOAD_FILE_SIZE_MB` | `50` | Single source for settings, validators, upload init |
+| `MAX_IMAGE_DIMENSION_PX` | `16384` | Max image side at upload; total pixels capped by the 500 MP ceiling |
+| `DB_CONN_MAX_AGE` | `600` | `0` if PgBouncer is in front |
+| `CSP_REPORT_ONLY` | `True` | Read at runtime by Django but at **image build time** by the frontend — a flip reaches the editor only after `./deploy.sh` rebuilds |
+| `CELERY_CONCURRENCY` | unset | auto from CPU count |
+| `GC_STALE_AFTER_HOURS` | `36` | |
+| `GC_ORPHAN_SWEEP` | `dry_run` | prod runs `delete` |
+| `CHUNK_STAGING_MAX_AGE_HOURS` | `24` | |
+| `API_AUDIT_RETENTION_DAYS` | `90` | must outlive the data it describes |
+| `EXPORT_RETENTION_DAYS` | `7` | **prod runs 3**; env changes need `up -d`, not `restart` |
+| `PURGE_LEDGER_RETENTION_DAYS` | `45` | |
+| `SECURE_SSL_REDIRECT` | `True` if `DEBUG=0` | redundant behind nginx |
+| `CORS_ALLOW_ALL_DEVELOPMENT` | `true` | only when `DEBUG=1` |
+| `NEXT_PUBLIC_EMBED_PARENT_ORIGIN` | `https://printo.in` | last-resort postMessage target |
+| `NEXT_PUBLIC_EMBED_FRAME_ANCESTORS` | `'self' https://printo.in https://*.printo.in` | CSP `frame-ancestors` on the iframe routes |
+| `REDIS_URL` / `REDIS_CACHE_URL` | `redis://redis:6379/0` / derived `/1` | broker vs cache |
+| `AUTO_ORIENTATION_MODE` | `mediapipe` | `hybrid` / `off` |
+| `STORAGE_BACKEND` | `local` | **prod runs `s3`** (+ `AWS_*`, `S3_BUCKET`, `S3_CDN_DOMAIN`) |
 
 ## Security Rules
 
-- API keys must never appear in URLs — use the `EmbedSession` token system
-- All file-serving endpoints must validate UUID v4 format on `upload_id` before opening any path derived from request input
-- New API endpoints must use `IsAuthenticatedWithAPIKey` permission; add `is_ops_team` check for internal endpoints. Note that a Django-side `IsOpsTeam` check does **not** restrict anything reached through the internal proxy — that path always presents the ops-flagged `INTERNAL_API_KEY` service account. Anything that must stay ops-only needs a gate in `route.ts` as well. See "Ops privilege model".
-- The login server action enforces a per-IP rate limit (5 attempts / 60 s, in-memory). If you scale the frontend container horizontally, replace it with a Redis-backed limiter — the in-memory `Map` in `src/app/actions/auth.ts` is per-process.
-- `DEBUG` defaults to off (`os.getenv("DEBUG", "0") == "1"`) — production-safe even if the env var is missing. Don't flip the default back.
-- django-csp ships in **report-only** mode (`CSP_REPORT_ONLY=True`). Watch DevTools and the violation reports; flip to `False` only after the policy has been validated against the editor (Fabric.js needs `'unsafe-eval'`) and the embed iframe (`frame-ancestors` allows `https://printo.in` and `https://*.printo.in`).
-- `redirect` callback in `pia-auth.ts` clamps `callbackUrl` — relative paths join to `baseUrl`, absolute URLs only allowed on same origin. Don't loosen this without thinking through open-redirect attacks.
-- **Embed proxy is allowlist-only** — `ALLOWED_PATH_METHODS` (prefix → allowed verbs; `ALLOWED_PATH_PREFIXES` is derived from it) in `src/app/api/embed/proxy/[...path]/route.ts`. New customer-facing endpoints must be added there explicitly; ops/admin paths must NEVER be added. The check runs *before* token resolution so attackers can't probe Django auth.
-- **postMessage `targetOrigin` must never be `'*'`** — use the `parentOrigin` resolver in the editor page. Eavesdropping risk: completion payloads include order_id, job_id, and dataUrls.
-- **`order_id` is regex-validated** server-side (`^[A-Za-z0-9_.\-]{1,64}$`). Don't relax to allow spaces / unicode — it flows into headers, logs, file paths, and CanvasData lookup.
+- API keys must never appear in URLs — use the `EmbedSession` token.
+- File-serving endpoints validate UUID v4 on `upload_id` before touching any derived path.
+- New API endpoints use `IsAuthenticatedWithAPIKey`; ops-only surfaces also need a gate in the internal proxy's `route.ts` (a Django `IsOpsTeam` check alone cannot restrict proxied traffic).
+- `DEBUG` defaults off. django-csp is report-only until the policy is validated (Fabric needs `'unsafe-eval'`; Google Fonts and Cloudflare's beacon are allowed).
+- The `redirect` callback clamps `callbackUrl`; don't loosen it.
+- **Embed proxy is allowlist-only**, path and method, checked before token resolution.
+- **postMessage `targetOrigin` is never `'*'`.**
+- **`order_id` is regex-validated**; don't relax it — it flows into headers, logs, file paths and lookups.
+- **Never `requests.post` a customer URL directly** — `post_webhook_safely`.
 
 ## Known Issues
 
-**P1 — autosaves silently rejected — FIXED 2026-09-10 (PR #134).** 37% of
-`canvas-state` PUTs were `400`s on the 10 MB body limit because `editor_state`
-embedded base64 canvas previews (16 MB average, 93 MB peak). Previews are no
-longer persisted. The measurements and the reasoning are under "Fixed" below;
-until 2026-10-13 this section still presented it as open.
+No open P0/P1. Watch list:
 
-No open P0/P1 issues. Previously tracked items B1, B4 and B5 have all shipped — see "Fixed" below for what each does and how to extend. B3 shipped and was later removed.
-
-**Watch list (not blocking):**
-- NextAuth 5 is still in beta. The `(session as any)` casts have been removed, but if you bump the version, recheck `next-auth.d.ts` against the upstream `Session` / `JWT` shapes.
-- ESLint: `pnpm lint` reports 0 errors and 0 warnings as of 2026-10-08 (the last one, an unused `short` in `QtyShortfallWarning`, went in PR #220) — the ~56 `no-unused-vars` warnings were cleaned up in PR #137.
-- 0 explicit `as any` casts remain in non-test source (down from 98). Plain `any` annotations still exist (`layout: any` props, `NormalizedLayout._raw`, `(e: any)` Fabric handlers), so `@typescript-eslint/no-explicit-any` stays `off` in eslint.config.mjs — re-enable only after those are typed.
-
-### Fixed
-
-- **Overlay print/preview drift (2026-10-13).** Text, shape and image overlays exist in three renderers (see "Three Frame Renderers — the drift trap"), and the print disagreed with both previews on text size, wrapping, alignment and shape geometry. Measured on the fix: `fontSize: 72` on an 1800 px-tall layout printed a capital H **118 px** tall against **53 px** in the editor; it now prints **53 px** (Inter's cap height is 0.7275 em), and the same size on an 800 px layout prints the same 72–73 px H it always did — `overlay_renderer._draw_text` was multiplying `fontSize` by `canvas height ÷ 800` when the editor's Fabric canvas already *is* the layout's print size, so `fontSize` is print px and is now used unscaled. What each renderer does now, and what it did:
-  - **Wrapping.** `TextOverlay.width` (% of canvas) is the box the text wraps in, saved by `FabricEditor`'s `object:modified` handler whenever the customer resizes the box (a corner-handle scale is folded into `fontSize` and `width`, and the object reset to scale 1 — before, the scale was dropped and the text snapped back). Legacy overlays without it get 80% of the canvas on all three sides (`DEFAULT_TEXT_BOX_WIDTH_PCT` in `lib/overlay-text.ts` and `services/overlay_renderer.py`). Both Fabric previews now build the Textbox with that width and wrap by word (the editor used `splitByGrapheme: true`, breaking words at any character; the thumbnail had no width, so every word sat on its own line); the print runs Fabric's own algorithm — `wrap_text`: split on single spaces/tabs, greedy, break on `>` the box, a word wider than the box never broken and the box widened to it, hard newlines kept — measured with the same font file, then `layout_text` places lines `fontSize × 1.13 × 1.16` apart, the block centred on `y`, each baseline `fontSize × 1.13 × 0.778` below its line's top, and the line left/centre/right in the box by `textAlign`. An absent `textAlign` is centre in the print too (it was left).
-  - **Shapes** (still dormant — no UI creates them). The print draws from `services/shape_catalog.py`, the Python twin of `lib/shape-catalog.ts`: rect, rounded-rect (radius 15% of the shorter side), circle (radius `min(w, h) / 2`, centred in its box — it used to fill the box), ellipse, triangle (apex top-centre), the catalogue polygons (diamond, hexagon, pentagon, placed by their point bounds) and every path shape (arrows, chevron, star, heart, cross, plus, badge, speech bubble, cloud) through an SVG flattener (M L H V C Q S T Z, absolute and relative, 24 samples per curve), placed by the path's bounds and scaled by `(w/100, h/100)` exactly as Fabric places a Path — a star fills 94% × 88% of its box, in the print as in the preview. An unknown key draws the rectangle path (what the preview shows) with a warning; a path with arcs or garbage is skipped with a warning, never printed as a rectangle. `strokeWidth` is print px: unscaled in the print, and now scaled by the thumbnail multiplier in `fabric-renderer.ts` (it was drawn at full size on the small card); the stroke is centred on the geometry's edge and `x/y` is the corner of the box *including* the stroke, as Fabric places a stroked object; a Path's stroke scales with the path (Pillow draws the mean of the two axes). An absent `fill` is transparent (as the previews), not black. In `FabricEditor.tsx`, `handleModified` reads each shape back the way `createShapeFromOverlay` built it (`lib/overlay-geometry.ts`): a circle's `left/top` is its centre, so the box top-left is centre minus half the size (it jumped half its size on every move); a Path's size is its scale (`width × scaleX` shrank a star 6% per move); a polygon's through its point bounds; and the in-place update sets a path's scale rather than its width.
-  - Pinned by `services/tests/test_overlay_text_layout.py` (14: unscaled size on 800 and 1800 px canvases, baseline 0.314 em below `y`, centre default, Fabric wrapping and line pitch), `test_overlay_shape_geometry.py` (19: stroke placement, circle/ellipse/triangle/star/unknown/arc cases, transparent default, opacity), `test_shape_catalog_parity.py` (6) and, on the client, `src/lib/__tests__/overlay-text.test.ts`, `overlay-geometry.test.ts` and `shape-catalog.parity.test.ts`; `test_overlay_rotation_pivot.py` and `test_overlay_integration.py` pass unchanged. Not changed: Fabric measures glyphs with the browser's text engine and Pillow with FreeType, so widths differ by a pixel or so and a line that sits within a few px of the box edge can still break differently; kerning from a GPOS table is applied by the browser and not by Pillow's basic layout.
-
-- **v1.10 — Cover-mode white-space bug.** `calculateSmartCropOffsets` ([fabric-renderer.ts](frontend/nextjs/src/app/editor/layout/[name]/fabric-renderer.ts)) now clamps the returned offset to `±(scaled_dim − frame_dim)/2` per axis. Previously the function returned a smartcrop-driven offset with no awareness of the frame's actual pan room — when the constraining axis had zero overflow, the raw offset shoved the image past the frame edge and exposed white inside the frame (visible mostly on portrait photos in 5×7 portrait layouts).
-- **v1.10 — Editor drag clipPath fix.** Frame-image `clipPath` is in image-local coords, so during `object:moving` Fabric updated `img.left/top` in real time but the clipPath drifted with the image. The visible "window" moved with the image instead of staying fixed in the frame, and the user saw the same cropped centre throughout. `updateRelativeClipPath` is now invoked on every `object:moving` / `:scaling` / `:rotating` event in [FabricEditor.tsx](frontend/nextjs/src/app/editor/layout/[name]/FabricEditor.tsx), not only on `:modified`.
-- **v1.10 — Imposition modal: Custom W×H inputs.** Selecting `CUSTOM` previously left users stuck at whatever `widthIn`/`heightIn` was last in state because the modal had no UI to edit them. Inch inputs now render gated on `preset === 'custom'`. Modal styling tightened: `rounded-[40px]` shell → `rounded-2xl`, `font-black` everywhere → `font-semibold`/`font-medium`, padding/gaps `p-8`/`space-y-8` → `p-6`/`space-y-5`. Smart-auto-repeat copy reflects the actual custom dimensions.
-- **v1.10 — Smartcrop IDB cache wiring.** Three call sites in `page.tsx` (`generateCanvases`, `generateCanvasesForLayout`, fit-mode change handler) were calling `calculateSmartCropOffsets` without a `cacheKey`, so the IDB-backed cache (`getCachedCrop`/`setCachedCrop` in [file-store.ts](frontend/nextjs/src/lib/file-store.ts)) was bypassed for the editor mount path. They now pass content-fingerprint keys (`name:size:lastModified:WxH:rotation`).
-- **v1.10 — Editor parallel-batch tuned.** `BATCH_SIZE` in `generateCanvases` raised 5 → 8. Roughly halves metadata + smartcrop wall time on 100+-photo uploads; peak memory still well below OOM zone on typical tablets (~400 MB peak vs the OOM zone at ~700 MB on 4 GB devices). 16 was tested mentally and rejected — too risky on low-RAM tablets for 200-photo batches.
-- **v1.10 — `_smart_downscale` defensive copy removed.** [`engine.py`](backend/django/layout_engine/engine.py) called `img = img.copy()` before `img.thumbnail(...)`. The source RGBA was already a fresh per-frame allocation, so the copy was wasted ~50 MB memcpy per 12 MP frame (tens of GB across a 200-canvas batch). Caller already reassigns the return value, so in-place mutation is safe.
-- **v1.10 — Hot-path debug logs gated.** `log()` is a no-op in prod but JS evaluates arguments at call sites. Wrapped 9 hot-path call sites in [FabricEditor.tsx](frontend/nextjs/src/app/editor/layout/[name]/FabricEditor.tsx) behind `if (_DEV)` blocks: canvas-build summary (with `JSON.stringify(layout)` × 2 + per-frame forEach), full-rebuild summary, in-place update header, paper/bleed/safe-zone updates, frame-image-calculation, getPaperPath per-frame log. Saves ~5–15 ms/sec of dead computation during interactions on slower devices.
-- **v1.10 — Redis DB split.** Django cache moved to db `1`; Celery broker stays on db `0`. Same instance, separate logical DBs, so the cache's `allkeys-lru` eviction policy can no longer drop in-flight Celery messages under cache pressure. Settings derives `REDIS_CACHE_URL` from `REDIS_URL` by swapping `/0` → `/1` unless explicitly overridden.
-- **v1.10 — Docker log rotation.** Top-level `x-default-logging` YAML anchor in [docker-compose.yml](docker-compose.yml) caps every service's json-file logs at 50 MB × 3 rotations (~150 MB ceiling per service). Without this, `/var/lib/docker/containers/<id>/*-json.log` would grow unbounded.
-- **v1.10 — Ops layouts list cache.** `LayoutManagementView.get` ([api/views/layout_admin.py](backend/django/api/views/layout_admin.py)) now mirrors `ListLayoutsView` — Django cache key `ops_layouts_list_all` (2-min TTL) + `Cache-Control: private, max-age=60, stale-while-revalidate=120`. Invalidated on PUT/POST via `cache.delete_many([...])`.
-- **v1.10 — Service Worker.** Minimal SW at [`public/sw.js`](frontend/nextjs/public/sw.js) registered from `<ServiceWorkerRegistration />` in root layout. Cache-first for `/_next/static/*` and `/static/*` (both content-hashed, safe to keep forever); same-origin GETs only; non-static paths fall through. `skipWaiting` + `clients.claim` so updates take effect without a hard refresh. Activate handler sweeps prior `pe-static-*` caches. Production-only registration. To bust caches: bump `CACHE_VERSION` in `public/sw.js`.
-- **Orphan export sweep armed (2026-09-10).** `GC_ORPHAN_SWEEP=delete` runs on production, finding and deleting export directories no database row accounts for (stranded when render jobs die mid-flight). Five independent safety guards all must hold before deletion: UUID-format name, not in live RenderJob/ExportedResult/CanvasData, and age > retention+1 day (keeps in-flight renders safe). Latest health check: 244 dirs scanned, 0 orphans, all accounted for in DB. See `services/orphan_exports.py` for implementation.
-- **B1 — Canvas state file persistence.** `src/lib/file-store.ts` is an IndexedDB store keyed by `(orderId, fileId)`. Each frame and image overlay carries an optional `fileId` (UUID) on `FrameState` / `ImageOverlay`. A self-stabilising effect in `editor/layout/[name]/page.tsx` walks `surfaceStates` after every change, persists any `originalFile` that lacks a `fileId`, and patches the new id back into state. The auto-restore effect calls `getFilesForOrder(orderId)` and rehydrates `originalFile` for any frame/overlay whose `fileId` is in the IndexedDB map. **For image overlays**, restore also re-creates `src` via `getFileUrl(file)` because the previous session's blob URL is revoked — without this fix overlays appear broken in the modal. Net effect: refreshing the page restores not just dataUrl previews but the original Files (and live blob URLs) needed to re-render.
-  **Store once, delete what's dropped (2026-09-29).** The effect patches fileIds into `surfaceStates` only, and the `canvases → surfaceStates` sync copies the active surface's id-less `canvases` back on the next edit — so every edit stored every photo again (3 photos + 3 rotates = 12 records, reproduced). Ids are now keyed by `File` object (`fileIdByFileRef`), so a photo is stored once however often it is re-patched or placed. Records are deleted after a **successful autosave** once neither the saved design nor current state references them (`reclaimUnusedFiles` — only records this tab saved or restored, so another tab's are never touched), and on restore via `pruneUnreferencedFiles` for records older than 24 h. A photo brought back after deletion (modal undo) is stored again (`deletedFileIdsRef`). Reference collection is a deep walk over every `fileId` key (`file-refs.ts`) — deliberately over-inclusive, because missing one deletes a photo the design still shows.
-- **B3 — SKU → layout resolution. REMOVED 2026-09-04.** Shipped Apr 2026 as `storage/sku_layouts.json` plus `SKULayoutView`, then deleted whole: printo.in owns SKU→layout resolution and passes the resolved layout name into `POST /api/embed/session`, so a second mapping here was one more place to drift. The mapping never carried real data. Kept in this list because the endpoints were public for four months and something may still call them — both smoke tests now assert 404.
-- **B4 — ESLint flat config.** Replaced `.eslintrc.json` with `eslint.config.mjs`. `pnpm lint` now runs `eslint src` directly (Next.js 16 removed the `next lint` subcommand). The strict TypeScript preset is intentionally not loaded — see watch list above.
-- **B5 — Stale `.next/` cache.** Added `pnpm clean` (deletes `.next/`) and `pnpm dev:clean` (clean + start dev). If you ever see Next.js routes 404 in local dev, run `pnpm dev:clean` instead of `pnpm dev`.
-- **P1: Autosave payload bloat fixed (2026-09-10).** Strip base64 `data:` URL previews from `editor_state` serialization to eliminate 10 MB limit failures. 37% of autosaves were silently failing with 400 responses (28 GB of 75 GB traffic discarded over 27 days). Fix: (1) set `dataUrl: null` in `serializeCanvasState()` to reduce typical 15–32 MB payloads to <5 MB, (2) regenerate previews asynchronously on restore via new `regenerateCanvasPreviews()` callback. Runs in background so previews appear as they're ready without blocking UI. Changes: [`page.tsx`](frontend/nextjs/src/app/editor/layout/[name]/page.tsx) +36 lines. Merged PR #134. Measured 2026-09-04 from `api_requests` over ~27 days: 1,326 `201` (first save, 3 kB each), 1,333 `200` (2.4 MB average), and 1,569 `400` averaging 16 MB — 28 GB of autosave traffic, ~25 GB of it discarded on arrival; `canvas_data` was 422 MB of TOAST for 166 rows. Confirmed by experiment: a 1 MB body returned `201`, a 12 MB one `400`. It stayed invisible because renders use `render_state`, a same-browser refresh recovers from IndexedDB, and Django rejected the body before the view ran, so nothing was logged — only a customer resuming a large order on another device lost work. **Do not fix it by raising the limit.** At 16 MB average and 93 MB peak that makes gunicorn buffer those bodies per concurrent request on a 2-core box with a 2 GB worker cap — trading silent save failures for OOM under load. Strip the previews from what is persisted instead; they are regenerable by `renderCanvas` in `fabric-renderer.ts`. The success signal is the `400` rate reaching zero, not the payload size.
-- **Autosave overwrote saved designs on a slow restore (2026-09-29, PR #166).** A restore GET slower than the 2 s debounce let autosave PUT pre-restore state over the saved design: the calendar/book writers had no guard, and the main writer's `restorePending` guard was off in the embed flow. Reproduced locally to a permanent wipe ("No images selected" on return). See "Autosave never writes before the restore lands" above.
-- **Customer calendar preview showed holidays the print didn't carry (2026-09-29, PR #173).** `editor/layout/[name]/page.tsx` loaded and drew holidays for every calendar layout, while the print (`materialize_surfaces`) includes them only when `calendar.holidaySource.enabled` is on — so a layout with auto-load off previewed holiday dots (and holiday badges in the per-day panel) that never printed, in both the dashboard and embed flows. The page now resolves `printedHolidayLocale(item.calendar)` at load: `null` means no holiday fetch and an empty list to `CalendarProductPreview` / `CalendarEditPanel`. It follows the server on the edge cases too — an absent block means no holidays, and a missing locale means `generic`, not the `en-IN` the page used to assume. Pinned by the parity pair described under "Three Frame Renderers". No real layout was affected at the time: the only calendar layout (locally and in the committed prod snapshot) has holidays on, with a locale. The ops preview got the same gate in PR #171. The matching ops-side gap was closed the same day (PR #175): `CalendarLayoutEditor` used to fill an absent `holidaySource` from its new-layout default (`enabled: true`), so an old block-less layout previewed holidays in the ops editor and gained them in the print on its first ops save; a partial `{enabled: true}` block also left the locale select empty and previewed `en-IN` while the print used `generic`. Existing layouts now open through `holidaySourceAsPrinted` (see the `CalendarLayoutEditor.tsx` bullet under "Calendar-feature components"), held to the same `calendar-holidays.json` fixture. Again no real layout changed: the only one, locally and on prod (checked read-only), carries a complete enabled block. `holidaySource.showInCells`, which the print and both previews also ignored, was retired on 2026-09-29 (PR #177) rather than wired up — see the `CalendarLayoutEditor.tsx` bullet. The only layout carrying it (`showInCells: true`, locally and on prod) prints exactly as before.
+- NextAuth 5 is still in beta; on a bump recheck `next-auth.d.ts` against upstream.
+- Plain `any` annotations remain (`layout: any`, `NormalizedLayout._raw`, Fabric handlers), so `no-explicit-any` stays `off`.
+- Not changed by the overlay drift fix: Fabric measures glyphs with the browser and Pillow with FreeType, so a line within a few px of the box edge can still break differently, and GPOS kerning applies in the browser only.
 
 ## What to Do Next
 
-The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0** — §8.1/§8.2 below it are a historical audit trail, not open work. The items below are the subset that touches this codebase or its deploy.
+The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0**. Printo.in's storefront integration is confirmed live in production (callback traffic from `alpha.printo.in` is production traffic). Open follow-ups touching this codebase:
 
-**Webhook consumption is confirmed working, verified 2026-09-11** — this reverses what this file said until that date. 43 real `EmbedSession` rows carry a live `callback_url` (`https://alpha.printo.in/api/pe-callback`), spanning a full week (2026-09-04 through 2026-09-11) of real order traffic. The corresponding 45 ZIP-download fetches by the real "Printo.in Storefront" API key all returned `200`, three per job (matching the print/mock/uploads split archives) — cross-checked against a real order (576430) showing an attached, in-production design file in Printo's internal ops tool. Detail in [docs/PRD.md](docs/PRD.md) §4.2 B7. **Closed 2026-10-13:** printo.in confirmed the integration is pushed to their production storefront and working, so the `alpha.printo.in` callback traffic above is production traffic. (The SKU→layout mapping was the other half of this gap until 2026-09-04, when it was removed and handed to printo.in.) With this resolved, production sign-off (§8.0 item 3) is now the main thing standing between here and rollout.
-
-### Before / during the next `./deploy.sh`
-
-1. **Generate a Cloudflare Origin Certificate** — CF dashboard → SSL/TLS → Origin Server → **Create Certificate**. Defaults are fine (RSA 2048, 15-year). Hostnames: `product-editor.printo.in` (and / or `*.printo.in`). Paste the cert body into `proxy/nginx/certs/origin.crt` and the private key into `proxy/nginx/certs/origin.key`. `chmod 600 origin.key`. Then in CF set SSL/TLS mode to **Full (strict)**. If you skip this step, `deploy.sh` will generate a self-signed cert as a bootstrap — works only with CF "Full" (not "Full (strict)").
-2. **(Optional) Add `MAX_UPLOAD_FILE_SIZE_MB=50`** to prod `.env` if you want a non-default ceiling. Default 50 if absent.
-3. **(Optional) Add `CSP_REPORT_ONLY=True`** — already the default; only set explicitly if you want to flip it later.
-4. **Rebuild the backend image.** `requirements.txt` gained `django-csp==3.8` and the Dockerfile is now multi-stage. `deploy.sh` already runs `docker-compose build`, so this happens automatically.
-5. **Check for unapplied migrations.** The backend container self-migrates on boot, so a normal deploy needs nothing here — but confirm with `docker-compose exec backend python manage.py showmigrations api` and compare against the Migrations table (latest is `0021_layouttemplate`). Only migrate from the `backend` container, never from a worker or beat container.
-6. **Verify healthchecks come up green** — `docker-compose ps` should show `(healthy)` next to `proxy`, `backend`, and `frontend`. The proxy probe hits `/nginx-health` on localhost:80; the backend probe hits `/api/health`; the frontend probe hits `/`. `proxy` `depends_on: backend: { condition: service_healthy }` so a slow backend blocks proxy startup until ready.
-7. **Smoke-test login on prod** — bad password should still say "Invalid credentials"; if PIA is reachable, login should succeed. The new error-code distinction (PiaTimeout / PiaServiceUnavailable) only surfaces during actual outages.
-
-### Edge proxy (nginx)
-
-Routing, TLS, and tunables live in [`proxy/nginx/nginx.conf`](proxy/nginx/nginx.conf) — single source, no per-service labels. The `certs/` workflow: paste a Cloudflare Origin Certificate (`SSL/TLS → Origin Server → Create Certificate`, RSA 2048, 15-year, hostnames `product-editor.printo.in` or `*.printo.in`) into `proxy/nginx/certs/origin.crt` and the matching key into `proxy/nginx/certs/origin.key` (`chmod 600`). Set Cloudflare SSL/TLS mode to **Full (strict)**. Skip → `deploy.sh` generates a self-signed bootstrap that requires CF "Full" (not strict). Notable behaviour:
-
-- `^~ /api/auth/`, `^~ /api/internal/proxy/`, `^~ /api/embed/proxy/` → frontend:3000
-- `^~ /django-admin/` → backend:8000, gated by nginx `auth_request` against `frontend:3000/api/internal/verify-django-admin` (checks the PIA/Google session for `is_staff` via `lib/roles.ts`; denied → `@django_admin_denied` → the `/django-admin-denied` page). Not basic-auth anymore — `proxy/nginx/.htpasswd` is gone from the repo entirely, so don't go looking for it. **There is also no second Django password** — see below.
-
-### Django admin SSO (no second login)
-
-Passing the nginx gate now signs you into the admin. It used to grant nothing
-towards Django's own `auth_user` login, which meant the admin was unusable
-without a separately-created Django account — and on 2026-09-04 production had
-**zero** `auth_user` rows, so it was unreachable for everyone including
-superusers.
-
-How the identity crosses: `verify-django-admin` returns `X-PE-Admin-Id` /
-`-Email` / `-Exp` / `-Sig` on its 200; nginx lifts them off the subrequest with
-`auth_request_set` and forwards them; `product_editor/admin_sso.py`
-(`DjangoAdminSSOMiddleware`) verifies and logs in, provisioning an `auth_user`
-with `is_staff` + `is_superuser` and **no usable password** on first sight.
-
-**The signature is not decoration.** `proxy_set_header` stops a browser forging
-those headers *through nginx*, but anything reaching `backend:8000` directly on
-the Docker network could otherwise mint itself `is_superuser` over every table.
-The frontend therefore HMAC-signs the identity with a key derived from
-`EMBED_INTERNAL_SECRET` (`HMAC(secret, "django-admin-sso/v1")` — purpose-bound,
-so a signature can't be replayed into the embed-token path that shares the env
-var), over `id\nemail\nexp` with a 60 s TTL. Django rejects a bad signature, a
-tampered field, an expired stamp, and an absurdly distant one. If either side's
-derivation changes without the other, `services/tests/test_admin_sso.py`
-(16 tests, DB-free) fails on its parity case.
-
-`is_staff`/`is_superuser` are asserted on **every** request, not just at
-creation: PIA is the source of truth, so a flag granted there shouldn't need a
-Django-side edit. The corollary is that a deliberately-limited `auth_user` whose
-username collides with a PIA employee id **will be raised to superuser**.
-
-Two traps worth knowing:
-
-- **`ProxyAuthenticationMiddleware` guarded `/admin/` until 2026-09-04**, while
-  the admin has been mounted at `/django-admin/` since the initial commit — so
-  the "must arrive via the proxy" check had never once run. It matters now, so
-  it keys off `admin_sso.ADMIN_PATH_PREFIX`. Don't reintroduce a literal.
-- **The PIA flags are captured only at sign-in.** The `jwt` callback sets them
-  inside `if (user)`; token refresh returns the existing token. A flag granted
-  in PIA after someone's last login does not reach their session until they
-  sign out and back in, and refreshing the page never helps. Read
-  `/api/auth/session` to see the truth, and `[pia-login]` in the frontend logs
-  to see what PIA actually sent — it prints every flag with its type plus the
-  full key list, which is what finally settled a day of guessing about
-  `is_super_user`.
-- `^~ /api/` → backend:8000 (`proxy_buffering off`, `proxy_read_timeout 600s` for streaming ZIPs + sync renders)
-- `/` (catch-all) → frontend:3000
-- HTTP→HTTPS redirect on port 80
-- Real client IP via Cloudflare's `CF-Connecting-IP` header (CF IP allowlist hard-coded; refresh annually from <https://www.cloudflare.com/ips/>)
-
-### Open follow-ups (not blocking)
-
-Mirrors [docs/PRD.md](docs/PRD.md) §8.0 — if you close one, close it in both places. The first two rows are the ones that actually gate the product outcome; everything below them is hygiene.
-
-| # | Action | Owner |
-|---|---|---|
-| ~~**Sweep expired `EmbedSession` rows**~~ **DONE** (2026-09-10) | ~~Rows are never deleted after the 2 h token expiry, so order-linked data (`order_id` + caller `callback_url`) grows unbounded. Add a GC pass for sessions older than ~30 days.~~ Implemented in `garbage_collector_task`: deletes sessions with `expires_at < (now - 30 days)`. Wired at line 1312-1325 of `api/tasks.py`, results reported under `garbage_collector.embed_sessions_deleted`. Commit `56a2136`. | Kanna |
-| ~~**API surface separation**~~ **DONE** (2026-09-04, PR #133) | ~~Remove the unreachable synchronous helper in `GenerateLayoutView` (`api/views.py:566`) and route direct-partner + editor/embed submissions through one shared render-submission service.~~ Completed in commit `3070706`: `RenderSubmissionService` now used by both `GenerateLayoutView` and `EditorRenderView`. Unified `CanvasData` upsert / `RenderJob` creation / queue selection / dispatch. | Kanna |
-| ~~**Unify LayoutDef shape**~~ **DONE** (2026-08-14, commit 713bb5b) | ~~The 10 `(layoutDef as any)?.surfaces?.[0]` casts in `editor/layout/[name]/page.tsx` are about a discriminated layout shape (canvas-on-root vs surfaces-array).~~ Shape unified via `getCanvasSpec()` and `getFrames()` helpers in `src/lib/layout-utils.ts`. Replaced all 10 `as any` casts in page.tsx with type-safe discriminator calls. Reduced explicit-any count from 31 to 21 in that file. Can re-enable `@typescript-eslint/no-explicit-any` to `error` once remaining 21 are addressed separately. | Kanna |
-| ~~**Sticker CDN read on prod**~~ **DONE** (2026-10-13) | ~~Add one statement to the `pia-oms-uploads` bucket policy granting the `product-editor-masks` CloudFront distribution (`E3C4UVH2TRZVQ`) `s3:GetObject` on `product-editor/ops-config/stickers/*`, beside the existing mask statement, never replacing it. Until then a template sticker previews as a broken image on prod (the server 302s to a CDN URL that answers 403).~~ Statement added beside the mask statement (not replacing it) and verified the same day: `GET /api/templates/assets/<file>` answers 302 to the CDN, which serves the PNG with `200`, `image/png` and CORS `*`. See "Layout templates" → Storage. | Kanna |
-| ~~**Templates: decide the "all cards" behaviour**~~ **DECIDED** (2026-10-13) | ~~Built as per-card edits plus "Apply to all cards" in the picker. If the per-edit "this card only / all cards" prompt is wanted, every save of the canvas editor needs intercepting; plan it as its own PR.~~ Kanna chose to keep "Apply to all cards" in the picker as the only whole-design action; the per-edit prompt will not be built. No code change. | Kanna |
-| Monitor CSP violations | Reports land in Sentry and the backend log (`CSP violation: directive=… blocked=…` from `CSPReportView`; the log resets on every container recreate, so Sentry is the history). Google Fonts was the one known gap — allowed on both halves 2026-09-29. **One more surfaced 2026-10-13:** prod's backend log (since that morning's deploy) holds a single violation, `script-src-elem` blocking `https://static.cloudflareinsights.com/beacon.min.js` on `/dashboard` — Cloudflare's Web Analytics beacon, injected at the edge by Cloudflare, not by this app. Allowed in `script-src` on both halves the same day (`next.config.mjs` and `CSP_SCRIPT_SRC`); its RUM POSTs were already covered by the `https:` in `connect-src`. The CDN and S3 hosts the mask and sticker previews load from need nothing: `img-src` and `connect-src` already allow any `https:` origin. The backend log only reaches back to the last container recreate, so check Sentry for anything older. Then set `CSP_REPORT_ONLY=False` in prod `.env` and run `./deploy.sh` (the frontend must be rebuilt, see the env table). | Kanna |
-| ~~**Clean up 56 lint warnings**~~ **DONE** (2026-09-11, PR #137) | ~~`pnpm lint` lists them — all `no-unused-vars` (dead imports, unused state setters, unused destructured params). Easy local cleanups; non-blocking.~~ `pnpm lint` now exits 0. Also fixed the `structuredClone` config error (Node 16 vs the Node 22 this repo needs) and added `argsIgnorePattern`/`varsIgnorePattern: "^_"` to `@typescript-eslint/no-unused-vars` to match the codebase's existing underscore-prefix convention. A handful of bindings referenced only by deliberately-commented-out "hidden per request" UI blocks were kept (with targeted `eslint-disable-next-line`s) rather than deleted, since removing them would have undone that stated intent. `pnpm typecheck` and the full Jest suite (510 tests) still pass. | Kanna |
-| ~~**printo.in webhook endpoint**~~ | ~~Their backend needs to: (1) accept `POST /api/internal/pe-callback` with the v1.8 webhook payload, (2) verify `X-Signature` HMAC against the api_key, (3) fetch `mock_download_url` and `print_download_url` with the api_key as Bearer auth into their separate mock/print fields (or `download_url` for the combined archive), (4) attach them to the order.~~ **Confirmed built and working, verified 2026-09-11** — 45 real ZIP-download fetches (all `200`) by the real "Printo.in Storefront" API key over a full week, cross-checked against a real order (576430) with an attached design file visible in Printo's ops tool. Verified against `alpha.printo.in`; confirm with printo.in whether that's production or pre-production. Their frontend can also listen for `pe:render_job` postMessage for "preparing your design" UX — not independently confirmed. | ~~printo.in backend + frontend~~ |
-| Rate limiter → Redis | If the frontend container is ever scaled horizontally, swap the in-memory `Map` in `src/app/actions/auth.ts` for a Redis-backed limiter. Current single-process limiter is fine for the current single-replica deploy. | Kanna / DevOps |
+| Action | Owner |
+|---|---|
+| **Flip CSP to enforcing.** Report-only since April. Check Sentry for `CSP violation` events over the last couple of weeks; if the only sources are the already-allowed ones (Google Fonts, Cloudflare beacon), set `CSP_REPORT_ONLY=False` in prod `.env` and `./deploy.sh` (the frontend must rebuild). Roll back by flipping it back and deploying again. | Kanna |
+| Rate limiter → Redis if the frontend container is ever scaled horizontally (`actions/auth.ts` is in-memory). | Kanna / DevOps |
+| Templates: Playwright and smoke coverage; one end-to-end render of a sticker design. | Kanna |
+| Book spine convention: confirm per-leaf vs per-side thickness against a printed sample. | Catalog Ops |
+| Big files: `editor/layouts/page.tsx` (~1,930 lines, one component) and `components/CalendarLayoutEditor.tsx` (~1,920) are now the largest files in the repo; `engine.py` and `tasks.py` are both over 1,400 and `garbage_collector_task` alone is ~380 lines of sequential sweeps. Split with a characterization test first, as the editor page was. | Kanna |
+| Cloudflare Origin Certificate on prod (`proxy/nginx/certs/`) and SSL mode **Full (strict)**; `deploy.sh` otherwise bootstraps a self-signed cert that needs "Full". | Kanna |
