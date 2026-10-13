@@ -75,8 +75,12 @@ const nextConfig = {
     const cspDirectives = [
       "default-src 'self'",
       // 'unsafe-eval' for Fabric.js; accounts.google.com for the /login
-      // page's Google Identity Services (GIS) "Sign in with Google" script.
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com",
+      // page's Google Identity Services (GIS) "Sign in with Google" script;
+      // static.cloudflareinsights.com for the Web Analytics beacon Cloudflare
+      // injects at the edge into every page (its RUM POSTs fall under the
+      // https: in connect-src). The only violation prod reported in report-only
+      // mode once Google Fonts was allowed, 2026-10-13.
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://static.cloudflareinsights.com",
       // GIS injects its own stylesheet; fonts.googleapis.com serves the
       // stylesheet behind every Google font (GoogleFontLinks).
       "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",

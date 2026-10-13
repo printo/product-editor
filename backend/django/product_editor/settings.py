@@ -389,8 +389,11 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — spool-to-disk thresh
 # flip needs a frontend rebuild — deploy.sh does one; a restart does not.
 CSP_DEFAULT_SRC = ("'self'",)
 # 'unsafe-eval' for Fabric.js; accounts.google.com for the login page's Google
-# Identity Services (GIS) "Sign in with Google" script.
-CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'", "https://accounts.google.com")
+# Identity Services (GIS) "Sign in with Google" script;
+# static.cloudflareinsights.com for the Web Analytics beacon Cloudflare injects
+# at the edge into every page it proxies (mirrors next.config.mjs; its RUM
+# POSTs fall under the https: in CSP_CONNECT_SRC).
+CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'", "https://accounts.google.com", "https://static.cloudflareinsights.com")
 # GIS injects its own stylesheet; the Google Fonts entries (here and in
 # CSP_FONT_SRC) mirror next.config.mjs, whose pages load Google fonts.
 CSP_STYLE_SRC = ("'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com")
