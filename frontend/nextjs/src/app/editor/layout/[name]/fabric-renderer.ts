@@ -3,6 +3,7 @@ import type { CanvasItem } from './types';
 import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
 import { buildFrameFill, buildFrameCaption } from './frame-fill';
 import { captionOverridesFromMm } from '@/lib/caption-layout';
+import { overlayFontFamily } from '@/lib/overlay-fonts';
 
 let picaInstance: any = null;
 
@@ -415,7 +416,7 @@ export async function renderCanvas(
             originX: o.textAlign === 'left' ? 'left' : o.textAlign === 'right' ? 'right' : 'center',
             originY: 'center',
             fontSize: o.fontSize * multiplier,
-            fontFamily: o.fontFamily || 'sans-serif',
+            fontFamily: overlayFontFamily(o.fontFamily),
             fill: o.color || '#000000',
             textAlign: (o.textAlign || 'center') as 'left' | 'center' | 'right' | 'justify',
             angle: o.rotation || 0,

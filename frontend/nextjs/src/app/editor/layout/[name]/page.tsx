@@ -13,6 +13,7 @@ import { IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import { usePdfPageImport } from '@/components/use-pdf-page-import';
 import type { NormalizedLayout } from '@/lib/layout-utils';
 import { collectDuplicateFills } from '@/lib/submit-guards';
+import { DEFAULT_OVERLAY_FONT } from '@/lib/overlay-fonts';
 import type { FitMode, CanvasItem, SurfaceState } from './types';
 import { CanvasEditorModal } from './CanvasEditorModal';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
@@ -147,7 +148,7 @@ export default function LayoutEditorPage() {
     layout, orderId, apiBase, getAuthHeaders, expandPdfPages, setUnsupportedWarning, setPersistDegraded, setError,
   });
 
-  const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
+  const [selectedFonts, setSelectedFonts] = useState<string[]>([DEFAULT_OVERLAY_FONT]);
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
   const { headerHeight } = useHeader();

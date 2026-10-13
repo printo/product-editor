@@ -699,6 +699,20 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
   fi
 fi
 
+# Re-fetch the cached text-overlay fonts from Google (services/google_fonts.py)
+# so a family Google has updated prints in its current version. Before the
+# swap, so the new workers start with the refreshed files. Never fails the
+# deploy: a font that can't be re-fetched keeps its cached copy, and printing
+# doesn't depend on this step.
+if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
+  print_header "Font Cache Refresh"
+  if timeout 300 docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py refresh_fonts; then
+    print_status "Fonts refreshed"
+  else
+    print_warning "Font refresh incomplete — cached fonts kept; prints are unaffected"
+  fi
+fi
+
 # Start services
 print_header "Starting Services"
 if [[ "$MODE" == "backend" ]]; then

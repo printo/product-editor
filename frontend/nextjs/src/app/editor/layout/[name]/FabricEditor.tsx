@@ -23,6 +23,7 @@ import { buildFrameFill, buildFrameCaption, rotatedBounds, frameBaseScale } from
 import { captionOverridesFromMm } from '@/lib/caption-layout';
 import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
+import { overlayFontFamily } from '@/lib/overlay-fonts';
 import {
   createShapeFromOverlay,
   centerCanvasViewport,
@@ -108,7 +109,7 @@ function applyOverlayToObject(
       text: overlay.text,
       fontSize: overlay.fontSize,
       fill: overlay.color || '#000000',
-      fontFamily: overlay.fontFamily || 'sans-serif',
+      fontFamily: overlayFontFamily(overlay.fontFamily),
       textAlign: (overlay.textAlign || 'center') as any,
       originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
       left: (overlay.x / 100) * canvasW,
@@ -944,7 +945,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           left, top,
           originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
           originY: 'center', fontSize: overlay.fontSize, fill: overlay.color || '#000000',
-          fontFamily: overlay.fontFamily || 'sans-serif', textAlign: (overlay.textAlign || 'center') as any,
+          fontFamily: overlayFontFamily(overlay.fontFamily), textAlign: (overlay.textAlign || 'center') as any,
           width: canvasW * 0.8, editable: true, splitByGrapheme: true,
           cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#f97316',
           angle: overlay.rotation || 0,

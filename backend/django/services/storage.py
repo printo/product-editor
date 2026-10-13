@@ -204,6 +204,21 @@ class StorageBackend:
         """
         raise NotImplementedError
 
+    # ── Font cache (text-overlay fonts fetched from Google Fonts) ────────────
+    def read_font_file(self, name: str) -> bytes:
+        """A cached font file's bytes, by name ('<family-slug>/<weight>.ttf').
+        FileNotFoundError if it isn't cached; FontCacheUnavailable if the
+        store couldn't say."""
+        raise NotImplementedError
+
+    def write_font_file(self, name: str, content: bytes) -> str:
+        """Cache a font file. Returns the path or key; IOError on failure."""
+        raise NotImplementedError
+
+    def list_font_files(self) -> List[str]:
+        """Names of every cached font file. FontCacheUnavailable on failure."""
+        raise NotImplementedError
+
 
 class LocalStorage(StorageBackend):
     """Concrete backend that stores everything on the local filesystem."""
@@ -311,6 +326,35 @@ class LocalStorage(StorageBackend):
 
     def list_calendar_assets(self, asset_type: str) -> List[str]:
         return _list_local_calendar_assets(asset_type)
+
+    def read_font_file(self, name: str) -> bytes:
+        path = _local_font_path(name)
+        try:
+            with open(path, 'rb') as fh:
+                return fh.read()
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise FontCacheUnavailable(f"Cached font unreadable: {path}: {exc}") from exc
+
+    def write_font_file(self, name: str, content: bytes) -> str:
+        path = _local_font_path(name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, 'wb') as fh:
+            fh.write(content)
+        os.replace(tmp, path)
+        return path
+
+    def list_font_files(self) -> List[str]:
+        root = os.path.join(settings.STORAGE_ROOT, 'font_cache')
+        names = []
+        for dirpath, _dirs, files in os.walk(root):
+            for f in files:
+                name = os.path.relpath(os.path.join(dirpath, f), root).replace(os.sep, '/')
+                if _FONT_NAME_RE.match(name):
+                    names.append(name)
+        return sorted(names)
 
 
 class S3Storage(StorageBackend):
@@ -594,10 +638,56 @@ class S3Storage(StorageBackend):
             raise CalendarAssetUnavailable(f"S3 list failed for {prefix}: {exc}") from exc
         return sorted((set(_list_local_calendar_assets(asset_type)) | live) - deleted)
 
+    def font_key(self, name: str) -> str:
+        """Under the service prefix, the only path the app's IAM user may write."""
+        return self._s3_key(f"font-cache/{_check_font_name(name)}")
+
+    def read_font_file(self, name: str) -> bytes:
+        s3_key = self.font_key(name)
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+            return response['Body'].read()
+        except Exception as exc:
+            if _s3_error_code(exc) in _S3_ABSENT_CODES:
+                raise FileNotFoundError(f"Font not cached in S3: {s3_key}") from exc
+            raise FontCacheUnavailable(f"S3 read failed for {s3_key}: {exc}") from exc
+
+    def write_font_file(self, name: str, content: bytes) -> str:
+        s3_key = self.font_key(name)
+        try:
+            self.s3.put_object(Bucket=self.bucket, Key=s3_key, Body=content,
+                               ContentType='font/ttf')
+        except Exception as exc:
+            raise IOError(f"Failed to cache font in S3: {exc}") from exc
+        return s3_key
+
+    def list_font_files(self) -> List[str]:
+        prefix = self._s3_key("font-cache/")
+        names = []
+        kwargs = {'Bucket': self.bucket, 'Prefix': prefix}
+        try:
+            while True:
+                page = self.s3.list_objects_v2(**kwargs)
+                for obj in page.get('Contents') or []:
+                    name = obj['Key'][len(prefix):]
+                    if _FONT_NAME_RE.match(name):
+                        names.append(name)
+                if not page.get('IsTruncated'):
+                    break
+                kwargs['ContinuationToken'] = page['NextContinuationToken']
+        except Exception as exc:
+            raise FontCacheUnavailable(f"S3 list failed for {prefix}: {exc}") from exc
+        return sorted(names)
+
 
 class MaskUnavailable(Exception):
     """The store couldn't say whether a mask exists (outage, credentials).
     Raised rather than printing without the mask; the render retries."""
+
+
+class FontCacheUnavailable(Exception):
+    """The store couldn't say whether a font is cached (outage, credentials).
+    Not FileNotFoundError: the caller would otherwise go and re-fetch it."""
 
 
 class CalendarAssetUnavailable(Exception):
@@ -641,7 +731,11 @@ def _json_asset_name(asset_name: str) -> str:
 # as fonts/fonts.json, so a local write went somewhere neither backs up nor
 # ignores, and an existing fonts.json was never read. (The S3 key is
 # unaffected: ops-config/fonts/fonts.json.)
-_LOCAL_PATH_OVERRIDES = {('fonts', 'fonts'): 'fonts.json'}
+# The switched-off fonts list (services/google_fonts.py) sits beside it.
+_LOCAL_PATH_OVERRIDES = {
+    ('fonts', 'fonts'): 'fonts.json',
+    ('fonts', 'retired'): 'fonts_retired.json',
+}
 
 
 def _local_calendar_asset_path(asset_type: str, asset_name: str) -> str:
@@ -675,6 +769,21 @@ def _list_local_calendar_assets(asset_type: str) -> List[str]:
         raise CalendarAssetUnavailable(f"Can't list {asset_dir}: {exc}") from exc
     return sorted(f[:-len('.json')] for f in filenames
                   if f.endswith('.json') and os.path.isfile(os.path.join(asset_dir, f)))
+
+
+# '<family-slug>/<weight>.ttf' — built by services.google_fonts, checked here
+# too because the name becomes a path / key.
+_FONT_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,79}/[1-9]00\.ttf$')
+
+
+def _check_font_name(name: str) -> str:
+    if not _FONT_NAME_RE.match(name or ''):
+        raise ValueError(f"Invalid font cache name: {name!r}")
+    return name
+
+
+def _local_font_path(name: str) -> str:
+    return os.path.join(settings.STORAGE_ROOT, 'font_cache', _check_font_name(name))
 
 
 _storage_instance: Optional[StorageBackend] = None

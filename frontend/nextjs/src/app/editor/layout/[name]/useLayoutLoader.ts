@@ -4,6 +4,7 @@ import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import { printedHolidayLocale } from '@/lib/calendar';
 import type { BookLayoutLike } from '@/lib/book-layout';
+import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { reconcilePageCount } from './book-pages';
 import type { FitMode, SurfaceState } from './types';
 
@@ -45,7 +46,9 @@ export function useLayoutLoader({
   //  in the single /editor/init request below.)
 
   useEffect(() => {
-    selectedFonts.forEach(f => loadGoogleFont(f));
+    // The default is loaded even when ops didn't list it: older designs and
+    // text without a family draw in it (lib/overlay-fonts.ts).
+    new Set([DEFAULT_OVERLAY_FONT, ...selectedFonts]).forEach(f => loadGoogleFont(f));
   }, [selectedFonts, loadGoogleFont]);
 
   useEffect(() => {
@@ -86,7 +89,7 @@ export function useLayoutLoader({
           setSessionQty(payload.qty);
         }
         if (Array.isArray(payload.fonts) && payload.fonts.length) {
-          setSelectedFonts(payload.fonts);
+          setSelectedFonts(pickerFonts(payload.fonts));
         }
         let normalized: NormalizedLayout;
         let initSurfaces: SurfaceState[];

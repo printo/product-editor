@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { isGenericFont } from '@/lib/overlay-fonts';
 
-const GENERIC_FAMILIES = ['sans-serif', 'serif', 'monospace', 'cursive'];
 
 const fontHref = (fontName: string) =>
   `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;700&display=swap`;
@@ -18,7 +18,7 @@ export function useGoogleFonts() {
   const [fontsLoaded, setFontsLoaded] = useState<Set<string>>(new Set());
 
   const loadGoogleFont = useCallback((fontName: string) => {
-    if (GENERIC_FAMILIES.includes(fontName)) return;
+    if (isGenericFont(fontName)) return;
     setFontsLoaded(prev => (prev.has(fontName) ? prev : new Set(prev).add(fontName)));
   }, []);
 
