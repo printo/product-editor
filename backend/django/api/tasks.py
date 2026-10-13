@@ -1345,7 +1345,17 @@ def garbage_collector_task():
     except Exception as exc:
         logger.error("GC: failed to delete expired EmbedSession rows: %s", exc)
 
+    # Purge-ledger entries only matter while a backup that still holds the
+    # order exists (daily sets: 7 days), so keep them well past that.
+    ledger_trimmed = 0
+    try:
+        from services.purge_ledger import trim as trim_purge_ledger
+        ledger_trimmed = trim_purge_ledger(int(os.getenv('PURGE_LEDGER_RETENTION_DAYS', '45')))
+    except Exception as exc:
+        logger.error("GC: purge ledger trim failed: %s", exc)
+
     result = {
+        'purge_ledger_trimmed': ledger_trimmed,
         'chunk_staging': chunk_staging_result,
         'orphan_exports': orphan_result,
         'deleted_count': deleted_count,

@@ -25,7 +25,7 @@ doc, add it here and give it a row below.
 | Doc | What it is |
 |---|---|
 | [`INTEGRATION.md`](INTEGRATION.md) | **The one doc with an external audience.** Drop-in webhook handler for printo.in's storefront team (Node + Python), the payload contract, HMAC verification, and the four download URLs. Source of truth is `notify_caller_webhook_task`; if they disagree, the task wins. |
-| [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) | What personal data is stored, where, and how it is deleted. The DPDP answer sheet — retention clock, the erasure endpoint, audit-trail retention, and the one gap still open (database backups outlive a purge). |
+| [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) | What personal data is stored, where, and how it is deleted. The DPDP answer sheet — retention clock, the erasure endpoint, audit-trail retention, backups and how a restore keeps erased orders erased; no gaps open. |
 | [`AI_GUARDRAILS.md`](AI_GUARDRAILS.md) | Short list of rules that exist because breaking them has already cost us something. Companion to CLAUDE.md, not a replacement. |
 | [`LOAD_BASELINE.md`](LOAD_BASELINE.md) | Append-only log of web-tier load measurements. Add runs, never edit old ones. |
 | [`BUNDLED_FONTS.md`](BUNDLED_FONTS.md) | What the server-side renderer's bundled `.ttf` files are and how to add one. Moved here 2026-09-04 from `backend/django/services/fonts_assets/README.md`; the fonts themselves still live there. |

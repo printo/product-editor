@@ -40,11 +40,13 @@ def _delete_files(paths) -> tuple[int, int, list[str]]:
     return deleted, freed, errors
 
 
-def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
+def purge_order_data(order_id: str, api_key=None, force: bool = False, record_ledger: bool = True) -> dict:
     """
     Hard-delete all data for `order_id`. When `api_key` is given, scope to that
     tenant; otherwise purge across all keys (an ops-initiated DPDP erasure must
-    be complete). `force` overrides the in-flight-render guard.
+    be complete). `force` overrides the in-flight-render guard. A successful
+    purge is written to the purge ledger so a database restore can re-erase it
+    (`record_ledger=False` is for that replay itself).
 
     Returns a summary dict: matched rows, deleted files/rows per artifact, the
     api_key names touched, any in-flight blockers, and best-effort file errors.
@@ -310,8 +312,13 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False) -> dict:
             "Files may remain on disk; see docs/DPDP_ERASURE_GAP_PRD.md.",
             order_id, unlocated_rows, len(errors),
         )
+    ledger_recorded = False
+    if record_ledger:
+        from services.purge_ledger import record_purge
+        ledger_recorded = record_purge(order_id, getattr(api_key, 'name', None) if api_key is not None else None)
     return {
         'matched': matched,
+        'ledger_recorded': ledger_recorded,
         'canvas_rows_deleted': canvas_rows,
         'embed_rows_deleted': embed_rows,
         'files_deleted': files_deleted,

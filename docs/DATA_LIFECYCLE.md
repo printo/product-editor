@@ -34,7 +34,7 @@ lowering it.**
 | Design state | `CanvasData` (incl. `editor_state` dataURL previews, `render_state`) | Yes (photo thumbnails, transforms) | Autosave + submit | `EXPORT_RETENTION_DAYS` | GC row delete; order purge |
 | Embed sessions | `EmbedSession` rows (`order_id`, `callback_url`) | Partial (order id, caller URL) | `POST /api/embed/session` | 2 h token validity (sliding, extended while editing); **rows expire at `expires_at`, swept by GC** (2026-09-10, commit `56a2136`) | Order purge; `garbage_collector_task` deletes rows older than 30 days |
 | API audit trail | `APIRequest` rows (`ip_address`, `user_agent`) | **Yes** (IP) | `APIRequestLoggingMiddleware` (one row per non-exempt API call) | `API_AUDIT_RETENTION_DAYS`, default **90** — deliberately outlives the data it describes, so "who touched this order" is still answerable | `garbage_collector_task`, independent of file retention |
-| Database backups | `backups/daily/pe-db-*.dump`, `backups/weekly/` on the prod host (`scripts/backup.sh`) | **Yes** — every table above that is in Postgres, including `canvas_data.editor_state` and audit IPs | Cron, 03:15 UTC | **7 daily + 4 weekly sets (up to ~28 days)** — longer than the 3-day export retention, and an order purge does not reach them | `scripts/backup.sh` prune only. See "Known gaps" |
+| Database backups | `backups/daily/` (full) and `backups/weekly/` (PII-free) on the prod host (`scripts/backup.sh`) | **Daily: yes** — every Postgres table above, including `canvas_data.editor_state` and audit IPs. **Weekly: no** — the customer tables are dumped empty and the storage archive has no `uploads/` | Cron, 03:15 UTC | Daily **7 sets (7 days)**; weekly 4 sets, config only | `scripts/backup.sh` prune. An order purged after a dump is erased again on restore (purge ledger, below) |
 | Client file cache | Browser IndexedDB (`file-store.ts`) | Yes (original photos) | Editor (B1 persistence) | Device-local; stale orders pruned after 7 days, evicted under quota pressure | Client-side prune (Phase 3); never leaves the device |
 | Orientation detection | — | Yes (transient image bytes) | `POST /api/orientation/detect` | **Nothing persisted** — inference is stateless | n/a |
 | HEIC conversion | — | Yes (transient image bytes) | `POST /api/heic/convert` | **Nothing persisted** — decode-and-return | n/a |
@@ -100,27 +100,50 @@ landed, so there was nothing to backfill.
 > uploads, which have no order context. Never write a cleanup that deletes rows
 > by blank `order_id` — it would destroy valid current uploads.
 
+## Backups and erasure
+
+A database dump is a copy of data a customer may later ask us to erase. Two
+controls keep that copy from outliving an erasure (closed 2026-10-13):
+
+1. **The long-lived tier holds no customer data.** The weekly set
+   (`pe-db-nopii-<ts>.dump`) is a `pg_dump --exclude-table-data` of
+   `canvas_data`, `embed_sessions`, `uploaded_files`, `render_jobs`,
+   `exported_results` and `api_requests`; its storage archive never contains
+   `uploads/`. Customer data therefore sits in backups at most **7 days** (the
+   daily tier). A new table that holds customer content or IPs must be added to
+   `PII_TABLES` in `scripts/backup.sh` and to `test-backup-restore.sh`.
+2. **A restore re-erases what was purged after the dump.** Every successful
+   purge appends `{HMAC(order id, key or "*"), timestamp}` to
+   `storage/purge_ledger.jsonl` (`services/purge_ledger.py`), outside Postgres so
+   a restore cannot roll it back and with no order id in it. `scripts/restore.sh`
+   runs `manage.py reapply_purges --since <dump time>` straight after
+   `pg_restore`, which runs the normal purge for each match. A key-scoped entry
+   matches only its own key; entries older than the dump are ignored, so an
+   order id reused after its erasure survives. The GC trims entries older than
+   `PURGE_LEDGER_RETENTION_DAYS` (default 45).
+
+Limits worth knowing:
+
+- **Rotating `SECRET_KEY` orphans the ledger** (the HMAC key derives from it): a
+  restore would no longer re-erase older orders. Re-purge them first, or keep
+  the old key until the daily sets from before the rotation have aged out (7 days).
+- The ledger lives only on the prod host, as the backups do. Moving backups
+  off-box means moving the ledger with them.
+- A failed ledger write does not fail the erasure; the purge response says
+  `ledger_recorded: false`. Re-run the purge or add the entry by hand.
+- The `pe-opsconfig` archive (S3 `ops-config/`) holds holidays, styles, palettes
+  and fonts, never personal data.
+- Restore has not been rehearsed end to end against a real stack as of
+  2026-10-13; run `scripts/test-backup-restore.sh` on prod after the first deploy.
+
 ## Known gaps (recommended follow-ups)
 
-1. **A purged order survives in database backups for up to ~28 days.**
-   `scripts/backup.sh` keeps 7 daily and 4 weekly `pg_dump` sets, and a dump
-   holds `canvas_data`, `embed_sessions`, `uploaded_files` and `api_requests`
-   (IPs). `OrderDataPurgeView` erases the live rows and files only, so a
-   customer erased today is still in last night's dump and restoring one
-   brings the order back. Options, none built: state the window in the privacy
-   notice and have restore re-run the purges recorded since the dump
-   (needs a purge ledger that is not itself personal data), or shorten the
-   weekly tier. `uploads/` are only in the optional `--with-uploads` set, so
-   photos are exposed only when that variant is run.
-2. **The `pe-opsconfig` archive (added 2026-10-13) holds no personal data**
-   (holidays, styles, palettes, fonts), so it needs no purge. If ops-config ever
-   carries customer content, revisit.
-
-Item 2 is a note, not a gap; item 1 is the one open gap. It replaces the earlier
-"none open" line, and the "two gaps still open" wording that CLAUDE.md and
-`docs/README.md` carried after the last two were closed on 2026-10-07.
+None currently open. See "Closed" below.
 
 ### Closed
+
+- **Erased orders survived in database backups** — closed 2026-10-13. Dumps were
+  kept up to ~28 days and a purge did not reach them. See "Backups and erasure".
 
 - **Order purge skipped upload-only orders and over-reached when scoped** —
   closed 2026-10-07. An order holding only uploaded photos (no saved design, no
