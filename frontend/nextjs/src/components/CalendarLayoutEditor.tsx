@@ -239,14 +239,18 @@ export function draftToLayoutJson(
       // Default 4×3 auto-tile from the first entry's size. Ops gets a
       // sensible starting point without having to position each one.
       const base = draft.calendars[0] ?? { x: 0, y: 0, width: 0.25, height: 0.2 };
+      // Clamped to the canvas exactly as the editor's previews clamp it, so
+      // the saved layout matches what ops saw.
+      const cellW = Math.min(base.width, Math.max(0.01, (1 - base.x) / 4));
+      const cellH = Math.min(base.height, Math.max(0.01, (1 - base.y) / 3));
       outCalendars = Array.from({ length: 12 }, (_, i) => {
         const col = i % 4;
         const row = Math.floor(i / 4);
         return {
-          x: base.x + col * base.width,
-          y: base.y + row * base.height,
-          width: base.width,
-          height: base.height,
+          x: base.x + col * cellW,
+          y: base.y + row * cellH,
+          width: cellW,
+          height: cellH,
           monthOffset: i,
         };
       });

@@ -195,6 +195,29 @@ describe('CalendarLayoutEditor — mode toggle', () => {
     expect((poster.calendars as unknown[]).length).toBe(12);
   });
 
+  it('clamps an oversized poster seed so all 12 cells stay on the canvas', () => {
+    const poster = draftToLayoutJson({
+      name: 'p',
+      productType: 'calendar',
+      mode: 'poster',
+      canvasWidthMm: 127, canvasHeightMm: 177.8, dpi: 300,
+      frames: [{ x: 0.05, y: 0.05, width: 0.9, height: 0.42 }],
+      calendars: [{ x: 0.05, y: 0.55, width: 0.9, height: 0.42 }],
+      style: {
+        themePreset: 'modern-minimalist',
+        calendarType: 'english', weekStart: 'sunday',
+        holidaySource: { enabled: true, locale: 'en-IN' },
+      },
+      defaultYear: 2026,
+    });
+    const cals = poster.calendars as Array<{ x: number; y: number; width: number; height: number }>;
+    expect(cals).toHaveLength(12);
+    for (const c of cals) {
+      expect(c.x + c.width).toBeLessThanOrEqual(1 + 1e-9);
+      expect(c.y + c.height).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+
   it('auto-distributes 12 poster calendars in a 4×3 grid', () => {
     const poster = draftToLayoutJson({
       name: 'p',
