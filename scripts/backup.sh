@@ -53,7 +53,7 @@ echo "[backup] $TS — dumping database $PG_DB…"
 $DC exec -T db pg_dump -U "$PG_USER" -Fc "$PG_DB" > "$DEST/pe-db-$TS.dump"
 
 echo "[backup] archiving storage config…"
-STORAGE_PATHS=(layouts masks fonts.json fonts_retired.json calendar_palettes calendar_styles holidays)
+STORAGE_PATHS=(layouts masks stickers fonts.json fonts_retired.json calendar_palettes calendar_styles holidays)
 TAR_INCLUDE=()
 for p in "${STORAGE_PATHS[@]}"; do
   [[ -e "storage/$p" ]] && TAR_INCLUDE+=("$p")

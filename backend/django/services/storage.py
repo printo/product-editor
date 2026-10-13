@@ -152,6 +152,16 @@ class StorageBackend:
         store doesn't hold it; MaskUnavailable if the store couldn't say."""
         raise NotImplementedError
 
+    # ── Template stickers (ops-owned images) ──────────────────────────────────
+    def write_sticker(self, filename: str, data: bytes) -> str:
+        """Store an ops sticker PNG by its fingerprinted filename. Returns the
+        path or key written. Stickers are never deleted: templates share them
+        by content, and a customer's saved design may still point at one."""
+        raise NotImplementedError
+
+    def sticker_exists(self, filename: str) -> bool:
+        raise NotImplementedError
+
     def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
         """Read a calendar/ops asset (holidays, styles, palettes).
 
@@ -290,6 +300,25 @@ class LocalStorage(StorageBackend):
     def read_mask(self, filename: str) -> bytes:
         with open(os.path.join(self.masks_dir(), os.path.basename(filename)), "rb") as f:
             return f.read()
+
+    def stickers_dir(self) -> str:
+        path = os.path.join(settings.STORAGE_ROOT, "stickers")
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def sticker_path(self, filename: str) -> str:
+        return os.path.join(self.stickers_dir(), os.path.basename(filename))
+
+    def write_sticker(self, filename: str, data: bytes) -> str:
+        path = self.sticker_path(filename)
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+        return path
+
+    def sticker_exists(self, filename: str) -> bool:
+        return os.path.isfile(self.sticker_path(filename))
 
     def read_calendar_asset(self, asset_type: str, asset_name: str) -> bytes:
         return _read_local_calendar_asset(asset_type, asset_name)
@@ -512,6 +541,26 @@ class S3Storage(StorageBackend):
             if _s3_error_code(exc) in _S3_ABSENT_CODES:
                 raise FileNotFoundError(f"Mask not in S3: {s3_key}") from exc
             raise MaskUnavailable(f"S3 read failed for {s3_key}: {exc}") from exc
+
+    def sticker_key(self, filename: str) -> str:
+        """Under ops-config/, so `backup_ops_config` archives stickers with
+        the rest of the ops-owned state. The CDN reads this prefix through
+        its own bucket-policy statement (see CLAUDE.md, mask CDN setup)."""
+        return self._s3_key(f"ops-config/stickers/{os.path.basename(filename)}")
+
+    def write_sticker(self, filename: str, data: bytes) -> str:
+        key = self.sticker_key(filename)
+        self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType='image/png')
+        return key
+
+    def sticker_exists(self, filename: str) -> bool:
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=self.sticker_key(filename))
+            return True
+        except Exception as exc:
+            if _s3_error_code(exc) in _S3_ABSENT_CODES or _s3_error_code(exc) == '404':
+                return False
+            raise
 
     def generate_mask_presigned_url(self, s3_key: str, expiry: int = 3600) -> str:
         # If CDN domain is configured, construct CDN URL instead of presigned S3 URL

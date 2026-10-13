@@ -56,6 +56,16 @@ from .embed import (  # noqa: F401
     EditorInitView,
     CanvasStateView,
 )
+from .templates import (  # noqa: F401
+    TemplatesListView,
+    TemplateDetailView,
+    TemplateManagementView,
+    TemplateAssetUploadView,
+    TemplateAssetDownloadView,
+    serialize_template,
+    published_templates,
+    template_counts,
+)
 from .uploads import (  # noqa: F401
     ChunkedUploadInitView,
     ChunkedUploadChunkView,

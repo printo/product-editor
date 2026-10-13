@@ -146,6 +146,10 @@ const GET_ONLY: readonly ProxyMethod[] = ['GET'];
 const ALLOWED_PATH_METHODS: Record<string, readonly ProxyMethod[]> = {
   'layouts': GET_ONLY,              // layout details (no list/manage)
   'layouts/masks': GET_ONLY,        // layout mask assets (calendar month artwork, backgrounds)
+  // Layout templates: the customer picker lists a layout's published
+  // templates and reads one; stickers are served at templates/assets/<file>.
+  // The ops writes live under ops/templates and are never allowed here.
+  'templates': GET_ONLY,
   'canvas-state': ['GET', 'PUT'],   // editor auto-save / restore
   'editor/render': ['POST'],        // server-side render submission
   'editor/init': GET_ONLY,          // batched layout + fonts on editor mount (C6)

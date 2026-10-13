@@ -20,6 +20,7 @@ from drf_spectacular.utils import (
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from services.order_qty import InvalidOrderQty, MAX_ORDER_QTY, parse_order_qty
+from services.template_decoration import editor_url as build_editor_url, is_template_id, parse_template_flow
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
 from ..authentication import APIKeyUser
 from ..models import EmbedSession
@@ -134,6 +135,22 @@ class EmbedSessionView(APIView):
                         "raised from the browser. Omit it and no quantity is enforced."
                     ),
                 ),
+                "template_id": drf_serializers.CharField(
+                    required=False,
+                    help_text=(
+                        "Open the editor on this published template (`GET /api/templates?layout=…` "
+                        "lists them). The response then carries a ready `editor_url` for the "
+                        "template's layout. Unknown or unpublished ids are rejected with 400."
+                    ),
+                ),
+                "template_flow": drf_serializers.BooleanField(
+                    required=False,
+                    default=False,
+                    help_text=(
+                        "Make picking a template the editor's first step (the customer can "
+                        "skip it). Appends `template_flow=1` to `embed_url_template`."
+                    ),
+                ),
             },
         ),
         responses={
@@ -225,6 +242,26 @@ class EmbedSessionView(APIView):
         except InvalidOrderQty as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+        # A template rides on the editor address, not on the session row: the
+        # editor reads `?template=` the way it reads `order_id`, and
+        # EditorInitView re-validates it. The session only needs to turn the
+        # id into the layout the caller does not know.
+        template_flow = parse_template_flow(request.data.get('template_flow'))
+        template_id = str(request.data.get('template_id') or '').strip()
+        template_layout = None
+        if template_id:
+            from ..models import LayoutTemplate
+            if not is_template_id(template_id):
+                return Response({'detail': 'template_id must be lowercase letters, digits and hyphens'},
+                                status=status.HTTP_400_BAD_REQUEST)
+            t = LayoutTemplate.objects.filter(
+                template_id=template_id, status='published', is_deleted=False,
+            ).select_related('layout').first()
+            if t is None or t.layout.is_deprecated or not t.layout.is_public:
+                return Response({'detail': f"template_id '{template_id}' is not a published template"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            template_layout = t.layout.name
+
         session = EmbedSession.objects.create(
             api_key=api_key,
             expires_at=expires_at,
@@ -240,11 +277,20 @@ class EmbedSessionView(APIView):
             # editor/layout/[name]/page.tsx). The old /embed/editor/... path
             # never existed. Advisory field — the caller substitutes the
             # layout name.
-            'embed_url_template': '/editor/layout/{layout_name}?token=' + str(session.token),
+            'embed_url_template': (
+                '/editor/layout/{layout_name}?token=' + str(session.token)
+                + ('&template_flow=1' if template_flow else '')
+            ),
             'order_id': order_id or None,
             'callback_url': callback_url or None,
             'include_uploads': include_uploads,
             'qty': qty,
+            'template_id': template_id or None,
+            'template_flow': template_flow,
+            # Ready to open when the caller named a template: its layout, the
+            # token and the template id, nothing for the caller to assemble.
+            'editor_url': build_editor_url(template_layout, session.token, template_id, template_flow)
+                          if template_layout else None,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -393,6 +439,8 @@ class EditorInitView(APIView):
         parameters=[
             OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True),
             OpenApiParameter("surfaces", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("template", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
+                             description="A published template id on this layout; returned as `template`, 404 if not published here."),
         ],
         responses={
             200: inline_serializer(
@@ -411,10 +459,14 @@ class EditorInitView(APIView):
                             "session carries none or the caller is the dashboard."
                         ),
                     ),
+                    "template": drf_serializers.DictField(
+                        allow_null=True,
+                        help_text="The published template named by `?template=`, else null.",
+                    ),
                 },
             ),
-            400: OpenApiResponse(description="Missing or invalid `layout` query param"),
-            404: OpenApiResponse(description="Layout not found"),
+            400: OpenApiResponse(description="Missing or invalid `layout` query param, or an invalid `template` id"),
+            404: OpenApiResponse(description="Layout not found, or `template` not published on it"),
         },
     )
     def get(self, request):
@@ -480,11 +532,33 @@ class EditorInitView(APIView):
             # column — if it is somehow unusable, drop it rather than fail the
             # editor's mount request over it.
             init_qty = None
+        # `?template=<id>` (customer picker, dashboard link, or the embed
+        # editor_url): the published template on THIS layout, in the same
+        # call. Outside the layout cache above — a publish must show at once.
+        template_param = (request.query_params.get('template') or '').strip()
+        template_data = None
+        if template_param:
+            from ..models import LayoutTemplate
+            from .templates import serialize_template
+            if not is_template_id(template_param):
+                return Response({'detail': 'Invalid template id'}, status=status.HTTP_400_BAD_REQUEST)
+            t = LayoutTemplate.objects.filter(
+                template_id=template_param, layout_id=layout_data.get('name'),
+                status='published', is_deleted=False,
+            ).first()
+            if t is None:
+                return Response(
+                    {'detail': f"Template '{template_param}' is not published on layout '{layout_data.get('name')}'"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            template_data = serialize_template(t)
+
         response = Response({
             'layout': layout_data,
             'fonts': _read_fonts(),
             'order_id': (request.headers.get('X-Order-ID') or '').strip() or None,
             'qty': init_qty,
+            'template': template_data,
         })
         # Cacheable on the proxy edge for short-lived shared cache; private so a
         # tenant's surfaces= filter doesn't bleed across tenants.

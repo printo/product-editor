@@ -180,6 +180,11 @@ class LayoutManagementView(APIView):
                     data['version'] = row['version']
                     layouts_data.append(data)
                 django_cache.set(CACHE_KEY, layouts_data, CACHE_TTL)
+            # Drafts included: this is the ops list. Read per request, not
+            # cached, so a new draft shows at once.
+            from .templates import template_counts
+            counts = template_counts(published_only=False)
+            layouts_data = [{**d, 'templateCount': counts.get(d.get('name'), 0)} for d in layouts_data]
             response = Response({"layouts": layouts_data})
             response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
             return response
