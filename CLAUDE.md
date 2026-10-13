@@ -1627,6 +1627,35 @@ previews from what is persisted instead; they are regenerable by `renderCanvas`
 in `fabric-renderer.ts`. The success signal is the `400` rate reaching zero, not
 the payload size.
 
+**Open — overlay print/preview drift (found 2026-10-13, not yet fixed).** Seen
+while fixing the rotation pivot (overlays now turn around the same point in
+all three renderers, pinned by `services/tests/test_overlay_rotation_pivot.py`).
+Reproduce any of these with a real local render (embed token, submit, measure
+the PNG) before fixing:
+
+- **Text prints ~1.9× too large — customer-facing, fix first.**
+  `overlay_renderer._draw_text` scales `fontSize` by `print canvas height ÷ 800`,
+  but the editor already works in print pixels (its Fabric canvas is the
+  layout's `canvas.width/height`, and new text defaults to 4% of that height).
+  On the 5×5 square print: 60 px in the editor, 112 px in the print. The factor
+  grows with the layout's height, so tall layouts are worse.
+- **Text wraps differently in each renderer.** `fabric-renderer.ts` builds the
+  thumbnail `Textbox` with no `width`, so Fabric wraps at every word ("New Text"
+  shows as two lines on the card); `FabricEditor.tsx` uses `width: canvasW * 0.8`
+  (one line); the print draws one line and never wraps.
+- **An absent `textAlign` anchors differently:** both previews treat it as
+  centre, the print as left. Dormant — new text is always created with
+  `textAlign: 'center'`.
+- **Shape overlays — dormant, no UI creates them today:** the print draws only
+  rect / ellipse / line and falls back to a rectangle for every other catalogue
+  shape (triangle, star, arrows…); `strokeWidth` is not scaled to print and the
+  stroke sits inside the box (Fabric centres it on the edge); a `circle` uses
+  `min(w, h)` in the preview but fills the whole box in the print. In
+  `FabricEditor.tsx`, `handleModified` saves `x/y` from `target.left/top`, which
+  for a circle or ellipse (`originX/Y: 'center'`) is the centre, while
+  `createShapeFromOverlay` reads `x/y` as the top-left — so the shape would jump
+  by half its size on every move.
+
 No other open P0/P1 issues. Previously tracked items B1, B4 and B5 have all shipped — see "Fixed" below for what each does and how to extend. B3 shipped and was later removed.
 
 **Watch list (not blocking):**

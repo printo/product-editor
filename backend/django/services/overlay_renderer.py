@@ -142,10 +142,8 @@ def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     font_weight = int(o.get("fontWeight") or 400)
     font = get_font(font_size_px, weight=font_weight)
 
-    x_pct = float(o.get("x") or 0)
-    y_pct = float(o.get("y") or 0)
-    x_px = int(x_pct * cw / 100.0)
-    y_px = int(y_pct * ch / 100.0)
+    x_f = float(o.get("x") or 0) * cw / 100.0
+    y_f = float(o.get("y") or 0) * ch / 100.0
 
     # textAlign affects the horizontal anchor: 'left' = anchor at x, 'center' =
     # x is mid, 'right' = x is right edge. PIL's anchor is a 2-char code where
@@ -162,29 +160,19 @@ def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     if abs(rotation) < 0.5:
         # Fast path — no rotation, draw straight onto the canvas.
         draw = ImageDraw.Draw(canvas)
-        draw.text((x_px, y_px), text, font=font, fill=color, anchor=anchor)
+        draw.text((int(x_f), int(y_f)), text, font=font, fill=color, anchor=anchor)
         return
 
-    # Rotated text: render onto a transparent strip, rotate, paste.
-    # PIL has no native rotated-text in `draw.text()`, so this is the
-    # documented workaround. Strip size is generous to avoid clipping;
-    # we use the font's bbox to size it.
-    bbox = font.getbbox(text)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
+    # Rotated text: PIL can't rotate `draw.text()`, so draw onto a strip with
+    # the same anchor, then rotate the strip around that anchor — the editor's
+    # Textbox rotates around its origin, which is this anchor.
+    left, top, right, bottom = font.getbbox(text, anchor=anchor)
     pad = max(4, font_size_px // 4)
-    strip = Image.new("RGBA", (text_w + pad * 2, text_h + pad * 2), (0, 0, 0, 0))
-    strip_draw = ImageDraw.Draw(strip)
-    strip_draw.text((pad, pad), text, font=font, fill=color, anchor="lt")
-    rotated = strip.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
-    # Re-anchor: editor's (x, y) is the un-rotated text's anchor. After
-    # rotation, paste so that the anchor point in the rotated strip
-    # lands at (x_px, y_px). Simplification for v1: paste with the
-    # rotated strip's top-left at (x_px, y_px) — slight visual drift
-    # for non-left anchors at non-zero rotation, fixable in Phase 9 polish.
-    canvas.alpha_composite(rotated, (x_px, y_px))
+    strip = Image.new("RGBA", (right - left + pad * 2, bottom - top + pad * 2), (0, 0, 0, 0))
+    anchor_in_strip = (pad - left, pad - top)
+    ImageDraw.Draw(strip).text(anchor_in_strip, text, font=font, fill=color, anchor=anchor)
+    _composite_rotated(canvas, strip, anchor_in_strip, (x_f, y_f), rotation)
     strip.close()
-    rotated.close()
 
 
 # ── Shape ───────────────────────────────────────────────────────────────────
@@ -194,8 +182,8 @@ def _draw_shape(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     """Render a `ShapeOverlay` onto canvas (assumed RGBA mode)."""
     shape_type = (o.get("shapeType") or "rect").lower()
 
-    x_px = int(float(o.get("x") or 0) * cw / 100.0)
-    y_px = int(float(o.get("y") or 0) * ch / 100.0)
+    x_f = float(o.get("x") or 0) * cw / 100.0
+    y_f = float(o.get("y") or 0) * ch / 100.0
     w_px = max(1, int(float(o.get("width") or 0) * cw / 100.0))
     h_px = max(1, int(float(o.get("height") or 0) * ch / 100.0))
 
@@ -228,10 +216,16 @@ def _draw_shape(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
         logger.warning("Unsupported shapeType: %r — rendering as rectangle", shape_type)
         strip_draw.rectangle(box, fill=fill, outline=stroke if stroke_w else None, width=stroke_w)
 
-    if abs(rotation) >= 0.5:
-        strip = strip.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
-
-    canvas.alpha_composite(strip, (x_px - pad, y_px - pad))
+    # Pivot as in createShapeFromOverlay (lib/fabric-utils.ts): circles and
+    # ellipses rotate around their centre, every other shape around its
+    # top-left corner.
+    if shape_type in ("ellipse", "circle"):
+        pivot_in_strip = (pad + w_px / 2.0, pad + h_px / 2.0)
+        pivot = (x_f + w_px / 2.0, y_f + h_px / 2.0)
+    else:
+        pivot_in_strip = (pad, pad)
+        pivot = (x_f, y_f)
+    _composite_rotated(canvas, strip, pivot_in_strip, pivot, rotation)
     strip.close()
 
 
@@ -254,8 +248,8 @@ def _paste_image(
         )
         return
 
-    x_px = int(float(o.get("x") or 0) * cw / 100.0)
-    y_px = int(float(o.get("y") or 0) * ch / 100.0)
+    x_f = float(o.get("x") or 0) * cw / 100.0
+    y_f = float(o.get("y") or 0) * ch / 100.0
     w_px = max(1, int(float(o.get("width") or 0) * cw / 100.0))
     h_px = max(1, int(float(o.get("height") or 0) * ch / 100.0))
     rotation = float(o.get("rotation") or 0.0)
@@ -271,17 +265,49 @@ def _paste_image(
 
     img = img.resize((w_px, h_px), Image.Resampling.LANCZOS)
 
-    if abs(rotation) >= 0.5:
-        img = img.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
-
     if opacity < 1.0:
         # Scale the alpha channel by the requested opacity.
         alpha = img.split()[-1]
         alpha = alpha.point(lambda v: int(v * opacity))
         img.putalpha(alpha)
 
-    canvas.alpha_composite(img, (x_px, y_px))
+    # Both previews place the image with originX/originY 'left'/'top', so it
+    # rotates around its top-left corner, which stays at (x, y).
+    _composite_rotated(canvas, img, (0, 0), (x_f, y_f), rotation)
     img.close()
+
+
+def _composite_rotated(
+    canvas: Image.Image,
+    img: Image.Image,
+    pivot_in_img: tuple[float, float],
+    pivot_on_canvas: tuple[float, float],
+    rotation: float,
+) -> None:
+    """Rotate `img` clockwise by `rotation` degrees around `pivot_in_img` and
+    composite it so that point lands on `pivot_on_canvas`.
+
+    This is how Fabric places an object: `left`/`top` give where its origin
+    point sits and `angle` turns it around that point. Pasting the expanded
+    bounding box's top-left at (x, y) instead moves every rotated overlay
+    away from where the customer put it.
+    """
+    px, py = pivot_in_img
+    cx, cy = pivot_on_canvas
+    if abs(rotation) < 0.5:
+        canvas.alpha_composite(img, (round(cx - px), round(cy - py)))
+        return
+
+    rotated = img.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
+    # With expand=True, PIL keeps the image's centre at the centre of the
+    # expanded output, so find where the pivot went relative to that centre.
+    rad = math.radians(rotation)
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+    dx, dy = px - img.width / 2.0, py - img.height / 2.0
+    pivot_x = rotated.width / 2.0 + dx * cos_a - dy * sin_a
+    pivot_y = rotated.height / 2.0 + dx * sin_a + dy * cos_a
+    canvas.alpha_composite(rotated, (round(cx - pivot_x), round(cy - pivot_y)))
+    rotated.close()
 
 
 def _resolve_image_path(o: dict, uploaded_files: dict[str, str]) -> Optional[str]:
