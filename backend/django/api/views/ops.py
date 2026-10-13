@@ -249,6 +249,9 @@ class OrderDataPurgeView(APIView):
                 fields={
                     "matched": drf_serializers.IntegerField(help_text="Records found for the order: saved designs, embed sessions and upload rows, plus its upload folder when present. 0 → 404."),
                     "erasure_complete": drf_serializers.BooleanField(),
+                    "ledger_recorded": drf_serializers.BooleanField(
+                        help_text="Whether the erasure was written to the purge ledger, which lets a database restore re-erase it. False means the ledger write failed (the erasure itself still happened).",
+                    ),
                     "files_deleted": drf_serializers.IntegerField(),
                     "bytes_freed": drf_serializers.IntegerField(),
                     "canvas_rows_deleted": drf_serializers.IntegerField(),

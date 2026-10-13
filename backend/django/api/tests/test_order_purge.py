@@ -33,7 +33,9 @@ class OrderPurgeTest(TestCase):
         self.uploads = os.path.join(self.root, 'uploads')
         os.makedirs(self.uploads)
         os.makedirs(os.path.join(self.root, 'exports'))
-        self.folders = override_settings(UPLOADS_DIR=self.uploads, EXPORTS_DIR=os.path.join(self.root, 'exports'))
+        self.folders = override_settings(
+            UPLOADS_DIR=self.uploads, EXPORTS_DIR=os.path.join(self.root, 'exports'), STORAGE_ROOT=self.root,
+        )
         self.folders.enable()
         self.storefront = APIKey.objects.create(name='purge-test-storefront', key='purge-test-key-a')
         self.other = APIKey.objects.create(name='purge-test-other', key='purge-test-key-b')

@@ -8,6 +8,8 @@
 #   - pg_restore --clean replaces APIKey/EmbedSession rows: embed sessions and
 #     any keys rotated after the dump are invalidated.
 #   - RenderJobs captured mid-render restore as 'processing' and never finish.
+#   - Orders erased (DPDP purge) after the dump was taken are erased again from
+#     the restored data via the purge ledger; see services/purge_ledger.py.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -69,6 +71,15 @@ if [[ -f "$OPSCONFIG" ]]; then
   # One-off container: the app is stopped, and this needs only the S3 credentials.
   $DC run --rm -T --no-deps --entrypoint /opt/venv/bin/python backend \
     manage.py restore_ops_config --stdin < "$OPSCONFIG"
+fi
+
+if [[ $NOPII == 0 ]]; then
+  # The dump predates some erasures; without this a restore brings those
+  # customers back. The ledger (storage/purge_ledger.jsonl) is outside the
+  # database, so the restore did not touch it.
+  echo "[restore] re-erasing orders purged since $TS…"
+  $DC run --rm -T --no-deps --entrypoint /opt/venv/bin/python backend \
+    manage.py reapply_purges --since "$TS"
 fi
 
 echo "[restore] starting containers…"
