@@ -4,6 +4,7 @@ import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from
 import { buildFrameFill, buildFrameCaption } from './frame-fill';
 import { captionOverridesFromMm } from '@/lib/caption-layout';
 import { overlayFontFamily } from '@/lib/overlay-fonts';
+import { textBoxWidthPx, textOriginX } from '@/lib/overlay-text';
 
 let picaInstance: any = null;
 
@@ -411,10 +412,13 @@ export async function renderCanvas(
           if (!o.text.trim()) continue;
           const tx = (o.x / 100) * canvasW;
           const ty = (o.y / 100) * canvasH;
+          // Same box as the live editor (canvasW already carries the thumbnail
+          // multiplier), so the thumbnail wraps where the editor and the print do.
           const textObj = new Textbox(o.text, {
             left: tx, top: ty,
-            originX: o.textAlign === 'left' ? 'left' : o.textAlign === 'right' ? 'right' : 'center',
+            originX: textOriginX(o.textAlign),
             originY: 'center',
+            width: textBoxWidthPx(o, canvasW),
             fontSize: o.fontSize * multiplier,
             fontFamily: overlayFontFamily(o.fontFamily),
             fill: o.color || '#000000',
@@ -424,7 +428,8 @@ export async function renderCanvas(
           });
           fabricCanvas.add(textObj);
         } else if (o.type === 'shape') {
-          const fabricObj = createShapeFromOverlay(o, canvasW, canvasH, {
+          // strokeWidth is print px; scale it with the canvas like everything else.
+          const fabricObj = createShapeFromOverlay({ ...o, strokeWidth: o.strokeWidth * multiplier }, canvasW, canvasH, {
             selectable: false, evented: false,
           });
           if (fabricObj) fabricCanvas.add(fabricObj);

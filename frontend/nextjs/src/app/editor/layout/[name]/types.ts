@@ -28,7 +28,11 @@ export interface TextOverlay {
   text: string;
   x: number;      // percentage 0–100 from left
   y: number;      // percentage 0–100 from top
-  fontSize: number; // px relative to canvas height
+  fontSize: number; // print px — the editor canvas is the layout's print size
+  /** Width of the box the text wraps in, % of canvas width. Saved when the
+   *  customer resizes it; absent on older overlays, which wrap at the
+   *  historical 80% (`lib/overlay-text.ts`). The print uses the same rule. */
+  width?: number;
   color: string;
   fontFamily: string;
   textAlign: CanvasTextAlign;

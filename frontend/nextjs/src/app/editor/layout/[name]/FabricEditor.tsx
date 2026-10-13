@@ -26,6 +26,8 @@ import { captionOverridesFromMm } from '@/lib/caption-layout';
 import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
 import { overlayFontFamily } from '@/lib/overlay-fonts';
+import { textBoxWidthPx, textOriginX } from '@/lib/overlay-text';
+import { shapeBoxFromObject, shapeRepresentation, shapeScaleForBox, textBoxFromObject } from '@/lib/overlay-geometry';
 import {
   createShapeFromOverlay,
   centerCanvasViewport,
@@ -107,13 +109,17 @@ function applyOverlayToObject(
 ) {
   if (overlay.type === 'text') {
     const textObj = obj as Textbox;
+    // A corner-handle drag scaled the object; handleModified folded that into
+    // fontSize and width, so the object goes back to scale 1 here.
     textObj.set({
       text: overlay.text,
       fontSize: overlay.fontSize,
+      width: textBoxWidthPx(overlay, canvasW),
+      scaleX: 1, scaleY: 1,
       fill: overlay.color || '#000000',
       fontFamily: overlayFontFamily(overlay.fontFamily),
       textAlign: (overlay.textAlign || 'center') as Textbox['textAlign'],
-      originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
+      originX: textOriginX(overlay.textAlign),
       left: (overlay.x / 100) * canvasW,
       top: (overlay.y / 100) * canvasH,
       angle: overlay.rotation || 0,
@@ -125,13 +131,18 @@ function applyOverlayToObject(
     const sh = (overlay.height / 100) * canvasH;
     if (_DEV) log('Shape Overlay Calculation (In-place Update):', { overlay, sx, sy, sw, sh });
     const def = getShapeDef(overlay.shapeType);
+    const rep = shapeRepresentation(overlay.shapeType);
     if (def?.fabricType === 'circle') {
       const radius = Math.min(sw, sh) / 2;
-      obj.set({ radius, left: sx + sw / 2, top: sy + sh / 2 } as Partial<CircleProps>);
+      obj.set({ radius, left: sx + sw / 2, top: sy + sh / 2, scaleX: 1, scaleY: 1 } as Partial<CircleProps>);
     } else if (def?.fabricType === 'ellipse') {
-      obj.set({ rx: sw / 2, ry: sh / 2, left: sx + sw / 2, top: sy + sh / 2 } as Partial<EllipseProps>);
+      obj.set({ rx: sw / 2, ry: sh / 2, left: sx + sw / 2, top: sy + sh / 2, scaleX: 1, scaleY: 1 } as Partial<EllipseProps>);
+    } else if (rep === 'path' || rep === 'polygon') {
+      // A path or polygon keeps its geometry and is scaled to the box, as
+      // createShapeFromOverlay made it; setting width on it would not resize it.
+      obj.set({ left: sx, top: sy, ...shapeScaleForBox(overlay.shapeType, obj.width ?? 0, obj.height ?? 0, sw, sh) });
     } else {
-      obj.set({ left: sx, top: sy, width: sw, height: sh });
+      obj.set({ left: sx, top: sy, width: sw, height: sh, scaleX: 1, scaleY: 1 });
     }
     obj.set({
       fill: overlay.fill || 'transparent',
@@ -943,12 +954,15 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const left = (overlay.x / 100) * canvasW;
         const top = (overlay.y / 100) * canvasH;
         if (_DEV) log('Text Overlay Calculation (Full Rebuild):', { overlay, left, top });
+        // The box the text wraps in is saved on the overlay (80% of the canvas
+        // when it has none) and words are never broken inside, so the thumbnail
+        // and the print, which follow the same rules, wrap on the same words.
         fabricObj = new Textbox(overlay.text, {
           left, top,
-          originX: overlay.textAlign === 'left' ? 'left' : overlay.textAlign === 'right' ? 'right' : 'center',
+          originX: textOriginX(overlay.textAlign),
           originY: 'center', fontSize: overlay.fontSize, fill: overlay.color || '#000000',
           fontFamily: overlayFontFamily(overlay.fontFamily), textAlign: (overlay.textAlign || 'center') as Textbox['textAlign'],
-          width: canvasW * 0.8, editable: true, splitByGrapheme: true,
+          width: textBoxWidthPx(overlay, canvasW), editable: true,
           cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#f97316',
           angle: overlay.rotation || 0,
         });
@@ -1103,13 +1117,30 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         onCanvasChangeRef.current({ ...current, frames: newFrames });
       } else {
         const idx = target.__overlayIdx as number;
+        const geom = {
+          left: target.left ?? 0, top: target.top ?? 0,
+          width: target.width ?? 100, height: target.height ?? 100,
+          scaleX: target.scaleX ?? 1, scaleY: target.scaleY ?? 1,
+        };
+        const rotation = Math.round(target.angle ?? 0);
         const newOverlays = current.overlays.map((o, i) => {
           if (i !== idx) return o;
-          const common = { x: Math.round(((target.left ?? 0) / canvasW) * 1000) / 10, y: Math.round(((target.top ?? 0) / canvasH) * 1000) / 10, rotation: Math.round(target.angle ?? o.rotation) };
-          if (o.type === 'text') return { ...o, ...common, text: (target as Textbox).text || o.text, fontSize: Math.round((target as Textbox).fontSize ?? o.fontSize) };
-          const newW = (((target.width ?? 100) * (target.scaleX ?? 1)) / canvasW) * 100;
-          const newH = (((target.height ?? 100) * (target.scaleY ?? 1)) / canvasH) * 100;
-          return { ...o, ...common, width: Math.round(newW * 10) / 10, height: Math.round(newH * 10) / 10 };
+          if (o.type === 'text') {
+            const t = target as Textbox;
+            return { ...o, ...textBoxFromObject({ ...geom, fontSize: t.fontSize ?? o.fontSize }, canvasW, canvasH), rotation, text: t.text || o.text };
+          }
+          if (o.type === 'shape') {
+            // A circle's left/top is its centre and a path's size is its scale
+            // (lib/overlay-geometry.ts) — read the box back the way it was built.
+            return { ...o, ...shapeBoxFromObject(geom, o.shapeType, canvasW, canvasH), rotation };
+          }
+          const newW = ((geom.width * geom.scaleX) / canvasW) * 100;
+          const newH = ((geom.height * geom.scaleY) / canvasH) * 100;
+          return {
+            ...o, rotation,
+            x: Math.round((geom.left / canvasW) * 1000) / 10, y: Math.round((geom.top / canvasH) * 1000) / 10,
+            width: Math.round(newW * 10) / 10, height: Math.round(newH * 10) / 10,
+          };
         });
         onCanvasChangeRef.current({ ...current, overlays: newOverlays });
       }
