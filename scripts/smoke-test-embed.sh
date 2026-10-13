@@ -26,8 +26,6 @@ set -u
 BASE="${BASE:-http://localhost:5004}"
 API_KEY="${API_KEY:-}"
 ORDER_ID="${ORDER_ID:-SMOKE-$(date +%s)}"
-PASS=0
-FAIL=0
 
 if [ -z "$API_KEY" ]; then
   echo "✗ API_KEY env var is required (a real Printo API key)"
@@ -47,12 +45,8 @@ case "$BASE" in
   https://localhost*|https://127.0.0.1*) CURL_OPTS="-k" ;;
 esac
 [ "${CURL_INSECURE:-0}" = "1" ] && CURL_OPTS="-k"
-
-# Shadow curl so all ~25 call sites pick this up without edits; `command curl`
-# stops the function recursing into itself. Unquoted $CURL_OPTS is deliberate —
-# it must vanish entirely when empty rather than pass an empty argument.
-curl() { command curl ${CURL_OPTS} "$@"; }
-
+# Counters, the curl wrapper and the step/ok/bad/skip printers.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/smoke.sh"
 [ -n "$CURL_OPTS" ] && printf "\033[33m!\033[0m TLS verification disabled for %s\n" "$BASE"
 
 # ── Which layout to exercise ─────────────────────────────────────────────────
@@ -96,14 +90,6 @@ exact = [d for d in ok if d.get('frameCount') == 1]
 print((exact or ok or [{}])[0].get('name', ''))
 " 2>/dev/null || echo "")
 }
-
-# Pretty step printer ────────────────────────────────────────────────────────
-step() { printf "\n\033[1;36m▸ %s\033[0m\n" "$1"; }
-ok()   { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS + 1)); }
-bad()  { printf "  \033[31m✗\033[0m %s\n" "$1"; FAIL=$((FAIL + 1)); }
-# Neutral: a step that could not run here (missing optional dep, empty
-# environment). Counts as neither pass nor fail — matches smoke-test-calendar.sh.
-skip() { printf "  \033[33m⊘\033[0m %s\n" "$1"; }
 
 # ── 1. Health -----------------------------------------------------------------
 step "1. Backend health"

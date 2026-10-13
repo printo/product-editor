@@ -4,6 +4,8 @@
  * banners never block a submit.
  */
 
+import { fileFingerprint } from '@/lib/file-identity';
+
 interface FrameLike {
   originalFile: File | null;
   fileId?: string;
@@ -44,13 +46,9 @@ export interface DuplicateFill {
   placements: string[];   // human labels, e.g. "Front" or "page 3, photo 1"
 }
 
-function fingerprint(f: File): string {
-  return `${f.name}:${f.size}:${f.lastModified}`;
-}
-
 /** Fingerprint used to mark deliberate duplication (qty auto-fill). */
 export function duplicateFingerprint(f: File): string {
-  return fingerprint(f);
+  return fileFingerprint(f);
 }
 
 /**
@@ -66,7 +64,7 @@ export function collectDuplicateFills(
     group.canvases.forEach((c, ci) => {
       c.frames.forEach((f, fi) => {
         if (!f.originalFile) return;
-        const key = fingerprint(f.originalFile);
+        const key = fileFingerprint(f.originalFile);
         if (intentional.has(key)) return;
         const placement = group.canvases.length > 1
           ? `${group.label}, page ${ci + 1}${c.frames.length > 1 ? `, photo ${fi + 1}` : ''}`
