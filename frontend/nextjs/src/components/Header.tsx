@@ -7,7 +7,7 @@ import { useHeader } from '@/context/HeaderContext';
 import { HeaderBrand } from '@/components/HeaderBrand';
 import { HeaderUserMenu } from '@/components/HeaderUserMenu';
 import { SegmentedNav } from '@/components/ui/SegmentedNav';
-import { headerRoleLabel } from '@/lib/header-role-label';
+import { headerRoleBadge } from '@/lib/header-role-label';
 import { canManageTemplates } from '@/lib/roles';
 import { ubuntu } from '@/lib/site-fonts';
 
@@ -15,6 +15,7 @@ export const Header = () => {
   const [mounted, setMounted] = React.useState(false);
   const { title, description, centerActions, rightActions, headerHeight, setHeaderHeight } = useHeader();
   const { data: session } = useSession();
+  const roleBadge = headerRoleBadge(session);
   const pathname = usePathname();
   // Highlight "Layouts" tab for the layouts list AND any sub-editor pages
   // (e.g. /editor/layouts/calendar/new, /editor/layouts/calendar/[name])
@@ -126,7 +127,8 @@ export const Header = () => {
 
           <HeaderUserMenu
             name={session?.user?.name}
-            roleLabel={headerRoleLabel(session)}
+            roleLabel={roleBadge.label}
+            roleHref={roleBadge.href}
             onSignOut={() => signOut({ callbackUrl: '/login' })}
           />
         </div>

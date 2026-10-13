@@ -26,7 +26,6 @@ import {
   AlignRight,
   CalendarDays,
   BookOpen,
-  Database,
   LayoutTemplate as TemplateIcon,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -38,7 +37,7 @@ import { TagFilter } from '@/components/ui/TagFilter';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Toast, ToastStack } from '@/components/ui/Toast';
 import { useHeader } from '@/context/HeaderContext';
-import { canManageTemplates, isAdmin } from '@/lib/roles';
+import { canManageTemplates } from '@/lib/roles';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { hasTransparentPixels } from '@/lib/image-utils';
@@ -266,10 +265,6 @@ export default function LayoutCreatorPage() {
   // Derived in render, not inside the effect: depending on `session` itself
   // would re-run this on every identity change from useSession's polling, and
   // the effect only ever needs the yes/no.
-  const canOpenDjangoAdmin = isAdmin({
-    is_staff: session?.is_staff,
-    registration_status: session?.registration_status,
-  });
   const canManageHolidays = canManageTemplates({
     is_staff: session?.is_staff,
     is_ops_team: session?.is_ops_team,
@@ -339,33 +334,16 @@ export default function LayoutCreatorPage() {
           )}
         </div>
       );
-      // Jump to the Django admin console. Uses the SAME rule nginx's
-      // auth_request enforces via /api/internal/verify-django-admin, imported
-      // from one module so the two cannot drift — a button that appears for
-      // someone the gate will deny is just a trip to /django-admin-denied.
-      //
-      // A plain <a>, not next/link: /django-admin/ is served by nginx
-      // straight to Django and is not a Next.js route, so client-side
-      // navigation would 404 against the app router.
-      setRightActions(
-        canOpenDjangoAdmin ? (
-          <a
-            href="/django-admin/"
-            aria-label="Django Admin"
-            title="Open the Django admin console"
-            className="flex items-center gap-1.5 p-2.5 md:px-3 md:py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-full md:rounded border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Django Admin</span>
-          </a>
-        ) : null
-      );
+      // The Django admin link lives on the header's role badge (HeaderUserMenu),
+      // so this page adds no action of its own: a button here collided with
+      // the Fonts button once the search row got narrow.
+      setRightActions(null);
     }
     // activeTagFilter is a dep because centerActions is a captured JSX snapshot —
     // without it the dropdown would keep rendering the tag selected at mount.
-    // The access flags likewise: rightActions is a snapshot too, so the button
-    // would stay hidden for an administrator whose session resolved after mount.
-  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length, canOpenDjangoAdmin, canManageHolidays]);
+    // The access flag likewise: the Holidays link is in that snapshot, so it
+    // would stay hidden for an ops user whose session resolved after mount.
+  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length, canManageHolidays]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 
