@@ -2,16 +2,140 @@
   "year": 2027,
   "locale": "en-IN",
   "_meta": {
-    "source": "Fixed-date holidays only — run scripts/refresh-holidays.py to populate variable-date ones (Holi, Diwali, Good Friday, Eid, etc.) from Nager.Date.",
+    "source": "holidays 0.105 public holidays for country=IN; merged with existing.",
     "version": 1,
-    "lastRefreshed": null
+    "lastRefreshed": "2026-10-13T05:53:38.654261Z"
   },
   "events": [
-    { "date": "2027-01-01", "name": "New Year", "type": "observance", "color": "#3B82F6" },
-    { "date": "2027-01-26", "name": "Republic Day", "type": "national", "color": "#DC2626" },
-    { "date": "2027-05-01", "name": "Labour Day", "type": "observance", "color": "#0EA5E9" },
-    { "date": "2027-08-15", "name": "Independence Day", "type": "national", "color": "#DC2626" },
-    { "date": "2027-10-02", "name": "Gandhi Jayanti", "type": "national", "color": "#10B981" },
-    { "date": "2027-12-25", "name": "Christmas", "type": "religious", "color": "#10B981" }
+    {
+      "date": "2027-01-01",
+      "name": "New Year",
+      "type": "observance",
+      "color": "#3B82F6"
+    },
+    {
+      "date": "2027-01-26",
+      "name": "Republic Day",
+      "type": "national",
+      "color": "#DC2626"
+    },
+    {
+      "date": "2027-03-06",
+      "name": "Maha Shivaratri",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2027-03-10",
+      "name": "Id-ul-Fitr",
+      "type": "religious",
+      "color": "#10B981",
+      "estimated": true
+    },
+    {
+      "date": "2027-03-22",
+      "name": "Holi",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2027-03-26",
+      "name": "Good Friday",
+      "type": "religious",
+      "color": "#10B981"
+    },
+    {
+      "date": "2027-04-14",
+      "name": "Ambedkar Jayanti",
+      "type": "observance",
+      "color": "#3B82F6"
+    },
+    {
+      "date": "2027-04-15",
+      "name": "Ram Navami",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2027-04-18",
+      "name": "Mahavir Jayanti",
+      "type": "religious",
+      "color": "#10B981"
+    },
+    {
+      "date": "2027-05-01",
+      "name": "Labour Day",
+      "type": "observance",
+      "color": "#0EA5E9"
+    },
+    {
+      "date": "2027-05-17",
+      "name": "Bakrid",
+      "type": "religious",
+      "color": "#10B981",
+      "estimated": true
+    },
+    {
+      "date": "2027-05-20",
+      "name": "Buddha Purnima",
+      "type": "religious",
+      "color": "#10B981"
+    },
+    {
+      "date": "2027-06-16",
+      "name": "Muharram",
+      "type": "religious",
+      "color": "#10B981",
+      "estimated": true
+    },
+    {
+      "date": "2027-08-15",
+      "name": "Independence Day",
+      "type": "national",
+      "color": "#DC2626"
+    },
+    {
+      "date": "2027-08-15",
+      "name": "Milad-un-Nabi",
+      "type": "religious",
+      "color": "#10B981",
+      "estimated": true
+    },
+    {
+      "date": "2027-08-25",
+      "name": "Janmashtami",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2027-10-02",
+      "name": "Gandhi Jayanti",
+      "type": "national",
+      "color": "#DC2626"
+    },
+    {
+      "date": "2027-10-09",
+      "name": "Dussehra",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2027-10-29",
+      "name": "Diwali",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2027-11-14",
+      "name": "Guru Nanak Jayanti",
+      "type": "religious",
+      "color": "#10B981"
+    },
+    {
+      "date": "2027-12-25",
+      "name": "Christmas",
+      "type": "religious",
+      "color": "#10B981"
+    }
   ]
 }

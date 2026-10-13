@@ -2,16 +2,134 @@
   "year": 2029,
   "locale": "en-IN",
   "_meta": {
-    "source": "Fixed-date holidays only — run scripts/refresh-holidays.py to populate variable-date ones.",
+    "source": "holidays 0.105 public holidays for country=IN; merged with existing.",
     "version": 1,
-    "lastRefreshed": null
+    "lastRefreshed": "2026-10-13T05:53:42.285267Z"
   },
   "events": [
-    { "date": "2029-01-01", "name": "New Year", "type": "observance", "color": "#3B82F6" },
-    { "date": "2029-01-26", "name": "Republic Day", "type": "national", "color": "#DC2626" },
-    { "date": "2029-05-01", "name": "Labour Day", "type": "observance", "color": "#0EA5E9" },
-    { "date": "2029-08-15", "name": "Independence Day", "type": "national", "color": "#DC2626" },
-    { "date": "2029-10-02", "name": "Gandhi Jayanti", "type": "national", "color": "#10B981" },
-    { "date": "2029-12-25", "name": "Christmas", "type": "religious", "color": "#10B981" }
+    {
+      "date": "2029-01-01",
+      "name": "New Year",
+      "type": "observance",
+      "color": "#3B82F6"
+    },
+    {
+      "date": "2029-01-26",
+      "name": "Republic Day",
+      "type": "national",
+      "color": "#DC2626"
+    },
+    {
+      "date": "2029-02-11",
+      "name": "Maha Shivaratri",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2029-02-15",
+      "name": "Id-ul-Fitr",
+      "type": "religious",
+      "color": "#10B981",
+      "estimated": true
+    },
+    {
+      "date": "2029-03-01",
+      "name": "Holi",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2029-03-30",
+      "name": "Good Friday",
+      "type": "religious",
+      "color": "#10B981"
+    },
+    {
+      "date": "2029-04-14",
+      "name": "Ambedkar Jayanti",
+      "type": "observance",
+      "color": "#3B82F6"
+    },
+    {
+      "date": "2029-04-25",
+      "name": "Bakrid",
+      "type": "religious",
+      "color": "#10B981",
+      "estimated": true
+    },
+    {
+      "date": "2029-04-26",
+      "name": "Mahavir Jayanti",
+      "type": "religious",
+      "color": "#10B981"
+    },
+    {
+      "date": "2029-05-01",
+      "name": "Labour Day",
+      "type": "observance",
+      "color": "#0EA5E9"
+    },
+    {
+      "date": "2029-05-24",
+      "name": "Muharram",
+      "type": "religious",
+      "color": "#10B981",
+      "estimated": true
+    },
+    {
+      "date": "2029-05-27",
+      "name": "Buddha Purnima",
+      "type": "religious",
+      "color": "#10B981"
+    },
+    {
+      "date": "2029-07-25",
+      "name": "Milad-un-Nabi",
+      "type": "religious",
+      "color": "#10B981",
+      "estimated": true
+    },
+    {
+      "date": "2029-08-15",
+      "name": "Independence Day",
+      "type": "national",
+      "color": "#DC2626"
+    },
+    {
+      "date": "2029-09-01",
+      "name": "Janmashtami",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2029-10-02",
+      "name": "Gandhi Jayanti",
+      "type": "national",
+      "color": "#DC2626"
+    },
+    {
+      "date": "2029-10-16",
+      "name": "Dussehra",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2029-11-05",
+      "name": "Diwali",
+      "type": "festival",
+      "color": "#F59E0B"
+    },
+    {
+      "date": "2029-11-21",
+      "name": "Guru Nanak Jayanti",
+      "type": "religious",
+      "color": "#10B981"
+    },
+    {
+      "date": "2029-12-25",
+      "name": "Christmas",
+      "type": "religious",
+      "color": "#10B981"
+    }
   ]
 }
