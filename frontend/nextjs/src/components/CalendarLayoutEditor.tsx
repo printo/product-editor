@@ -1496,20 +1496,6 @@ export function CalendarLayoutEditor({
                   Precise values (fractions 0..1)
                 </summary>
                 <div className="mt-3 flex flex-col gap-4">
-                  <div data-testid="frames-precise">
-                    <p className="font-medium text-zinc-700 mb-2">Frames</p>
-                    {draft.frames.map((frame, i) => (
-                      <div key={i} className="mb-3" data-testid={`frame-row-${i}`}>
-                        <p className="text-zinc-500 mb-1">#{i + 1}</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          <NumberField label="X" value={frame.x} step={0.01} min={0} max={1} onChange={(n) => patchFrame(i, { x: n })} />
-                          <NumberField label="Y" value={frame.y} step={0.01} min={0} max={1} onChange={(n) => patchFrame(i, { y: n })} />
-                          <NumberField label="W" value={frame.width} step={0.01} min={0.01} max={1} onChange={(n) => patchFrame(i, { width: n })} />
-                          <NumberField label="H" value={frame.height} step={0.01} min={0.01} max={1} onChange={(n) => patchFrame(i, { height: n })} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                   <div data-testid="calendar-primitive-fields-wrapper">
                     <p className="font-medium text-zinc-700 mb-2">
                       Calendar {draft.mode === 'poster' ? '(seed position)' : '(position)'}

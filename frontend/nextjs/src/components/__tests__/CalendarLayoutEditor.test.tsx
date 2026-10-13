@@ -664,8 +664,8 @@ describe('CalendarLayoutEditor — review fix #2 (frame editing UI)', () => {
     setup();
     await goToStep(2);
     expect(screen.getByTestId('frames-section')).toBeInTheDocument();
-    expect(screen.getByTestId('frame-row-0')).toBeInTheDocument();
-    expect(screen.queryByTestId('frame-row-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('frame-card-0')).toBeInTheDocument();
+    expect(screen.queryByTestId('frame-card-1')).not.toBeInTheDocument();
   });
 
   it('shows the frame in millimetres and edits it from typed values', async () => {
@@ -686,16 +686,16 @@ describe('CalendarLayoutEditor — review fix #2 (frame editing UI)', () => {
     setup();
     await goToStep(2);
     await userEvent.click(screen.getByTestId('add-frame-btn'));
-    expect(screen.getByTestId('frame-row-1')).toBeInTheDocument();
+    expect(screen.getByTestId('frame-card-1')).toBeInTheDocument();
   });
 
   it('removes a non-last frame', async () => {
     setup();
     await goToStep(2);
     await userEvent.click(screen.getByTestId('add-frame-btn'));
-    expect(screen.getByTestId('frame-row-1')).toBeInTheDocument();
+    expect(screen.getByTestId('frame-card-1')).toBeInTheDocument();
     await userEvent.click(screen.getByTestId('remove-frame-1'));
-    expect(screen.queryByTestId('frame-row-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('frame-card-1')).not.toBeInTheDocument();
   });
 
   it('disables remove on the LAST remaining frame', async () => {
