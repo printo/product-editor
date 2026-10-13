@@ -29,7 +29,7 @@ export function useAutosaveAndRestore({
   setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
   isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
   calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
-  activeTemplateRef, setActiveTemplate,
+  activeTemplateRef, setActiveTemplate, activeTemplateId = null,
 }: {
   layout: any;
   layoutLoading: boolean;
@@ -69,6 +69,9 @@ export function useAutosaveAndRestore({
    *  refresh keeps decorating new cards; a restored design's template wins
    *  over one named on the address. */
   activeTemplateRef?: Ref<SavedTemplate | LayoutTemplate | null>;
+  /** The id of the template in force, as state: a pick with no cards yet
+   *  changes nothing else the autosave watches, so it is a trigger of its own. */
+  activeTemplateId?: string | null;
   setActiveTemplate?: Setter<LayoutTemplate | null>;
 }) {
   // ── Restore placeholders ────────────────────────────────────────────────
@@ -299,6 +302,17 @@ export function useAutosaveAndRestore({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calendarTheme, calendarType, genzPalette, calendarCells]);
 
+  // Trigger: the template choice. Picking one before any photo (the picker
+  // is the first step on a fresh design) touches no canvas, so without this
+  // a reload before the first photo would ask again. The writer reads the
+  // template via ref; the restore's own set is gated by restoreSettled.
+  useEffect(() => {
+    if (!orderId || !layout) return;
+    scheduleAutosave();
+    return cancelAutosave;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTemplateId]);
+
   // Trigger: book page count. A pure count change (no photo edits) doesn't
   // touch `canvases` either. bookHiddenPages changes together with the count,
   // so it needs no trigger of its own — the writer reads it via ref.
@@ -501,6 +515,15 @@ export function useAutosaveAndRestore({
         const savedActiveKey: string | undefined = data.editor_state.activeSurfaceKey;
         if (savedActiveKey) setActiveSurfaceKey(savedActiveKey);
 
+        // The saved design decides the template: its own, or none. The id
+        // on the address was only ever a starting point for a new design.
+        // Outside the cards guard below: a template picked before the first
+        // photo is a saved design with no cards, and must not be asked again.
+        const savedTemplate = data.editor_state.template;
+        setActiveTemplate?.(isLayoutTemplate(savedTemplate)
+          ? { ...savedTemplate, thumbnailUrl: null, layoutName }
+          : null);
+
         // Sync the active-surface shortcut state.
         const activeSaved = savedSurfaces.find(
           ss => ss.key === (savedActiveKey ?? activeSurfaceKey)
@@ -515,12 +538,6 @@ export function useAutosaveAndRestore({
           isRestoringRef.current = true;
           skipNextGenerateRef.current = true; // suppress generateCanvases trigger
           setCanvases(hydrated);
-          // The saved design decides the template: its own, or none. The id
-          // on the address was only ever a starting point for a new design.
-          const savedTemplate = data.editor_state.template;
-          setActiveTemplate?.(isLayoutTemplate(savedTemplate)
-            ? { ...savedTemplate, thumbnailUrl: null, layoutName }
-            : null);
           // Regenerate canvas previews that were stripped from autosave payload
           // to reduce size. Runs async in the background — previews appear as
           // they're ready, never blocking UI update.

@@ -33,6 +33,26 @@ describe('TemplatePickerDialog', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('as the first step, the close control is "Start blank": no third outcome', () => {
+    const onPick = jest.fn();
+    const onClose = jest.fn();
+    render(<TemplatePickerDialog templates={TEMPLATES} activeTemplate={null} cardCount={0} firstStep={true} onPick={onPick} onClose={onClose} />);
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    const [header] = screen.getAllByRole('button', { name: /Start blank/ });
+    fireEvent.click(header);
+    expect(onClose).toHaveBeenCalled();
+    expect(onPick).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('opened later, it has an ordinary Close that changes nothing', () => {
+    const onClose = jest.fn();
+    render(<TemplatePickerDialog templates={TEMPLATES} activeTemplate={TEMPLATES[0]} cardCount={2} firstStep={false} onPick={jest.fn()} onClose={onClose} />);
+    expect(screen.getByText('Templates')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('asks before rewriting existing cards, and can go back', async () => {
     const onPick = jest.fn();
     render(<TemplatePickerDialog templates={TEMPLATES} activeTemplate={null} cardCount={3} firstStep={false} onPick={onPick} onClose={jest.fn()} />);

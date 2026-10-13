@@ -13,7 +13,7 @@ type DragTarget = { idx: number, surfaceKey: string | null } | null;
  *  drop zone that opens the photo picker. */
 export function EmptyState({
   isProcessing, canvases, restorePending, restoreCount, layout, dragOverIdx, setDragOverIdx, uploadInputRef, handleFileChange,
-  templateCount = 0, activeTemplateName = null, onOpenTemplates,
+  activeTemplateName = null,
 }: {
   isProcessing: boolean;
   canvases: CanvasItem[];
@@ -24,10 +24,9 @@ export function EmptyState({
   setDragOverIdx: Dispatch<SetStateAction<DragTarget>>;
   uploadInputRef: RefObject<HTMLInputElement | null>;
   handleFileChange: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
-  /** Layout templates (template.ts): offered here when the layout has some. */
-  templateCount?: number;
+  /** The template in force (layout-template.ts), named so the customer knows
+   *  the photos they add will carry it. Picking one is the toolbar's job. */
   activeTemplateName?: string | null;
-  onOpenTemplates?: () => void;
 }) {
   return (
     <>
@@ -76,20 +75,15 @@ export function EmptyState({
             <p className="text-[13px] font-black text-slate-800 uppercase tracking-tight">
               No images selected
             </p>
-            <p className="text-[11px] text-slate-400 font-medium max-w-[220px]">
-              Drag and drop your photos here to get started
+            <p className="text-[11px] text-slate-400 font-medium max-w-[240px]">
+              Drag and drop your photos here, or click to choose them
             </p>
           </div>
-          {templateCount > 0 && onOpenTemplates && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onOpenTemplates(); }}
-              onKeyDown={(e) => e.stopPropagation()}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-indigo-200 bg-white text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:bg-indigo-50 transition-colors"
-            >
+          {activeTemplateName && (
+            <p className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-50 text-[10px] font-bold uppercase tracking-widest text-indigo-600">
               <TemplateIcon className="w-3.5 h-3.5" />
-              {activeTemplateName ? `Template: ${activeTemplateName}` : 'Start with a template'}
-            </button>
+              <span>Template: {activeTemplateName}</span>
+            </p>
           )}
         </div>
       )}

@@ -11,7 +11,7 @@
  * against FakeBackend. Timers are real, so the autosave debounce (2 s) and the
  * dashboard's status poll (first at ~2 s) are waited out, not faked.
  */
-import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   BOOK_LAYOUT, CALENDAR_FINANCIAL_GENZ, CALENDAR_LAYOUT, CALENDAR_NO_HOLIDAYS, FakeBackend, LAYOUT_4X6, LAYOUT_NAME, makePhoto, renderEditor, setEditorUrl,
@@ -131,9 +131,16 @@ type PutBody = {
     surfaces: Array<{ key: string; canvases: Array<{ frames: Frame[] }> }>;
     calendarState?: { themePreset?: string; calendarType?: string; genzPalette?: string; cells?: Record<string, unknown[]> };
     bookState?: { pageCount?: number };
+    template?: { id?: string } | null;
   };
 };
 const lastPut = (orderId: string) => backend.callsTo(`canvas-state/${orderId}/`, 'PUT').pop()?.body as PutBody | undefined;
+
+const RETRO_TEMPLATE = {
+  id: 'retro-birthday', displayName: 'Retro Birthday', layoutName: LAYOUT_NAME, thumbnailUrl: null,
+  decoration: { surfaces: { default: { bgColor: '#fff4e6', overlays: [] } } },
+};
+const templatePicker = () => screen.queryByRole('dialog', { name: 'Choose a template' });
 
 describe('editor page — embed mode', () => {
   beforeEach(() => {
@@ -149,6 +156,29 @@ describe('editor page — embed mode', () => {
     expect(init.headers['x-embed-token']).toBe('test-embed-token');
     await waitFor(() => expect(backend.callsTo(`canvas-state/${ORDER_ID}/`, 'GET')).toHaveLength(1));
     expect(backend.unexpected).toEqual([]);
+  });
+
+  it('a published template does not open the picker by itself unless the session asked (template_flow=1)', async () => {
+    backend.templates = [RETRO_TEMPLATE];
+    renderEditor();
+    await waitFor(() => expect(backend.callsTo('templates')).toHaveLength(1));
+    await waitFor(() => photoInput());
+    await sleep(50);
+    expect(templatePicker()).toBeNull();
+    expect(screen.queryByRole('button', { name: /Start with a template/ })).toBeNull();
+  });
+
+  it('with template_flow=1 the picker is the first step, and "Start blank" leaves a plain empty page', async () => {
+    backend.templates = [RETRO_TEMPLATE];
+    window.history.replaceState(null, '', `/editor/layout/${LAYOUT_NAME}?token=test-embed-token&template_flow=1`);
+    renderEditor();
+    const picker = await screen.findByRole('dialog', { name: 'Choose a template' });
+    expect(picker.textContent).toMatch(/Start with a template/);
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { name: /Start blank/ })[0]);
+    await waitFor(() => expect(templatePicker()).toBeNull());
+    expect(screen.queryByRole('button', { name: /Start with a template/ })).toBeNull();
+    expect(photoInput()).toBeTruthy();
   });
 
   it('the heading shows the Display Name ops set, not one made from the identifier', async () => {
@@ -377,6 +407,31 @@ describe('editor page — dashboard mode', () => {
     await waitFor(() => expect(backend.callsTo('editor/init')).toHaveLength(1));
     expect(backend.callsTo('editor/init')[0].headers['x-embed-token']).toBeUndefined();
     expect((global.fetch as jest.Mock).mock.calls[0][0]).toMatch(/^\/api\/internal\/proxy\/editor\/init\?/);
+  });
+
+  it('a published template opens the picker first, without being asked; picking it names it on the empty page', async () => {
+    backend.templates = [RETRO_TEMPLATE];
+    renderEditor();
+    const picker = await screen.findByRole('dialog', { name: 'Choose a template' });
+    expect(picker.textContent).toMatch(/Start with a template/);
+    fireEvent.click(screen.getByRole('button', { name: /Retro Birthday/ }));
+    await waitFor(() => expect(templatePicker()).toBeNull());
+    expect(screen.getByText('Template: Retro Birthday')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Start with a template/ })).toBeNull();
+    // The choice is saved before any photo, so a reload does not ask again.
+    await waitFor(() => expect(lastPut(ORDER_ID)?.editor_state.template?.id).toBe('retro-birthday'), { timeout: 4000 });
+    // Opened again from the toolbar it is the ordinary picker, with a Close.
+    fireEvent.click(screen.getByRole('button', { name: 'Templates' }));
+    expect(await screen.findByRole('button', { name: 'Close' })).toBeInTheDocument();
+  });
+
+  it('a saved template with no photos yet comes back on reload, and the picker stays shut', async () => {
+    backend.templates = [RETRO_TEMPLATE];
+    backend.savedEditorState = { layoutName: LAYOUT_NAME, surfaces: [{ key: 'default', canvases: [] }], template: RETRO_TEMPLATE };
+    renderEditor();
+    expect(await screen.findByText('Template: Retro Birthday')).toBeInTheDocument();
+    await sleep(50);
+    expect(templatePicker()).toBeNull();
   });
 
   it('redirects to /login when signed out', async () => {

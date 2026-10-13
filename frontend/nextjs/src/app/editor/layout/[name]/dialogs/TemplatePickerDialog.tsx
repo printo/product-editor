@@ -18,7 +18,8 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
   activeTemplate: LayoutTemplate | null;
   /** Cards on the design right now, across every side. */
   cardCount: number;
-  /** The embed's template_flow: picking (or skipping) is the first step. */
+  /** Picking (or skipping) is the first step on a fresh design: the close
+   *  control reads "Start blank" and does that, so there is no third outcome. */
   firstStep: boolean;
   onPick: (template: LayoutTemplate | null) => void | Promise<void>;
   onClose: () => void;
@@ -74,9 +75,20 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
               Ready-made decoration for this product. Every photo you add gets it; you can still change each card afterwards.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
+          {firstStep ? (
+            <button
+              onClick={() => choose(null)}
+              disabled={busy}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+              Start blank
+            </button>
+          ) : (
+            <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {pending ? (

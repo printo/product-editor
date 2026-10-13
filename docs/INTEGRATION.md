@@ -555,8 +555,13 @@ in the link.
 
 **Make picking a template the first step.** Send `template_flow: true` and
 build the iframe URL from `embed_url_template` as usual (it now ends in
-`&template_flow=1`). The editor opens its template picker first, with a
-"start blank" choice. Nothing happens when the layout has no templates.
+`&template_flow=1`). The editor opens its template picker before anything
+else, over the dimmed page, with a "Start blank" choice (closing the picker
+is the same as choosing that). Without `template_flow` the customer is not
+asked and reaches templates from the toolbar's Templates button; the empty
+page itself no longer offers them. Nothing happens either way when the
+layout has no templates, or when the customer comes back to a saved design.
+(Our own dashboard always asks first; the switch is yours in the embed.)
 
 **List templates on your own product pages.** `GET /api/templates?layout=<name>`
 with your API key returns the layout's published templates
