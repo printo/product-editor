@@ -513,6 +513,57 @@ layout, which `qty` does not describe — it is ignored there.
 > `qty` sent in the session body is actually enforced. Move it and drop it from
 > the URL.
 
+### 4b. Start the customer on a template (optional, as of Oct 13, 2026)
+
+A **template** is ready-made decoration (background, text, stickers) our ops
+team builds for a layout. Customers can pick one inside the editor on their
+own; the two fields below let you drive that from your side. Both are
+optional and nothing changes for you if you send neither.
+
+**Open the editor on a specific template.** Send `template_id` when you
+create the session. We check that the template is published, look up the
+layout it belongs to, and answer with a ready `editor_url`, so you do not
+need to know the layout:
+
+```bash
+curl -X POST https://product-editor.printo.in/api/embed/session \
+  -H "Authorization: Bearer $PRODUCT_EDITOR_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "order_id": "PE-F5D6D769",
+    "callback_url": "https://printo.in/api/internal/pe-callback",
+    "template_id": "retro-birthday"
+  }'
+```
+
+```json
+{
+  "token": "a3f1c2d4-…",
+  "editor_url": "/editor/layout/classic_4x6?token=a3f1c2d4-…&template=retro-birthday",
+  "template_id": "retro-birthday",
+  "template_flow": false,
+  "embed_url_template": "/editor/layout/{layout_name}?token=a3f1c2d4-…"
+}
+```
+
+Put `editor_url` in the iframe `src` (prefixed with our host). The customer
+lands in the editor with the template chosen and is asked to add photos; each
+photo becomes a card with the decoration on it. An unknown or unpublished
+`template_id` is rejected with **400** at your call. If a customer comes back
+to an order they already worked on, their saved design wins over the template
+in the link.
+
+**Make picking a template the first step.** Send `template_flow: true` and
+build the iframe URL from `embed_url_template` as usual (it now ends in
+`&template_flow=1`). The editor opens its template picker first, with a
+"start blank" choice. Nothing happens when the layout has no templates.
+
+**List templates on your own product pages.** `GET /api/templates?layout=<name>`
+with your API key returns the layout's published templates
+(`id`, `displayName`, `thumbnailUrl`, …), and `GET /api/layouts` now carries a
+`templateCount` per layout. Template ids are lowercase slugs chosen by our ops
+team and never change once created.
+
 ### The layout identifier in your iframe URL is a permanent, stable key (as of Sep 16, 2026)
 
 The layout identifier in your iframe URL (`circle_48mm` above) used to be
