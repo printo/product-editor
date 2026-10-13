@@ -26,7 +26,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   CalendarLayoutEditor,
@@ -666,6 +666,20 @@ describe('CalendarLayoutEditor — review fix #2 (frame editing UI)', () => {
     expect(screen.getByTestId('frames-section')).toBeInTheDocument();
     expect(screen.getByTestId('frame-row-0')).toBeInTheDocument();
     expect(screen.queryByTestId('frame-row-1')).not.toBeInTheDocument();
+  });
+
+  it('shows the frame in millimetres and edits it from typed values', async () => {
+    setup();
+    await goToStep(2);
+    const group = within(screen.getByTestId('frame-mm-0'));
+    // default frame 0.05 / 0.9 of a 127 mm wide canvas
+    expect(group.getByLabelText('X (mm)')).toHaveValue(6.35);
+    expect(group.getByLabelText('Width (mm)')).toHaveValue(114.3);
+    fireEvent.change(group.getByLabelText('Width (mm)'), { target: { value: '50' } });
+    expect(group.getByLabelText('Width (mm)')).toHaveValue(50);
+    // X cannot push the frame off the canvas: 127 - 50 = 77
+    fireEvent.change(group.getByLabelText('X (mm)'), { target: { value: '500' } });
+    expect(group.getByLabelText('X (mm)')).toHaveValue(77);
   });
 
   it('adds a second frame when the Add button is clicked', async () => {

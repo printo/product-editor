@@ -1366,7 +1366,7 @@ export function CalendarLayoutEditor({
                 <div className="flex items-baseline justify-between mb-2">
                   <div>
                     <h2 className="text-sm font-semibold text-zinc-900">Photo frames</h2>
-                    <p className="text-xs text-zinc-500">Drag green blocks on canvas to reposition.</p>
+                    <p className="text-xs text-zinc-500">Drag green blocks on canvas, or type exact millimetres.</p>
                   </div>
                   <button type="button" onClick={addFrame}
                     data-testid="add-frame-btn"
@@ -1375,18 +1375,42 @@ export function CalendarLayoutEditor({
                   </button>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  {draft.frames.map((_, i) => (
-                    <div key={i} className="flex items-center justify-between px-2 py-1.5 rounded bg-emerald-50 border border-emerald-200 text-xs">
-                      <span className="font-medium text-emerald-800">Frame {i + 1}</span>
-                      <button type="button" onClick={() => removeFrame(i)}
-                        disabled={draft.frames.length <= 1}
-                        aria-label={`Remove frame ${i + 1}`}
-                        data-testid={`remove-frame-${i}`}
-                        className="text-zinc-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none">
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                  {draft.frames.map((frame, i) => {
+                    const canvasW = draft.canvasWidthMm;
+                    const canvasH = draft.canvasHeightMm;
+                    const toMm = (f: number, total: number) => Math.round(f * total * 100) / 100;
+                    // Typed mm → fraction, kept inside the canvas (and at least 1 mm wide/tall).
+                    const setMm = (key: 'x' | 'y' | 'width' | 'height', mm: number) => {
+                      const total = key === 'x' || key === 'width' ? canvasW : canvasH;
+                      if (!(total > 0)) return;
+                      const f = mm / total;
+                      const minSize = Math.min(1, 1 / total);
+                      if (key === 'x') patchFrame(i, { x: Math.min(Math.max(0, f), 1 - frame.width) });
+                      else if (key === 'y') patchFrame(i, { y: Math.min(Math.max(0, f), 1 - frame.height) });
+                      else if (key === 'width') patchFrame(i, { width: Math.min(Math.max(minSize, f), 1 - frame.x) });
+                      else patchFrame(i, { height: Math.min(Math.max(minSize, f), 1 - frame.y) });
+                    };
+                    return (
+                      <div key={i} className="px-2 py-1.5 rounded bg-emerald-50 border border-emerald-200 text-xs" data-testid={`frame-card-${i}`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="font-medium text-emerald-800">Frame {i + 1}</span>
+                          <button type="button" onClick={() => removeFrame(i)}
+                            disabled={draft.frames.length <= 1}
+                            aria-label={`Remove frame ${i + 1}`}
+                            data-testid={`remove-frame-${i}`}
+                            className="text-zinc-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none">
+                            ×
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2" data-testid={`frame-mm-${i}`}>
+                          <NumberField label="X (mm)" value={toMm(frame.x, canvasW)} step={0.5} min={0} onChange={(n) => setMm('x', n)} />
+                          <NumberField label="Y (mm)" value={toMm(frame.y, canvasH)} step={0.5} min={0} onChange={(n) => setMm('y', n)} />
+                          <NumberField label="Width (mm)" value={toMm(frame.width, canvasW)} step={0.5} min={1} onChange={(n) => setMm('width', n)} />
+                          <NumberField label="Height (mm)" value={toMm(frame.height, canvasH)} step={0.5} min={1} onChange={(n) => setMm('height', n)} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
 
