@@ -27,6 +27,7 @@ import {
   CalendarDays,
   BookOpen,
   Database,
+  LayoutTemplate as TemplateIcon,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -1180,6 +1181,18 @@ export default function LayoutCreatorPage() {
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
+                          )}
+                          {!isCalendar && !isBook && (
+                            <Link
+                              href={`/editor/layouts/templates/${encodeURIComponent(layoutStr)}`}
+                              data-testid={`templates-${layoutStr}`}
+                              className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all inline-flex items-center gap-1 text-[10px] font-bold"
+                              title="Templates: ready-made decoration customers can start from"
+                              aria-label={`Templates for ${layoutStr}`}
+                            >
+                              <TemplateIcon className="w-4 h-4" />
+                              {typeof layoutObj === 'object' && typeof layoutObj.templateCount === 'number' && layoutObj.templateCount > 0 ? layoutObj.templateCount : null}
+                            </Link>
                           )}
                         </>
                       )}
