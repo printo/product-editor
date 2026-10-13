@@ -120,8 +120,27 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
             user_label = getattr(request, '_api_auth_source', 'anonymous')
             logger.info(f"API Response: {response.status_code} in {duration:.3f}s [Source: {user_label}]")
             self._record_audit(request, response, duration, user_label)
+            self._count_toward_quota(request, response)
 
         return response
+
+    def _count_toward_quota(self, request, response):
+        """
+        Advance the key's daily counter (APIKey.max_requests_per_day) for the
+        requests the audit trail records — same exemptions, so the cap and
+        the trail agree. A 429 is the cap itself answering, not spend.
+        Never allowed to affect the response.
+        """
+        api_key = getattr(request, '_api_auth_key', None)
+        if api_key is None or response.status_code == 429 or not self._should_audit(request.path):
+            return
+        try:
+            from django.utils import timezone
+            from services.request_quota import record_request
+
+            record_request(api_key.id, timezone.now())
+        except Exception as exc:  # noqa: BLE001 — quota must never break traffic
+            logger.warning("Quota count failed for %s: %s", request.path, exc)
 
     def process_exception(self, request, exception):
         """

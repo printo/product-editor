@@ -599,6 +599,22 @@ Allow inbound HTTPS from Product Editor's egress IP range to your `/api/internal
 
 ---
 
+### 6. Daily request cap (optional, as of Oct 13, 2026)
+
+Printo ops can put a daily cap on your API key. If one is set, every call
+the key makes to this service counts (except health, config, render-status
+polling and chunk uploads, which are not metered), and once the day's cap is
+reached the API answers **`429 Too Many Requests`** with a `Retry-After`
+header and a body like:
+
+```json
+{ "detail": "This API key has used its 5000 requests for today; the cap resets at midnight IST." }
+```
+
+The day rolls over at **midnight IST (18:30 UTC)**. By default no cap is set.
+If you see a 429 that is not explained by the quantity rule above, ask Printo
+ops to raise or clear the cap on your key rather than retrying in a loop.
+
 ## Testing locally
 
 While developing the handler, point `callback_url` at a local tunnel (e.g. `https://<subdomain>.ngrok-free.app/api/internal/pe-callback`) and trigger an embed session + Save & Continue from your storefront. Watch your logs for the HMAC verification result.

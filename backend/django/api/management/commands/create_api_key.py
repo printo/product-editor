@@ -16,8 +16,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--max-requests',
             type=int,
-            default=1000,
-            help='Maximum requests per day (default: 1000)'
+            default=None,
+            help='Daily request cap, enforced at authentication (default: no cap)'
         )
         parser.add_argument(
             '--no-layouts',
@@ -67,7 +67,7 @@ class Command(BaseCommand):
             self.stdout.write('-' * 50)
             self.stdout.write(f'Name: {api_key.name}')
             self.stdout.write(f'Key: {api_key.key}')
-            self.stdout.write(f'Max Requests/Day: {api_key.max_requests_per_day}')
+            self.stdout.write(f"Max Requests/Day: {api_key.max_requests_per_day if api_key.max_requests_per_day is not None else 'no cap'}")
             self.stdout.write(f'Can Generate Layouts: {api_key.can_generate_layouts}')
             self.stdout.write(f'Can List Layouts: {api_key.can_list_layouts}')
             self.stdout.write(f'Can Access Exports: {api_key.can_access_exports}')
