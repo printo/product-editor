@@ -240,11 +240,11 @@ export function useServerRender({
 
       const canvasesPayload = allCanvases.map((c, canvasIdx) => ({
         canvas_index: canvasIdx,
-        surface_key: (c as any).surfaceKey,
+        surface_key: c.surfaceKey,
         // Phase 2 (WYSIWYG): carry the customer's canvas background + paper mat
         // colours so the print matches the preview (engine defaulted to white).
-        bg_color: (c as any).bgColor ?? null,
-        paper_color: (c as any).paperColor ?? null,
+        bg_color: c.bgColor ?? null,
+        paper_color: c.paperColor ?? null,
         frames: c.frames.map((frame, frameIdx) => {
           const up = frame.originalFile ? uploadResults.get(frame.originalFile) : null;
           return {
@@ -260,8 +260,8 @@ export function useServerRender({
             // so we never carry a caption into the print for a product that
             // wasn't designed for one — even if stale state has one set.
             fill_style: frame.fillStyle ?? null,
-            caption: (layout as any)?.frameCaptionsEnabled ? (frame.caption?.trim() || null) : null,
-            caption_enabled: Boolean((layout as any)?.frameCaptionsEnabled && frame.captionEnabled),
+            caption: layout?.frameCaptionsEnabled ? (frame.caption?.trim() || null) : null,
+            caption_enabled: Boolean(layout?.frameCaptionsEnabled && frame.captionEnabled),
           };
         }),
         // Phase 2 (WYSIWYG): carry text / shape / image overlays into the print.
@@ -289,12 +289,14 @@ export function useServerRender({
       // idempotently and each month's renderer draws only its own dates.
       if (isCalendarProduct) {
         canvasesPayload.forEach((c) => {
-          (c as any).calendar = {
-            themePreset: calendarTheme,
-            calendarType,
-            genzPalette,
-            cells: calendarCells,
-          };
+          Object.assign(c, {
+            calendar: {
+              themePreset: calendarTheme,
+              calendarType,
+              genzPalette,
+              cells: calendarCells,
+            },
+          });
         });
       }
 
@@ -306,7 +308,7 @@ export function useServerRender({
       // content authored on the template), never customer-editable.
       if (isBookProduct) {
         canvasesPayload.forEach((c) => {
-          (c as any).book = { pageCount: bookPageCount };
+          Object.assign(c, { book: { pageCount: bookPageCount } });
         });
       }
 

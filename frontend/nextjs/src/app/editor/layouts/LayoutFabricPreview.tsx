@@ -389,9 +389,9 @@ export function LayoutFabricPreview({
         const capX = round2((target.left ?? 0) / scale);
         const capY = round2((target.top ?? 0) / scale);
         const capW = round2(effW / scale);
-        const capFont = round2((((target as any).fontSize as number) ?? 12) / scale);
-        const capAlign = (((target as any).textAlign as 'left' | 'center' | 'right')) ?? 'center';
-        const capColor = (((target as any).fill as string)) ?? '#2a2a2a';
+        const capFont = round2(((target as Textbox).fontSize ?? 12) / scale);
+        const capAlign = ((target as Textbox).textAlign as 'left' | 'center' | 'right') ?? 'center';
+        const capColor = ((target as Textbox).fill as string) ?? '#2a2a2a';
         isSyncingRef.current = true;
         onFramesChange(curFrames.map((f, i) => i === cIdx ? {
           ...f, captionXMm: capX, captionYMm: capY, captionWidthMm: capW,

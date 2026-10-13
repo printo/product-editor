@@ -315,7 +315,7 @@ export async function renderCanvas(
 
       const _capPxPerMm = canvasW / (usedLayout.canvas?.widthMm || usedLayout.surfaces?.[0]?.canvas?.widthMm || 1);
       const captionObj = buildFrameCaption(
-        frameState, _geom, Boolean((usedLayout as any)?.frameCaptionsEnabled),
+        frameState, _geom, Boolean(usedLayout?.frameCaptionsEnabled),
         captionOverridesFromMm(frames[frameIdx] || {}, _capPxPerMm),
       );
       if (captionObj) fabricCanvas.add(captionObj); // on top of the photo

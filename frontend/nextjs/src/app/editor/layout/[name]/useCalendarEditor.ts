@@ -180,7 +180,7 @@ export function useCalendarDefaults({
     if (!isCalendarProduct || !layout) return;
 
     // Apply layout-level ops defaults for customer-controllable fields.
-    const rawCalendar = (normalizedLayoutState as any)?._raw?.calendar;
+    const rawCalendar = normalizedLayoutState?._raw?.calendar;
     if (rawCalendar?.themePreset) setCalendarTheme(rawCalendar.themePreset as CalendarTheme);
     if (rawCalendar?.calendarType) setCalendarType(rawCalendar.calendarType as CalendarType);
 

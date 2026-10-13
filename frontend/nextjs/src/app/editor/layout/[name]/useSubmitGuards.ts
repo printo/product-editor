@@ -61,7 +61,7 @@ export function useSubmitGuards({ layout, surfaceStates, canvases, isBookProduct
               surfaceLabel: s.label || s.key,
             }))
           : [{ canvases, layoutDef: layout, surfaceKey: null }];
-        const result = await collectLowDpiFrames(groups as any, getImageSize);
+        const result = await collectLowDpiFrames(groups, getImageSize);
         if (!cancelled) setLowDpiFrames(result);
       } catch {
         // The warning is best-effort — never let it disturb the editor.

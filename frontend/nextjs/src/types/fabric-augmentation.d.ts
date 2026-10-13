@@ -39,6 +39,11 @@ declare module 'fabric' {
     /** Index into the calendars[] array for CalendarFabricPreview objects. */
     __calendarIdx?: number
 
+    /** True on the auto-tile drag handle in CalendarFabricPreview. */
+    __isAutoTileHandle?: boolean
+    /** Grid dimensions an auto-tile handle tiles over. */
+    __cellColsRows?: { cols: number; rows: number }
+
     /** True on objects owned by CalendarFabricPreview (analogous to __layoutPreview). */
     __calPreview?: boolean
 

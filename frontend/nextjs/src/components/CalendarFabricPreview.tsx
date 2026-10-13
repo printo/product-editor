@@ -327,8 +327,8 @@ export function CalendarFabricPreview({
       handle.__calPreview = true;
       handle.__fabricEditor = 'calendar';
       handle.__calendarIdx = 0;
-      (handle as any).__isAutoTileHandle = true;
-      (handle as any).__cellColsRows = { cols: 4, rows: 3 };
+      handle.__isAutoTileHandle = true;
+      handle.__cellColsRows = { cols: 4, rows: 3 };
       handle.setControlsVisibility({ mtr: false });
       fc.add(handle);
     }
@@ -376,9 +376,9 @@ export function CalendarFabricPreview({
       } else if (target.__fabricEditor === 'calendar') {
         const idx = target.__calendarIdx as number;
         if (idx >= 0) {
-          if ((target as any).__isAutoTileHandle) {
+          if (target.__isAutoTileHandle) {
             // Handle covers the full 4×3 grid; back-compute per-cell seed
-            const { cols, rows } = (target as any).__cellColsRows ?? { cols: 4, rows: 3 };
+            const { cols, rows } = target.__cellColsRows ?? { cols: 4, rows: 3 };
             const seedW = round3(nw / cols);
             const seedH = round3(nh / rows);
             onCalendarsChange([{ x: nx, y: ny, width: seedW, height: seedH }]);
@@ -410,10 +410,10 @@ export function CalendarFabricPreview({
       }
       constrainToCanvas(target, cw, ch);
 
-      if ((target as any).__isAutoTileHandle) {
+      if (target.__isAutoTileHandle) {
         // Co-move all 12 non-interactive cells + their labels to follow
         // the group handle during drag so the visual stays coherent.
-        const { cols, rows } = (target as any).__cellColsRows ?? { cols: 4, rows: 3 };
+        const { cols, rows } = target.__cellColsRows ?? { cols: 4, rows: 3 };
         const hLeft = target.left ?? 0;
         const hTop  = target.top  ?? 0;
         const hW    = (target.width  ?? 0) * (target.scaleX ?? 1);
@@ -424,11 +424,11 @@ export function CalendarFabricPreview({
         // cells are stored with calIdx === -1
         const cells = fc.getObjects().filter((o: any) =>
           o.__calPreview && o.__fabricEditor === 'calendar' &&
-          !(o as any).__isAutoTileHandle && (o as any).__calendarIdx === -1
+          !o.__isAutoTileHandle && o.__calendarIdx === -1
         );
         const lbls = fc.getObjects().filter((o: any) =>
           o.__calPreview && o.__fabricEditor === 'calendarLabel' &&
-          (o as any).__calendarIdx === -1
+          o.__calendarIdx === -1
         );
         cells.forEach((cell: any, i: number) => {
           const col = i % cols;
@@ -444,11 +444,10 @@ export function CalendarFabricPreview({
         // Keep the associated label glued to a normal frame or calendar block.
         const isFrame   = target.__fabricEditor === 'frame';
         const labelType = isFrame ? 'label' : 'calendarLabel';
-        const idxKey    = isFrame ? '__frameIdx' : '__calendarIdx';
-        const targetIdx = (target as any)[idxKey];
+        const targetIdx = isFrame ? target.__frameIdx : target.__calendarIdx;
 
         fc.getObjects().filter((o: any) =>
-          o.__calPreview && o.__fabricEditor === labelType && (o as any)[idxKey] === targetIdx
+          o.__calPreview && o.__fabricEditor === labelType && (isFrame ? o.__frameIdx : o.__calendarIdx) === targetIdx
         ).forEach((lbl: any) => {
           lbl.set({ left: (target.left ?? 0) + 4, top: (target.top ?? 0) + 4 });
         });
@@ -469,8 +468,8 @@ export function CalendarFabricPreview({
       constrainToCanvas(target, cw, ch);
 
       // Resize 12 cells live when scaling the group handle
-      if ((target as any).__isAutoTileHandle) {
-        const { cols, rows } = (target as any).__cellColsRows ?? { cols: 4, rows: 3 };
+      if (target.__isAutoTileHandle) {
+        const { cols, rows } = target.__cellColsRows ?? { cols: 4, rows: 3 };
         const hLeft = target.left ?? 0;
         const hTop  = target.top  ?? 0;
         const hW    = (target.width  ?? 0) * (target.scaleX ?? 1);
@@ -480,11 +479,11 @@ export function CalendarFabricPreview({
 
         const cells = fc.getObjects().filter((o: any) =>
           o.__calPreview && o.__fabricEditor === 'calendar' &&
-          !(o as any).__isAutoTileHandle && (o as any).__calendarIdx === -1
+          !o.__isAutoTileHandle && o.__calendarIdx === -1
         );
         const lbls = fc.getObjects().filter((o: any) =>
           o.__calPreview && o.__fabricEditor === 'calendarLabel' &&
-          (o as any).__calendarIdx === -1
+          o.__calendarIdx === -1
         );
         cells.forEach((cell: any, i: number) => {
           const col = i % cols;
