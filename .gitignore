@@ -138,6 +138,8 @@ frontend/nextjs/blob-report/
 
 # graphify — local machine state (not project artifacts)
 graphify-out/cache/
+# regenerable in seconds with `graphify export html`; its history was 80% of the repo
+graphify-out/graph.html
 graphify-out/.graphify*
 graphify-out/.graphify_python
 graphify-out/.graphify_root

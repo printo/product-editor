@@ -21,3 +21,8 @@ backend/django/api/static/scalar/standalone.js
 # Django migrations: 60 low-value nodes (20 identical `Migration` classes). The
 # per-migration history is documented in CLAUDE.md's Migrations table instead.
 backend/django/*/migrations/
+
+# Trivial image nodes that cost a vision subagent each on a full rebuild: the
+# Playwright fixture photos and the static UI icons. Neither is customer data.
+frontend/nextjs/e2e/fixtures/
+frontend/nextjs/public/icons/

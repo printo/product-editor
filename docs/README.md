@@ -1,6 +1,6 @@
 # Product Editor — documentation index
 
-**Last reviewed: 2026-09-16** (`main` @ `fbebef3`, migration `0020`).
+**Last reviewed: 2026-10-13** (`main` @ `058de78`, migration `0022`).
 
 The single most useful thing to know about this folder: **most of it is not
 current-state reference.** Two files describe how the system behaves today; four
@@ -27,6 +27,7 @@ doc, add it here and give it a row below.
 | [`INTEGRATION.md`](INTEGRATION.md) | **The one doc with an external audience.** Drop-in webhook handler for printo.in's storefront team (Node + Python), the payload contract, HMAC verification, and the four download URLs. Source of truth is `notify_caller_webhook_task`; if they disagree, the task wins. |
 | [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) | What personal data is stored, where, and how it is deleted. The DPDP answer sheet — retention clock, the erasure endpoint, audit-trail retention, backups and how a restore keeps erased orders erased; no gaps open. |
 | [`AI_GUARDRAILS.md`](AI_GUARDRAILS.md) | Short list of rules that exist because breaking them has already cost us something. Companion to CLAUDE.md, not a replacement. |
+| [`HISTORY.md`](HISTORY.md) | The incidents, measurements and dated reversals behind the rules in CLAUDE.md, under the same headings. Split out of CLAUDE.md 2026-10-13 so that file holds current rules only. Append-only. |
 | [`LOAD_BASELINE.md`](LOAD_BASELINE.md) | Append-only log of web-tier load measurements. Add runs, never edit old ones. |
 | [`BUNDLED_FONTS.md`](BUNDLED_FONTS.md) | What the server-side renderer's bundled `.ttf` files are and how to add one. Moved here 2026-09-04 from `backend/django/services/fonts_assets/README.md`; the fonts themselves still live there. |
 | [`CALENDAR_S3_READINESS.md`](CALENDAR_S3_READINESS.md) | Audit of calendar storage paths for a future move off local disk — all env-driven, no hardcoded local paths. Moved here 2026-09-04 from `backend/django/services/`. |
@@ -53,7 +54,7 @@ code, **the code is right**.
 
 | Doc | Status |
 |---|---|
-| [`BOOK_LAYOUT_PRD.md`](BOOK_LAYOUT_PRD.md) | 🔵 Draft, unscheduled, nothing built. Covers any bound page-ordered product (photobook, booklet, brochure), not just photobooks. Updated 2026-08-14: **D2, D2a and D4 answered** (customer-entered page count auto-populates inner pages; author one cover + one inner-page template; covers sit outside the count). **D1, D3, D5, D6 and the new D7** (cover and inner pages may differ in size) still open. |
+| [`BOOK_LAYOUT_PRD.md`](BOOK_LAYOUT_PRD.md) | ✅ Shipped: backend materializer 2026-08-14, ops Book Editor and customer page count since (see CLAUDE.md → Book). Kept for the design reasoning; D1–D7 are answered in the code. The row below is the pre-ship text:  Covers any bound page-ordered product (photobook, booklet, brochure), not just photobooks. Updated 2026-08-14: **D2, D2a and D4 answered** (customer-entered page count auto-populates inner pages; author one cover + one inner-page template; covers sit outside the count). **D1, D3, D5, D6 and the new D7** (cover and inner pages may differ in size) still open. |
 
 ## Removed
 
