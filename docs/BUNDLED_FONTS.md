@@ -11,10 +11,14 @@ Exactly one file:
 Inter-Variable.ttf
 ```
 
-Per PRD §11.7 the server-side renderer uses **only Inter Variable**. No
-font picker is exposed to ops or customer; hardcoding one well-engineered
-variable font (Apache 2.0 licence, weights 100–900 in a single file)
-eliminates a class of production failure modes.
+Inter Variable is the **default** server-side font: calendar grids, captions,
+and any text overlay without a family (or with a CSS generic such as
+`sans-serif`, which the browser draws from the OS and we can't reproduce).
+
+PRD §11.7's "one font, no picker" rule was **reversed on 2026-10-13**. A text
+overlay now prints in the family the customer picked from the ops fonts list,
+fetched from Google Fonts on first use and cached in storage — see
+`services/google_fonts.py`. Those fonts are not bundled here.
 
 ## How to install
 
@@ -43,12 +47,8 @@ explicitly permitted by OFL §1–3.
 
 ## Do NOT add more fonts here
 
-If a future PRD adds a font picker (which would reverse §11.7), the new
-contract should:
-
-1. Read font names from `storage/fonts.json` (existing managed list).
-2. Resolve each name to a `<FamilyName>.ttf` in this directory.
-3. Add a startup check that every JSON entry has a matching `.ttf`.
-
-Until then, every `.ttf` other than Inter-Variable.ttf is unused dead
-weight in the Docker image — leave the directory single-file.
+The font picker (§11.7 reversed) does not use this directory. Picker fonts
+come from Google Fonts at render time and are cached durably under
+`font-cache/<family-slug>/<weight>.ttf` (S3 on prod, `storage/font_cache/`
+locally) by `services/google_fonts.py`, which only fetches families on the
+ops fonts list. Keep this directory single-file.

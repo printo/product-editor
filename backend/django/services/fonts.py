@@ -109,6 +109,16 @@ def get_font(size_px: int, weight: int = 400) -> ImageFont.ImageFont:
 
 @functools.lru_cache(maxsize=None)
 def _read_axis_records(font_path: str) -> tuple[tuple[str, float, float, float], ...]:
+    """axis_records() for a font file on disk; () if it can't be read."""
+    try:
+        data = Path(font_path).read_bytes()
+    except OSError as exc:
+        logger.warning("Could not read variation axes from %s: %s", font_path, exc)
+        return ()
+    return axis_records(data)
+
+
+def axis_records(data: bytes) -> tuple[tuple[str, float, float, float], ...]:
     """
     Return the font's variation axes as (tag, min, default, max), in fvar
     order — the order set_variation_by_axes expects its values in.
@@ -120,7 +130,6 @@ def _read_axis_records(font_path: str) -> tuple[tuple[str, float, float, float],
     instance untouched.
     """
     try:
-        data = Path(font_path).read_bytes()
         num_tables = struct.unpack_from(">H", data, 4)[0]
         for i in range(num_tables):
             tag, _checksum, offset, _length = struct.unpack_from(">4sIII", data, 12 + 16 * i)
@@ -140,9 +149,23 @@ def _read_axis_records(font_path: str) -> tuple[tuple[str, float, float, float],
                     min_v / 65536, default_v / 65536, max_v / 65536,
                 ))
             return tuple(records)
-    except (OSError, struct.error, UnicodeDecodeError) as exc:
-        logger.warning("Could not read variation axes from %s: %s", font_path, exc)
+    except (struct.error, UnicodeDecodeError) as exc:
+        logger.warning("Could not parse variation axes: %s", exc)
     return ()
+
+
+def set_weight(font, records: tuple[tuple[str, float, float, float], ...], weight: int) -> bool:
+    """Set `weight` on a variable font's wght axis, by tag (every other axis at
+    its default). No-op on a static font. Returns False when the runtime
+    can't apply variation axes (old Pillow / FreeType)."""
+    values = _axis_values(records, weight)
+    if values is None:
+        return True
+    try:
+        font.set_variation_by_axes(values)
+    except (AttributeError, NotImplementedError, OSError):
+        return False
+    return True
 
 
 def _axis_values(
@@ -188,18 +211,14 @@ def _load_font(size_px: int, weight: int) -> ImageFont.ImageFont:
         # way we get the .ttf's default instance (Inter ships it at 400)
         # — acceptable fallback, but logged, since it silently un-bolds
         # every heading in print.
-        values = _axis_values(_read_axis_records(str(_FONT_PATH)), weight)
-        if values is not None:
-            try:
-                font.set_variation_by_axes(values)
-            except (AttributeError, NotImplementedError, OSError) as exc:
-                if not _VARIATION_FAILURE_LOGGED:
-                    logger.warning(
-                        "Could not set font weight on %s (%s) — all text will "
-                        "render at the font's default weight.",
-                        _FONT_PATH, exc,
-                    )
-                    _VARIATION_FAILURE_LOGGED = True
+        if not set_weight(font, _read_axis_records(str(_FONT_PATH)), weight):
+            if not _VARIATION_FAILURE_LOGGED:
+                logger.warning(
+                    "Could not set font weight on %s — all text will "
+                    "render at the font's default weight.",
+                    _FONT_PATH,
+                )
+                _VARIATION_FAILURE_LOGGED = True
         return font
     except (OSError, ValueError) as exc:
         logger.warning(

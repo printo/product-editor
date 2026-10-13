@@ -87,6 +87,8 @@ storage/holidays/
 # and must never be committed — a checked-in copy would report a stale sweep
 # from someone else's machine as if it were this box's.
 storage/gc_last_run.json
+# Text-overlay fonts fetched from Google Fonts (services/google_fonts.py).
+storage/font_cache/
 
 # nginx (origin TLS material + basic-auth users — never commit)
 proxy/nginx/certs/*

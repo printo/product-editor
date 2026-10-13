@@ -21,6 +21,7 @@ The overlay shape mirrors the frontend `Overlay` discriminated union
 (see `frontend/nextjs/src/app/editor/layout/[name]/types.ts`):
 
     { type: 'text',  x, y, fontSize, color, fontFamily, textAlign, rotation, text }
+      fontFamily is honoured: see services/google_fonts.py.
     { type: 'shape', x, y, width, height, rotation, fill, stroke, strokeWidth, opacity, shapeType, svgPath? }
     { type: 'image', x, y, width, height, rotation, opacity, source, fileId?, src }
 
@@ -50,7 +51,7 @@ from typing import Optional
 
 from PIL import Image, ImageDraw, ImageOps
 
-from services.fonts import get_font
+from services.google_fonts import FontUnavailable, get_overlay_font
 from services.image_loader import open_source_rgba
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,10 @@ def render_overlays(
                 _paste_image(rgba, o, canvas_w_px, canvas_h_px, uploaded_files)
             else:
                 logger.warning("Unknown overlay type: %r — skipping", otype)
+        except FontUnavailable:
+            # Not skippable: printing without the text, or in another font,
+            # is a wrong print. The render task retries.
+            raise
         except Exception:  # noqa: BLE001 — one bad overlay shouldn't kill the render
             logger.exception("Failed to render overlay: %r", o)
 
@@ -137,10 +142,10 @@ def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     font_size_px = max(8, int(font_size_editor * ch / 800.0))
     color = _parse_color(o.get("color") or "#000000")
 
-    # fontFamily field is ignored per PRD §11.7 — always Inter.
-    # fontWeight is honoured so bold/semibold text overlays render correctly.
+    # The family the editor previewed (services/google_fonts.py); Inter when
+    # none is set. The editor never sets fontWeight, so text previews at 400.
     font_weight = int(o.get("fontWeight") or 400)
-    font = get_font(font_size_px, weight=font_weight)
+    font = get_overlay_font(o.get("fontFamily"), font_size_px, weight=font_weight)
 
     x_f = float(o.get("x") or 0) * cw / 100.0
     y_f = float(o.get("y") or 0) * ch / 100.0

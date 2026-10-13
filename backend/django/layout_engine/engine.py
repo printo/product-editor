@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from PIL import Image, ImageOps, ImageDraw, ImageChops, ImageFilter
 
+from services.google_fonts import FontUnavailable
 from services.image_loader import MAX_IMAGE_PIXELS, open_source_rgba, srgb_profile_bytes
 
 logger = logging.getLogger(__name__)
@@ -733,6 +734,8 @@ class LayoutEngine:
                 canvas = render_overlays(
                     canvas, overlays, canvas_w, canvas_h, uploaded_files or {},
                 )
+            except FontUnavailable:
+                raise  # retried by the render task — never print in another font
             except Exception:
                 logger.exception("Overlay rendering failed; continuing without overlays")
 
