@@ -86,6 +86,11 @@ async function goToStep(step: 1 | 2 | 3 | 4) {
   await userEvent.click(screen.getByTestId(`step-${step}`));
 }
 
+/** Open the Calendar block tab of the Layout step (Frames is the default). */
+async function openCalendarTab() {
+  await userEvent.click(screen.getByTestId('layout-tab-calendar'));
+}
+
 /** Switch the mode toggle (step 1) to poster mode. */
 async function switchToPoster() {
   const toggle = screen.getByTestId('mode-toggle');
@@ -116,14 +121,18 @@ describe('CalendarLayoutEditor — initial render', () => {
     expect(screen.getByTestId('step-indicator')).toBeInTheDocument();
     expect(screen.getByTestId('layout-name')).toBeInTheDocument();
     expect(screen.getByTestId('mode-toggle')).toBeInTheDocument();
-    expect(screen.getByTestId('live-preview')).toBeInTheDocument();
+    // No layout preview on Basics: it would picture positions Step 2 has not set yet.
+    expect(screen.queryByTestId('live-preview')).not.toBeInTheDocument();
     // Step 2 — Layout
     await goToStep(2);
+    expect(screen.getByTestId('layout-tabs')).toBeInTheDocument();
     expect(screen.getByTestId('frames-section')).toBeInTheDocument();
     expect(screen.getByTestId('mask-section')).toBeInTheDocument();
+    await openCalendarTab();
     expect(screen.getByTestId('calendar-primitive-fields')).toBeInTheDocument();
     // Step 3 — Style
     await goToStep(3);
+    expect(screen.getByTestId('live-preview')).toBeInTheDocument();
     expect(screen.getByTestId('style-theme')).toBeInTheDocument();
     expect(screen.getByTestId('style-calendar-type')).toBeInTheDocument();
     expect(screen.getByTestId('style-week-start')).toBeInTheDocument();
@@ -498,11 +507,13 @@ describe('CalendarLayoutEditor — year anchor', () => {
 
   it('previews the January the print contains for a pinned year', async () => {
     setup({ initial: { defaultYear: 2028 } });
+    await goToStep(3);
     expect(screen.getByText('Preview · January 2028')).toBeInTheDocument();
   });
 
   it('previews January of the FY end year in Financial mode (FY 2028–29 → Jan 2029)', async () => {
     setup({ initial: { defaultYear: 2028, style: { calendarType: 'financial' } as CalendarLayoutDraft['style'] } });
+    await goToStep(3);
     expect(screen.getByText('Preview · January 2029')).toBeInTheDocument();
   });
 
@@ -513,11 +524,14 @@ describe('CalendarLayoutEditor — year anchor', () => {
       now: new Date(2026, 1, 15, 12, 0, 0),
       initial: { style: { calendarType: 'financial' } as CalendarLayoutDraft['style'] },
     });
+    await goToStep(3);
     expect(screen.getByText('Preview · January 2026')).toBeInTheDocument();
 
+    await goToStep(1);
     await userEvent.click(screen.getByTestId('year-fixed-radio'));
 
     expect(screen.getByTestId('year-fixed-input')).toHaveValue(2025);
+    await goToStep(3);
     expect(screen.getByText('Preview · January 2026')).toBeInTheDocument();
     await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
@@ -534,6 +548,7 @@ describe('CalendarLayoutEditor — preview holidays', () => {
   it('loads the pinned year, not the current one', async () => {
     const loadHolidays = newYearLoader();
     setup({ loadHolidays, initial: { defaultYear: 2028 } });
+    await goToStep(3);
     await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
     expect(calls(loadHolidays)).toEqual(['en-IN/2028']);
   });
@@ -544,6 +559,7 @@ describe('CalendarLayoutEditor — preview holidays', () => {
       loadHolidays,
       initial: { defaultYear: 2028, style: { calendarType: 'financial' } as CalendarLayoutDraft['style'] },
     });
+    await goToStep(3);
     await waitFor(() => expect(januaryPreviewDots(2029)).toHaveLength(1));
     expect(calls(loadHolidays)).toEqual(['en-IN/2028', 'en-IN/2029']);
     // Apr 2028 – Mar 2029 contains 1 Jan 2029 but not 1 Jan 2028.
@@ -553,12 +569,15 @@ describe('CalendarLayoutEditor — preview holidays', () => {
   it('re-loads when the fixed year changes, skipping half-typed years', async () => {
     const loadHolidays = newYearLoader();
     setup({ loadHolidays, initial: { defaultYear: 2028 } });
+    await goToStep(3);
     await waitFor(() => expect(januaryPreviewDots(2028)).toHaveLength(1));
 
+    await goToStep(1);
     const input = screen.getByTestId('year-fixed-input');
     await userEvent.clear(input);
     await userEvent.type(input, '2030');
 
+    await goToStep(3);
     await waitFor(() => expect(januaryPreviewDots(2030)).toHaveLength(1));
     expect(calls(loadHolidays)).toEqual(['en-IN/2028', 'en-IN/2030']);
   });
@@ -717,14 +736,80 @@ describe('CalendarLayoutEditor — review fix #2 (frame editing UI)', () => {
   });
 });
 
+describe('CalendarLayoutEditor — Layout step tabs (one layer at a time)', () => {
+  it('opens on the Frames tab with the calendar fields hidden', async () => {
+    setup();
+    await goToStep(2);
+    expect(screen.getByTestId('layout-tab-frames')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('frames-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('calendar-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('canvas-heading')).toHaveTextContent(/green frames/);
+  });
+
+  it('shows the calendar fields and hides the frames on the Calendar tab', async () => {
+    setup();
+    await goToStep(2);
+    await openCalendarTab();
+    expect(screen.getByTestId('layout-tab-calendar')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('calendar-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('frames-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('canvas-heading')).toHaveTextContent(/calendar block/);
+    // The mask is per layout, not per layer, so it stays on both tabs.
+    expect(screen.getByTestId('mask-section')).toBeInTheDocument();
+  });
+
+  it('keeps the chosen tab when leaving and returning to the Layout step', async () => {
+    setup();
+    await goToStep(2);
+    await openCalendarTab();
+    await goToStep(3);
+    await goToStep(2);
+    expect(screen.getByTestId('calendar-section')).toBeInTheDocument();
+  });
+
+  it('edits the calendar block in millimetres, kept inside the canvas', async () => {
+    const { onSave } = setup({ initial: {
+      canvasWidthMm: 100, canvasHeightMm: 200, dpi: 300,
+      calendars: [{ x: 0.1, y: 0.2, width: 0.5, height: 0.4 }],
+    } });
+    await goToStep(2);
+    await openCalendarTab();
+    const group = within(screen.getByTestId('calendar-mm-fields'));
+    expect(group.getByLabelText('X (mm)')).toHaveValue(10);
+    expect(group.getByLabelText('Y (mm)')).toHaveValue(40);
+    expect(group.getByLabelText('Width (mm)')).toHaveValue(50);
+    expect(group.getByLabelText('Height (mm)')).toHaveValue(80);
+    fireEvent.change(group.getByLabelText('Width (mm)'), { target: { value: '30' } });
+    expect(group.getByLabelText('Width (mm)')).toHaveValue(30);
+    // X cannot push the block off the canvas: 100 - 30 = 70
+    fireEvent.change(group.getByLabelText('X (mm)'), { target: { value: '500' } });
+    expect(group.getByLabelText('X (mm)')).toHaveValue(70);
+    await goToStep(4);
+    await userEvent.click(screen.getByTestId('save-btn'));
+    const cals = onSave.mock.calls[0][0].calendars as Array<{ x: number; width: number }>;
+    expect(cals[0].x).toBeCloseTo(0.7);
+    expect(cals[0].width).toBeCloseTo(0.3);
+  });
+
+  it('shows the Calendar mode cards on Basics in place of the preview', async () => {
+    setup();
+    const toggle = screen.getByTestId('mode-toggle');
+    expect(within(toggle).getByText(/12 pages/)).toBeInTheDocument();
+    expect(within(toggle).getByText(/1 page/)).toBeInTheDocument();
+    expect(screen.queryByTestId('live-preview')).not.toBeInTheDocument();
+  });
+});
+
 describe('CalendarLayoutEditor — review fix #3 (poster per-calendar positioning)', () => {
   it('poster custom layout toggle only renders in poster mode', async () => {
     setup();
     await goToStep(2);
+    await openCalendarTab();
     expect(screen.queryByTestId('poster-custom-toggle')).not.toBeInTheDocument();
     await goToStep(1);
     await switchToPoster();
     await goToStep(2);
+    await openCalendarTab();
     expect(screen.getByTestId('poster-custom-toggle')).toBeInTheDocument();
   });
 
@@ -732,6 +817,7 @@ describe('CalendarLayoutEditor — review fix #3 (poster per-calendar positionin
     setup();
     await switchToPoster();
     await goToStep(2);
+    await openCalendarTab();
     expect(screen.queryByTestId('poster-cal-row-0')).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId('poster-custom-toggle'));
     expect(screen.getByTestId('poster-cal-row-0')).toBeInTheDocument();
@@ -743,6 +829,7 @@ describe('CalendarLayoutEditor — review fix #3 (poster per-calendar positionin
     const { onSave } = setup();
     await switchToPoster();
     await goToStep(2);
+    await openCalendarTab();
     await userEvent.click(screen.getByTestId('poster-custom-toggle'));
     await goToStep(4);
     await userEvent.click(screen.getByTestId('save-btn'));
@@ -759,6 +846,7 @@ describe('CalendarLayoutEditor — review fix #4 (defensive calendars[0])', () =
     expect(screen.getByTestId('calendar-layout-editor')).toBeInTheDocument();
     // Fields should still render (with their defensive defaults).
     await goToStep(2);
+    await openCalendarTab();
     expect(screen.getByTestId('calendar-primitive-fields')).toBeInTheDocument();
   });
 });
@@ -792,6 +880,7 @@ describe('CalendarLayoutEditor — review fix #12 (mm readback)', () => {
       calendars: [{ x: 0.1, y: 0.2, width: 0.5, height: 0.4 }],
     } });
     await goToStep(2);
+    await openCalendarTab();
     const readback = screen.getByTestId('calendar-primitive-readback');
     // Wizard UI simplified the readback to W × H mm only (origin + px were
     // dropped): 0.5 × 100 = 50 mm; 0.4 × 200 = 80 mm.
@@ -1054,6 +1143,7 @@ describe('CalendarLayoutEditor — P6.2 remediation: poster-mode modal gating', 
     // Poster + custom layout → 12 calendars each with monthOffset 0..11.
     await switchToPoster();
     await goToStep(2);
+    await openCalendarTab();
     await userEvent.click(screen.getByTestId('poster-custom-toggle'));
     // Open the modal for month_03 (i.e. cellIndex 2 → monthOffset=2).
     await goToStep(4);
@@ -1215,6 +1305,7 @@ describe('CalendarLayoutEditor — P6 holistic audit: poster override single-cal
     // Switch to poster + enable custom layout (so calendars[] has all 12).
     await switchToPoster();
     await goToStep(2);
+    await openCalendarTab();
     await userEvent.click(screen.getByTestId('poster-custom-toggle'));
     // Open month_03 (cellIndex=2 → monthOffset=2).
     await goToStep(4);

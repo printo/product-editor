@@ -866,9 +866,50 @@ function NumberField({
   );
 }
 
+type RectFrac = { x: number; y: number; width: number; height: number };
+
+/**
+ * X / Y / Width / Height in millimetres for a block stored as canvas
+ * fractions (0..1). Typed mm → fraction, kept inside the canvas and at least
+ * 1 mm wide/tall. Shared by the photo frames and the calendar block so both
+ * tabs of the Layout step read and edit the same way.
+ */
+function MmRectFields({
+  rect, canvasW, canvasH, onPatch, testId,
+}: {
+  rect: RectFrac;
+  canvasW: number;
+  canvasH: number;
+  onPatch: (next: Partial<RectFrac>) => void;
+  testId?: string;
+}) {
+  const toMm = (f: number, total: number) => Math.round(f * total * 100) / 100;
+  const setMm = (key: keyof RectFrac, mm: number) => {
+    const total = key === 'x' || key === 'width' ? canvasW : canvasH;
+    if (!(total > 0)) return;
+    const f = mm / total;
+    const minSize = Math.min(1, 1 / total);
+    if (key === 'x') onPatch({ x: Math.min(Math.max(0, f), 1 - rect.width) });
+    else if (key === 'y') onPatch({ y: Math.min(Math.max(0, f), 1 - rect.height) });
+    else if (key === 'width') onPatch({ width: Math.min(Math.max(minSize, f), 1 - rect.x) });
+    else onPatch({ height: Math.min(Math.max(minSize, f), 1 - rect.y) });
+  };
+  return (
+    <div className="grid grid-cols-2 gap-2" data-testid={testId}>
+      <NumberField label="X (mm)" value={toMm(rect.x, canvasW)} step={0.5} min={0} onChange={(n) => setMm('x', n)} />
+      <NumberField label="Y (mm)" value={toMm(rect.y, canvasH)} step={0.5} min={0} onChange={(n) => setMm('y', n)} />
+      <NumberField label="Width (mm)" value={toMm(rect.width, canvasW)} step={0.5} min={1} onChange={(n) => setMm('width', n)} />
+      <NumberField label="Height (mm)" value={toMm(rect.height, canvasH)} step={0.5} min={1} onChange={(n) => setMm('height', n)} />
+    </div>
+  );
+}
+
 // ─── Step indicator ─────────────────────────────────────────────────────────
 
 type WizardStep = 1 | 2 | 3 | 4;
+
+/** Which layer the Layout step is editing: the canvas only lets that one move. */
+type LayoutTab = 'frames' | 'calendar';
 
 const STEP_LABELS: Record<WizardStep, string> = {
   1: 'Basics',
@@ -954,6 +995,7 @@ export function CalendarLayoutEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<WizardStep>(1);
+  const [layoutTab, setLayoutTab] = useState<LayoutTab>('frames');
   const [posterCustomLayout, setPosterCustomLayout] = useState(false);
   const [snapGrid, setSnapGrid] = useState(true);
   const [maskFile, setMaskFile] = useState<File | null>(null);
@@ -1069,7 +1111,44 @@ export function CalendarLayoutEditor({
     }
   };
 
-  // ── Shared aside: canvas-accurate preview for steps 1 / 3 / 4 ──────────
+  // ── Step 1 aside: the calendar mode. The layout preview used to sit here,
+  // picturing frame and calendar positions nobody has set yet (Step 2's job).
+  // The mode decides whether Step 2 positions one block or twelve, so it
+  // belongs beside the basics instead.
+  const CalendarModeAside = (
+        <aside className="sticky top-6 self-start" data-testid="mode-toggle">
+            <h2 className="text-lg font-semibold text-zinc-900 mb-1">Calendar mode</h2>
+            <p className="text-xs text-zinc-500 mb-3">Desk/wall calendars get one page per month. Posters print all 12 months on a single page.</p>
+            <div className="flex flex-col gap-3">
+              {(['multi-surface', 'poster'] as CalendarMode[]).map((m) => {
+                const active = draft.mode === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => patch({ mode: m })}
+                    aria-pressed={active}
+                    className={[
+                      'px-4 py-3 text-sm rounded-lg border text-left transition-all',
+                      active
+                        ? 'bg-zinc-900 text-white border-zinc-900 shadow'
+                        : 'bg-white text-zinc-700 border-zinc-300 hover:border-zinc-500',
+                    ].join(' ')}
+                  >
+                    <span className="font-semibold block">
+                      {m === 'multi-surface' ? '12 pages' : '1 page (poster)'}
+                    </span>
+                    <span className="text-xs opacity-70">
+                      {m === 'multi-surface' ? 'Desk / wall — one month per surface' : 'All 12 months on a single sheet'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+        </aside>
+  );
+
+  // ── Shared aside: canvas-accurate preview for steps 3 / 4 ──────────────
   // Renders the photo frame area (green) and the calendar block(s) at their
   // fraction offsets so the aside stays in sync with Step 2. A 12-page layout
   // shows one month; a poster shows all 12 on the single sheet, placed the
@@ -1258,37 +1337,6 @@ export function CalendarLayoutEditor({
               </div>
             </section>
 
-            <section data-testid="mode-toggle">
-              <h2 className="text-lg font-semibold text-zinc-900 mb-1">Calendar mode</h2>
-              <p className="text-xs text-zinc-500 mb-3">Desk/wall calendars get one page per month. Posters print all 12 months on a single page.</p>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {(['multi-surface', 'poster'] as CalendarMode[]).map((m) => {
-                  const active = draft.mode === m;
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => patch({ mode: m })}
-                      aria-pressed={active}
-                      className={[
-                        'px-4 py-3 text-sm rounded-lg border text-left transition-all',
-                        active
-                          ? 'bg-zinc-900 text-white border-zinc-900 shadow'
-                          : 'bg-white text-zinc-700 border-zinc-300 hover:border-zinc-500',
-                      ].join(' ')}
-                    >
-                      <span className="font-semibold block">
-                        {m === 'multi-surface' ? '12 pages' : '1 page (poster)'}
-                      </span>
-                      <span className="text-xs opacity-70">
-                        {m === 'multi-surface' ? 'Desk / wall — one month per surface' : 'All 12 months on a single sheet'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
             <section>
               <h2 className="text-lg font-semibold text-zinc-900 mb-1">Canvas size</h2>
               <p className="text-xs text-zinc-500 mb-3">Physical dimensions of the print area. 300 DPI is standard for print.</p>
@@ -1350,7 +1398,7 @@ export function CalendarLayoutEditor({
 
           </div>
 
-          {MonthPreviewAside}
+          {CalendarModeAside}
         </>
       )}
 
@@ -1358,39 +1406,64 @@ export function CalendarLayoutEditor({
       {step === 2 && (
         <div className="flex flex-col gap-4">
 
-          <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
-            {/* Left: controls */}
+          <div className="grid gap-6 lg:grid-cols-[300px_1fr] items-start">
+            {/* Left: controls, one layer at a time. The tab picks which layer
+                the canvas lets you drag; the other is dimmed and locked. */}
             <div className="flex flex-col gap-5">
-              {/* Photo frames */}
-              <section data-testid="frames-section">
-                <div className="flex items-baseline justify-between mb-2">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-900">Photo frames</h2>
-                    <p className="text-xs text-zinc-500">Drag green blocks on canvas, or type exact millimetres.</p>
+              <div
+                role="tablist"
+                aria-label="Layout layer"
+                data-testid="layout-tabs"
+                className="grid grid-cols-2 gap-1 rounded-lg border border-zinc-200 bg-zinc-100 p-1 text-xs font-medium"
+              >
+                {(['frames', 'calendar'] as LayoutTab[]).map((tab) => {
+                  const active = layoutTab === tab;
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      id={`layout-tab-${tab}`}
+                      aria-selected={active}
+                      aria-controls={`layout-panel-${tab}`}
+                      data-testid={`layout-tab-${tab}`}
+                      onClick={() => setLayoutTab(tab)}
+                      className={[
+                        'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 transition-colors',
+                        active ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-900',
+                      ].join(' ')}
+                    >
+                      <span
+                        className={`inline-block w-2.5 h-2.5 rounded-sm border ${
+                          tab === 'frames' ? 'bg-emerald-200 border-emerald-500' : 'bg-sky-200 border-sky-400'
+                        }`}
+                      />
+                      {tab === 'frames' ? 'Photo frames' : 'Calendar block'}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {layoutTab === 'frames' && (
+                <section
+                  role="tabpanel"
+                  id="layout-panel-frames"
+                  aria-labelledby="layout-tab-frames"
+                  data-testid="frames-section"
+                >
+                  <div className="flex items-baseline justify-between mb-2">
+                    <div>
+                      <h2 className="text-sm font-semibold text-zinc-900">Photo frames</h2>
+                      <p className="text-xs text-zinc-500">Drag the green frames on the canvas, or type exact millimetres.</p>
+                    </div>
+                    <button type="button" onClick={addFrame}
+                      data-testid="add-frame-btn"
+                      className="text-xs px-2 py-1 rounded border border-zinc-300 hover:border-zinc-900 shrink-0">
+                      + Add
+                    </button>
                   </div>
-                  <button type="button" onClick={addFrame}
-                    data-testid="add-frame-btn"
-                    className="text-xs px-2 py-1 rounded border border-zinc-300 hover:border-zinc-900 shrink-0">
-                    + Add
-                  </button>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {draft.frames.map((frame, i) => {
-                    const canvasW = draft.canvasWidthMm;
-                    const canvasH = draft.canvasHeightMm;
-                    const toMm = (f: number, total: number) => Math.round(f * total * 100) / 100;
-                    // Typed mm → fraction, kept inside the canvas (and at least 1 mm wide/tall).
-                    const setMm = (key: 'x' | 'y' | 'width' | 'height', mm: number) => {
-                      const total = key === 'x' || key === 'width' ? canvasW : canvasH;
-                      if (!(total > 0)) return;
-                      const f = mm / total;
-                      const minSize = Math.min(1, 1 / total);
-                      if (key === 'x') patchFrame(i, { x: Math.min(Math.max(0, f), 1 - frame.width) });
-                      else if (key === 'y') patchFrame(i, { y: Math.min(Math.max(0, f), 1 - frame.height) });
-                      else if (key === 'width') patchFrame(i, { width: Math.min(Math.max(minSize, f), 1 - frame.x) });
-                      else patchFrame(i, { height: Math.min(Math.max(minSize, f), 1 - frame.y) });
-                    };
-                    return (
+                  <div className="flex flex-col gap-1.5">
+                    {draft.frames.map((frame, i) => (
                       <div key={i} className="px-2 py-1.5 rounded bg-emerald-50 border border-emerald-200 text-xs" data-testid={`frame-card-${i}`}>
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="font-medium text-emerald-800">Frame {i + 1}</span>
@@ -1402,40 +1475,98 @@ export function CalendarLayoutEditor({
                             ×
                           </button>
                         </div>
-                        <div className="grid grid-cols-2 gap-2" data-testid={`frame-mm-${i}`}>
-                          <NumberField label="X (mm)" value={toMm(frame.x, canvasW)} step={0.5} min={0} onChange={(n) => setMm('x', n)} />
-                          <NumberField label="Y (mm)" value={toMm(frame.y, canvasH)} step={0.5} min={0} onChange={(n) => setMm('y', n)} />
-                          <NumberField label="Width (mm)" value={toMm(frame.width, canvasW)} step={0.5} min={1} onChange={(n) => setMm('width', n)} />
-                          <NumberField label="Height (mm)" value={toMm(frame.height, canvasH)} step={0.5} min={1} onChange={(n) => setMm('height', n)} />
-                        </div>
+                        <MmRectFields
+                          rect={frame}
+                          canvasW={draft.canvasWidthMm}
+                          canvasH={draft.canvasHeightMm}
+                          onPatch={(next) => patchFrame(i, next)}
+                          testId={`frame-mm-${i}`}
+                        />
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
+                    ))}
+                  </div>
+                </section>
+              )}
 
-              {/* Calendar block controls */}
-              <section>
-                <div>
+              {layoutTab === 'calendar' && (
+                <section
+                  role="tabpanel"
+                  id="layout-panel-calendar"
+                  aria-labelledby="layout-tab-calendar"
+                  data-testid="calendar-section"
+                >
                   <h2 className="text-sm font-semibold text-zinc-900">Calendar block</h2>
                   <p className="text-xs text-zinc-500 mb-2">
                     {draft.mode === 'multi-surface'
-                      ? 'Drag the teal block on the canvas to position the calendar grid.'
-                      : 'Poster: 12 mini-calendars in a 4×3 grid. Enable custom layout to position each one.'}
+                      ? 'Drag the teal block on the canvas to position the month grid, or type exact millimetres.'
+                      : posterCustomLayout
+                        ? 'Poster: drag each month on the canvas, or type exact millimetres.'
+                        : 'Poster: 12 mini-calendars in a 4×3 grid. Drag the grid on the canvas, or type where it starts and how big each month is.'}
                   </p>
-                </div>
-                {draft.mode === 'poster' && (
-                  <label className="flex items-center gap-2 text-sm" data-testid="poster-custom-layout-section">
-                    <input
-                      type="checkbox"
-                      checked={posterCustomLayout}
-                      data-testid="poster-custom-toggle"
-                      onChange={(e) => handlePosterCustomToggle(e.target.checked)}
-                    />
-                    <span>Custom layout (drag each month independently)</span>
-                  </label>
-                )}
-              </section>
+                  {draft.mode === 'poster' && (
+                    <label className="flex items-center gap-2 text-sm mb-3" data-testid="poster-custom-layout-section">
+                      <input
+                        type="checkbox"
+                        checked={posterCustomLayout}
+                        data-testid="poster-custom-toggle"
+                        onChange={(e) => handlePosterCustomToggle(e.target.checked)}
+                      />
+                      <span>Custom layout (drag each month independently)</span>
+                    </label>
+                  )}
+                  {posterCustomLayout && draft.mode === 'poster' ? (
+                    <div className="flex flex-col gap-1.5">
+                      {draft.calendars.slice(0, 12).map((cal, i) => (
+                        <div key={i} className="px-2 py-1.5 rounded bg-sky-50 border border-sky-200 text-xs" data-testid={`poster-cal-row-${i}`}>
+                          <span className="block font-medium text-sky-800 mb-1.5">{MONTH_NAMES_EN[i]}</span>
+                          <MmRectFields
+                            rect={cal}
+                            canvasW={draft.canvasWidthMm}
+                            canvasH={draft.canvasHeightMm}
+                            onPatch={(next) => patchCalendar(i, next)}
+                            testId={`poster-cal-mm-${i}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-2 py-1.5 rounded bg-sky-50 border border-sky-200 text-xs">
+                      <span className="block font-medium text-sky-800 mb-1.5">
+                        {draft.mode === 'poster' ? 'Grid start and month size' : 'Month grid'}
+                      </span>
+                      <MmRectFields
+                        rect={primaryCalendar}
+                        canvasW={draft.canvasWidthMm}
+                        canvasH={draft.canvasHeightMm}
+                        onPatch={(next) => patchCalendar(0, next)}
+                        testId="calendar-mm-fields"
+                      />
+                    </div>
+                  )}
+
+                  {/* Precise values disclosure */}
+                  <details className="mt-3 text-xs text-zinc-600">
+                    <summary className="cursor-pointer font-medium text-zinc-700 hover:text-zinc-900 select-none">
+                      Precise values (fractions 0..1)
+                    </summary>
+                    <div className="mt-3" data-testid="calendar-primitive-fields-wrapper">
+                      <p className="font-medium text-zinc-700 mb-2">
+                        Calendar {draft.mode === 'poster' ? '(seed position)' : '(position)'}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2" data-testid="calendar-primitive-fields">
+                        <NumberField label="X" value={primaryCalendar.x} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(0, { x: n })} />
+                        <NumberField label="Y" value={primaryCalendar.y} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(0, { y: n })} />
+                        <NumberField label="W" value={primaryCalendar.width} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(0, { width: n })} />
+                        <NumberField label="H" value={primaryCalendar.height} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(0, { height: n })} />
+                      </div>
+                      <p className="mt-1 text-zinc-500" data-testid="calendar-primitive-readback">
+                        {(primaryCalendar.width * draft.canvasWidthMm).toFixed(1)} ×{' '}
+                        {(primaryCalendar.height * draft.canvasHeightMm).toFixed(1)} mm
+                      </p>
+                    </div>
+                  </details>
+                </section>
+              )}
 
               {/* Paper mask */}
               <section data-testid="mask-section">
@@ -1489,50 +1620,19 @@ export function CalendarLayoutEditor({
                   Apply mask on export
                 </label>
               </section>
-
-              {/* Precise values disclosure */}
-              <details className="text-xs text-zinc-600">
-                <summary className="cursor-pointer font-medium text-zinc-700 hover:text-zinc-900 select-none">
-                  Precise values (fractions 0..1)
-                </summary>
-                <div className="mt-3 flex flex-col gap-4">
-                  <div data-testid="calendar-primitive-fields-wrapper">
-                    <p className="font-medium text-zinc-700 mb-2">
-                      Calendar {draft.mode === 'poster' ? '(seed position)' : '(position)'}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2" data-testid="calendar-primitive-fields">
-                      <NumberField label="X" value={primaryCalendar.x} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(0, { x: n })} />
-                      <NumberField label="Y" value={primaryCalendar.y} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(0, { y: n })} />
-                      <NumberField label="W" value={primaryCalendar.width} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(0, { width: n })} />
-                      <NumberField label="H" value={primaryCalendar.height} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(0, { height: n })} />
-                    </div>
-                    <p className="mt-1 text-zinc-500" data-testid="calendar-primitive-readback">
-                      {(primaryCalendar.width * draft.canvasWidthMm).toFixed(1)} ×{' '}
-                      {(primaryCalendar.height * draft.canvasHeightMm).toFixed(1)} mm
-                    </p>
-                    {posterCustomLayout && draft.mode === 'poster' && (
-                      <div className="mt-3 flex flex-col gap-2">
-                        {draft.calendars.slice(0, 12).map((cal, i) => (
-                          <div key={i} className="grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-2 items-end" data-testid={`poster-cal-row-${i}`}>
-                            <span className="text-zinc-500 self-end mb-1 w-8">Cal {i+1}</span>
-                            <NumberField label="X" value={cal.x} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(i, { x: n })} />
-                            <NumberField label="Y" value={cal.y} step={0.01} min={0} max={1} onChange={(n) => patchCalendar(i, { y: n })} />
-                            <NumberField label="W" value={cal.width} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(i, { width: n })} />
-                            <NumberField label="H" value={cal.height} step={0.01} min={0.01} max={1} onChange={(n) => patchCalendar(i, { height: n })} />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </details>
             </div>
 
-            {/* Right: Interactive Fabric canvas */}
-            <div className="min-h-[500px]" data-testid="live-preview-canvas">
+            {/* Right: Interactive Fabric canvas. Its height follows the viewport,
+                not the left column, so switching tabs never rescales it. */}
+            <div
+              className="flex flex-col lg:sticky lg:top-6 h-[min(72vh,760px)] min-h-[500px]"
+              data-testid="live-preview-canvas"
+            >
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Canvas layout — drag to reposition
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500" data-testid="canvas-heading">
+                  {layoutTab === 'frames'
+                    ? 'Canvas — drag the green frames'
+                    : 'Canvas — drag the teal calendar block'}
                 </h3>
                 <div className="flex items-center gap-3 text-xs text-zinc-400">
                   <span>
@@ -1550,6 +1650,7 @@ export function CalendarLayoutEditor({
                   </label>
                 </div>
               </div>
+              <div className="flex-1 min-h-0">
               <CalendarFabricPreview
                 widthMm={draft.canvasWidthMm}
                 heightMm={draft.canvasHeightMm}
@@ -1557,12 +1658,18 @@ export function CalendarLayoutEditor({
                 calendars={draft.calendars}
                 mode={draft.mode}
                 posterCustomLayout={posterCustomLayout}
+                activeLayer={layoutTab}
                 onFramesChange={(f) => patch({ frames: f })}
                 onCalendarsChange={(c) => patch({ calendars: c })}
                 maskFile={maskFile}
                 maskUrl={draft.maskUrl}
                 snapGrid={snapGrid}
               />
+              </div>
+              <p className="mt-2 text-xs text-zinc-400">
+                The {layoutTab === 'frames' ? 'calendar block is' : 'photo frames are'} locked while this tab is open.
+                Switch tabs to move {layoutTab === 'frames' ? 'it' : 'them'}.
+              </p>
             </div>
           </div>
 
