@@ -1,3 +1,4 @@
+import { fileExtension } from '@/lib/file-identity';
 import { partitionByAllowedType, unsupportedFilesMessage } from '@/lib/upload-utils';
 
 /**
@@ -15,10 +16,6 @@ import { partitionByAllowedType, unsupportedFilesMessage } from '@/lib/upload-ut
 
 const HEIC_EXTENSIONS = ['heic', 'heif'];
 const HEIC_MIME_TYPES = ['image/heic', 'image/heif'];
-
-function fileExtension(name: string): string {
-  return name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
-}
 
 export function isHeicFile(file: File): boolean {
   return (

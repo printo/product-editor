@@ -13,17 +13,13 @@ import { useParams } from 'next/navigation';
 import { ArrowLeft, Copy, Edit2, Eye, EyeOff, Loader2, Plus, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useHeader } from '@/context/HeaderContext';
+import { readError } from '@/lib/read-error';
 import { isTemplateId, slugFromName } from '@/app/editor/layout/[name]/template-authoring';
 import type { LayoutTemplate } from '@/app/editor/layout/[name]/layout-template';
 
 type OpsTemplate = LayoutTemplate & { status: 'draft' | 'published'; layoutChanged?: boolean };
 
 const API = '/api/internal/proxy';
-
-async function readError(res: Response, fallback: string): Promise<string> {
-  const body = await res.json().catch(() => ({}));
-  return (body as { detail?: string }).detail || fallback;
-}
 
 export default function LayoutTemplatesPage() {
   const params = useParams<{ layout: string }>();

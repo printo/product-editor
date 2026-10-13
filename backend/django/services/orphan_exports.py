@@ -34,12 +34,13 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from django.conf import settings
 from django.utils import timezone as dj_timezone
+
+from services.fs_utils import dir_size_bytes, is_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -47,25 +48,6 @@ logger = logging.getLogger(__name__)
 # The full list can be hundreds of entries; the point is a spot-check, not a
 # manifest.
 SAMPLE_LIMIT = 10
-
-
-def _is_uuid(name: str) -> bool:
-    try:
-        uuid.UUID(name)
-        return True
-    except (ValueError, AttributeError, TypeError):
-        return False
-
-
-def _dir_size_bytes(path: str) -> int:
-    total = 0
-    for root, _dirs, files in os.walk(path):
-        for fname in files:
-            try:
-                total += os.path.getsize(os.path.join(root, fname))
-            except OSError:
-                pass
-    return total
 
 
 def _known_export_dir_names() -> tuple[set[str], set[str], set[str]]:
@@ -108,7 +90,7 @@ def _classify(
     naming convention without adding it here would make those directories look
     like orphans.
     """
-    if not _is_uuid(name):
+    if not is_uuid(name):
         # Not a job directory. Could be an order_id-named tree or something an
         # operator put here by hand — either way, not ours to remove.
         return "not-a-uuid"
@@ -190,7 +172,7 @@ def reconcile_orphan_exports(*, mode: str | None = None, now: datetime | None = 
             kept[reason] = kept.get(reason, 0) + 1
             continue
 
-        size = _dir_size_bytes(entry_path)
+        size = dir_size_bytes(entry_path)
         result["orphan_dirs"] += 1
         result["orphan_bytes"] += size
         if len(result["samples"]) < SAMPLE_LIMIT:

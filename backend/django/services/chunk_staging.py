@@ -50,12 +50,13 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
 from django.utils import timezone as dj_timezone
+
+from services.fs_utils import dir_size_bytes, is_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +67,6 @@ SAMPLE_LIMIT = 10
 # lives 2 hours. A full day is generous enough that no legitimate in-flight
 # upload can qualify, while still bounding growth.
 DEFAULT_MAX_AGE_HOURS = 24
-
-
-def _is_uuid(name: str) -> bool:
-    try:
-        uuid.UUID(name)
-        return True
-    except (ValueError, AttributeError, TypeError):
-        return False
 
 
 def _newest_mtime(path: str) -> float:
@@ -91,17 +84,6 @@ def _newest_mtime(path: str) -> float:
             except OSError:
                 continue
     return newest
-
-
-def _dir_size_bytes(path: str) -> int:
-    total = 0
-    for root, _dirs, files in os.walk(path):
-        for name in files:
-            try:
-                total += os.path.getsize(os.path.join(root, name))
-            except OSError:
-                continue
-    return total
 
 
 def sweep_stale_chunk_staging(
@@ -159,7 +141,7 @@ def sweep_stale_chunk_staging(
 
         result["scanned"] += 1
 
-        if not _is_uuid(name):
+        if not is_uuid(name):
             # Same guard the chunk endpoints apply before touching a
             # request-derived path. Anything else here was not put there by the
             # upload flow, so it is not ours to remove.
@@ -177,7 +159,7 @@ def sweep_stale_chunk_staging(
             _keep("still_recent")
             continue
 
-        size = _dir_size_bytes(path)
+        size = dir_size_bytes(path)
         result["stale_dirs"] += 1
         result["stale_bytes"] += size
         if len(result["samples"]) < SAMPLE_LIMIT:

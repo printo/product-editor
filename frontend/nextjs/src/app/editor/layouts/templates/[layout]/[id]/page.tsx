@@ -23,6 +23,7 @@ import { useHeader } from '@/context/HeaderContext';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import { usePdfPageImport } from '@/components/use-pdf-page-import';
 import { normalizeLayout, type NormalizedLayout } from '@/lib/layout-utils';
+import { readError } from '@/lib/read-error';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { CanvasEditorModal } from '@/app/editor/layout/[name]/CanvasEditorModal';
 import { renderCanvas } from '@/app/editor/layout/[name]/fabric-renderer';
@@ -34,11 +35,6 @@ import {
 } from '@/app/editor/layout/[name]/template-authoring';
 
 const API = '/api/internal/proxy';
-
-async function readError(res: Response, fallback: string): Promise<string> {
-  const body = await res.json().catch(() => ({}));
-  return (body as { detail?: string }).detail || fallback;
-}
 
 export default function TemplateEditorPage() {
   const router = useRouter();

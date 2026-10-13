@@ -29,6 +29,8 @@
  * for the session; the same file never re-uploads or re-infers.
  */
 
+import { fileFingerprint } from '@/lib/file-identity';
+
 export type OrientationResult = {
   rotation: 0 | 90 | 180 | 270;
   confidence: number;
@@ -88,10 +90,6 @@ export function getRuntimeConfig(
   return runtimeConfigPromise;
 }
 
-function fingerprint(file: File): string {
-  return `${file.name}:${file.size}:${file.lastModified}`;
-}
-
 /**
  * Draw an already-decoded image element onto a small canvas and return a
  * JPEG blob. Returns null if the browser can't produce one (caller then
@@ -139,7 +137,7 @@ export async function detectFileOrientation(
   fetchHeaders?: HeadersInit,
   signal?: AbortSignal,
 ): Promise<OrientationOutcome> {
-  const key = fingerprint(file);
+  const key = fileFingerprint(file);
 
   const cached = memo.get(key);
   if (cached !== undefined) return cached;

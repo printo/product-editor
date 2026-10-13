@@ -23,8 +23,6 @@
 set -u
 BASE="${BASE:-http://localhost:5004}"
 API_KEY="${API_KEY:-}"
-PASS=0
-FAIL=0
 TEST_LAYOUT="${TEST_LAYOUT:-smoke_calendar_$(date +%s)}"
 
 if [ -z "$API_KEY" ]; then
@@ -43,14 +41,9 @@ case "$BASE" in
   https://localhost*|https://127.0.0.1*) CURL_OPTS="-k" ;;
 esac
 [ "${CURL_INSECURE:-0}" = "1" ] && CURL_OPTS="-k"
-curl() { command curl ${CURL_OPTS} "$@"; }
+# Counters, the curl wrapper and the step/ok/bad/skip printers.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/smoke.sh"
 [ -n "$CURL_OPTS" ] && printf "\033[33m!\033[0m TLS verification disabled for %s\n" "$BASE"
-
-# Pretty step printer ────────────────────────────────────────────────────────
-step() { printf "\n\033[1;36m▸ %s\033[0m\n" "$1"; }
-ok()   { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS + 1)); }
-bad()  { printf "  \033[31m✗\033[0m %s\n" "$1"; FAIL=$((FAIL + 1)); }
-skip() { printf "  \033[33m⊘\033[0m %s\n" "$1"; }
 
 # ── 1. Backend health --------------------------------------------------------
 step "1. Backend health"

@@ -19,6 +19,7 @@
  * running off it — accepted deliberately, see the feature's plan doc.
  */
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import { fileExtension } from '@/lib/file-identity';
 import {
   PDF_MAX_OUTPUT_DIMENSION_PX,
   PDF_MAX_PAGES,
@@ -30,10 +31,6 @@ import {
 
 const PDF_EXTENSIONS = ['pdf'];
 const PDF_MIME_TYPES = ['application/pdf'];
-
-function fileExtension(name: string): string {
-  return name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
-}
 
 export function isPdfFile(file: File): boolean {
   return (

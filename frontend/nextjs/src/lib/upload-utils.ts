@@ -10,6 +10,8 @@
  * POST /editor/render payload so the backend can map frames to file paths.
  */
 
+import { fileExtension } from '@/lib/file-identity';
+
 const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB — matches backend CHUNK_SIZE
 const MAX_PARALLEL_FILES = 4;        // saturates ~10 Mbps uplink without flooding
 
@@ -46,10 +48,6 @@ export const IMAGE_AND_PDF_ACCEPT_ATTR = IMAGE_ACCEPT_ATTR + ',.pdf,application/
 
 // Short, human-readable form for error copy.
 export const ALLOWED_IMAGE_LABEL = 'JPG, PNG, WEBP, TIFF, or GIF';
-
-function fileExtension(name: string): string {
-  return name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
-}
 
 export function isAllowedImageFile(file: File): boolean {
   return (ALLOWED_IMAGE_EXTENSIONS as readonly string[]).includes(fileExtension(file.name));
