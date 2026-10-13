@@ -25,6 +25,7 @@ fi
 TS="$(basename "$DUMP" | sed 's/^pe-db-//; s/\.dump$//')"
 TARBALL="$DEST/pe-storage-$TS.tgz"
 MANIFEST="$DEST/pe-manifest-$TS.json"
+OPSCONFIG="$DEST/pe-opsconfig-$TS.tgz"
 
 PG_USER="${POSTGRES_USER:-postgres}"
 PG_DB="${POSTGRES_DB:-product_editor}"
@@ -32,6 +33,7 @@ PG_DB="${POSTGRES_DB:-product_editor}"
 echo "About to restore backup from: $TS"
 echo "  DB dump:  $DUMP"
 echo "  Storage:  ${TARBALL:-<none>}"
+echo "  S3 ops-config: $([[ -f "$OPSCONFIG" ]] && echo "$OPSCONFIG" || echo '<none in this set>')"
 echo "  Manifest: $(cat "$MANIFEST" 2>/dev/null || echo '<none>')"
 echo
 echo "This REPLACES the current database and storage config. API keys/embed"
@@ -48,6 +50,13 @@ $DC exec -T db pg_restore --clean --if-exists -U "$PG_USER" -d "$PG_DB" < "$DUMP
 if [[ -f "$TARBALL" ]]; then
   echo "[restore] restoring storage config…"
   tar -xzf "$TARBALL" -C storage
+fi
+
+if [[ -f "$OPSCONFIG" ]]; then
+  echo "[restore] restoring S3 ops-config…"
+  # One-off container: the app is stopped, and this needs only the S3 credentials.
+  $DC run --rm -T --no-deps --entrypoint /opt/venv/bin/python backend \
+    manage.py restore_ops_config --stdin < "$OPSCONFIG"
 fi
 
 echo "[restore] starting containers…"

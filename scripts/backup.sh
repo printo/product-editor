@@ -6,6 +6,10 @@
 #   - pe-storage-<ts>.tgz  : ONLY the config ops mutates at runtime and that is
 #                            NOT recoverable from git (layouts, fonts,
 #                            calendar palettes/styles, holidays, masks).
+#   - pe-opsconfig-<ts>.tgz : S3 ops-config/ (holidays, calendar styles, palettes,
+#                            fonts). On prod (STORAGE_BACKEND=s3) the ops UI writes
+#                            there, NOT to storage/, so the tarball above holds
+#                            only the git seeds. Skipped under the local backend.
 #   - pe-manifest-<ts>.json : per-table row counts for restore verification.
 #
 # Deliberately EXCLUDED from the daily set:
@@ -51,6 +55,15 @@ if [[ $WITH_UPLOADS == 1 && -d storage/uploads ]]; then
 fi
 tar -czf "$DEST/pe-storage-$TS.tgz" -C storage "${TAR_INCLUDE[@]}"
 
+echo "[backup] archiving S3 ops-config…"
+OPS_TMP="/tmp/pe-opsconfig-$TS.tgz"
+# A failure here must fail the backup: a set without the ops edits looks whole.
+$DC exec -T backend /opt/venv/bin/python manage.py backup_ops_config --output "$OPS_TMP"
+if $DC exec -T backend test -f "$OPS_TMP"; then
+  $DC exec -T backend cat "$OPS_TMP" > "$DEST/pe-opsconfig-$TS.tgz"
+  $DC exec -T backend rm -f "$OPS_TMP"
+fi
+
 echo "[backup] writing manifest…"
 # Exact COUNT(*) on the money-path tables (n_live_tup is a stale estimate and
 # useless for verification). Cheap — these tables are small.
@@ -79,12 +92,15 @@ prune() {
 }
 prune "$DEST" "pe-db-*.dump" 7
 prune "$DEST" "pe-storage-*.tgz" 7
+prune "$DEST" "pe-opsconfig-*.tgz" 7
 prune "$DEST" "pe-manifest-*.json" 7
 
 if [[ "$(date -u +%u)" == "7" ]]; then
   cp "$DEST/pe-db-$TS.dump" "$DEST/pe-storage-$TS.tgz" backups/weekly/
+  [[ -f "$DEST/pe-opsconfig-$TS.tgz" ]] && cp "$DEST/pe-opsconfig-$TS.tgz" backups/weekly/
   prune backups/weekly "pe-db-*.dump" 4
   prune backups/weekly "pe-storage-*.tgz" 4
+  prune backups/weekly "pe-opsconfig-*.tgz" 4
 fi
 
 # S3 upgrade path (uncomment + configure rclone remote):

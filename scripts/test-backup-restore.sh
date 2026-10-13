@@ -53,6 +53,18 @@ else
   FAIL=1
 fi
 
+OPSCONFIG="backups/daily/pe-opsconfig-$TS.tgz"
+if [[ -f "$OPSCONFIG" ]]; then
+  if tar -tzf "$OPSCONFIG" >/dev/null 2>&1; then
+    echo "  OK  ops-config archive intact ($(tar -tzf "$OPSCONFIG" | wc -l | tr -d ' ') entries)"
+  else
+    echo "  FAIL ops-config archive is unreadable"
+    FAIL=1
+  fi
+else
+  echo "  --  no ops-config archive (storage backend is not S3)"
+fi
+
 echo "[verify] dropping throwaway db…"
 $DC exec -T db psql -U "$PG_USER" -c "DROP DATABASE IF EXISTS $TEST_DB;" >/dev/null
 
