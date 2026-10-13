@@ -11,6 +11,7 @@ import { AlignmentToolbar } from './AlignmentToolbar';
 import { isLostLocalImage } from './editor-utils';
 import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import { convertHeicFiles, type ServerHeicConverter } from '@/lib/heic-convert';
+import { DEFAULT_OVERLAY_FONT, overlayFontFamily } from '@/lib/overlay-fonts';
 import type { CanvasItem, FitMode, Overlay, TextOverlay, ImageOverlay } from './types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -401,7 +402,7 @@ export function CanvasEditorSidebar({
                       <div className="space-y-3">
                         <label className="text-[11px] font-medium text-slate-500 uppercase">Font Family</label>
                         <Dropdown
-                          value={overlay.fontFamily}
+                          value={overlayFontFamily(overlay.fontFamily)}
                           onChange={(f) => { loadGoogleFont(f); updateOverlay({ fontFamily: f }); }}
                           options={selectedFonts.map(f => ({ value: f, label: f, labelStyle: { fontFamily: f } }))}
                           triggerClassName="w-full h-11 bg-white border border-slate-200 rounded-xl text-[11px] font-medium text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none hover:bg-slate-50 transition-all shadow-sm"
@@ -479,7 +480,7 @@ export function CanvasEditorSidebar({
                     type: 'text', id: Date.now(), text: 'New Text',
                     x: 50, y: 50,
                     fontSize: Math.round((layout?.canvas?.height || 1800) * 0.04),
-                    color: '#000000', fontFamily: selectedFonts[0] || 'sans-serif',
+                    color: '#000000', fontFamily: selectedFonts[0] || DEFAULT_OVERLAY_FONT,
                     textAlign: 'center', rotation: 0,
                   };
                   const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };

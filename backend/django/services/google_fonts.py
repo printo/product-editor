@@ -10,32 +10,39 @@ print the same font file the preview drew with.
 Resolution (`get_overlay_font(family, size_px, weight)`):
 
   1. No family, a CSS generic ('sans-serif', 'serif', …) or 'Inter' → the
-     bundled Inter via services.fonts.get_font, as before. A generic renders
-     in whatever the viewer's OS supplies, which a server can't reproduce.
-  2. Process memory, then the durable cache in storage
+     bundled Inter via services.fonts.get_font. Inter is the default font
+     (DEFAULT_FONT): the picker offers Google Fonts only, and the editor draws
+     a missing or generic family as Inter too (lib/overlay-fonts.ts).
+  2. A family that isn't on the fonts list → Inter as well, with a warning.
+     Ops never delete a font, they switch it off (save_fonts keeps it on the
+     switched-off list), so every family a customer could pick stays on the
+     list; anything else was pasted or tampered into the payload.
+  3. Process memory, then the durable cache in storage
      (`font-cache/<family-slug>/<weight>.ttf` — S3 on prod, STORAGE_ROOT
      locally), so a font is fetched from Google once, not once per container.
-  3. Otherwise fetch it — only if the family is on the ops fonts list:
-     `fonts.googleapis.com/css2?family=<family>:wght@<weight>` names a TTF on
-     `fonts.gstatic.com` (Google hands a non-browser user agent truetype);
-     both hosts are fixed, redirects are refused, every request has a timeout
-     and the download a size cap. A family without that weight (Lobster has
-     only 400) is asked for again with no weight, which returns its default
-     face — the one a browser falls back to.
+  4. Otherwise fetch it: `fonts.googleapis.com/css2?family=<family>:wght@<w>`
+     names a TTF on `fonts.gstatic.com` (Google hands a non-browser user agent
+     truetype); both hosts are fixed, redirects are refused, every request has
+     a timeout and the download a size cap. A family without that weight
+     (Lobster has only 400) is asked for again with no weight, which returns
+     its default face — the one a browser falls back to.
 
 The weight axis of a variable font is set by tag (services.fonts.set_weight),
 never by position: Inter's fvar order is [opsz, wght].
 
-Failure policy: anything that stops us getting the font raises FontUnavailable.
-Neither render_overlays nor the engine swallows it, so the render task retries
-and, after its retries, fails the job — it never prints the overlay in Inter
-behind the customer's back. That includes a family that is no longer on the
-ops list and was never cached (ops removed it after the customer picked it, or
-a crafted payload): retrying can't fix that, but neither can a silent Inter.
+Failure policy: a listed font we can't get (Google unreachable, the cache or
+the fonts list unreadable) raises FontUnavailable. Neither render_overlays nor
+the engine swallows it, so the render task retries and, after its retries,
+fails the job — it never prints the customer's chosen font as Inter.
+
+Refresh: cached files are re-fetched on every deploy (`manage.py
+refresh_fonts`, run by deploy.sh before the container swap), so a family
+Google updates is picked up; a failed re-fetch keeps the old file.
 """
 from __future__ import annotations
 
 import io
+import json
 import logging
 import math
 import re
@@ -78,8 +85,9 @@ def get_overlay_font(family: Optional[str], size_px: int, weight: int = 400) -> 
     if name.lower() in _BUNDLED_FAMILIES:
         return get_font(size_px, weight=weight)
 
-    if not _FAMILY_RE.match(name):
-        raise FontUnavailable(f"Not a font family name: {family!r}")
+    if not _FAMILY_RE.match(name) or not _listed_cached(name):
+        _warn_unlisted(name)
+        return get_font(size_px, weight=weight)
     weight = _snap_weight(weight)
     size_px = max(1, int(size_px))
 
@@ -111,10 +119,6 @@ def font_bytes(family: str, weight: int) -> bytes:
             return data
         data = _read_cached(name)
         if data is None:
-            if not _is_allowed(family):
-                raise FontUnavailable(
-                    f"{family!r} is not on the ops fonts list and isn't cached; not fetching it"
-                )
             data = _fetch(family, weight)
             _write_cached(name, data)
         _BYTES_CACHE[name] = data
@@ -126,30 +130,139 @@ def cache_name(family: str, weight: int) -> str:
     return f"{slug}/{_snap_weight(weight)}.ttf"
 
 
-# ── Allowlist ───────────────────────────────────────────────────────────────
+# ── Fonts list (the allowlist) ──────────────────────────────────────────────
+
+DEFAULT_FONT = "Inter"
+ACTIVE_ASSET = ("fonts", "fonts")      # what the picker offers
+RETIRED_ASSET = ("fonts", "retired")   # switched off by ops: still printable
 
 
-def _ops_fonts() -> Iterable[str]:
-    """The ops fonts list. AssetNotFoundError means ops never saved one —
-    nothing but the generics is allowed; an outage is FontUnavailable."""
+def is_generic_family(name: str) -> bool:
+    return " ".join((name or "").split()).lower() in _BUNDLED_FAMILIES - {"inter"}
+
+
+def _key(name: str) -> str:
+    return " ".join(name.split()).lower()
+
+
+def _read_list(asset) -> list[str]:
+    """A stored fonts list. AssetNotFoundError → []; an outage → FontUnavailable."""
     from services.asset_store import AssetNotFoundError, CalendarAssetUnavailable, read_asset_json
 
     try:
-        data = read_asset_json("fonts", "fonts")
+        data = read_asset_json(*asset)
     except AssetNotFoundError:
-        return ()
+        return []
     except (CalendarAssetUnavailable, ValueError) as exc:
         raise FontUnavailable(f"Fonts list unreadable: {exc}") from exc
-    return [f for f in data if isinstance(f, str)] if isinstance(data, list) else ()
+    return [f for f in data if isinstance(f, str)] if isinstance(data, list) else []
+
+
+def active_fonts() -> list[str]:
+    """The picker's fonts: Google families only, Inter when ops chose none.
+    Raises FontUnavailable when the store couldn't answer."""
+    fonts = [f for f in _read_list(ACTIVE_ASSET) if not is_generic_family(f)]
+    return fonts or [DEFAULT_FONT]
+
+
+def save_fonts(fonts: list[str]) -> list[str]:
+    """Save the picker's list. A font missing from `fonts` that was on the old
+    list is switched off, not deleted: it moves to the retired list, so a
+    design that already uses it still prints in it. Re-adding brings it back.
+    Returns the saved active list."""
+    from services.storage import get_storage
+
+    seen, active = set(), []
+    for f in fonts:
+        f = " ".join(f.split())
+        if f and not is_generic_family(f) and _key(f) not in seen:
+            seen.add(_key(f))
+            active.append(f)
+    old = _read_list(ACTIVE_ASSET)
+    retired = {_key(f): f for f in _read_list(RETIRED_ASSET)}
+    for f in old:
+        if not is_generic_family(f) and _key(f) not in seen:
+            retired.setdefault(_key(f), " ".join(f.split()))
+    for k in seen:
+        retired.pop(k, None)
+
+    storage = get_storage()
+    # Retired first: a failure between the two writes leaves a font both
+    # retired and active (harmless), never in neither.
+    storage.write_calendar_asset(*RETIRED_ASSET, json.dumps(sorted(retired.values()), indent=2).encode())
+    storage.write_calendar_asset(*ACTIVE_ASSET, json.dumps(active, indent=2).encode())
+    return active
+
+
+def _ops_fonts() -> Iterable[str]:
+    return [*_read_list(ACTIVE_ASSET), *_read_list(RETIRED_ASSET), DEFAULT_FONT]
 
 
 # Swapped out by tests.
 allowed_families: Callable[[], Iterable[str]] = _ops_fonts
 
 
-def _is_allowed(family: str) -> bool:
-    wanted = family.lower()
-    return any(" ".join(f.split()).lower() == wanted for f in allowed_families())
+def is_listed(family: str) -> bool:
+    wanted = _key(family)
+    return any(_key(f) == wanted for f in allowed_families())
+
+
+# Families seen on the list. A font is never taken off it (only switched
+# off), so a yes holds for the life of the process; a no is asked again.
+_LISTED: set[str] = set()
+
+
+def _listed_cached(name: str) -> bool:
+    if _key(name) in _LISTED:
+        return True
+    if is_listed(name):
+        _LISTED.add(_key(name))
+        return True
+    return False
+
+
+_UNLISTED_WARNED: set[str] = set()
+
+
+def _warn_unlisted(name: str) -> None:
+    if name not in _UNLISTED_WARNED and len(_UNLISTED_WARNED) < 1000:
+        _UNLISTED_WARNED.add(name)
+        logger.warning("Overlay font %r is not on the fonts list; printing in %s", name, DEFAULT_FONT)
+
+
+# ── Refresh (deploy) ────────────────────────────────────────────────────────
+
+
+def refresh_cached_fonts(out: Callable[[str], None] = logger.info) -> dict:
+    """Re-fetch every cached font from Google and overwrite it when it changed.
+    A failure keeps the cached copy. Run on deploy (manage.py refresh_fonts)."""
+    from services.storage import get_storage
+
+    storage = get_storage()
+    stats = {"checked": 0, "updated": 0, "unchanged": 0, "failed": 0, "skipped": 0}
+    families = {cache_name(f, 400).split("/")[0]: " ".join(f.split()) for f in _ops_fonts()}
+    for name in storage.list_font_files():
+        slug, weight = name.split("/")[0], int(name.split("/")[1].split(".")[0])
+        family = families.get(slug)
+        if family is None:
+            stats["skipped"] += 1
+            out(f"skip {name}: not on the fonts list")
+            continue
+        stats["checked"] += 1
+        try:
+            fresh = _fetch(family, weight)
+            if fresh == storage.read_font_file(name):
+                stats["unchanged"] += 1
+                continue
+            storage.write_font_file(name, fresh)
+        except Exception as exc:  # noqa: BLE001 — keep the old copy, report it
+            stats["failed"] += 1
+            out(f"keep {name}: refresh failed: {exc}")
+            continue
+        _BYTES_CACHE.pop(name, None)
+        stats["updated"] += 1
+        out(f"updated {name}")
+    return stats
 
 
 # ── Durable cache ───────────────────────────────────────────────────────────
@@ -272,3 +385,4 @@ def clear_caches() -> None:
     """For tests."""
     _BYTES_CACHE.clear()
     _FONT_CACHE.clear()
+    _LISTED.clear()

@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 # ─── Fonts management ─────────────────────────────────────────────────────────
 
-DEFAULT_FONTS = ['sans-serif', 'serif', 'monospace']
+# Google Fonts only: the print can't reproduce a CSS generic ('sans-serif'
+# renders in whatever the customer's OS has), so the picker never offers one
+# and Inter — a Google font, bundled for the print — is the default.
+DEFAULT_FONTS = ['Inter']
 
 
 # Shared Redis cache for the on-disk JSON config files. Keys are namespaced so
@@ -30,44 +33,41 @@ _STORAGE_CACHE_TTL = 300
 
 
 def _read_fonts():
-    """Read the fonts config from asset store, with a 5-minute Redis cache."""
+    """The picker's fonts (services.google_fonts.active_fonts), with a 5-minute
+    Redis cache."""
     from django.core.cache import cache
-    from services.asset_store import read_asset_json, AssetNotFoundError, CalendarAssetUnavailable
+    from services.google_fonts import FontUnavailable, active_fonts
 
     cached = cache.get(_FONTS_CACHE_KEY)
     if cached is not None:
         return cached
 
     try:
-        # Fonts are stored as 'fonts' asset (no subdirectory)
-        data = read_asset_json('fonts', 'fonts')
-        value = data if isinstance(data, list) else DEFAULT_FONTS
-    except CalendarAssetUnavailable as exc:
+        value = active_fonts()
+    except FontUnavailable as exc:
         # Editor init reads this on every mount, so serve the defaults rather
         # than fail the editor — but don't cache them as the answer.
         logger.warning("Fonts unavailable (%s), serving defaults uncached", exc)
         return DEFAULT_FONTS
-    except (AssetNotFoundError, ValueError):
-        logger.warning("Failed to read fonts from asset store, using defaults")
-        value = DEFAULT_FONTS
 
     cache.set(_FONTS_CACHE_KEY, value, _STORAGE_CACHE_TTL)
     return value
 
 
 def _write_fonts(fonts):
-    """Write fonts config via storage abstraction and invalidate the cache."""
+    """Save the picker's list and invalidate the cache. A font left out is
+    switched off, not deleted — it stays printable (google_fonts.save_fonts).
+    Returns the saved list (generics and duplicates dropped)."""
     from django.core.cache import cache
-    from services.storage import get_storage
+    from services.google_fonts import save_fonts
 
     try:
-        storage = get_storage()
-        content = json.dumps(fonts, indent=2).encode('utf-8')
-        storage.write_calendar_asset('fonts', 'fonts', content)
-        cache.delete(_FONTS_CACHE_KEY)
+        saved = save_fonts(fonts)
     except Exception as exc:
         logger.error(f"Failed to write fonts: {exc}")
         raise
+    cache.delete(_FONTS_CACHE_KEY)
+    return saved
 
 
 # These three views are declared AllowAny because their GET is public, then gate
@@ -115,9 +115,8 @@ class FontsView(APIView):
             "Font families offered in the editor's text-overlay picker. Public and "
             "cached (`max-age=300`, `stale-while-revalidate=600`) so the editor can "
             "fetch it on mount without an auth round-trip.\n\n"
-            "This is the *editor* font list. It is unrelated to print rendering, "
-            "which uses a single bundled Inter Variable face server-side — there is "
-            "deliberately no font picker in the 300-DPI output path."
+            "Google Fonts family names only; `Inter` when ops chose none. The print "
+            "renders a text overlay in the same family (services/google_fonts.py)."
         ),
         responses={200: inline_serializer(
             name="FontList",
@@ -134,8 +133,11 @@ class FontsView(APIView):
         tags=["fonts"],
         summary="Replace the enabled font list (ops only)",
         description=(
-            "Replaces the whole list — this is not a merge. Written atomically "
-            "(temp file + rename) and the read cache is dropped immediately.\n\n"
+            "Replaces the picker's list — this is not a merge. A font left out is "
+            "switched off, not deleted: it leaves the picker but designs that use it "
+            "still print in it. CSS generics (`sans-serif`, …) and duplicates are "
+            "dropped; the response is the list as saved. The read cache is dropped "
+            "immediately.\n\n"
             "Ops team only, enforced inside the handler rather than by "
             "`permission_classes`, because the GET on this same view is public."
         ),
@@ -181,8 +183,7 @@ class FontsView(APIView):
         if not isinstance(fonts, list) or not all(isinstance(f, str) for f in fonts):
             return Response({'detail': 'fonts must be a list of strings'}, status=status.HTTP_400_BAD_REQUEST)
 
-        _write_fonts(fonts)
-        return Response({'fonts': fonts})
+        return Response({'fonts': _write_fonts(fonts)})
 
 
 # ── Calendar style presets + Gen-Z palettes (PRD §10.3, §6.3) ───────────────

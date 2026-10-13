@@ -44,6 +44,13 @@ jest.mock('@/app/editor/layout/[name]/fabric-renderer', () => ({
   calculateSmartCropOffsets: jest.fn(async () => ({ x: 0, y: 0 })),
 }));
 jest.mock('@/app/editor/layout/[name]/CanvasEditorModal', () => ({ CanvasEditorModal: () => null }));
+// The page always loads the default overlay font (Inter) from Google. React
+// holds a render behind a `<link rel=stylesheet precedence>` until it loads,
+// and happy-dom never loads one, so the page would stay on its spinner.
+jest.mock('@/components/GoogleFontLinks', () => ({
+  ...jest.requireActual('@/components/GoogleFontLinks'),
+  GoogleFontLinks: () => null,
+}));
 jest.mock('@/lib/image-utils', () => ({
   getImageMetadata: jest.fn(async () => ({
     width: 1200, height: 1800, orientation: 1,

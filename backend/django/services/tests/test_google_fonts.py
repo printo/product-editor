@@ -224,10 +224,12 @@ def test_weight_snaps_to_the_nearest_hundred():
 # ── Allowlist / SSRF ────────────────────────────────────────────────────────
 
 
-def test_family_not_on_the_ops_list_is_not_fetched():
+def test_family_not_on_the_list_prints_in_inter_without_a_fetch():
+    # Only a pasted or tampered name can be off the list (ops switch fonts
+    # off, never delete them), so it gets the default rather than a failed job.
     with Env(allowed=["Roboto"]) as env:
-        exc = _raises_unavailable(lambda: gf.get_overlay_font("Parisienne", SIZE))
-    assert "not on the ops fonts list" in str(exc)
+        assert gf.get_overlay_font("Parisienne", SIZE) is get_font(SIZE)
+        assert gf.get_overlay_font("Comic Sans MS", SIZE) is get_font(SIZE)
     assert env.google.calls == []
 
 
@@ -236,12 +238,12 @@ def test_allowlist_match_ignores_case_and_spacing():
         assert gf.get_overlay_font("Parisienne", SIZE).getname()[0] == "Parisienne"
 
 
-def test_malformed_family_names_are_refused_without_a_request():
+def test_malformed_family_names_print_in_inter_without_a_request():
     bad = ["../../etc/passwd", "Roboto&family=Evil", "http://169.254.169.254/", "A" * 65,
            "Roboto:wght@700", "Roboto/../x"]
     with Env(allowed=bad) as env:
         for family in bad:
-            _raises_unavailable(lambda f=family: gf.get_overlay_font(f, SIZE))
+            assert gf.get_overlay_font(family, SIZE) is get_font(SIZE), family
     assert env.google.calls == []
 
 
@@ -302,12 +304,51 @@ def test_fetched_font_is_cached_in_storage_and_reused():
         assert env.google.font_downloads() == 1, env.google.calls
 
 
-def test_cached_font_still_prints_after_ops_drop_it_from_the_list():
-    with Env() as env:
-        gf.get_overlay_font("Parisienne", SIZE)
-        gf.clear_caches()
-        env.allowed = []
+def _use_stored_lists():
+    gf.allowed_families = gf._ops_fonts
+
+
+def test_removing_a_font_switches_it_off_and_it_still_prints():
+    with Env():
+        _use_stored_lists()
+        gf.save_fonts(["Parisienne", "Roboto"])
+        assert gf.save_fonts(["Roboto"]) == ["Roboto"]
+        assert gf.active_fonts() == ["Roboto"], "gone from the picker"
+        assert gf._read_list(gf.RETIRED_ASSET) == ["Parisienne"]
+        gf.clear_caches()  # a fresh worker
         assert gf.get_overlay_font("Parisienne", SIZE).getname()[0] == "Parisienne"
+
+
+def test_re_adding_a_switched_off_font_brings_it_back():
+    with Env():
+        _use_stored_lists()
+        gf.save_fonts(["Parisienne"])
+        gf.save_fonts([])
+        gf.save_fonts(["  parisienne "])
+        assert gf.active_fonts() == ["parisienne"]
+        assert gf._read_list(gf.RETIRED_ASSET) == []
+
+
+def test_fonts_list_is_google_only_with_inter_by_default():
+    with Env() as env:
+        assert gf.active_fonts() == ["Inter"], "nothing saved yet"
+        Path(env.root, "fonts.json").write_text('["sans-serif", "serif", "monospace"]')
+        assert gf.active_fonts() == ["Inter"], "legacy generics-only list"
+        saved = gf.save_fonts(["sans-serif", "Lobster", "cursive", "lobster", "Pacifico"])
+        assert saved == ["Lobster", "Pacifico"], saved
+        assert gf._read_list(gf.RETIRED_ASSET) == [], "generics are never retired"
+
+
+def test_retired_list_lives_beside_fonts_json_locally_and_in_ops_config_on_s3():
+    with Env() as env:
+        gf.save_fonts(["Parisienne"])
+        gf.save_fonts([])
+        assert Path(env.root, "fonts_retired.json").exists()
+    with Env(), S3Backend() as s3:
+        gf.save_fonts(["Parisienne"])
+        gf.save_fonts([])
+        assert s3.stored_json("fonts", "retired") == ["Parisienne"]
+        assert s3.stored_json("fonts", "fonts") == []
 
 
 def test_s3_cache_key_and_reuse():
@@ -382,9 +423,51 @@ def test_fonts_list_outage_is_font_unavailable():
 
 def test_ops_fonts_list_is_the_default_allowlist():
     with Env() as env:
-        gf.allowed_families = gf._ops_fonts
+        _use_stored_lists()
         Path(env.root, "fonts.json").write_text('["sans-serif", "Parisienne"]')
         assert gf.get_overlay_font("Parisienne", SIZE).getname()[0] == "Parisienne"
+
+
+# ── Refresh on deploy ───────────────────────────────────────────────────────
+
+
+def test_refresh_updates_a_changed_font_and_leaves_an_unchanged_one():
+    faces = {"Parisienne": {400: PARISIENNE}, "Test Variable": {400: INTER_VARIABLE}}
+    with Env(faces=faces, allowed=["Parisienne", "Test Variable"]) as env:
+        gf.get_overlay_font("Parisienne", SIZE)
+        gf.get_overlay_font("Test Variable", SIZE)
+        env.google.faces["Parisienne"][400] = INTER_VARIABLE  # Google shipped a new version
+        _use_stored_lists()
+        Path(env.root, "fonts.json").write_text('["Parisienne", "Test Variable"]')
+        stats = gf.refresh_cached_fonts(out=lambda m: None)
+        assert stats == {"checked": 2, "updated": 1, "unchanged": 1, "failed": 0, "skipped": 0}, stats
+        assert Path(env.root, "font_cache", "parisienne", "400.ttf").read_bytes() == INTER_VARIABLE
+        assert gf.font_bytes("Parisienne", 400) == INTER_VARIABLE, "memory copy dropped too"
+
+
+def test_refresh_failure_keeps_the_cached_copy():
+    with Env() as env:
+        gf.get_overlay_font("Parisienne", SIZE)
+        env.google.error = ConnectionError("down")
+        _use_stored_lists()
+        Path(env.root, "fonts.json").write_text('["Parisienne"]')
+        stats = gf.refresh_cached_fonts(out=lambda m: None)
+        assert stats["failed"] == 1 and stats["updated"] == 0, stats
+        assert Path(env.root, "font_cache", "parisienne", "400.ttf").read_bytes() == PARISIENNE
+
+
+def test_refresh_lists_the_s3_cache():
+    with Env() as env, S3Backend() as s3:
+        gf.get_overlay_font("Parisienne", SIZE)
+        s3.client.objects["product-editor/font-cache/README"] = b"x"
+        assert storage_mod.get_storage().list_font_files() == ["parisienne/400.ttf"]
+        s3.client.list_error = FakeClientError("InternalError", 500)
+        try:
+            gf.refresh_cached_fonts(out=lambda m: None)
+        except storage_mod.FontCacheUnavailable:
+            pass
+        else:
+            raise AssertionError("a failed listing must not read as an empty cache")
 
 
 def test_render_overlays_and_engine_do_not_swallow_font_unavailable():

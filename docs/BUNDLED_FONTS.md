@@ -12,8 +12,9 @@ Inter-Variable.ttf
 ```
 
 Inter Variable is the **default** server-side font: calendar grids, captions,
-and any text overlay without a family (or with a CSS generic such as
-`sans-serif`, which the browser draws from the OS and we can't reproduce).
+and any text overlay without a family, with a legacy CSS generic such as
+`sans-serif`, or with a name that isn't on the fonts list. The editor draws
+those as Inter too, and the font picker offers Google Fonts only.
 
 PRD §11.7's "one font, no picker" rule was **reversed on 2026-10-13**. A text
 overlay now prints in the family the customer picked from the ops fonts list,

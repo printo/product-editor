@@ -39,6 +39,7 @@ import { Toast, ToastStack } from '@/components/ui/Toast';
 import { useHeader } from '@/context/HeaderContext';
 import { canManageTemplates, isAdmin } from '@/lib/roles';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
+import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { hasTransparentPixels } from '@/lib/image-utils';
 import { mmToPx as mmToPxExact, pxToMm as pxToMmExact } from '@/lib/units';
 
@@ -282,7 +283,7 @@ export default function LayoutCreatorPage() {
     return () => { document.body.style.overflow = 'auto'; };
   }, [isModalOpen]);
 
-  const [selectedFonts, setSelectedFonts] = useState<string[]>(['sans-serif', 'serif', 'monospace']);
+  const [selectedFonts, setSelectedFonts] = useState<string[]>([DEFAULT_OVERLAY_FONT]);
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const [showFontModal, setShowFontModal] = useState(false);
   const [fontSearch, setFontSearch] = useState('');
@@ -385,7 +386,7 @@ export default function LayoutCreatorPage() {
       headers: { Accept: 'application/json' },
     })
       .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data?.fonts) setSelectedFonts(data.fonts); })
+      .then(data => { if (data?.fonts) setSelectedFonts(pickerFonts(data.fonts)); })
       .catch(() => {});
   }, [session?.accessToken]);
 
@@ -1903,20 +1904,6 @@ export default function LayoutCreatorPage() {
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                 </div>
                 <div className="flex-1 overflow-y-auto px-6 py-3 space-y-1">
-                  {/* System fonts — always available */}
-                  {['sans-serif', 'serif', 'monospace', 'cursive'].filter(f => f.toLowerCase().includes(fontSearch.toLowerCase())).map(f => (
-                    <label key={f} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer">
-                      <input type="checkbox" checked={selectedFonts.includes(f)}
-                        onChange={e => {
-                          const next = e.target.checked ? [...selectedFonts, f] : selectedFonts.filter(x => x !== f);
-                          setSelectedFonts(next);
-                          saveFontsToBackend(next);
-                        }}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                      <span className="text-sm text-slate-700" style={{ fontFamily: f }}>{f}</span>
-                      <span className="text-[9px] text-slate-400 ml-auto uppercase">System</span>
-                    </label>
-                  ))}
                   {/* Google Fonts */}
                   {googleFontsList.filter(f => f.toLowerCase().includes(fontSearch.toLowerCase())).map(f => (
                     <label key={f} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer"

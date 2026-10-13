@@ -215,6 +215,10 @@ class StorageBackend:
         """Cache a font file. Returns the path or key; IOError on failure."""
         raise NotImplementedError
 
+    def list_font_files(self) -> List[str]:
+        """Names of every cached font file. FontCacheUnavailable on failure."""
+        raise NotImplementedError
+
 
 class LocalStorage(StorageBackend):
     """Concrete backend that stores everything on the local filesystem."""
@@ -341,6 +345,16 @@ class LocalStorage(StorageBackend):
             fh.write(content)
         os.replace(tmp, path)
         return path
+
+    def list_font_files(self) -> List[str]:
+        root = os.path.join(settings.STORAGE_ROOT, 'font_cache')
+        names = []
+        for dirpath, _dirs, files in os.walk(root):
+            for f in files:
+                name = os.path.relpath(os.path.join(dirpath, f), root).replace(os.sep, '/')
+                if _FONT_NAME_RE.match(name):
+                    names.append(name)
+        return sorted(names)
 
 
 class S3Storage(StorageBackend):
@@ -647,6 +661,24 @@ class S3Storage(StorageBackend):
             raise IOError(f"Failed to cache font in S3: {exc}") from exc
         return s3_key
 
+    def list_font_files(self) -> List[str]:
+        prefix = self._s3_key("font-cache/")
+        names = []
+        kwargs = {'Bucket': self.bucket, 'Prefix': prefix}
+        try:
+            while True:
+                page = self.s3.list_objects_v2(**kwargs)
+                for obj in page.get('Contents') or []:
+                    name = obj['Key'][len(prefix):]
+                    if _FONT_NAME_RE.match(name):
+                        names.append(name)
+                if not page.get('IsTruncated'):
+                    break
+                kwargs['ContinuationToken'] = page['NextContinuationToken']
+        except Exception as exc:
+            raise FontCacheUnavailable(f"S3 list failed for {prefix}: {exc}") from exc
+        return sorted(names)
+
 
 class MaskUnavailable(Exception):
     """The store couldn't say whether a mask exists (outage, credentials).
@@ -699,7 +731,11 @@ def _json_asset_name(asset_name: str) -> str:
 # as fonts/fonts.json, so a local write went somewhere neither backs up nor
 # ignores, and an existing fonts.json was never read. (The S3 key is
 # unaffected: ops-config/fonts/fonts.json.)
-_LOCAL_PATH_OVERRIDES = {('fonts', 'fonts'): 'fonts.json'}
+# The switched-off fonts list (services/google_fonts.py) sits beside it.
+_LOCAL_PATH_OVERRIDES = {
+    ('fonts', 'fonts'): 'fonts.json',
+    ('fonts', 'retired'): 'fonts_retired.json',
+}
 
 
 def _local_calendar_asset_path(asset_type: str, asset_name: str) -> str:
