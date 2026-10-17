@@ -265,7 +265,7 @@ Sized against the calendar build, which ran ~10 phases / ~25 days.
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
 | R1 | Customer-variable surface count is new; autosave/restore/render-payload all assume a fixed set | High | Phase 1 must nail the payload shape; extend `canvas-merge.ts` identity logic to pages |
-| R2 | Spine width is computed from page count — a wrong formula prints an unusable cover | High | Parity-test the formula; require an ops preview showing the resolved spine before publish |
+| R2 | Spine width is computed from page count — a wrong formula prints an unusable cover | High | Parity-test the formula; require an ops preview showing the resolved spine before publish. **Mitigated 2026-10-17:** Catalog Ops agreed to follow the tool's definition (thickness of ONE sheet = 2 pages); the ops editor now says so on the field and shows the working. Still no caliper check against a printed proof. |
 | R3 | Gutter parity mirroring is easy to get backwards and only shows up in print | High | Parity tests + a preview that labels left/right pages explicitly |
 | R4 | 60-page books × 300 DPI could blow the render time/memory budget (calendar's 12 surfaces take ~1.8 s) | Medium | Benchmark at `max` early; the engine already closes images and GCs per canvas |
 | R5 | A fourth frame renderer sneaks in | Medium | Route all new drawing through shared modules; call it out in review |
@@ -289,7 +289,7 @@ Sized against the calendar build, which ran ~10 phases / ~25 days.
 
 Still open:
 
-1. **Confirm the spine-width convention with Catalog Ops** before any cover ships — the implemented formula (`pageCount/2 leaves × paperThicknessMm`) differs from this PRD's §4 D4 sketch (`pageCount × paperThicknessMm`, which double-counts printed sides as sheets). A wrong answer here prints an unusable cover (R2).
+1. ~~Confirm the spine-width convention with Catalog Ops~~ **Settled 2026-10-17:** Catalog Ops follow the tool's definition — `paperThicknessMm` is the thickness of one sheet (two pages), formula `pageCount/2 × paperThicknessMm + 2 × coverThicknessMm`; the §4 D4 sketch (`pageCount × paperThicknessMm`) is superseded. The ops editor labels the field "Paper thickness per sheet" and shows the working. Still worth one caliper check against a printed sample before the first cover ships (R2).
 2. Confirm the real product spec with Catalog Ops: actual trim sizes for **both** cover and inner block, page ranges, paper thickness, cover types, and which SKUs are collage-style vs one-photo-per-page.
 3. **Open Phase 5** — the ops authoring UI (`/editor/layouts/book/[name]`). Nothing in the frontend has been touched yet.
 4. **Open Phase 6** — the customer page editor, page-count control, and D3's photo→page auto-flow logic. This is where R1 (customer-variable surface count) has to actually be solved in `page.tsx` / `canvas-merge.ts` / autosave — the backend materializer doesn't touch any of that.

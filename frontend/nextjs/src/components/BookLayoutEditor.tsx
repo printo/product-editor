@@ -544,9 +544,9 @@ export function BookLayoutEditor({
             onChange={(n) => patch({ bleedMm: n })} />
           <NumberField label="Gutter" value={draft.gutterMm} step={0.5} min={0} suffix="mm"
             onChange={(n) => patch({ gutterMm: n })} />
-          <NumberField label="Paper thickness" value={draft.paperThicknessMm} step={0.01} min={0} suffix="mm"
+          <NumberField label="Paper thickness per sheet" value={draft.paperThicknessMm} step={0.01} min={0} suffix="mm (1 sheet = 2 pages)"
             onChange={(n) => patch({ paperThicknessMm: n })} />
-          <NumberField label="Cover thickness" value={draft.coverThicknessMm} step={0.01} min={0} suffix="mm"
+          <NumberField label="Cover thickness" value={draft.coverThicknessMm} step={0.01} min={0} suffix="mm (each cover)"
             onChange={(n) => patch({ coverThicknessMm: n })} />
         </div>
         <div className="flex flex-wrap gap-4 mt-4">
@@ -570,11 +570,13 @@ export function BookLayoutEditor({
               {spineWidthMm(draft.pageCountDefault, draft.paperThicknessMm, draft.coverThicknessMm).toFixed(2)} mm
             </span>
           </p>
-          <p className="text-[10px] text-zinc-400 mt-1">
-            (pages ÷ 2 leaves) × paper thickness + 2 × cover thickness. Whether
-            &quot;paper thickness&quot; means per-leaf or per-side is unconfirmed
-            with Catalog Ops — verify against a printed sample before publishing
-            this template (BOOK_LAYOUT_PRD.md R2).
+          <p className="text-[11px] text-zinc-600 mt-1 font-mono" data-testid="resolved-spine-working">
+            {Math.max(0, draft.pageCountDefault) / 2} sheets × {draft.paperThicknessMm} mm + 2 covers × {draft.coverThicknessMm} mm
+          </p>
+          <p className="text-[11px] text-zinc-500 mt-1">
+            Enter the thickness of <strong>one sheet</strong> (two pages), not of one page.
+            A 24-page book is 12 sheets thick. Measure a single loose sheet with a
+            caliper if you are unsure.
           </p>
         </div>
       </section>

@@ -303,22 +303,17 @@ def spine_width_mm(
     """
     Spine width for a book of `page_count` printed SIDES.
 
-    `paper_thickness_mm` is the thickness of ONE LEAF of paper — one sheet
-    with two printed sides. A 24-page book is therefore 12 leaves thick,
-    not 24, and the formula is:
+    `paper_thickness_mm` is the thickness of ONE SHEET (leaf) of paper — one
+    sheet with two printed sides. A 24-page book is therefore 12 sheets
+    thick, not 24, and the formula is:
 
         spine = (page_count / 2) × paper_thickness_mm
                 + 2 × cover_thickness_mm
 
-    ⚠️ This differs from the formula sketched in BOOK_LAYOUT_PRD.md §4 D4
-    (`pageCount × paperThicknessMm`), which double-counts by treating every
-    printed side as its own sheet. The definition above is the physically
-    correct one, but WHICH definition ops means by "paper thickness" has not
-    been confirmed with Catalog Ops — a paper spec quoted per-side rather
-    than per-leaf would halve the answer. R2 in the PRD calls a wrong spine
-    an unusable cover, so this stays parity-tested on both sides of the
-    language boundary and must be signed off against a real printed sample
-    before any cover ships.
+    This is the contract for the ops "Paper thickness per sheet" field, which
+    says so on screen; BOOK_LAYOUT_PRD.md §4 D4's `pageCount × paperThicknessMm`
+    sketch is superseded. It is parity-tested against the TS twin
+    `spineWidthMm`. Not yet checked against a printed proof (PRD R2).
     """
     if page_count <= 0 or paper_thickness_mm <= 0:
         return max(0.0, 2.0 * cover_thickness_mm)

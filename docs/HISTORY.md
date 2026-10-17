@@ -181,7 +181,7 @@ Shipped in PR #259 on 2026-10-13 (prerequisite PR #258), deployed to prod at `79
 
 ## Book
 
-Backend 2026-08-14 (D1/D2/D2a/D4/D5/D6/D7 answered); the PRD's §4 D4 spine sketch (`pageCount × paperThicknessMm`) double-counts and the code uses leaves. Ops editor and customer page count shipped later; `CLAUDE.md` said the opposite until 2026-10-12/13. Book Editor masks per role and merge-on-save (instead of rebuilding the layout and deleting `pageOverrides`, overlays, frame ids and hand-added masks) landed 2026-10-12.
+Backend 2026-08-14 (D1/D2/D2a/D4/D5/D6/D7 answered); the PRD's §4 D4 spine sketch (`pageCount × paperThicknessMm`) double-counts and the code uses leaves. On 2026-10-17 Catalog Ops agreed to follow that definition (thickness of one sheet), so the "unconfirmed" caveats were replaced by a per-sheet field label and a worked line on the ops editor. Ops editor and customer page count shipped later; `CLAUDE.md` said the opposite until 2026-10-12/13. Book Editor masks per role and merge-on-save (instead of rebuilding the layout and deleting `pageOverrides`, overlays, frame ids and hand-added masks) landed 2026-10-12.
 
 ## Auto-orientation
 
