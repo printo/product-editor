@@ -168,6 +168,34 @@ export function monthHeadingText(year: number, month: number): string {
   return displayLabelFor(year, month);
 }
 
+// ─── Photo pages ─────────────────────────────────────────────────────────────
+
+/**
+ * Printed pages of a calendar layout: `monthRange.count` (12 for one month a
+ * page, 1 for the whole-year poster, whatever a future 6- or 8-page layout
+ * declares); anything unreadable means the classic 12. Mirrors
+ * `calendar_page_count` in services/order_qty.py.
+ */
+export function calendarPageCount(layout: unknown): number {
+  const range = isObjectRecord(layout) ? layout.monthRange : undefined;
+  const count = isObjectRecord(range) ? range.count : undefined;
+  return typeof count === 'number' && Number.isInteger(count) && count > 0 ? count : 12;
+}
+
+/**
+ * Photos a calendar needs for every page to have its own: pages × photo
+ * windows per page; null for anything that is not a calendar. The calendar's
+ * stand-in for the order quantity in the "X of Y photos" banner, repeat picker
+ * and pre-submit notice (the session's qty counts calendars bought). Mirrors
+ * `calendar_photo_slots`; pinned by storage/parity-fixtures/calendar-photo-slots.json.
+ */
+export function calendarPhotoSlots(layout: unknown): number | null {
+  if (!isObjectRecord(layout) || layout.productType !== 'calendar') return null;
+  const frames = layout.frames;
+  const perPage = Array.isArray(frames) && frames.length > 0 ? frames.length : 1;
+  return calendarPageCount(layout) * perPage;
+}
+
 // ─── Holidays ────────────────────────────────────────────────────────────────
 
 /**

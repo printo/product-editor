@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
-import { monthHeadingEnabled, printedHolidayLocale } from '@/lib/calendar';
+import { calendarPageCount, calendarPhotoSlots, monthHeadingEnabled, printedHolidayLocale } from '@/lib/calendar';
 import type { BookLayoutLike } from '@/lib/book-layout';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { reconcilePageCount } from './book-pages';
@@ -173,6 +173,8 @@ export function useLayoutLoader({
           // null when the print carries no holidays (holidaySource off/absent).
           holidayLocale: printedHolidayLocale(item.calendar),
           calendarShowMonthName: monthHeadingEnabled(item.calendar),
+          calendarPageCount: calendarPageCount(item),
+          calendarPhotoSlots: calendarPhotoSlots(item),
           calendarDefaultYear: item.monthRange?.defaultYear ?? 'current',
         });
       } catch {

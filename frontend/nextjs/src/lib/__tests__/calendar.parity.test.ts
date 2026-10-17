@@ -14,6 +14,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   buildMonthGrid,
+  calendarPageCount,
+  calendarPhotoSlots,
   displayLabelFor,
   monthHeadingEnabled,
   monthHeadingText,
@@ -215,5 +217,18 @@ describe('monthHeadingEnabled / monthHeadingText (TS) vs services/calendar_rende
 
   it.each(monthHeading.labels.map(l => [l.text, l] as const))('labels %s', (_text, l) => {
     expect(monthHeadingText(l.year, l.month)).toBe(l.text);
+  });
+});
+
+// ── Photo pages (the calendar's "X of Y photos" count) ───────────────────
+
+const photoSlots = (JSON.parse(
+  fs.readFileSync(path.resolve(path.dirname(FIXTURES_PATH), 'calendar-photo-slots.json'), 'utf-8'),
+) as { cases: { name: string; layout: unknown; pages: number; slots: number | null }[] }).cases;
+
+describe('calendarPageCount / calendarPhotoSlots (TS) vs services/order_qty.py', () => {
+  it.each(photoSlots.map(c => [c.name, c] as const))('%s', (_name, c) => {
+    expect(calendarPageCount(c.layout)).toBe(c.pages);
+    expect(calendarPhotoSlots(c.layout)).toBe(c.slots);
   });
 });

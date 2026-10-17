@@ -23,7 +23,12 @@ Run stand-alone:
 """
 from __future__ import annotations
 
+import os
+
 from services.order_qty import (
+    calendar_page_count,
+    calendar_photo_slots,
+    calendar_qty_summary,
     MAX_ORDER_QTY,
     InvalidOrderQty,
     count_placed_photos,
@@ -269,6 +274,62 @@ def test_qty_summary_absent_without_an_enforceable_qty():
     two_sided = {'type': 'product', 'surfaces': [{'key': 'a'}, {'key': 'b'}]}
     assert qty_summary(1, 12, two_sided, True) is None
 
+
+
+# ── Calendars: measured against their own photo pages ──────────────────────
+
+def _photo_slot_cases() -> list:
+    import json
+    path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'storage',
+                        'parity-fixtures', 'calendar-photo-slots.json')
+    if not os.path.exists(path):  # inside the backend container storage is /app/storage
+        path = os.path.join(os.path.dirname(__file__), '..', '..', 'storage',
+                            'parity-fixtures', 'calendar-photo-slots.json')
+    with open(path) as f:
+        return json.load(f)['cases']
+
+
+def test_calendar_photo_slots_match_the_shared_fixture():
+    for c in _photo_slot_cases():
+        assert calendar_page_count(c['layout']) == c['pages'], c['name']
+        assert calendar_photo_slots(c['layout']) == c['slots'], c['name']
+
+
+CALENDAR_12 = {'productType': 'calendar', 'monthRange': {'count': 12}, 'frames': [{}]}
+
+
+def test_calendar_summary_reports_pages_without_their_own_photo():
+    s = calendar_qty_summary(4, CALENDAR_12, True)
+    assert s['ordered_qty'] == 12 and s['placed_photos'] == 4 and s['shortfall'] == 8
+    assert s['customer_acknowledged_shortfall'] is True
+    assert s['summary'] == ('Customer agreed to proceed with 4 photos for the 12 calendar '
+                            'pages; the other 8 repeat those photos.')
+
+
+def test_calendar_summary_without_acknowledgement_says_so():
+    s = calendar_qty_summary(1, CALENDAR_12, None)
+    assert s['customer_acknowledged_shortfall'] is False
+    assert s['summary'].endswith('(acknowledgement not received).')
+    assert '1 photo for' in s['summary']
+
+
+def test_calendar_summary_when_every_page_has_a_photo():
+    s = calendar_qty_summary(12, CALENDAR_12, True)
+    assert s['shortfall'] == 0 and s['customer_acknowledged_shortfall'] is False
+    assert s['summary'] == 'Customer added photos for all 12 calendar pages.'
+
+
+def test_calendar_summary_is_none_for_other_products():
+    assert calendar_qty_summary(3, {'productType': 'book'}, True) is None
+    assert calendar_qty_summary(3, {'canvas': {}, 'frames': [{}]}, True) is None
+    assert calendar_qty_summary(3, None, True) is None
+
+
+def test_the_session_qty_rule_still_exempts_calendars():
+    # Calendars are measured by calendar_qty_summary instead; the session qty
+    # (calendars bought) must never cap or summarise them.
+    assert qty_violation(20, 1, CALENDAR_12) is None
+    assert qty_summary(4, 1, CALENDAR_12, True) is None
 
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

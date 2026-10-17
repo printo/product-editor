@@ -441,6 +441,8 @@ Stored on `EmbedSession.qty` (nullable). The browser's copy reaches the editor v
 
 Under-upload must never block (a wrong caller-supplied qty would strand a real order). **`qty_violation` has one `>` and no lower bound; don't add one.** Single-surface products only: `checkOrderQty` opts out on `surfaceCount > 1`; the server also exempts `productType` calendar/book — **the server half is deliberately narrower than the browser's and fails open** (unreadable layout, absent or unparseable value → don't check). Both halves count *placements* (frames with an `upload_id`), not distinct uploads — auto-fill repeats one photo. The legacy `?qty=N` URL param is a fallback the editor reads when the session carries none; nothing server-side honours it.
 
+**Calendars measure against their own photo count, not `qty`.** The session's `qty` counts calendars bought, so for `productType: calendar` the editor uses `calendarPhotoSlots(layout)` (pages = `monthRange.count`, 12 when unreadable, × photo windows per page) in its place (`photoQty` in `page.tsx`): the same "X of Y photos" banner, *Choose which to repeat* picker and `QtyShortfallWarning`, and the page cap on cards (no longer a literal 12; the poster is 1). Skipping leaves today's print behaviour: page *i* uses photo *(i mod N)*. The server writes `qty_summary` for every calendar submit with `calendar_qty_summary` (same shape, calendar wording), whatever the session's `qty`, and never caps or summarises a calendar by `qty`. Twins `calendarPhotoSlots` ↔ `calendar_photo_slots`, pinned by `storage/parity-fixtures/calendar-photo-slots.json`.
+
 | | File |
 |---|---|
 | Browser rule | `checkOrderQty` — `src/lib/submit-guards.ts` |

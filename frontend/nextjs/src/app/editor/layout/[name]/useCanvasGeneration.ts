@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { getCanvasSpec, getFrames } from '@/lib/layout-utils';
+import { calendarPageCount } from '@/lib/calendar';
 import { getImageMetadata } from '@/lib/image-utils';
 import { detectFileOrientation } from '@/lib/ml-orientation';
 import { pdfDerivedFiles } from '@/lib/pdf-import';
@@ -101,9 +102,9 @@ export function useCanvasGeneration({
   ): Promise<CanvasItem[]> => {
     if (!layoutDef || surfaceFiles.length === 0) return [];
     const frameCount = layoutDef.frames?.length || 1;
-    // Same 12-page cap as generateCanvases for calendar products.
+    // Same page cap as generateCanvases for calendar products.
     const canvasCount = layoutDef.productType === 'calendar'
-      ? Math.min(Math.ceil(surfaceFiles.length / frameCount), 12)
+      ? Math.min(Math.ceil(surfaceFiles.length / frameCount), layoutDef.calendarPageCount ?? calendarPageCount(layoutDef))
       : Math.ceil(surfaceFiles.length / frameCount);
     // Identity-based reuse (Phase 3 — never lose edits); see generateCanvases.
     const plannedSlots = planFrameSlots(surfaceFiles, frameCount, canvasCount);
@@ -196,11 +197,12 @@ export function useCanvasGeneration({
     setError(null);
 
     const frameCount = layout.frames?.length || 1;
-    // Calendar products render exactly 12 month pages — cap the photo
-    // canvases so canvas i previews month i's photo and the ZIP holds 12
-    // files, not 12 per photo (server slices per-surface the same way).
+    // Calendar products render calendarPageCount pages (12, or 1 for a
+    // poster) — cap the photo canvases so canvas i previews page i's photo
+    // and the ZIP holds one file per page, not one per photo per page
+    // (server slices per-surface the same way).
     const canvasCount = isCalendarProduct
-      ? Math.min(Math.ceil(files.length / frameCount), 12)
+      ? Math.min(Math.ceil(files.length / frameCount), layout.calendarPageCount ?? 12)
       : Math.ceil(files.length / frameCount);
     setRenderProgress({ current: 0, total: canvasCount });
     

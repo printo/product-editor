@@ -177,6 +177,7 @@ Shipped in PR #259 on 2026-10-13 (prerequisite PR #258), deployed to prod at `79
 - Until 2026-10-12 the customer could only edit the 1st of each month (`CalendarDayPicker` added). The calendar editor's mask picker copied only the file *name* into `maskUrl` and sent JSON, so the PNG never reached the server; the generic editor had always sent `mask_<surface key>`, silently dropped.
 - Calendar frames gained mm fields on 2026-10-13; the fraction "Precise values" fields for frames were removed.
 - **Printed calendars carried no month name (fixed 2026-10-17):** `render_calendar` drew only the weekday row and dates, on the theory that ops would place month labels as overlays — but no UI ever set `calendar.monthTitle`, so every printed page and mock was unlabelled while the customer's tiles said "JAN 2026" around the grid. Each block now prints "January 2026" above its weekday row by default, and the tiles draw it inside the grid as the print does. The grid area shrank by 12% of the block height on every existing calendar layout.
+- **Calendars never asked for 12 photos (2026-10-17).** The "X of Y photos" banner, repeat picker and pre-submit notice ran only off the order `qty`, which calendars were exempt from (it counts calendars bought), so a 4-photo calendar silently repeated photos across the 12 months, and the poster kept up to 12 cards while printing only the first. Calendars now measure against their own photo pages (`calendarPhotoSlots`) on both sides, and the webhook carries a calendar `qty_summary`.
 
 ## Book
 

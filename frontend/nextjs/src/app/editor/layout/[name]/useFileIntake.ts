@@ -159,11 +159,12 @@ export function useFileIntake({
         `${cmykFiles.length === 1 ? `"${cmykFiles[0].name}"` : `${cmykFiles.length} files`} use CMYK colour (ISOCoated). Colours may shift — convert to sRGB for accurate on-screen preview.`
       );
     }
-    // ── Calendar capacity (12 month pages) ──────────────────────────────────
-    // The product renders exactly 12 pages; photos beyond 12×frames can never
-    // print. Truncate up front and say so, instead of silently ignoring them.
+    // ── Calendar capacity (one photo per printed page) ─────────────────────
+    // The product renders calendarPageCount pages (12, or 1 for a poster);
+    // photos beyond pages×frames can never print. Truncate up front and say
+    // so, instead of silently ignoring them.
     if (isCalendarProduct) {
-      const maxFiles = (layout?.frames?.length || 1) * 12;
+      const maxFiles = (layout?.frames?.length || 1) * (layout?.calendarPageCount ?? 12);
       if (allFiles.length > maxFiles) {
         setUploadWarning(
           `Calendars hold ${maxFiles} photo${maxFiles !== 1 ? 's' : ''} — only the first ${maxFiles} were kept.`
