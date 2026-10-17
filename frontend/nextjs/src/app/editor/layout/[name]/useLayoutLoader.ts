@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
-import { printedHolidayLocale } from '@/lib/calendar';
+import { monthHeadingEnabled, printedHolidayLocale } from '@/lib/calendar';
 import type { BookLayoutLike } from '@/lib/book-layout';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { reconcilePageCount } from './book-pages';
@@ -172,6 +172,7 @@ export function useLayoutLoader({
           weekStart: item.calendar?.weekStart || 'sunday',
           // null when the print carries no holidays (holidaySource off/absent).
           holidayLocale: printedHolidayLocale(item.calendar),
+          calendarShowMonthName: monthHeadingEnabled(item.calendar),
           calendarDefaultYear: item.monthRange?.defaultYear ?? 'current',
         });
       } catch {

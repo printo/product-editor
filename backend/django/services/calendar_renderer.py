@@ -1,7 +1,7 @@
 """
 Server-side calendar grid renderer (CALENDAR_FEATURE_PRD.md §5 Phase 4).
 
-Draws a single month's grid (weekday header + 35/42 date cells) onto a
+Draws a single month's block (month heading, weekday header, 35/42 date cells) onto a
 PIL canvas at 300 DPI. The math here mirrors `frontend/nextjs/src/lib/
 calendar.ts` 1:1 — both sides produce identical (year, month) and
 identical grid topology for any (calendarType, baseYear, monthOffset,
@@ -54,6 +54,9 @@ MONTH_NAMES = [
 WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 MAX_ENTRIES_PER_CELL = 3   # §11.10 — hard cap, no overflow badge
+# Share of a calendar block's height the month heading ("January 2026")
+# takes above the weekday row. Mirrors MONTH_HEADING_FRACTION in calendar.ts.
+MONTH_HEADING_FRACTION = 0.12
 _IST = ZoneInfo("Asia/Kolkata")
 
 # Theme color defaults — used when the layout's calendar.style block omits a role.
@@ -149,27 +152,28 @@ def render_calendar(
     if palette:
         draw.rectangle([0, 0, w_px, h_px], fill=_hex_to_rgba(colors["background"]))
 
-    # ── Layout: header band + grid area ────────────────────────────────
-    # Reserve ~10% of the calendar's height for the weekday header band.
+    # ── Layout: month heading + weekday header band + grid area ────────
+    # The month heading takes the top MONTH_HEADING_FRACTION of the block
+    # (mirrored by MonthTileThumb); the weekday band ~10% of the height.
+    title_h = int(h_px * MONTH_HEADING_FRACTION) if month_heading_enabled(style) else 0
     header_h = max(20, int(h_px * 0.10))
-    grid_top = header_h
-    grid_h = h_px - header_h
+    grid_top = title_h + header_h
+    grid_h = h_px - grid_top
 
     grid = build_month_grid(year, month, week_start)
     rows = len(grid) // 7
     cell_w = w_px / 7.0
     cell_h = grid_h / rows
 
-    # No month-title draw here — the existing layout overlay system is
-    # how ops places month / year labels on calendar layouts. Drawing one
-    # here would double-print. The calendar primitive is grid + cells only.
+    if title_h:
+        _draw_month_heading(draw, month_heading_text(year, month), w_px, title_h, colors["monthText"])
 
     # ── Weekday header row ─────────────────────────────────────────────
     labels = _weekday_labels(week_start)
     header_font_size = max(8, int(header_h * 0.45))
     header_font = get_font(header_font_size, weight=600)
-    # Vertically centre the labels within the header band (band is 0..grid_top).
-    header_cy = header_h // 2
+    # Vertically centre the labels within the header band (title_h..grid_top).
+    header_cy = title_h + header_h // 2
     for col, label in enumerate(labels):
         is_sunday = (
             (week_start == "sunday" and col == 0)
@@ -367,6 +371,41 @@ def _weekday_labels(week_start: str) -> list[str]:
     if week_start == "monday":
         return WEEKDAY_SHORT[1:] + [WEEKDAY_SHORT[0]]
     return list(WEEKDAY_SHORT)
+
+
+def month_heading_enabled(style: Optional[dict]) -> bool:
+    """
+    Whether each calendar block prints its month name above the grid.
+
+    On by default; ops turn it off with `calendar.showMonthName: false`.
+    Also off when the layout opted into the `calendar.monthTitle` overlay,
+    which already prints a month heading on the page. Mirrors
+    `monthHeadingEnabled` in calendar.ts.
+    """
+    if not isinstance(style, dict):
+        return True
+    if style.get("showMonthName") is False:
+        return False
+    title_cfg = style.get("monthTitle")
+    if isinstance(title_cfg, dict) and title_cfg.get("enabled"):
+        return False
+    return True
+
+
+def month_heading_text(year: int, month: int) -> str:
+    """"January 2026" — mirrors `monthHeadingText` in calendar.ts."""
+    return f"{MONTH_NAMES[month - 1]} {year}"
+
+
+def _draw_month_heading(draw: ImageDraw.ImageDraw, text: str, w_px: int, band_h: int, color: str) -> None:
+    """Bold, centred month heading in the band 0..band_h, shrunk to fit 90% of the width."""
+    size = max(8, int(band_h * 0.62))
+    font = get_font(size, weight=700)
+    max_w = w_px * 0.9
+    while size > 8 and draw.textlength(text, font=font) > max_w:
+        size = max(8, int(size * max_w / draw.textlength(text, font=font)) - 1)
+        font = get_font(size, weight=700)
+    draw.text((w_px // 2, band_h // 2), text, font=font, fill=_hex_to_rgba(color), anchor="mm")
 
 
 def _resolve_colors(style: dict, palette: Optional[dict]) -> dict:

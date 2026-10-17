@@ -176,6 +176,7 @@ Shipped in PR #259 on 2026-10-13 (prerequisite PR #258), deployed to prod at `79
 - `resolveBaseYear` / `todayInIST` / `startMonthFor` were made module-private in PR #171 so nothing can show a calendar year without `resolveDefaultYear`.
 - Until 2026-10-12 the customer could only edit the 1st of each month (`CalendarDayPicker` added). The calendar editor's mask picker copied only the file *name* into `maskUrl` and sent JSON, so the PNG never reached the server; the generic editor had always sent `mask_<surface key>`, silently dropped.
 - Calendar frames gained mm fields on 2026-10-13; the fraction "Precise values" fields for frames were removed.
+- **Printed calendars carried no month name (fixed 2026-10-17):** `render_calendar` drew only the weekday row and dates, on the theory that ops would place month labels as overlays — but no UI ever set `calendar.monthTitle`, so every printed page and mock was unlabelled while the customer's tiles said "JAN 2026" around the grid. Each block now prints "January 2026" above its weekday row by default, and the tiles draw it inside the grid as the print does. The grid area shrank by 12% of the block height on every existing calendar layout.
 
 ## Book
 

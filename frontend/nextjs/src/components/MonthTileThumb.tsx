@@ -10,6 +10,8 @@
  * mini-preview of what gets printed.
  *
  * What it shows:
+ *   - Month heading ("January 2026"), bold and centred, unless the layout
+ *     turned it off (`monthHeadingEnabled`) — the print draws the same
  *   - Weekday header (narrow: S M T W T F S)
  *   - Date numbers in a 7×N grid (N = 5 or 6)
  *   - A tiny coloured dot on dates that have entries (user or holiday)
@@ -24,6 +26,7 @@
 
 import {
   buildMonthGrid,
+  monthHeadingText,
   weekdayHeaderLabels,
 } from '@/lib/calendar';
 import type {
@@ -34,6 +37,8 @@ import type {
 
 export interface ThumbColors {
   bg: string;
+  /** Month heading colour; falls back to `dateText`. */
+  monthText?: string;
   dateText: string;
   outOfMonthText: string;
   grid: string;
@@ -56,6 +61,8 @@ export interface MonthTileThumbProps {
   dotCycle: readonly string[];
   /** Optional aria-label override (defaults to "January 2026 preview"). */
   ariaLabel?: string;
+  /** Print the month name above the grid, as the print does. Default true. */
+  showMonthName?: boolean;
 }
 
 // ─── Dot lookup per date ────────────────────────────────────────────────────
@@ -106,6 +113,7 @@ export function MonthTileThumb({
   colors,
   dotCycle,
   ariaLabel,
+  showMonthName = true,
 }: MonthTileThumbProps) {
   const grid = buildMonthGrid(year, month, weekStart);
   const weekdayLabels = weekdayHeaderLabels(weekStart, 'narrow');
@@ -123,10 +131,21 @@ export function MonthTileThumb({
       style={{ background: colors.bg }}
       data-testid="month-tile-thumb"
     >
+      {showMonthName && (
+        <div
+          className="text-center font-bold leading-none truncate px-1 pt-1.5 pb-0.5"
+          style={{ fontSize: '9px', color: colors.monthText ?? colors.dateText }}
+          data-testid="month-heading"
+        >
+          {monthHeadingText(year, month)}
+        </div>
+      )}
+
       {/* Weekday header row */}
       <div
         className="grid grid-cols-7 gap-0 px-1 pt-1 pb-0.5"
         style={{ borderBottom: `0.5px solid ${colors.grid}` }}
+        data-testid="weekday-header"
       >
         {weekdayLabels.map((label, col) => {
           const isSun =
@@ -148,7 +167,7 @@ export function MonthTileThumb({
       </div>
 
       {/* Date cells — 5 or 6 rows depending on month layout */}
-      <div className="grid grid-cols-7 gap-0 px-1 pb-1">
+      <div className="grid grid-cols-7 gap-0 px-1 pb-1" data-testid="date-cells">
         {grid.map((gc, i) => {
           const iso = gc.iso;
           const dotInfo = gc.inMonth

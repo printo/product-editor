@@ -303,6 +303,21 @@ describe('CalendarLayoutEditor — style controls', () => {
     expect((json.calendar as Record<string, unknown>).weekStart).toBe('monday');
   });
 
+  it('prints the month name by default and lets ops switch it off', async () => {
+    const { onSave } = setup();
+    await goToStep(3);
+    const toggle = screen.getByTestId('style-show-month-name') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(within(screen.getByRole('img', { name: /^Preview of January \d{4}$/ })).getByTestId('month-heading')).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(within(screen.getByRole('img', { name: /^Preview of January \d{4}$/ })).queryByTestId('month-heading')).toBeNull();
+    await goToStep(4);
+    await userEvent.click(screen.getByTestId('save-btn'));
+    const json = onSave.mock.calls[0][0];
+    expect((json.calendar as Record<string, unknown>).showMonthName).toBe(false);
+  });
+
   it('switches theme to Gen-Z and reveals palette picker', async () => {
     setup();
     await goToStep(3);

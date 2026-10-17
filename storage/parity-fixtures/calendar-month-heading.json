@@ -1,0 +1,22 @@
+{
+  "_meta": {
+    "purpose": "Shared ground truth for whether a calendar block shows its month name ('January 2026') above the grid, and what it says. The print decides with month_heading_enabled / month_heading_text in backend/django/services/calendar_renderer.py; the customer preview (MonthTileThumb) with monthHeadingEnabled / monthHeadingText in frontend/nextjs/src/lib/calendar.ts. On unless ops set calendar.showMonthName to false, or the layout uses the calendar.monthTitle overlay (which already prints a heading). 'calendar' is the layout's calendar block; null means the layout has none.",
+    "loaded_by": {
+      "python": "backend/django/services/tests/test_calendar_month_heading.py",
+      "typescript": "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts"
+    }
+  },
+  "cases": [
+    { "name": "no calendar block", "calendar": null, "expected": true },
+    { "name": "block without the setting", "calendar": { "themePreset": "modern-minimalist" }, "expected": true },
+    { "name": "explicitly on", "calendar": { "showMonthName": true }, "expected": true },
+    { "name": "ops switched it off", "calendar": { "showMonthName": false }, "expected": false },
+    { "name": "monthTitle overlay already prints one", "calendar": { "monthTitle": { "enabled": true } }, "expected": false },
+    { "name": "monthTitle present but disabled", "calendar": { "monthTitle": { "enabled": false } }, "expected": true }
+  ],
+  "labels": [
+    { "year": 2026, "month": 1, "text": "January 2026" },
+    { "year": 2027, "month": 3, "text": "March 2027" },
+    { "year": 2026, "month": 12, "text": "December 2026" }
+  ]
+}

@@ -15,6 +15,8 @@ import path from 'node:path';
 import {
   buildMonthGrid,
   displayLabelFor,
+  monthHeadingEnabled,
+  monthHeadingText,
   printedHolidayLocale,
   resolveDefaultYear,
   resolveSurfaceMonth,
@@ -194,5 +196,24 @@ describe('printedHolidayLocale (TS) vs the holidaySource gate in services/calend
 
   it('treats an undefined calendar block like a missing one', () => {
     expect(printedHolidayLocale(undefined)).toBeNull();
+  });
+});
+
+// ── Month heading ("January 2026" above the grid) ─────────────────────────
+
+const monthHeading = JSON.parse(
+  fs.readFileSync(path.resolve(path.dirname(FIXTURES_PATH), 'calendar-month-heading.json'), 'utf-8'),
+) as {
+  cases: { name: string; calendar: unknown; expected: boolean }[];
+  labels: { year: number; month: number; text: string }[];
+};
+
+describe('monthHeadingEnabled / monthHeadingText (TS) vs services/calendar_renderer.py', () => {
+  it.each(monthHeading.cases.map(c => [c.name, c] as const))('%s', (_name, c) => {
+    expect(monthHeadingEnabled(c.calendar)).toBe(c.expected);
+  });
+
+  it.each(monthHeading.labels.map(l => [l.text, l] as const))('labels %s', (_text, l) => {
+    expect(monthHeadingText(l.year, l.month)).toBe(l.text);
   });
 });

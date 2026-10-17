@@ -20,7 +20,7 @@ export function CalendarSection({
   handleCellImageFileSelected, visibleCalendarMonths, selectCalendarDate,
 }: {
   isCalendarProduct: boolean;
-  layout: { weekStart?: unknown; calendarDefaultYear?: PreviewProps['defaultYear'] } | null;
+  layout: { weekStart?: unknown; calendarDefaultYear?: PreviewProps['defaultYear']; calendarShowMonthName?: boolean } | null;
   calendarTheme: CalendarTheme;
   setCalendarTheme: Dispatch<SetStateAction<CalendarTheme>>;
   genzPalette: string | undefined;
@@ -61,6 +61,7 @@ export function CalendarSection({
             holidays={printedHolidays}
             weekStart={layout?.weekStart === 'monday' ? 'monday' : 'sunday'}
             defaultYear={layout?.calendarDefaultYear ?? 'current'}
+            showMonthName={layout?.calendarShowMonthName ?? true}
           />
           {selectedCalendarCell && (
             <div className="fixed inset-y-0 right-0 z-[50000] flex">

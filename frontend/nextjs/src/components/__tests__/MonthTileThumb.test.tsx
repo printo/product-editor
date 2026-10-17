@@ -32,24 +32,17 @@ const DOT_CYCLE = ['#F59E0B', '#EC4899', '#3B82F6'];
 describe('MonthTileThumb — grid structure', () => {
   it('renders 7 weekday-header letters', () => {
     render(<MonthTileThumb year={2026} month={1} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} />);
-    const thumb = screen.getByTestId('month-tile-thumb');
-    // 7 weekday header spans live in the first child div.
-    expect(thumb.firstElementChild?.children).toHaveLength(7);
+    expect(screen.getByTestId('weekday-header').children).toHaveLength(7);
   });
 
   it('renders 35 cells for Jan 2026 (5-row month)', () => {
     render(<MonthTileThumb year={2026} month={1} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} />);
-    const thumb = screen.getByTestId('month-tile-thumb');
-    // The cells div is the second child of the thumb root.
-    const cellsContainer = thumb.children[1];
-    expect(cellsContainer.children).toHaveLength(35);
+    expect(screen.getByTestId('date-cells').children).toHaveLength(35);
   });
 
   it('renders 42 cells for May 2026 (6-row month)', () => {
     render(<MonthTileThumb year={2026} month={5} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} />);
-    const thumb = screen.getByTestId('month-tile-thumb');
-    const cellsContainer = thumb.children[1];
-    expect(cellsContainer.children).toHaveLength(42);
+    expect(screen.getByTestId('date-cells').children).toHaveLength(42);
   });
 
   it('renders Feb 2024 with 29 in-month days (leap year)', () => {
@@ -144,5 +137,31 @@ describe('MonthTileThumb — weekday-highlight theme', () => {
       (d.getAttribute('style') ?? '').toLowerCase().includes('#fee2e2')
     );
     expect(sundayCells.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('MonthTileThumb — month heading (the print draws the same; calendar_renderer.py)', () => {
+  it('shows the month name and year above the grid by default', () => {
+    render(<MonthTileThumb year={2026} month={1} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} />);
+    const heading = screen.getByTestId('month-heading');
+    expect(heading).toHaveTextContent('January 2026');
+    expect(heading.className).toMatch(/\bfont-bold\b/);
+    expect(heading.className).toMatch(/\btext-center\b/);
+    expect(screen.getByTestId('month-tile-thumb').firstElementChild).toBe(heading);
+  });
+
+  it('uses the theme month colour, falling back to the date colour', () => {
+    const { unmount } = render(
+      <MonthTileThumb year={2026} month={3} weekStart="sunday" colors={{ ...COLORS, monthText: '#AB12CD' }} dotCycle={DOT_CYCLE} />,
+    );
+    expect(screen.getByTestId('month-heading').getAttribute('style')?.toLowerCase()).toContain('#ab12cd');
+    unmount();
+    render(<MonthTileThumb year={2026} month={3} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} />);
+    expect(screen.getByTestId('month-heading').getAttribute('style')?.toLowerCase()).toContain('#18181b');
+  });
+
+  it('leaves it out when the layout turned it off', () => {
+    render(<MonthTileThumb year={2026} month={1} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} showMonthName={false} />);
+    expect(screen.queryByTestId('month-heading')).toBeNull();
   });
 });
