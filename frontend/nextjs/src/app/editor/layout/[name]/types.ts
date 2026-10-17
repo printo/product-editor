@@ -25,9 +25,13 @@ export interface FrameState {
 
 export interface TextOverlay {
   id: string | number;
-  /** Set on an overlay copied from a layout template (template.ts); the
-   *  customer's own overlays never carry it. */
+  /** Set on an overlay copied from a layout template (layout-template.ts);
+   *  the customer's own overlays never carry it. */
   templateId?: string;
+  /** Set once the customer changed a template overlay in the canvas editor:
+   *  still template decoration (a re-apply replaces it), but now also their
+   *  work, so the re-pick confirm protects it. */
+  templateEdited?: boolean;
   text: string;
   x: number;      // percentage 0–100 from left
   y: number;      // percentage 0–100 from top
@@ -45,6 +49,7 @@ export interface TextOverlay {
 export interface ShapeOverlay {
   id: string | number;
   templateId?: string;
+  templateEdited?: boolean;
   shapeType: string;
   svgPath?: string;
   x: number;
@@ -61,6 +66,7 @@ export interface ShapeOverlay {
 export interface ImageOverlay {
   id: string | number;
   templateId?: string;
+  templateEdited?: boolean;
   src: string;
   originalFile?: File;
   /** UUID for IndexedDB blob recovery (only set for `source === 'local'`). */

@@ -11,7 +11,7 @@ const DEF: SurfaceDefinition = {
   key: 'default', label: 'Front', canvas: { width: 1800, height: 1200 }, maskUrl: null, maskOnExport: false,
   frames: [{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, { x: 0, y: 0, width: 0.2, height: 0.2 }] as SurfaceDefinition['frames'],
 };
-const TEXT: Overlay = { type: 'text', id: 't1', templateId: 'old', text: 'Hi', x: 50, y: 10, fontSize: 60, color: '#000000', fontFamily: 'Inter', textAlign: 'center', rotation: 0 };
+const TEXT: Overlay = { type: 'text', id: 't1', templateId: 'old', templateEdited: true, text: 'Hi', x: 50, y: 10, fontSize: 60, color: '#000000', fontFamily: 'Inter', textAlign: 'center', rotation: 0 };
 const photo = new File(['x'], 'sample.jpg', { type: 'image/jpeg' });
 
 describe('ids', () => {
@@ -50,6 +50,7 @@ describe('decorationFromCards', () => {
     expect(side.paperColor).toBeUndefined();
     expect(side.overlays.map(o => o.type)).toEqual(['text', 'image', 'image']);
     expect('templateId' in side.overlays[0]).toBe(false);
+    expect('templateEdited' in side.overlays[0]).toBe(false);
     expect(side.overlays[1]).toMatchObject({ source: 'clipart', src: '/api/templates/assets/sticker_abc.png' });
     expect('originalFile' in side.overlays[1]).toBe(false);
     expect('fileId' in side.overlays[1]).toBe(false);
