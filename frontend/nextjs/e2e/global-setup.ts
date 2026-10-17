@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { e2eEnv } from './support/env';
-import { listLayouts, workerCount } from './support/api';
+import { hideLeftoverTemplates, listLayouts, workerCount } from './support/api';
 
 export default async function globalSetup() {
   const env = e2eEnv();
@@ -16,12 +16,19 @@ export default async function globalSetup() {
     throw new Error(`Backend not reachable at ${env.apiUrl}/health — start the local stack (docker-compose up -d db redis backend).`);
   }
   const layouts = await listLayouts();
-  const plain = layouts.filter((l) => !l.productType || !['calendar', 'book'].includes(l.productType)).map((l) => l.name).sort();
-  process.env.E2E_LAYOUT = process.env.E2E_LAYOUT ?? plain[0];
+  const plain = layouts.filter((l) => !l.productType || !['calendar', 'book'].includes(l.productType))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  // Prefer a layout ops have put no templates on: a published template opens
+  // its picker over every fresh dashboard design, which the other specs don't
+  // expect. templates.spec.ts adds (and hides) its own template on this layout.
+  const untemplated = plain.find((l) => !l.templateCount);
+  process.env.E2E_LAYOUT = process.env.E2E_LAYOUT ?? (untemplated ?? plain[0])?.name;
   if (!process.env.E2E_LAYOUT) throw new Error('No non-calendar layout in the local catalogue to test against.');
   process.env.E2E_CALENDAR_LAYOUT = process.env.E2E_CALENDAR_LAYOUT
     ?? layouts.find((l) => l.productType === 'calendar')?.name ?? '';
   process.env.E2E_WORKERS = String(await workerCount());
+  // A published leftover would open the template picker on every fresh design.
+  await hideLeftoverTemplates();
   process.env.E2E_ORDERS_FILE = path.join(os.tmpdir(), `pe-e2e-orders-${Date.now()}.txt`);
   fs.writeFileSync(process.env.E2E_ORDERS_FILE, '');
   console.log(`[e2e] layout=${process.env.E2E_LAYOUT} calendar=${process.env.E2E_CALENDAR_LAYOUT || '(none)'} celery workers=${process.env.E2E_WORKERS}`);

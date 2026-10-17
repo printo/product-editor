@@ -209,6 +209,7 @@ Copy `.env.example` → `.env` and fill the required secrets (`DJANGO_SECRET_KEY
 API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-embed.sh       # embed flow end-to-end
 API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-calendar.sh    # calendar/ops surface
 API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-book.sh
+API_KEY=<key> [BASE=<url>] ./scripts/smoke-test-templates.sh  # + ENABLE_OPS_WRITE=1 [SMOKE_RENDER=1]
 ./scripts/test-backup-restore.sh                               # restore into a throwaway DB + assert row counts
 ```
 Smoke tests default to `BASE=http://localhost:5004`; for the nginx edge use `BASE=https://localhost` with `-k`. Rebuild the frontend image before testing frontend-side changes. The scripts print their own pass/fail totals — read those. The shared colour/print helpers are `scripts/lib/print.sh` (deploy, reset-db) and `scripts/lib/smoke.sh` (the smoke tests).
@@ -604,11 +605,12 @@ Use comments sparingly; only for complex or non-obvious logic.
 
 A **template** is ops-authored decoration (background and paper colour, text, stickers) for one generic layout; the customer picks it, adds photos, every card gets the decoration. Not for calendars and books.
 
-- **The decoration lives on the customer's cards, not in the render path.** `layout-template.ts` is the one place a template is copied onto a card (`seedCard`, `applyTemplateToCards`); every copied overlay carries `templateId`, which keeps template decoration out of the re-pick confirm (`canvasHasRealEdits`) and tells a re-apply what to replace. A **sticker is an image overlay with `source: 'clipart'`** and an absolute `/api/templates/assets/<file>` src, rasterised at submit like an icon (`lib/icon-raster.ts`).
+- **The decoration lives on the customer's cards, not in the render path.** `layout-template.ts` is the one place a template is copied onto a card (`seedCard`, `applyTemplateToCards`); every copied overlay carries `templateId`, which keeps template decoration out of the re-pick confirm (`canvasHasRealEdits`) and tells a re-apply what to replace. When the customer changes one in the canvas editor, Save marks it `templateEdited` (`markEditedTemplateOverlays`, matched by overlay id against the card as the editor opened it): the re-pick confirm then protects it, and a re-apply still replaces it, as its confirm says. A **sticker is an image overlay with `source: 'clipart'`** and an absolute `/api/templates/assets/<file>` src, rasterised at submit like an icon (`lib/icon-raster.ts`).
 - **A template never holds a customer file**: `services/template_decoration.py::validate_decoration` refuses `source: 'local'` and any `fileId`, checks percent coordinates, hex colours, https or ops-sticker `src`.
 - `?template=<id>` and `?template_flow=1` ride the editor address; `/editor/init?template=` returns the template with the layout (a 404/400 retries without it and shows a notice). `POST /api/embed/session` validates `template_id` and answers with `editor_url`; the session stores nothing new. **A restored design wins** over the address. **The picker opens first on a fresh design**: always on the dashboard, in the embed only with `template_flow=1`; "Start blank" is its close control. A pick before the first photo is autosaved (`activeTemplateId` trigger) and restored outside the cards guard.
 - Server: `api/views/templates.py`; `templateCount` on `GET /api/layouts` and the ops list is read per request, not cached. Ops pages under `/editor/layouts/templates/<layout>[/<id|new>]` (Ops tier). **"This card only / all cards" is not a per-edit prompt, by decision (2026-10-13)**: the picker's "Apply to all cards" is the only whole-design action; don't reopen without a new product ask.
-- Open: no Playwright or smoke coverage; no end-to-end render of a sticker design has been run.
+- Covered by `scripts/smoke-test-templates.sh` (read-only by default; `ENABLE_OPS_WRITE=1` creates, publishes and hides a template; with `SMOKE_RENDER=1` it also renders a sticker design and finds the sticker's colour at its place in the print PNG) and `e2e/templates.spec.ts` (dashboard badge and picker-first, embed `template_flow`, embed `template_id` through a real render with the same print check). Not in `deploy.sh`'s default smoke list.
+- Open: in a 1,300 px-wide embed iframe the toolbar, with its Templates button, runs past the right edge and cuts Save & Continue in half (the e2e storefront tests click its left edge).
 
 ## Calendar product type
 
@@ -768,7 +770,7 @@ The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0**. Printo.in's s
 |---|---|
 | **Flip CSP to enforcing.** Report-only since April. Check Sentry for `CSP violation` events over the last couple of weeks; if the only sources are the already-allowed ones (Google Fonts, Cloudflare beacon), set `CSP_REPORT_ONLY=False` in prod `.env` and `./deploy.sh` (the frontend must rebuild). Roll back by flipping it back and deploying again. | Kanna |
 | Rate limiter → Redis if the frontend container is ever scaled horizontally (`actions/auth.ts` is in-memory). | Kanna / DevOps |
-| Templates: Playwright and smoke coverage; one end-to-end render of a sticker design. | Kanna |
+| Templates: the embed toolbar overflows a 1,300 px iframe once the Templates button shows, half-hiding Save & Continue. | Kanna |
 | Book spine convention: confirm per-leaf vs per-side thickness against a printed sample. | Catalog Ops |
 | Big files: `editor/layouts/page.tsx` (~1,930 lines, one component) and `components/CalendarLayoutEditor.tsx` (~1,920) are now the largest files in the repo; `engine.py` and `tasks.py` are both over 1,400 and `garbage_collector_task` alone is ~380 lines of sequential sweeps. Split with a characterization test first, as the editor page was. | Kanna |
 | Cloudflare Origin Certificate on prod (`proxy/nginx/certs/`) and SSL mode **Full (strict)**; `deploy.sh` otherwise bootstraps a self-signed cert that needs "Full". | Kanna |
