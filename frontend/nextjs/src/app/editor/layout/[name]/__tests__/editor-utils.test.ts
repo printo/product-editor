@@ -66,6 +66,20 @@ describe('resolveRotation', () => {
     expect(resolveRotation('no-rotate', ...PORTRAIT_PHOTO, ...RETRO_POLAROID)).toBe(0);
     expect(resolveRotation('use-heuristic', ...LANDSCAPE_PHOTO, ...RETRO_POLAROID)).toBe(0);
   });
+
+  // Desk calendar 5x7 photo window: 0.9 x 0.42 of a 1500x2100 page (ratio 1.53).
+  const CALENDAR_WINDOW = [1350, 882] as const;
+
+  it('keeps an upright portrait upright in a calendar window instead of laying it sideways', () => {
+    expect(resolveRotation(pose(0), ...PORTRAIT_PHOTO, ...CALENDAR_WINDOW, { fillByRotating: false })).toBe(0);
+    expect(resolveRotation('no-rotate', ...PORTRAIT_PHOTO, ...CALENDAR_WINDOW, { fillByRotating: false })).toBe(0);
+    // Without the option the same photo is turned to fill (every other product).
+    expect(resolveRotation(pose(0), ...PORTRAIT_PHOTO, ...CALENDAR_WINDOW)).toBe(90);
+  });
+
+  it('still lets the pose model straighten a sideways photo when fill-rotation is off', () => {
+    expect(resolveRotation(pose(270), ...LANDSCAPE_PHOTO, ...CALENDAR_WINDOW, { fillByRotating: false })).toBe(270);
+  });
 });
 
 describe('formatWait', () => {
