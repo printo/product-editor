@@ -83,14 +83,20 @@ export function shouldAutoRotate90(
  *
  *  3. ML disabled / declined / errored → leave the photo as-is.
  *
+ * `fillByRotating: false` skips step 1, so the photo is treated as if the
+ * frame were near-square: calendars pass it (2026-10-17), because an upright
+ * portrait of people laid on its side to fill a landscape month photo reads
+ * as a mistake on a wall calendar. Fit + Blur Effect fill the sides instead.
+ *
  * The customer can always override with the per-canvas manual rotate.
  */
 export function resolveRotation(
   outcome: OrientationOutcome,
   imgW: number, imgH: number, frameW: number, frameH: number,
+  { fillByRotating = true }: { fillByRotating?: boolean } = {},
 ): number {
   // 1. FILL priority — rotate to best fill a clearly portrait/landscape frame.
-  if (shouldAutoRotate90(imgW, imgH, frameW, frameH)) return 90;
+  if (fillByRotating && shouldAutoRotate90(imgW, imgH, frameW, frameH)) return 90;
   // 2. Aspect-neutral / near-square frame — let the ML correct genuine
   //    sideways content (Retro polaroid case).
   if (typeof outcome === 'object') return outcome.rotation;

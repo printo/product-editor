@@ -149,6 +149,7 @@ export function useCanvasGeneration({
               : resolveRotation(
                   await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined),
                   imgW, imgH, frameW, frameH,
+                  { fillByRotating: layoutDef.productType !== 'calendar' },
                 );
 
             let offset = { x: 0, y: 0 };
@@ -264,6 +265,7 @@ export function useCanvasGeneration({
                     : resolveRotation(
                         await detectFileOrientation(apiBase, file, imgEl, getAuthHeaders ? getAuthHeaders() : undefined),
                         imgW, imgH, frameW, frameH,
+                        { fillByRotating: !isCalendarProduct },
                       );
 
                   let offset = { x: 0, y: 0 };
