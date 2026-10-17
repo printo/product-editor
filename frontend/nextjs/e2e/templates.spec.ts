@@ -101,6 +101,24 @@ test.describe('layout templates', () => {
     await expect(picker(page)).toHaveCount(0);
   });
 
+  test('the embed toolbar, with its Templates button, fits from 768 to 1300 px', async ({ page }) => {
+    const session = await createEmbedSession({ templateId: TEMPLATE_ID });
+    await page.goto(session.editorUrl!);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await expect(cards(page)).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Templates' })).toBeVisible();
+    // 1300 is the storefront iframe in embed.spec; it once cut Save & Continue in half.
+    for (const width of [1300, 1100, 1024, 900, 768]) {
+      await page.setViewportSize({ width, height: 900 });
+      const fit = await page.evaluate(() => {
+        const save = document.querySelector('button[aria-label="Save and continue"]')!.getBoundingClientRect();
+        return { saveRight: Math.round(save.right), innerWidth: window.innerWidth, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      });
+      expect(fit.saveRight, `Save & Continue at ${width} px`).toBeLessThanOrEqual(fit.innerWidth);
+      expect(fit.overflow, `sideways scroll at ${width} px`).toBeLessThanOrEqual(0);
+    }
+  });
+
   test('embed: template_id opens on the template, and the print file carries the sticker', async ({ page }) => {
     test.skip(process.env.E2E_WORKERS === '0', 'No Celery worker is running, so a render cannot complete (see e2e/README.md).');
     const stopParent = await startParentServer(Number(new URL(PARENT_ORIGIN).port));
@@ -115,9 +133,7 @@ test.describe('layout templates', () => {
       await addPhotos(frame, [PHOTOS.portrait]);
       await expect(cards(frame)).toHaveCount(1);
 
-      // Near its left edge: in a 1300 px iframe the toolbar, with its Templates
-      // button, runs past the frame's right edge and cuts this button in half.
-      await frame.getByRole('button', { name: 'Save and continue' }).click({ position: { x: 8, y: 8 } });
+      await frame.getByRole('button', { name: 'Save and continue' }).click();
       const confirm = frame.getByRole('dialog', { name: 'Ready to Submit?' });
       await confirm.getByRole('checkbox').check();
       const renderResponse = page.waitForResponse(
