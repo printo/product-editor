@@ -221,6 +221,74 @@ def qty_summary(
     }
 
 
+def calendar_page_count(layout: Optional[Mapping[str, Any]]) -> int:
+    """
+    Printed pages of a calendar layout: `monthRange.count` (12 for one month a
+    page, 1 for the whole-year poster, whatever a future 6- or 8-page layout
+    declares). Anything unreadable means the classic 12. Mirrors
+    `calendarPageCount` in `src/lib/calendar.ts`.
+    """
+    month_range = layout.get('monthRange') if isinstance(layout, Mapping) else None
+    count = month_range.get('count') if isinstance(month_range, Mapping) else None
+    if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+        return count
+    return 12
+
+
+def calendar_photo_slots(layout: Optional[Mapping[str, Any]]) -> Optional[int]:
+    """
+    Photos a calendar needs for every page to have its own: pages × photo
+    windows per page. `None` for anything that is not a calendar.
+
+    This is the calendar's stand-in for `qty`: the session's `qty` counts
+    calendars bought, which says nothing about photos, so the editor's
+    "X of Y photos" banner, repeat picker and pre-submit notice — and the
+    webhook's `qty_summary` — measure against this instead. Mirrors
+    `calendarPhotoSlots` in `src/lib/calendar.ts`; both are pinned by
+    storage/parity-fixtures/calendar-photo-slots.json.
+    """
+    if not isinstance(layout, Mapping):
+        return None
+    if str(layout.get('productType') or '').strip().lower() != 'calendar':
+        return None
+    frames = layout.get('frames')
+    per_page = len(frames) if isinstance(frames, list) and frames else 1
+    return calendar_page_count(layout) * per_page
+
+
+def calendar_qty_summary(
+    placed: int,
+    layout: Optional[Mapping[str, Any]],
+    acknowledged: Any,
+) -> Optional[dict]:
+    """
+    `qty_summary` for a calendar, measured against `calendar_photo_slots`
+    rather than the session's `qty`. Same shape and acknowledgement rule as
+    `qty_summary`, so a caller reads every product the same way; `None` for
+    anything that is not a calendar. Pages without their own photo repeat the
+    customer's photos in order, so the wording says so.
+    """
+    needed = calendar_photo_slots(layout)
+    if not needed:
+        return None
+    shortfall = max(needed - placed, 0)
+    acked = shortfall > 0 and acknowledged is True
+    if shortfall == 0:
+        text = f'Customer added photos for all {needed} calendar pages.'
+    else:
+        lead = 'Customer agreed to proceed with' if acked else 'Customer submitted'
+        tail = '' if acked else ' (acknowledgement not received)'
+        text = (f'{lead} {placed} photo{"" if placed == 1 else "s"} for the {needed} '
+                f'calendar pages; the other {shortfall} repeat those photos{tail}.')
+    return {
+        'ordered_qty': needed,
+        'placed_photos': placed,
+        'shortfall': shortfall,
+        'customer_acknowledged_shortfall': acked,
+        'summary': text,
+    }
+
+
 def _qty_summary_text(placed: int, ordered: int, shortfall: int, acked: bool) -> str:
     """One human-readable line for printo.in's production reference."""
     if shortfall == 0:

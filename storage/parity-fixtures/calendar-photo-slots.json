@@ -1,0 +1,20 @@
+{
+  "_meta": {
+    "purpose": "Shared ground truth for how many photos a calendar layout needs for every printed page to have its own: pages (monthRange.count, 12 when unreadable) x photo windows per page (frames, at least 1); null for anything that is not a calendar. The editor's 'X of Y photos' banner, repeat picker and pre-submit notice use it (calendarPhotoSlots in frontend/nextjs/src/lib/calendar.ts); the webhook's qty_summary uses it (calendar_photo_slots in backend/django/services/order_qty.py).",
+    "loaded_by": {
+      "python": "backend/django/services/tests/test_order_qty.py",
+      "typescript": "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts"
+    }
+  },
+  "cases": [
+    { "name": "one month a page, one photo", "layout": { "productType": "calendar", "monthRange": { "count": 12 }, "frames": [{}] }, "pages": 12, "slots": 12 },
+    { "name": "whole-year poster", "layout": { "productType": "calendar", "monthRange": { "count": 1 }, "frames": [{}] }, "pages": 1, "slots": 1 },
+    { "name": "six pages of two months", "layout": { "productType": "calendar", "monthRange": { "count": 6 }, "frames": [{}] }, "pages": 6, "slots": 6 },
+    { "name": "two photo windows a page", "layout": { "productType": "calendar", "monthRange": { "count": 12 }, "frames": [{}, {}] }, "pages": 12, "slots": 24 },
+    { "name": "no monthRange means the classic 12", "layout": { "productType": "calendar", "frames": [{}] }, "pages": 12, "slots": 12 },
+    { "name": "no frames still needs one photo a page", "layout": { "productType": "calendar", "monthRange": { "count": 12 } }, "pages": 12, "slots": 12 },
+    { "name": "a nonsense count means the classic 12", "layout": { "productType": "calendar", "monthRange": { "count": 0 }, "frames": [{}] }, "pages": 12, "slots": 12 },
+    { "name": "not a calendar", "layout": { "productType": "book", "frames": [{}] }, "pages": 12, "slots": null },
+    { "name": "no layout", "layout": null, "pages": 12, "slots": null }
+  ]
+}

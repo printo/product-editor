@@ -345,6 +345,11 @@ export default function LayoutEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askTemplateFirst, templatesLoaded, restoreSettled]);
 
+  // The photo count the "X of Y photos" banner, repeat picker and pre-submit
+  // notice measure against: the order quantity, or for a calendar its own
+  // pages × photo windows (the session's qty counts calendars bought).
+  const photoQty: number | null = isCalendarProduct ? (layout?.calendarPhotoSlots ?? null) : orderQty;
+
   const {
     openEditor, closeEditor, handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur,
     handlePanStart, handlePanMove, handlePanEnd, handleCardClick, handleQuickDelete, confirmDelete,
@@ -352,7 +357,7 @@ export default function LayoutEditorPage() {
   } = useCardActions({
     layout, files, setFiles, canvases, setCanvases, surfaceStates, setSurfaceStates, activeSurfaceKey, setActiveSurfaceKey,
     normalizedLayoutState, activeCanvasIdx, setActiveCanvasIdx, setEditingCanvas, renderCanvas, generateCanvasesForLayout,
-    repositionMode, swapSource, setSwapSource, deleteConfirm, setDeleteConfirm, orderQty, setQtyUnder,
+    repositionMode, swapSource, setSwapSource, deleteConfirm, setDeleteConfirm, orderQty: photoQty, setQtyUnder,
     dragOverIdx, setDragOverIdx, isProcessing, heicConverting, setHeicConverting, expandPdfPages, serverHeicConvert,
     setUnsupportedWarning,
   });
@@ -365,7 +370,7 @@ export default function LayoutEditorPage() {
   } = useFileIntake({
     layout, files, setFiles, setCanvases, canvasesRef, surfaceStates, setSurfaceStates, surfaceStatesRef, activeSurfaceKey,
     normalizedLayoutState, isCalendarProduct, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPages, setBookHiddenPages,
-    bookHiddenPagesRef, bookOverflowDecidedRef, pendingBookOverflow, setPendingBookOverflow, orderQty, qtyUnder, setQtyUnder,
+    bookHiddenPagesRef, bookOverflowDecidedRef, pendingBookOverflow, setPendingBookOverflow, orderQty: photoQty, qtyUnder, setQtyUnder,
     intentionalDupesRef, uploadInputRef, createdObjectURLs, fileUrlCache, generateCanvasesForLayout, skipNextGenerateRef,
     expandPdfPages, serverHeicConvert, setHeicConverting, setIsProcessing, setError, setColorWarning, setUploadWarning,
     setUnsupportedWarning, templateRef: activeTemplateRef,
@@ -414,7 +419,7 @@ export default function LayoutEditorPage() {
   // banner state, which the customer can dismiss. 0 disables the notice: no qty
   // from the session or URL, or a multi-surface product — the same gate as
   // checkOrderQty.
-  const qtyNeeded = orderQty !== null && surfaceStates.length <= 1 ? orderQty : 0;
+  const qtyNeeded = photoQty !== null && surfaceStates.length <= 1 ? photoQty : 0;
 
   const {
     serverRenderLabel, includeUploads, setIncludeUploads, includeUploadsRef, disclaimerChecked, setDisclaimerChecked,
@@ -520,8 +525,8 @@ export default function LayoutEditorPage() {
       />
 
       {/* ── Over-upload confirm modal ───────────────────────────────────────── */}
-      {pendingOverFiles && orderQty && (
-        <OverQuantityDialog orderQty={orderQty} selectedCount={pendingOverFiles.length} onDecide={handleOverConfirm} />
+      {pendingOverFiles && photoQty && (
+        <OverQuantityDialog orderQty={photoQty} selectedCount={pendingOverFiles.length} onDecide={handleOverConfirm} />
       )}
 
       {pendingTruncated && (

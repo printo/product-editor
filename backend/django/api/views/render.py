@@ -11,7 +11,7 @@ from django.core.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse, inline_serializer
 from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
-from services.order_qty import count_placed_photos, qty_summary, qty_violation
+from services.order_qty import calendar_qty_summary, count_placed_photos, qty_summary, qty_violation
 from ..permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts
 from ..authentication import APIKeyUser
 from ..validators import validate_image_files
@@ -616,10 +616,15 @@ class EditorRenderView(APIView):
             .values_list('qty', flat=True)
             .first()
         )
-        order_qty_summary = None
-        if order_qty is not None:
-            placed = count_placed_photos(canvases_payload)
-            layout_def = _read_layout_def(layout_name)
+        # Calendars measure against their own photo count (pages × photo
+        # windows), not the session's qty — which counts calendars bought —
+        # so the webhook carries the same qty_summary shape for them too.
+        placed = count_placed_photos(canvases_payload)
+        layout_def = _read_layout_def(layout_name)
+        order_qty_summary = calendar_qty_summary(
+            placed, layout_def, request.data.get('qty_shortfall_acknowledged'),
+        )
+        if order_qty is not None and order_qty_summary is None:
             over = qty_violation(placed, order_qty, layout_def)
             if over:
                 logger.warning(

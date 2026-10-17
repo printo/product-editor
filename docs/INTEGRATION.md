@@ -57,8 +57,18 @@ This handler is what completes step 3.
 ```
 
 **`qty_summary` — what the customer actually sent for print.** Present when the
-embed session was created with `qty` on a single-surface product; **`null`**
-otherwise (no qty sent, two-sided products, calendars, books), so guard for null.
+embed session was created with `qty` on a single-surface product, and on **every
+calendar** order; **`null`** otherwise (no qty sent, two-sided products, books),
+so guard for null.
+
+**Calendars are measured against their own pages, not your `qty`.** For a
+calendar, `qty` is how many calendars were bought and says nothing about photos,
+so `ordered_qty` is the number of photos the calendar layout needs for every page
+to have its own (12 for a month-a-page calendar, 1 for a one-page year poster,
+whatever a future layout declares). Pages without their own photo repeat the
+customer's photos in order. The `summary` line reads *"Customer added photos for
+all 12 calendar pages."* or *"Customer agreed to proceed with 4 photos for the 12
+calendar pages; the other 8 repeat those photos."*
 
 | Field | Meaning |
 |---|---|
