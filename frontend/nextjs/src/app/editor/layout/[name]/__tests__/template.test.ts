@@ -5,11 +5,12 @@
  * overlay carries the template tag, a fresh id and an absolute sticker
  * address; applying a template to existing cards replaces only template
  * overlays and keeps photos and the customer's own work; template
- * decoration never counts as an edit the re-pick confirm must protect.
+ * decoration never counts as an edit the re-pick confirm must protect,
+ * until the customer changes it in the canvas editor.
  */
 import {
   applyTemplateToCard, applyTemplateToCards, customerDecoration, isLayoutTemplate, isTemplateOverlay,
-  seedCard, templateColours, templateOverlays, templateSide, toSavedTemplate, type LayoutTemplate,
+  markEditedTemplateOverlays, seedCard, templateColours, templateOverlays, templateSide, toSavedTemplate, type LayoutTemplate,
 } from '../layout-template';
 import { canvasHasRealEdits, countCanvasesLosingEdits } from '../canvas-merge';
 import type { CanvasItem, Overlay } from '../types';
@@ -105,6 +106,51 @@ describe('template decoration is not a customer edit', () => {
     const other = new File(['y'], 'b.jpg', { type: 'image/jpeg' });
     expect(countCanvasesLosingEdits([decorated], [other], TEMPLATE, 'default')).toBe(0);
     expect(countCanvasesLosingEdits([decorated], [other])).toBe(1);
+  });
+});
+
+describe('a template overlay the customer changed is their work', () => {
+  const textOf = (c: CanvasItem) => c.overlays.find(o => o.type === 'text') as Extract<Overlay, { type: 'text' }>;
+  const withText = (c: CanvasItem, patch: Record<string, unknown>): CanvasItem => ({
+    ...c, overlays: c.overlays.map(o => (o.type === 'text' ? { ...o, ...patch } as Overlay : o)),
+  });
+
+  it('marks only the template overlays that differ from when the editor opened', () => {
+    const decorated = applyTemplateToCard(card(), TEMPLATE, 'default');
+    const edited = withText(decorated, { text: 'Happy Birthday Riya' });
+    const out = markEditedTemplateOverlays(decorated.overlays, edited.overlays);
+    expect(out.find(o => o.type === 'text')?.templateEdited).toBe(true);
+    expect(out.find(o => o.type === 'image')?.templateEdited).toBeUndefined();
+    // Still template decoration: the tag stays, so a re-apply replaces it.
+    expect(out.every(isTemplateOverlay)).toBe(true);
+  });
+
+  it('ignores the rounding the canvas editor does when it writes a position back', () => {
+    const decorated = applyTemplateToCard(card(), TEMPLATE, 'default');
+    const nudged = withText(decorated, { x: textOf(decorated).x + 0.04 });
+    expect(markEditedTemplateOverlays(decorated.overlays, nudged.overlays).some(o => o.templateEdited)).toBe(false);
+    const moved = withText(decorated, { x: textOf(decorated).x + 3 });
+    expect(markEditedTemplateOverlays(decorated.overlays, moved.overlays).some(o => o.templateEdited)).toBe(true);
+  });
+
+  it('leaves the customer’s own overlays and an unchanged card alone', () => {
+    const decorated = applyTemplateToCard(card(), TEMPLATE, 'default');
+    const own: Overlay = { type: 'text', id: 'mine', text: 'x', x: 1, y: 1, fontSize: 10, color: '#000000', fontFamily: 'Inter', textAlign: 'left', rotation: 0 };
+    const out = markEditedTemplateOverlays(decorated.overlays, [...decorated.overlays, own]);
+    expect(out.some(o => o.templateEdited)).toBe(false);
+    expect(out.at(-1)).toBe(own);
+  });
+
+  it('the re-pick confirm protects an edited template overlay; a re-apply still replaces it', () => {
+    const decorated = applyTemplateToCard(card(), TEMPLATE, 'default');
+    const edited = { ...decorated, overlays: markEditedTemplateOverlays(decorated.overlays, withText(decorated, { text: 'Happy Birthday Riya' }).overlays) };
+    expect(canvasHasRealEdits(edited, TEMPLATE, 'default')).toBe(true);
+    const other = new File(['y'], 'b.jpg', { type: 'image/jpeg' });
+    expect(countCanvasesLosingEdits([edited], [other], TEMPLATE, 'default')).toBe(1);
+    const reapplied = applyTemplateToCard(edited, TEMPLATE, 'default');
+    expect(reapplied.overlays.filter(o => o.type === 'text')).toHaveLength(1);
+    expect(textOf(reapplied).text).toBe('Happy Birthday');
+    expect(textOf(reapplied).templateEdited).toBeUndefined();
   });
 });
 

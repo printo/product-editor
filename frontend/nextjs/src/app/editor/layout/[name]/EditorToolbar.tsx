@@ -103,7 +103,10 @@ export function EditorToolbar({
             wrapper from the desktop layout so heading/box/toolbar go back to
             being three independent flex-row siblings, unchanged from before. */}
         <div className="flex items-center justify-between gap-3 md:contents">
-        <div className="flex items-center gap-3 min-w-0 md:flex-none">
+        {/* Desktop: the heading and the Add Photos box give up width (and
+            truncate) before the action buttons do, so Save & Continue stays
+            on screen in a narrow embed iframe. */}
+        <div className="flex items-center gap-3 min-w-0 md:flex-initial">
           {/* Embed only — the iframe has no "Back to Layouts" destination to
               push to (that's dashboard-only, see the HeaderContext effect
               above). Deliberately NOT router.back()/history.back(): a nested
@@ -144,7 +147,7 @@ export function EditorToolbar({
             button already does the exact same thing, so showing both at once read as two
             competing ways to add photos rather than one clear one. */}
         {(files.length > 0 || surfaceStates.some(s => s.files.length > 0)) && !qtyUnder && (
-          <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink relative group">
+          <div className="shrink-0 max-w-[55%] md:w-full md:max-w-md md:flex-1 md:shrink md:min-w-0 relative group">
             {qtyNeeded > 0 && totalUploadedCount >= qtyNeeded ? (
               // Order quantity fully met — show plain info, not a clickable
               // "add more" pill: clicking it would immediately hit the
@@ -210,7 +213,8 @@ export function EditorToolbar({
                 : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
             )}>
             <Droplets className="w-3.5 h-3.5 md:w-3.5 md:h-3.5 shrink-0" />
-            <span className="whitespace-nowrap">Blur Effect</span>
+            {/* Icon only between md and lg, where the row is tightest. */}
+            <span className="whitespace-nowrap md:hidden lg:inline">Blur Effect</span>
           </button>
           {templateCount > 0 && onOpenTemplates && (
             <button
@@ -225,7 +229,7 @@ export function EditorToolbar({
                   : 'bg-slate-100/80 text-slate-500 border-slate-200/50 hover:text-slate-700',
               )}>
               <TemplateIcon className="w-3.5 h-3.5 shrink-0" />
-              <span className="whitespace-nowrap">Templates</span>
+              <span className="whitespace-nowrap md:hidden lg:inline">Templates</span>
             </button>
           )}
           {/* Reposition-lock toggle — hidden from the UI on request, kept
@@ -249,7 +253,7 @@ export function EditorToolbar({
           </button>
           */}
           {embedToken ? (
-            <button onClick={() => { setDisclaimerChecked(false); setShowEmbedDisclaimer(true); }} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} aria-label="Save and continue" className="flex items-center justify-center gap-2 text-[11px] font-black text-white bg-indigo-600 p-2.5 md:px-5 md:py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">
+            <button onClick={() => { setDisclaimerChecked(false); setShowEmbedDisclaimer(true); }} disabled={isDownloading || (files.length === 0 && !surfaceStates.some(s => s.files.length > 0))} aria-label="Save and continue" className="flex items-center justify-center gap-2 text-[11px] font-black text-white bg-indigo-600 p-2.5 md:px-5 md:py-2.5 rounded-xl hover:bg-indigo-700 transition-all uppercase tracking-widest shrink-0 whitespace-nowrap">
               {isDownloading ? <Loader2 className="w-4 h-4 md:w-3.5 md:h-3.5 animate-spin" /> : <SendHorizonal className="w-4 h-4 md:w-3.5 md:h-3.5" />} <span className="hidden md:inline">Save &amp; Continue</span>
             </button>
           ) : (

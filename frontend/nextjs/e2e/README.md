@@ -47,6 +47,7 @@ at the end through the ops erasure endpoint (`global-teardown.ts`).
 | `dashboard.spec.ts` | signed in **without a password** (a NextAuth cookie minted with the local `AUTH_SECRET`): the template grid opens the editor; Download renders on the server and saves a ZIP containing print PNGs; imposition downloads print sheets; the print-sheet window opens on Close, keeps Tab inside and gives focus back to Download on Escape; the download options and the print-sheet window cover the top bar; the toolbar pins under the top bar while the page scrolls |
 | `calendar.spec.ts` | the calendar preview shows its 12 months and loads the holidays the print carries |
 | `phone.spec.ts` | on a Pixel 7 profile (touch): add photos, tap-to-swap them (checked in the autosave), open the editor sheet; the toolbar pins to the top while the page scrolls (no app top bar inside the iframe) |
+| `templates.spec.ts` | makes a template (text + a green sticker) through the ops API on the test layout and hides it afterwards: the dashboard card counts it and a fresh design opens the picker first; in the embed `template_flow` asks first and without it nobody is asked; the embed toolbar, Templates button included, fits from 768 to 1300 px wide; `template_id` opens on the template, and a real render's print PNG has the sticker's colour where the sticker sits (needs a Celery worker) |
 | `login.spec.ts` | the login form renders (never submitted — that would send credentials to the production PIA service); signed-out visitors are sent to `/login` |
 
 ## Gotchas found while building it
@@ -61,5 +62,6 @@ at the end through the ops erasure endpoint (`global-teardown.ts`).
   Chrome treats a route-fulfilled page as public, and its Local Network Access
   checks then block it from framing localhost
   (`net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS`).
+- **The suite picks a layout with no templates** when the local catalogue has one (`global-setup.ts`): a published template opens its picker over every fresh dashboard design. Leftover `e2e-` templates from a crashed run are hidden at setup.
 - The downloaded ZIP is named by the server's `Content-Disposition`
   (`<layout>-<job id prefix>.zip`), which wins over the link's `download` name.

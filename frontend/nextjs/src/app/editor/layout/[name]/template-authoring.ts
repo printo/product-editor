@@ -63,13 +63,14 @@ function storableOverlay(o: Overlay, index: number, stickerUrls: Map<number, str
   if (o.type !== 'image') {
     const rest = { ...o };
     delete rest.templateId;
+    delete rest.templateEdited;
     return rest;
   }
   const url = stickerUrls.get(index);
   const src = o.source === 'local' ? url : o.src;
   if (!src) return null;
-  const { originalFile: _file, fileId: _id, templateId: _tpl, ...rest } = o;
-  void _file; void _id; void _tpl;
+  const { originalFile: _file, fileId: _id, templateId: _tpl, templateEdited: _edited, ...rest } = o;
+  void _file; void _id; void _tpl; void _edited;
   return { ...rest, source: o.source === 'local' ? 'clipart' : o.source, src };
 }
 

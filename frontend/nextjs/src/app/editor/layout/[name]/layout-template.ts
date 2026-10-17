@@ -13,7 +13,9 @@
  * Every overlay copied from a template carries `templateId`, which is how
  * the editor later tells template decoration from the customer's own work:
  * the re-pick confirm (canvas-merge.ts) ignores it, and a re-apply replaces
- * only those overlays. Stickers are image overlays with `source: 'clipart'`
+ * only those overlays. Once the customer changes one in the canvas editor it
+ * also carries `templateEdited` (markEditedTemplateOverlays), and the re-pick
+ * confirm counts it as theirs. Stickers are image overlays with `source: 'clipart'`
  * and an address under /api/templates/assets/, made absolute here so the
  * print raster (lib/icon-raster.ts) treats them like icons.
  *
@@ -138,13 +140,49 @@ export function applyTemplateToCards(canvases: CanvasItem[], template: SavedTemp
   return canvases.map(c => applyTemplateToCard(c, template, surfaceKey));
 }
 
-/** The edits a template did not make: the customer's own overlays, and a
- *  colour that differs from the template's. Used by the re-pick confirm so
- *  a card that only carries template decoration never reads as edited. */
+/** Numbers within this are the same: the canvas editor rounds positions to
+ *  a tenth of a percent when it writes them back. */
+const SAME_NUMBER = 0.05;
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= SAME_NUMBER;
+  if (a && b && typeof a === 'object' && typeof b === 'object') return JSON.stringify(a) === JSON.stringify(b);
+  return a === b;
+}
+
+const IGNORED_KEYS = new Set(['id', 'templateEdited', 'originalFile']);
+
+function overlayChanged(before: Overlay, after: Overlay): boolean {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const k of keys) {
+    if (IGNORED_KEYS.has(k)) continue;
+    if (!sameValue((before as unknown as Record<string, unknown>)[k], (after as unknown as Record<string, unknown>)[k])) return true;
+  }
+  return false;
+}
+
+/** After the canvas editor saves a card: each template overlay that differs
+ *  from how it was when the editor opened is marked `templateEdited`, so the
+ *  customer's change to it (a name typed into "Happy Birthday", a moved
+ *  sticker) is protected by the re-pick confirm. Matched by overlay id. */
+export function markEditedTemplateOverlays(before: Overlay[], after: Overlay[]): Overlay[] {
+  const byId = new Map(before.map(o => [String(o.id), o]));
+  return after.map(o => {
+    if (!isTemplateOverlay(o) || o.templateEdited) return o;
+    const was = byId.get(String(o.id));
+    if (!was || !overlayChanged(was, o)) return o;
+    return { ...o, templateEdited: true };
+  });
+}
+
+/** The edits a template did not make: the customer's own overlays (including
+ *  template overlays they changed), and a colour that differs from the
+ *  template's. Used by the re-pick confirm so a card that only carries
+ *  untouched template decoration never reads as edited. */
 export function customerDecoration(canvas: CanvasItem, template: SavedTemplate | LayoutTemplate | null | undefined, surfaceKey: string): { overlays: Overlay[]; bgChanged: boolean; paperChanged: boolean } {
   const colours = templateColours(template, surfaceKey);
   return {
-    overlays: (canvas.overlays || []).filter(o => !isTemplateOverlay(o)),
+    overlays: (canvas.overlays || []).filter(o => !isTemplateOverlay(o) || o.templateEdited),
     bgChanged: (canvas.bgColor || DEFAULT_COLOR).toLowerCase() !== colours.bgColor.toLowerCase(),
     paperChanged: (canvas.paperColor || DEFAULT_COLOR).toLowerCase() !== colours.paperColor.toLowerCase(),
   };

@@ -13,6 +13,7 @@ import { type LayerSelection } from './LayersPanel';
 import type { FabricEditorHandle } from './FabricEditor';
 import { CanvasEditorSidebar } from './CanvasEditorSidebar';
 import { isLostLocalImage } from './editor-utils';
+import { markEditedTemplateOverlays } from './layout-template';
 import type { ServerHeicConverter } from '@/lib/heic-convert';
 
 // Dynamically import FabricEditor so that Fabric.js (~2 MB) is excluded from
@@ -189,7 +190,8 @@ export function CanvasEditorModal({
     // The off-screen render always produces a clean, exactly-sized thumbnail.
     const freshDataUrl = await renderCanvas(editingCanvas, null, true, false);
     const updated = [...canvases];
-    updated[activeCanvasIdx] = { ...editingCanvas, dataUrl: freshDataUrl };
+    const overlays = markEditedTemplateOverlays(canvases[activeCanvasIdx]?.overlays ?? [], editingCanvas.overlays);
+    updated[activeCanvasIdx] = { ...editingCanvas, overlays, dataUrl: freshDataUrl };
     setCanvases(updated);
     onClose();
   };
