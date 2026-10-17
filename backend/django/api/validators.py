@@ -281,6 +281,9 @@ def validate_calendar_layout(layout_data: dict) -> None:
         max_entries = style.get('maxEntriesPerCell')
         if max_entries is not None and (not isinstance(max_entries, int) or not (1 <= max_entries <= 10)):
             raise ValidationError("calendar.maxEntriesPerCell must be an integer 1..10")
+        show_month_name = style.get('showMonthName')
+        if show_month_name is not None and not isinstance(show_month_name, bool):
+            raise ValidationError("calendar.showMonthName must be true or false")
 
         # Optional month-title block (Phase 2) — validate at save time so a
         # bad value fails the ops PUT with a message instead of crashing

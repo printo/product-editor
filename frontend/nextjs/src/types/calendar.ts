@@ -104,6 +104,11 @@ export interface LayoutCalendarStyle {
    * Customer can switch on the preview page via the palette swatches.
    */
   defaultGenzPalette?: string;
+  /**
+   * Print the month name ("January 2026") above each calendar's grid.
+   * Absent means on; `false` turns it off. See `monthHeadingEnabled`.
+   */
+  showMonthName?: boolean;
 }
 
 /**

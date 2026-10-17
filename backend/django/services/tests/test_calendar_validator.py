@@ -210,6 +210,19 @@ def test_rejects_month_offset_out_of_range():
 
 # ── Style enum checks (§10.3) ───────────────────────────────────────────────
 
+def test_accepts_show_month_name_switch():
+    for value in (True, False):
+        layout = _good_layout()
+        layout["calendar"]["showMonthName"] = value
+        validate_calendar_layout(layout)
+
+
+def test_rejects_non_boolean_show_month_name():
+    layout = _good_layout()
+    layout["calendar"]["showMonthName"] = "no"
+    _assert_raises(layout, "showmonthname")
+
+
 def test_rejects_unknown_theme_preset():
     layout = _good_layout()
     layout["calendar"]["themePreset"] = "modern-corporate"

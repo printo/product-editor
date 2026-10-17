@@ -30,6 +30,7 @@ import Link from 'next/link';
 import {
   MONTH_NAMES_EN,
   displayLabelFor,
+  monthHeadingEnabled,
   printedHolidayLocale,
   resolveDefaultYear,
   resolveSurfaceMonth,
@@ -503,6 +504,7 @@ interface MonthOverrideModalProps {
   previewDotCycle: readonly string[];
   previewHolidays?: HolidayEntry[];
   previewWeekStart: WeekStart;
+  previewShowMonthName: boolean;
   /** Save action — pass null to clear (= "Reset to template"). */
   onSave: (override: SurfaceOverride | null) => void;
   onClose: () => void;
@@ -564,6 +566,7 @@ function MonthOverrideModal({
   previewDotCycle,
   previewHolidays,
   previewWeekStart,
+  previewShowMonthName,
   onSave,
   onClose,
 }: MonthOverrideModalProps) {
@@ -787,6 +790,7 @@ function MonthOverrideModal({
                 colors={previewColors}
                 dotCycle={previewDotCycle}
                 ariaLabel={`Preview of ${monthLabel} with override`}
+                showMonthName={previewShowMonthName}
               />
             </div>
             <p className="text-[10px] text-zinc-500">
@@ -1015,6 +1019,7 @@ export function CalendarLayoutEditor({
     () => resolveThemeColors(draft.style.themePreset, previewPalette),
     [draft.style.themePreset, previewPalette],
   );
+  const showMonthName = monthHeadingEnabled(draft.style);
 
   const monthTiles = useMemo(
     () => surfaceMonthList(draft, now),
@@ -1186,6 +1191,7 @@ export function CalendarLayoutEditor({
               colors={previewColors}
               dotCycle={previewDotCycle}
               ariaLabel={`Preview of ${MONTH_NAMES_EN[month - 1]} ${year}`}
+              showMonthName={showMonthName}
             />
           </div>
         ))}
@@ -1701,6 +1707,15 @@ export function CalendarLayoutEditor({
                     <option value="monday">Monday</option>
                   </select>
                 </label>
+                <label className="flex items-center gap-2 text-sm self-end pb-1.5">
+                  <input
+                    type="checkbox"
+                    checked={showMonthName}
+                    onChange={(e) => patchStyle({ showMonthName: e.target.checked })}
+                    data-testid="style-show-month-name"
+                  />
+                  <span>Print month name above the dates</span>
+                </label>
               </div>
             </section>
 
@@ -1814,7 +1829,7 @@ export function CalendarLayoutEditor({
                         >
                           <MonthTileThumb year={tile.year} month={tile.month} weekStart={draft.style.weekStart}
                             cells={{}} holidays={previewHolidays} colors={previewColors} dotCycle={previewDotCycle}
-                            ariaLabel={`${tile.label} thumbnail`} />
+                            ariaLabel={`${tile.label} thumbnail`} showMonthName={showMonthName} />
                         </div>
                       </div>
                     </button>
@@ -1863,6 +1878,7 @@ export function CalendarLayoutEditor({
               h.date.startsWith(`${tile.year}-${String(tile.month).padStart(2, '0')}-`),
             )}
             previewWeekStart={draft.style.weekStart}
+            previewShowMonthName={showMonthName}
             onSave={(override) => {
               setDraft((d) => {
                 const next = { ...(d.surfaceOverrides ?? {}) };

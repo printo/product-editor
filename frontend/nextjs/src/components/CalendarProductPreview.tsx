@@ -384,6 +384,10 @@ export interface CalendarProductPreviewProps {
    */
   defaultYear: MonthRange['defaultYear'];
 
+  /** Draw the month name above each tile's grid, as the print does
+   *  (`monthHeadingEnabled` on the layout's calendar block). Default true. */
+  showMonthName?: boolean;
+
   /**
    * Optional override of "today" for deterministic tests. Production
    * passes nothing and `resolveDefaultYear` reads `new Date()`.
@@ -404,6 +408,7 @@ export function CalendarProductPreview({
   holidays,
   weekStart = 'sunday',
   defaultYear,
+  showMonthName = true,
   now,
 }: CalendarProductPreviewProps) {
   // Resolve theme colours + dot cycle once per render — every tile uses
@@ -577,6 +582,7 @@ export function CalendarProductPreview({
                 colors={thumbColors}
                 dotCycle={dotCycle}
                 ariaLabel={`${t.label} preview`}
+                showMonthName={showMonthName}
               />
             </div>
           </button>

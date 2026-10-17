@@ -140,11 +140,35 @@ export function displayLabelFor(year: number, month: number): string {
   return `${MONTH_NAMES_EN[month - 1]} ${year}`;
 }
 
-// ─── Holidays ────────────────────────────────────────────────────────────────
-
 function isObjectRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
+
+// ─── Month heading ───────────────────────────────────────────────────────────
+
+/** Share of a calendar block's height the month heading takes above the
+ *  weekday row. Mirrors MONTH_HEADING_FRACTION in calendar_renderer.py. */
+export const MONTH_HEADING_FRACTION = 0.12;
+
+/**
+ * Whether each calendar block prints its month name above the grid. On by
+ * default; off with `calendar.showMonthName: false`, or when the layout
+ * uses the `calendar.monthTitle` overlay (which already prints one).
+ * Mirrors `month_heading_enabled` in calendar_renderer.py.
+ */
+export function monthHeadingEnabled(calendar: unknown): boolean {
+  if (!isObjectRecord(calendar)) return true;
+  if (calendar.showMonthName === false) return false;
+  const title = calendar.monthTitle;
+  return !(isObjectRecord(title) && title.enabled);
+}
+
+/** "January 2026" — the printed month heading. Mirrors `month_heading_text`. */
+export function monthHeadingText(year: number, month: number): string {
+  return displayLabelFor(year, month);
+}
+
+// ─── Holidays ────────────────────────────────────────────────────────────────
 
 /**
  * The holiday locale the PRINT loads for a layout's `calendar` block, or
@@ -314,6 +338,8 @@ export function mergeCellEntries(
 
 export interface ResolvedThemeColors {
   bg: string;
+  /** Month heading ("January 2026") above the grid. */
+  monthText: string;
   dateText: string;
   outOfMonthText: string;
   grid: string;
@@ -327,6 +353,7 @@ export interface ResolvedThemeColors {
 /** Hardcoded defaults — match storage/calendar_styles/modern-minimalist.json. */
 const MINIMALIST_COLORS: ResolvedThemeColors = {
   bg: '#FFFFFF',
+  monthText: '#18181B',
   dateText: '#18181B',
   outOfMonthText: '#CCCCCC',
   grid: '#E5E5E5',
@@ -336,6 +363,7 @@ const MINIMALIST_COLORS: ResolvedThemeColors = {
 /** storage/calendar_styles/weekday-highlight.json. */
 const WEEKDAY_HIGHLIGHT_COLORS: ResolvedThemeColors = {
   bg: '#FFFFFF',
+  monthText: '#1A1A1A',
   dateText: '#1A1A1A',
   outOfMonthText: '#D4D4D8',
   grid: '#D4D4D8',
@@ -356,6 +384,7 @@ export function resolveThemeColors(
     return {
       colors: {
         bg: palette.bg,
+        monthText: palette.month,
         dateText: palette.date,
         // 35% of the date colour so out-of-month cells fade gracefully on
         // whatever palette is active.
