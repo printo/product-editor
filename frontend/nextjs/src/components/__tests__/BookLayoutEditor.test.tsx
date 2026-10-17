@@ -269,6 +269,14 @@ describe('BookLayoutEditor component', () => {
     expect(screen.getByTestId('resolved-spine')).toHaveTextContent('1.44 mm');
   });
 
+  it('labels paper thickness as per sheet and shows the working behind the spine', () => {
+    setup();
+    expect(screen.getByText('Paper thickness per sheet')).toBeInTheDocument();
+    expect(screen.getByTestId('resolved-spine-working')).toHaveTextContent(
+      '12 sheets × 0.12 mm + 2 covers × 0 mm',
+    );
+  });
+
   it('recomputes the resolved spine live as the default page count changes', () => {
     setup();
     const defaultPagesInput = screen.getByRole('spinbutton', { name: /Default pages/i });

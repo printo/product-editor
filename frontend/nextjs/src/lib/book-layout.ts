@@ -265,12 +265,9 @@ export function applyGutter(
 
 /**
  * Spine width for a book of `pageCount` printed SIDES — i.e.
- * `pageCount / 2` leaves. Mirrors `services/book_layout.py::spine_width_mm`.
- *
- * ⚠️ This is the "leaves, not sides" formula, which differs from the
- * `pageCount × paperThicknessMm` sketch in BOOK_LAYOUT_PRD.md §4 D4 (which
- * double-counts). Unconfirmed with Catalog Ops which convention their
- * paper-thickness spec actually uses — see the Python twin's docstring.
+ * `pageCount / 2` sheets. `paperThicknessMm` is the thickness of ONE SHEET
+ * (two pages), as the ops editor's field says. Mirrors
+ * `services/book_layout.py::spine_width_mm`.
  */
 export function spineWidthMm(
   pageCount: number,
