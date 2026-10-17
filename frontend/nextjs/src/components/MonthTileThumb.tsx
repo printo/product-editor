@@ -24,6 +24,7 @@
  *   - Image / hide overrides (renders the cell blank — same as the print)
  */
 
+import { clsx } from 'clsx';
 import {
   buildMonthGrid,
   monthHeadingText,
@@ -63,6 +64,10 @@ export interface MonthTileThumbProps {
   ariaLabel?: string;
   /** Print the month name above the grid, as the print does. Default true. */
   showMonthName?: boolean;
+  /** Stretch the rows to fill the box and scale the type with its width —
+   *  for drawing the grid inside a card's date block, whose shape is the
+   *  layout's rather than square. Default false (the square tile). */
+  fill?: boolean;
 }
 
 // ─── Dot lookup per date ────────────────────────────────────────────────────
@@ -114,9 +119,14 @@ export function MonthTileThumb({
   dotCycle,
   ariaLabel,
   showMonthName = true,
+  fill = false,
 }: MonthTileThumbProps) {
   const grid = buildMonthGrid(year, month, weekStart);
   const weekdayLabels = weekdayHeaderLabels(weekStart, 'narrow');
+  // In fill mode the type follows the box width (container query units),
+  // never smaller than the square tile's sizes.
+  const headingSize = fill ? 'max(9px, 6cqw)' : '9px';
+  const smallSize = fill ? 'max(6px, 4.2cqw)' : '6px';
 
   // Bucket holidays to this month upfront so the dot helper is O(daysInMonth).
   const holidaysThisMonth = holidays.filter(h =>
@@ -127,14 +137,14 @@ export function MonthTileThumb({
     <div
       role="img"
       aria-label={ariaLabel ?? `Mini preview of month`}
-      className="w-full h-full rounded-sm overflow-hidden"
-      style={{ background: colors.bg }}
+      className={clsx('w-full h-full rounded-sm overflow-hidden', fill && 'flex flex-col')}
+      style={fill ? { background: colors.bg, containerType: 'inline-size' } : { background: colors.bg }}
       data-testid="month-tile-thumb"
     >
       {showMonthName && (
         <div
           className="text-center font-bold leading-none truncate px-1 pt-1.5 pb-0.5"
-          style={{ fontSize: '9px', color: colors.monthText ?? colors.dateText }}
+          style={{ fontSize: headingSize, color: colors.monthText ?? colors.dateText }}
           data-testid="month-heading"
         >
           {monthHeadingText(year, month)}
@@ -156,7 +166,7 @@ export function MonthTileThumb({
               key={`wd-${col}`}
               className="text-center font-medium leading-none"
               style={{
-                fontSize: '6px',
+                fontSize: smallSize,
                 color: isSun ? (colors.sundayText ?? colors.weekdayText) : colors.weekdayText,
               }}
             >
@@ -167,7 +177,11 @@ export function MonthTileThumb({
       </div>
 
       {/* Date cells — 5 or 6 rows depending on month layout */}
-      <div className="grid grid-cols-7 gap-0 px-1 pb-1" data-testid="date-cells">
+      <div
+        className={clsx('grid grid-cols-7 gap-0 px-1 pb-1', fill && 'flex-1 min-h-0')}
+        style={fill ? { gridTemplateRows: `repeat(${grid.length / 7}, minmax(0, 1fr))` } : undefined}
+        data-testid="date-cells"
+      >
         {grid.map((gc, i) => {
           const iso = gc.iso;
           const dotInfo = gc.inMonth
@@ -186,13 +200,13 @@ export function MonthTileThumb({
           return (
             <div
               key={`c-${i}`}
-              className="aspect-square relative flex items-center justify-center"
+              className={clsx('relative flex items-center justify-center', !fill && 'aspect-square')}
               style={{ background: sundayFill }}
             >
               {showNumber && (
                 <span
                   className="leading-none font-medium"
-                  style={{ fontSize: '6px', color: numColor }}
+                  style={{ fontSize: smallSize, color: numColor }}
                 >
                   {gc.day}
                 </span>

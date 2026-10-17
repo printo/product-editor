@@ -47,6 +47,56 @@ describe('CanvasGrid', () => {
   });
 });
 
+describe('CanvasGrid — one-month-a-page calendar', () => {
+  const BLOCK = { x: 0.05, y: 0.5, width: 0.9, height: 0.4 };
+  const calendarConfig = (canvasCount: number) => ({
+    pages: Array.from({ length: 12 }, (_, i) => ({
+      surfaceIndex: i, year: 2027, month: i + 1, canvasIdx: i % canvasCount, block: BLOCK,
+    })),
+    weekStart: 'sunday' as const, cells: {}, holidays: [], dotCycle: ['#000'], showMonthName: true,
+    colors: { bg: '#fff', dateText: '#000', outOfMonthText: '#999', grid: '#eee', weekdayText: '#333' },
+    onOpenMonth: jest.fn(), onAddPhotos: jest.fn(),
+  });
+
+  it('heads each card with its month and draws that month’s grid where the print puts it', () => {
+    render(<CanvasGrid canvases={[canvas(), canvas()]} surfaceStates={[]} {...cardProps()} calendar={calendarConfig(2)} />);
+    const first = screen.getByRole('button', { name: 'Edit canvas 1' });
+    expect(within(first.parentElement!).getByRole('heading')).toHaveTextContent('January 2027');
+    const zone = within(first).getByRole('button', { name: 'Add dates to January 2027' });
+    expect(zone).toHaveStyle({ left: '5%', top: '50%', width: '90%', height: '40%' });
+  });
+
+  it('a tap on the grid opens the day editor on that month, not the photo editor', () => {
+    const props = cardProps();
+    const cal = calendarConfig(2);
+    render(<CanvasGrid canvases={[canvas(), canvas()]} surfaceStates={[]} {...props} calendar={cal} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add dates to February 2027' }));
+    expect(cal.onOpenMonth).toHaveBeenCalledWith(1, 2027, 2);
+    expect(props.handleCardClick).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit canvas 2' }));
+    expect(props.handleCardClick).toHaveBeenCalledWith(1);
+  });
+
+  it('shows the months past the last photo as repeats that offer a photo of their own', () => {
+    const cal = calendarConfig(10);
+    render(<CanvasGrid canvases={Array.from({ length: 10 }, () => canvas())} surfaceStates={[]} {...cardProps()} calendar={cal} />);
+    const repeats = screen.getAllByTestId('calendar-repeat-card');
+    expect(repeats).toHaveLength(2);
+    expect(repeats[0]).toHaveTextContent('November 2027');
+    expect(repeats[0]).toHaveTextContent('Repeats image 1');
+    fireEvent.click(within(repeats[1]).getByRole('button', { name: /Add a photo for December/ }));
+    expect(cal.onAddPhotos).toHaveBeenCalled();
+    fireEvent.click(within(repeats[1]).getByRole('button', { name: 'Add dates to December 2027' }));
+    expect(cal.onOpenMonth).toHaveBeenCalledWith(11, 2027, 12);
+  });
+
+  it('with twelve photos there are no repeats', () => {
+    render(<CanvasGrid canvases={Array.from({ length: 12 }, () => canvas())} surfaceStates={[]} {...cardProps()} calendar={calendarConfig(12)} />);
+    expect(screen.queryByTestId('calendar-repeat-card')).toBeNull();
+    expect(screen.getAllByTestId('calendar-grid-zone')).toHaveLength(12);
+  });
+});
+
 describe('CanvasCard', () => {
   const setup = (over: Partial<CardProps> = {}, c = canvas(), idx = 2) => {
     const props = cardProps(over);
