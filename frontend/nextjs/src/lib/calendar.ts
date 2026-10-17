@@ -22,6 +22,7 @@ import type {
   CalendarTheme,
   CalendarType,
   GenzPalette,
+  LayoutCalendar,
   WeekStart,
   HolidayEntry,
 } from '@/types/calendar';
@@ -194,6 +195,56 @@ export function calendarPhotoSlots(layout: unknown): number | null {
   const frames = layout.frames;
   const perPage = Array.isArray(frames) && frames.length > 0 ? frames.length : 1;
   return calendarPageCount(layout) * perPage;
+}
+
+// ─── Card pages ──────────────────────────────────────────────────────────────
+
+/** One printed month as the editor's cards show it: which photo card it
+ *  prints with and where its date grid sits on the page. */
+export interface CalendarCardPage {
+  surfaceIndex: number;
+  year: number;
+  month: number;
+  /** The photo card this month prints with (`surfaceIndex mod cards`), or -1 with no cards yet. */
+  canvasIdx: number;
+  block: LayoutCalendar;
+}
+
+function isCalendarBlock(v: unknown): v is LayoutCalendar {
+  if (!isObjectRecord(v)) return false;
+  return (['x', 'y', 'width', 'height'] as const).every(
+    k => typeof v[k] === 'number' && Number.isFinite(v[k] as number),
+  ) && (v.width as number) > 0 && (v.height as number) > 0;
+}
+
+/**
+ * The months of a one-month-a-page calendar, each with its date-grid block,
+ * so the cards can draw the page as printed. Mirrors `materialize_surfaces`:
+ * month i prints photo card (i mod N), and a `surfaceOverrides["month_MM"]`
+ * block replaces the template's. Null when the layout isn't one grid per page
+ * (the whole-year poster) or has no readable block — the caller falls back to
+ * the separate month tiles.
+ */
+export function calendarCardPages(
+  months: readonly { year: number; month: number }[],
+  blocks: unknown,
+  surfaceOverrides: unknown,
+  canvasCount: number,
+): CalendarCardPage[] | null {
+  if (!Array.isArray(blocks) || blocks.length !== 1 || !isCalendarBlock(blocks[0])) return null;
+  const template = blocks[0];
+  const overrides = isObjectRecord(surfaceOverrides) ? surfaceOverrides : {};
+  return months.map(({ year, month }, i) => {
+    const override = overrides[`month_${String(month).padStart(2, '0')}`];
+    const custom = isObjectRecord(override) && Array.isArray(override.calendars) ? override.calendars[0] : undefined;
+    return {
+      surfaceIndex: i,
+      year,
+      month,
+      canvasIdx: canvasCount > 0 ? i % canvasCount : -1,
+      block: isCalendarBlock(custom) ? custom : template,
+    };
+  });
 }
 
 // ─── Holidays ────────────────────────────────────────────────────────────────

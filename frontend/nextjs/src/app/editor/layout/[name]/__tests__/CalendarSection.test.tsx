@@ -1,6 +1,6 @@
 import { act, fireEvent, render } from '@testing-library/react';
 import type { SetStateAction } from 'react';
-import { CalendarSection } from '../CalendarSection';
+import { CalendarControls, CalendarSection } from '../CalendarSection';
 
 // The two calendar components have their own suites; here they only record what they are handed.
 const preview = jest.fn();
@@ -19,7 +19,7 @@ type Props = Parameters<typeof CalendarSection>[0];
 function setup(over: Partial<Props> = {}) {
   const cells: Record<string, unknown[]> = { [ISO]: [{ type: 'text', text: 'Birthday' }, { type: 'image', uploadId: 'u1' }] };
   const props: Props = {
-    isCalendarProduct: true, layout: { weekStart: 'monday', calendarDefaultYear: 2027 },
+    isCalendarProduct: true, showMonthTiles: true, layout: { weekStart: 'monday', calendarDefaultYear: 2027 },
     calendarTheme: 'modern-minimalist', setCalendarTheme: jest.fn(), genzPalette: undefined, genzPalettes: [],
     setGenzPalette: jest.fn(), calendarType: 'english', setCalendarType: jest.fn(),
     handleCalendarMonthTileClick: jest.fn(), calendarCells: cells as Props['calendarCells'], printedHolidays: HOLIDAYS as Props['printedHolidays'],
@@ -53,6 +53,16 @@ describe('CalendarSection', () => {
       onCalendarTypeChange: props.setCalendarType, onMonthTileClick: props.handleCalendarMonthTileClick,
       cells: props.calendarCells, holidays: HOLIDAYS, weekStart: 'monday', defaultYear: 2027,
     });
+  });
+
+  it('hands the tiles no controls — those sit above the cards', () => {
+    expect(setup().previewProps()).toMatchObject({ showControls: false });
+  });
+
+  it('drops the month tiles when the cards draw each month, keeping the day editor', () => {
+    const { queryByTestId } = setup({ showMonthTiles: false });
+    expect(queryByTestId('preview')).toBeNull();
+    expect(queryByTestId('panel')).not.toBeNull();
   });
 
   it('falls back to Sunday weeks and the current year', () => {
@@ -125,5 +135,28 @@ describe('CalendarSection', () => {
     const file = new File(['x'], 'day.jpg', { type: 'image/jpeg' });
     fireEvent.change(input, { target: { files: [file] } });
     expect(props.handleCellImageFileSelected).toHaveBeenCalledWith(file);
+  });
+});
+
+describe('CalendarControls', () => {
+  const base = {
+    layout: { calendarDefaultYear: 2027 as const }, calendarTheme: 'modern-genz' as const, setCalendarTheme: jest.fn(),
+    genzPalette: 'butter', genzPalettes: [], setGenzPalette: jest.fn(), calendarType: 'financial' as const,
+    setCalendarType: jest.fn(), calendarCells: {},
+  };
+
+  it('shows nothing for a product that is not a calendar', () => {
+    preview.mockClear();
+    expect(render(<CalendarControls isCalendarProduct={false} {...base} />).container).toBeEmptyDOMElement();
+    expect(preview).not.toHaveBeenCalled();
+  });
+
+  it('renders the controls alone, wired to the customer’s choices', () => {
+    preview.mockClear();
+    render(<CalendarControls isCalendarProduct {...base} />);
+    expect(preview.mock.calls.at(-1)[0]).toMatchObject({
+      themePreset: 'modern-genz', onThemePresetChange: base.setCalendarTheme, genzPalette: 'butter',
+      calendarType: 'financial', onCalendarTypeChange: base.setCalendarType, defaultYear: 2027, showMonthTiles: false,
+    });
   });
 });

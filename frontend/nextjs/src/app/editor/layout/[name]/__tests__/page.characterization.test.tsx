@@ -541,9 +541,13 @@ describe('editor page — calendar layouts', () => {
     };
     renderEditor();
     await waitFor(() => expect(backend.callsTo(`canvas-state/${ORDER_ID}/`, 'GET')).toHaveLength(1));
+    // The day editor opens from a month's date grid, drawn on that month's card.
+    await waitFor(() => photoInput());
+    await addPhotos(['a.jpg', 'b.jpg', 'c.jpg']);
+    await waitFor(() => expect(cards()).toHaveLength(3));
+    expect(screen.queryByTestId('month-tiles-grid')).toBeNull();
     const user = userEvent.setup();
-    const tiles = within(await screen.findByTestId('month-tiles-grid')).getAllByRole('button');
-    await user.click(tiles[2]);
+    await user.click(within(cards()[2]).getByRole('button', { name: 'Add dates to March 2026' }));
     const panel = await screen.findByRole('dialog', { name: /March 2026/ });
     expect(panel).toHaveAttribute('data-cell-iso', '2026-03-01');
     await user.click(within(panel).getByRole('button', { name: '15 March 2026' }));

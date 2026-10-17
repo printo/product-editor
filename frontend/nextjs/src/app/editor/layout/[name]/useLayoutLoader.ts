@@ -176,6 +176,9 @@ export function useLayoutLoader({
           calendarPageCount: calendarPageCount(item),
           calendarPhotoSlots: calendarPhotoSlots(item),
           calendarDefaultYear: item.monthRange?.defaultYear ?? 'current',
+          // Where the date grid sits on a page (fractions), for drawing it on the cards.
+          calendarBlocks: Array.isArray(item.calendars) ? item.calendars : [],
+          calendarSurfaceOverrides: item.surfaceOverrides && typeof item.surfaceOverrides === 'object' ? item.surfaceOverrides : {},
         });
       } catch {
         setError('Failed to load layout.');

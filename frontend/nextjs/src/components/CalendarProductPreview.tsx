@@ -26,6 +26,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { clsx } from 'clsx';
 import {
   MONTH_NAMES_EN,
   resolveDefaultYear,
@@ -334,6 +335,27 @@ export function yearBadgeText(calendarType: CalendarType, baseYear: number): str
   return String(baseYear);
 }
 
+// ─── Theme colours ──────────────────────────────────────────────────────────
+
+/** The grid colours and dot cycle for the customer's theme — one scheme for
+ *  every month. The Gen-Z palette applies only when the theme is Gen-Z. */
+export function useCalendarThumbColors(
+  themePreset: CalendarTheme,
+  genzPalette: string | undefined,
+  genzPalettes: GenzPalette[],
+) {
+  const activePaletteObj = useMemo(
+    () => (themePreset === 'modern-genz'
+      ? genzPalettes.find(p => p.name === genzPalette) ?? genzPalettes[0]
+      : undefined),
+    [themePreset, genzPalette, genzPalettes],
+  );
+  return useMemo(
+    () => resolveThemeColors(themePreset, activePaletteObj),
+    [themePreset, activePaletteObj],
+  );
+}
+
 // ─── Top-level component ────────────────────────────────────────────────────
 
 export interface CalendarProductPreviewProps {
@@ -388,6 +410,12 @@ export interface CalendarProductPreviewProps {
    *  (`monthHeadingEnabled` on the layout's calendar block). Default true. */
   showMonthName?: boolean;
 
+  /** The style controls, the Feb 29 notice and the flip warning. Default true. */
+  showControls?: boolean;
+  /** The 12 month tiles. Default true; off where the editor's cards draw
+   *  each month's grid on the page itself. */
+  showMonthTiles?: boolean;
+
   /**
    * Optional override of "today" for deterministic tests. Production
    * passes nothing and `resolveDefaultYear` reads `new Date()`.
@@ -409,20 +437,11 @@ export function CalendarProductPreview({
   weekStart = 'sunday',
   defaultYear,
   showMonthName = true,
+  showControls = true,
+  showMonthTiles = true,
   now,
 }: CalendarProductPreviewProps) {
-  // Resolve theme colours + dot cycle once per render — every tile uses
-  // the same scheme. Gen-Z palette flows in when themePreset === modern-genz.
-  const activePaletteObj = useMemo(
-    () => (themePreset === 'modern-genz'
-      ? genzPalettes.find(p => p.name === genzPalette) ?? genzPalettes[0]
-      : undefined),
-    [themePreset, genzPalette, genzPalettes],
-  );
-  const { colors: thumbColors, dotCycle } = useMemo(
-    () => resolveThemeColors(themePreset, activePaletteObj),
-    [themePreset, activePaletteObj],
-  );
+  const { colors: thumbColors, dotCycle } = useCalendarThumbColors(themePreset, genzPalette, genzPalettes);
   const baseYear = useMemo(
     () => resolveDefaultYear(defaultYear, calendarType, now),
     [defaultYear, calendarType, now],
@@ -491,9 +510,10 @@ export function CalendarProductPreview({
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto p-4 sm:p-6" data-testid="calendar-product-preview">
+    <div className={showMonthTiles ? 'w-full max-w-5xl mx-auto p-4 sm:p-6' : 'w-full'} data-testid="calendar-product-preview">
+      {showControls && (<>
       {/* ── Controls bar ──────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-4 mb-6 pb-4 border-b border-zinc-200">
+      <div className={clsx('flex flex-wrap items-center gap-4', showMonthTiles && 'mb-6 pb-4 border-b border-zinc-200')}>
         <ThemePresetToggle value={themePreset} onChange={onThemePresetChange} />
 
         {showGenzPalettes && (
@@ -543,7 +563,10 @@ export function CalendarProductPreview({
         </div>
       )}
 
-      {/* ── 12 month tiles (Day-2 will replace placeholder with real thumbs) ─ */}
+      </>)}
+
+      {/* ── 12 month tiles ───────────────────────────────────────────────── */}
+      {showMonthTiles && (
       <div
         className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
         data-testid="month-tiles-grid"
@@ -588,10 +611,11 @@ export function CalendarProductPreview({
           </button>
         ))}
       </div>
+      )}
 
       {/* Calendar-type flip warning modal (PRD §11.4). Renders only when
           the customer's click would orphan ≥1 entries. */}
-      {pendingFlip && (
+      {showControls && pendingFlip && (
         <FlipWarningModal
           orphanCount={pendingOrphanCount}
           nextCalendarType={pendingFlip}

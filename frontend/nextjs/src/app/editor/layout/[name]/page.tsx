@@ -30,7 +30,10 @@ import { ProcessingOverlay } from './ProcessingOverlay';
 import { BookPageCount, BookSpreadPreview } from './BookSpreadPreview';
 import { EmptyState } from './EmptyState';
 import { CanvasGrid } from './CanvasGrid';
-import { CalendarSection } from './CalendarSection';
+import { CalendarControls, CalendarSection } from './CalendarSection';
+import type { CalendarCardsConfig } from './CalendarCards';
+import { useCalendarThumbColors } from '@/components/CalendarProductPreview';
+import { calendarCardPages } from '@/lib/calendar';
 import { useEditorEnvironment, useLoginRedirect } from './useEditorEnvironment';
 import { useActiveSurfaceLayout, useLayoutLoader } from './useLayoutLoader';
 import { useSubmitGuards } from './useSubmitGuards';
@@ -430,6 +433,27 @@ export default function LayoutEditorPage() {
     qtyNeeded, totalUploadedCount, setIsDownloading, setShowDownloadModal, setRenderProgress, setError,
   });
 
+  // A one-month-a-page calendar draws each month's grid on its card (tap the
+  // grid for the day editor, the photo for the photo editor); null keeps the
+  // separate month tiles (the whole-year poster).
+  const calendarThumb = useCalendarThumbColors(calendarTheme, genzPalette, genzPalettes);
+  const calendarCardsConfig = useMemo<CalendarCardsConfig | null>(() => {
+    if (!isCalendarProduct) return null;
+    const pages = calendarCardPages(visibleCalendarMonths, layout?.calendarBlocks, layout?.calendarSurfaceOverrides, canvases.length);
+    if (!pages) return null;
+    return {
+      pages,
+      weekStart: layout?.weekStart === 'monday' ? 'monday' : 'sunday',
+      cells: calendarCells,
+      holidays: printedHolidays,
+      colors: calendarThumb.colors,
+      dotCycle: calendarThumb.dotCycle,
+      showMonthName: layout?.calendarShowMonthName ?? true,
+      onOpenMonth: handleCalendarMonthTileClick,
+      onAddPhotos: () => uploadInputRef.current?.click(),
+    };
+  }, [isCalendarProduct, visibleCalendarMonths, layout, canvases.length, calendarCells, printedHolidays, calendarThumb, handleCalendarMonthTileClick]);
+
   if (status === 'loading' && !embedToken) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
@@ -598,6 +622,12 @@ export default function LayoutEditorPage() {
             handleBookPageCountChange={handleBookPageCountChange} setShowSpreadPreview={setShowSpreadPreview}
           />
 
+          <CalendarControls
+            isCalendarProduct={isCalendarProduct} layout={layout}
+            calendarTheme={calendarTheme} setCalendarTheme={setCalendarTheme} genzPalette={genzPalette} genzPalettes={genzPalettes}
+            setGenzPalette={setGenzPalette} calendarType={calendarType} setCalendarType={setCalendarType} calendarCells={calendarCells}
+          />
+
           <EmptyState
             isProcessing={isProcessing} canvases={canvases} restorePending={restorePending} restoreCount={restoreCount}
             layout={layout} dragOverIdx={dragOverIdx} setDragOverIdx={setDragOverIdx}
@@ -614,10 +644,11 @@ export default function LayoutEditorPage() {
             requestReplacePhoto={requestReplacePhoto} lowDpiByCard={lowDpiByCard}
             handleQuickRotate={handleQuickRotate} handleQuickToggleFit={handleQuickToggleFit} handleQuickToggleBlur={handleQuickToggleBlur}
             swapSource={swapSource} setSwapSource={setSwapSource} handleQuickDelete={handleQuickDelete}
+            calendar={calendarCardsConfig}
           />
 
           <CalendarSection
-            isCalendarProduct={isCalendarProduct} layout={layout}
+            isCalendarProduct={isCalendarProduct} showMonthTiles={!calendarCardsConfig} layout={layout}
             calendarTheme={calendarTheme} setCalendarTheme={setCalendarTheme} genzPalette={genzPalette} genzPalettes={genzPalettes}
             setGenzPalette={setGenzPalette} calendarType={calendarType} setCalendarType={setCalendarType}
             handleCalendarMonthTileClick={handleCalendarMonthTileClick} calendarCells={calendarCells} printedHolidays={printedHolidays}

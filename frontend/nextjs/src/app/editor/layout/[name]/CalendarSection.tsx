@@ -10,16 +10,54 @@ import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/t
 type PreviewProps = ComponentProps<typeof CalendarProductPreview>;
 type SelectedCell = { surfaceIndex: number; year: number; month: number; iso: string };
 
-/** Calendar products: the 12-month preview, the per-day editor panel (with a
- *  day picker over the printed months) and the hidden picker for a day's photo. */
-export function CalendarSection({
+/** Calendar products: the style controls (theme, palette, calendar type,
+ *  year), shown above the cards because they change every month at once. */
+export function CalendarControls({
   isCalendarProduct, layout, calendarTheme, setCalendarTheme, genzPalette, genzPalettes, setGenzPalette,
+  calendarType, setCalendarType, calendarCells,
+}: {
+  isCalendarProduct: boolean;
+  layout: { calendarDefaultYear?: PreviewProps['defaultYear'] } | null;
+  calendarTheme: CalendarTheme;
+  setCalendarTheme: Dispatch<SetStateAction<CalendarTheme>>;
+  genzPalette: string | undefined;
+  genzPalettes: GenzPalette[];
+  setGenzPalette: Dispatch<SetStateAction<string | undefined>>;
+  calendarType: CalendarType;
+  setCalendarType: Dispatch<SetStateAction<CalendarType>>;
+  calendarCells: Record<string, any[]>;
+}) {
+  if (!isCalendarProduct) return null;
+  return (
+    <section aria-label="Calendar style" className="rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:px-5">
+      <CalendarProductPreview
+        themePreset={calendarTheme}
+        onThemePresetChange={setCalendarTheme}
+        genzPalette={genzPalette}
+        genzPalettes={genzPalettes}
+        onGenzPaletteChange={setGenzPalette}
+        calendarType={calendarType}
+        onCalendarTypeChange={setCalendarType}
+        cells={calendarCells}
+        defaultYear={layout?.calendarDefaultYear ?? 'current'}
+        showMonthTiles={false}
+      />
+    </section>
+  );
+}
+
+/** Calendar products: the 12 month tiles where the cards can't draw each
+ *  month's grid (the whole-year poster), the per-day editor panel (with a day
+ *  picker over the printed months) and the hidden picker for a day's photo. */
+export function CalendarSection({
+  isCalendarProduct, showMonthTiles, layout, calendarTheme, setCalendarTheme, genzPalette, genzPalettes, setGenzPalette,
   calendarType, setCalendarType, handleCalendarMonthTileClick, calendarCells, printedHolidays,
   selectedCalendarCell, setSelectedCalendarCell, calendarCellEntries, updateCellEntries,
   calendarCellImagePreviews, setCalendarCellImagePreviews, calendarImageUploading, calendarCellFileInputRef,
   handleCellImageFileSelected, visibleCalendarMonths, selectCalendarDate,
 }: {
   isCalendarProduct: boolean;
+  showMonthTiles: boolean;
   layout: { weekStart?: unknown; calendarDefaultYear?: PreviewProps['defaultYear']; calendarShowMonthName?: boolean } | null;
   calendarTheme: CalendarTheme;
   setCalendarTheme: Dispatch<SetStateAction<CalendarTheme>>;
@@ -45,10 +83,10 @@ export function CalendarSection({
 }) {
   return (
     <>
-      {/* ── Calendar product: 12-month preview + cell editor ─────────── */}
+      {/* ── Calendar product: month tiles (poster only) + cell editor ── */}
       {isCalendarProduct && (
         <section className="space-y-4 pt-2">
-          <CalendarProductPreview
+          {showMonthTiles && <CalendarProductPreview
             themePreset={calendarTheme}
             onThemePresetChange={setCalendarTheme}
             genzPalette={genzPalette}
@@ -62,7 +100,8 @@ export function CalendarSection({
             weekStart={layout?.weekStart === 'monday' ? 'monday' : 'sunday'}
             defaultYear={layout?.calendarDefaultYear ?? 'current'}
             showMonthName={layout?.calendarShowMonthName ?? true}
-          />
+            showControls={false}
+          />}
           {selectedCalendarCell && (
             <div className="fixed inset-y-0 right-0 z-[50000] flex">
               <CalendarEditPanel

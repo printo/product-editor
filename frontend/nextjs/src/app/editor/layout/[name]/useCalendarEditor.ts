@@ -118,11 +118,11 @@ export function useCalendarEditor({
     }
   }, [selectedCalendarCell, orderId, apiBase, getAuthHeaders, updateCellEntries, expandPdfPages, setUnsupportedWarning, setPersistDegraded, setError]);
 
-  const handleCalendarMonthTileClick = (surfaceIndex: number, year: number, month: number) => {
+  const handleCalendarMonthTileClick = useCallback((surfaceIndex: number, year: number, month: number) => {
     // Open the first day of the month; the panel's day picker moves to any other date.
     const firstIso = `${year}-${String(month).padStart(2, '0')}-01`;
     setSelectedCalendarCell({ surfaceIndex, year, month, iso: firstIso });
-  };
+  }, []);
 
   // The 12 months the print covers, resolved exactly as the preview tiles
   // and `materialize_surfaces` resolve them — the day picker's range.

@@ -1,7 +1,7 @@
 'use client';
 
 import type React from 'react';
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { clsx } from 'clsx';
 import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, RotateCw, Trash2 } from 'lucide-react';
 import { LazyImg } from '@/components/LazyImg';
@@ -200,7 +200,16 @@ export function CanvasCard({
   canvas, idx, layout, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop,
   openEditor, handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard,
   handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur, swapSource, setSwapSource, handleQuickDelete,
-}: CardProps & { canvas: CanvasItem; idx: number }) {
+  title, subtitle, children,
+}: CardProps & {
+  canvas: CanvasItem;
+  idx: number;
+  /** Card heading; "Image N" when absent. */
+  title?: string;
+  subtitle?: string;
+  /** Drawn over the print preview, e.g. a calendar month's date grid. */
+  children?: ReactNode;
+}) {
   return (
     <div className="w-[86vw] max-w-sm sm:w-auto sm:max-w-none">
       {/* Deliberately outside the bordered card below — this is a UI
@@ -208,10 +217,13 @@ export function CanvasCard({
           with the photo made it read as if it were. Dimensions/frame
           count are shown once already, in the page header above — not
           repeated per card. */}
-      <div className="px-1 py-1.5">
+      <div className="px-1 py-1.5 flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">
-          Image {idx + 1}
+          {title ?? `Image ${idx + 1}`}
         </h3>
+        {subtitle && (
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-400">{subtitle}</span>
+        )}
       </div>
       <div
         className={clsx(
@@ -251,6 +263,7 @@ export function CanvasCard({
           onPointerCancel={handlePanEnd}
         >
           {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+          {children}
 
         {canvas.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
           <button
