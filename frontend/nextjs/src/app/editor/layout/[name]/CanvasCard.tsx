@@ -3,7 +3,7 @@
 import type React from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { clsx } from 'clsx';
-import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, RotateCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, Pencil, RotateCw, Trash2 } from 'lucide-react';
 import { LazyImg } from '@/components/LazyImg';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
 import { CANVAS_CARD_WIDTH_CLASS, activatesCard, isLostLocalImage } from './editor-utils';
@@ -36,6 +36,32 @@ export type CardProps = {
 };
 
 /** One side of a multi-surface product (front/back, or a book page), with its own label and Edit button. */
+/** "Click to edit" affordance over a card's photo: a tint and an Edit pill
+ *  that appear while the pointer is over the photo (`group/photo`), on
+ *  devices with a hover pointer only — a phone tap opens the editor without
+ *  flashing a hint, and in tap-to-swap it would mislead. Pointer events pass
+ *  through, so the card's own click, drag and pan handling is untouched. */
+function EditHint({ placement = 'center' }: {
+  /** `top` keeps the pill in the upper photo area when something else
+   *  (a calendar month's date grid) sits over the lower part of the card. */
+  placement?: 'center' | 'top';
+}) {
+  return (
+    <div
+      aria-hidden
+      className={clsx(
+        'pointer-events-none absolute inset-0 z-[5] flex justify-center bg-indigo-900/0 opacity-0 transition-all duration-200 [@media(hover:hover)]:group-hover/photo:bg-indigo-900/20 [@media(hover:hover)]:group-hover/photo:opacity-100',
+        placement === 'top' ? 'items-start pt-[10%]' : 'items-center',
+      )}
+    >
+      <span className="flex items-center gap-1.5 rounded-full border border-indigo-100 bg-white/95 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-indigo-600 shadow-md">
+        <Pencil className="w-3.5 h-3.5" aria-hidden />
+        Edit photo
+      </span>
+    </div>
+  );
+}
+
 export function SurfaceCard({
   surface, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop, openEditor,
   handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard,
@@ -80,7 +106,10 @@ export function SurfaceCard({
             onPointerUp={handlePanEnd}
             onPointerCancel={handlePanEnd}
           >
-            {surfaceCanvas?.dataUrl ? <img src={surfaceCanvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={surface.label} /> : <div className="absolute inset-0 flex items-center justify-center text-slate-300"><Layout className="w-10 h-10 opacity-20" /></div>}
+            <div className="absolute inset-0 group/photo">
+              {surfaceCanvas?.dataUrl ? <img src={surfaceCanvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={surface.label} /> : <div className="absolute inset-0 flex items-center justify-center text-slate-300"><Layout className="w-10 h-10 opacity-20" /></div>}
+              {!repositionMode && <EditHint />}
+            </div>
 
             {surfaceCanvas?.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
               <button
@@ -262,7 +291,10 @@ export function CanvasCard({
           onPointerUp={handlePanEnd}
           onPointerCancel={handlePanEnd}
         >
-          {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+          <div className="absolute inset-0 group/photo">
+            {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+            {!repositionMode && <EditHint placement={children ? 'top' : 'center'} />}
+          </div>
           {children}
 
         {canvas.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
