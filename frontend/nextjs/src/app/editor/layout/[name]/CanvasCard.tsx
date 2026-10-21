@@ -6,7 +6,7 @@ import { clsx } from 'clsx';
 import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, RotateCw, Trash2 } from 'lucide-react';
 import { LazyImg } from '@/components/LazyImg';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
-import { activatesCard, isLostLocalImage } from './editor-utils';
+import { CANVAS_CARD_WIDTH_CLASS, activatesCard, isLostLocalImage } from './editor-utils';
 import type { CanvasItem, SurfaceState } from './types';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
@@ -211,7 +211,7 @@ export function CanvasCard({
   children?: ReactNode;
 }) {
   return (
-    <div className="w-[86vw] max-w-sm sm:w-auto sm:max-w-none">
+    <div className={CANVAS_CARD_WIDTH_CLASS}>
       {/* Deliberately outside the bordered card below — this is a UI
           label, not part of the printed design, and boxing it together
           with the photo made it read as if it were. Dimensions/frame
