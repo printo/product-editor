@@ -138,6 +138,15 @@ const CARD_COUNT_HINT_PREFIX = 'pe:cards:';
 /** Upper bound on placeholders, so a corrupt hint can't render 10k nodes. */
 export const MAX_SKELETON_CARDS = 24;
 
+/** Root classes of a card in the canvas row (`CanvasCard`, `CalendarRepeatCard`).
+ *  The row is a centred, wrapping flex row, so a short row (one card, or the
+ *  last few) sits in the middle instead of hugging the left edge. Each card
+ *  takes the width a column of the old 2/3/4/5/7-column grid had, with the
+ *  row's gap (`sm:gap-3.5` = 0.875rem) taken off, so a full row still fills
+ *  the width edge to edge. On mobile the card is a fixed 86vw, centred. */
+export const CANVAS_CARD_WIDTH_CLASS =
+  'w-[86vw] max-w-sm sm:max-w-none sm:w-[calc((100%-0.875rem)/2)] md:w-[calc((100%-2*0.875rem)/3)] lg:w-[calc((100%-3*0.875rem)/4)] xl:w-[calc((100%-4*0.875rem)/5)] 2xl:w-[calc((100%-6*0.875rem)/7)]';
+
 /** Stored photos the restored design doesn't use are deleted on restore only
  *  once this old, so a second tab on the same order keeps the photos it has
  *  just added (they are referenced only by that tab's unsaved state). */

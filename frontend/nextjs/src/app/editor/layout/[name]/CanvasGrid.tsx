@@ -26,18 +26,14 @@ export function CanvasGrid({ canvases, surfaceStates, calendar, ...card }: CardP
               ))}
             </div>
           ) : (
-            // `justify-items-center` + the card's `sm:w-auto` made each card
-            // shrink to its CONTENT width (~187px, set by the meta label and
-            // action rail) and centre inside a much wider grid column. The
-            // surplus showed up as dead space between cards — 63px of visible
-            // gap at 5 columns despite gap-3.5, and worse as columns widen.
-            // Shrinking `gap` never touched it.
-            //
-            // Stretch from sm up so a card fills its column: the gutter is
-            // then exactly the gap, and the thumbnail gets the reclaimed
-            // width instead. Mobile keeps centring, where the card is a fixed
-            // 86vw and is meant to sit centred.
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7 gap-3 sm:gap-3.5 justify-items-center sm:justify-items-stretch">
+            // A centred, wrapping flex row rather than a grid: a grid's fixed
+            // column tracks leave a lone card (or a short last row) hugging
+            // the left edge, while flex centres whatever the row holds. Each
+            // card sets its own per-breakpoint width (CANVAS_CARD_WIDTH_CLASS)
+            // to the share a grid column had, so a full row looks as it did,
+            // and a card never shrinks to its content width (an earlier
+            // `sm:w-auto` left dead space between cards).
+            <div className="flex flex-wrap justify-center gap-3 sm:gap-3.5">
               {canvases.map((canvas, idx) => {
                 const page = calendar?.pages[idx];
                 if (!calendar || !page) return <CanvasCard key={idx} canvas={canvas} idx={idx} {...card} />;
