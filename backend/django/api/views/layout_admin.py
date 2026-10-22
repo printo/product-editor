@@ -507,8 +507,9 @@ def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
         stem = f"{layout_name}_{target}_mask" if target else f"{layout_name}_mask"
         data = upload.read()
         if ext == '.svg':
-            from services.svg_mask import validate_svg_mask
+            from services.svg_mask import normalize_svg_mask, validate_svg_mask
             validate_svg_mask(data)
+            data = normalize_svg_mask(data)
         # A content fingerprint in the name gives every distinct mask its own
         # URL, so a CDN or browser can cache it for good: replacing a mask
         # changes its URL instead of serving the old image from cache while

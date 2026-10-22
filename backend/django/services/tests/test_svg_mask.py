@@ -24,7 +24,7 @@ from PIL import Image
 
 from layout_engine.engine import LayoutEngine
 from services import storage as storage_mod
-from services.svg_mask import rasterize_svg_mask, validate_svg_mask
+from services.svg_mask import normalize_svg_mask, rasterize_svg_mask, validate_svg_mask
 from services.tests.fake_s3 import S3Backend
 
 # A brown frame, 10% border, with a transparent window (even-odd cutout).
@@ -92,6 +92,21 @@ def test_an_edge_is_crisp_at_print_size():
     row = [img.getpixel((x, 1800))[3] for x in range(230, 250)]
     soft = [a for a in row if 0 < a < 255]
     assert len(soft) <= 1, f"edge should be one pixel wide, got {row}"
+
+
+def test_a_viewbox_only_svg_gets_a_pixel_size_for_the_preview():
+    out = normalize_svg_mask(FRAME_SVG)
+    assert b'width="100"' in out and b'height="150"' in out and b"viewBox" in out
+    validate_svg_mask(out)
+    img = rasterize_svg_mask(out, 200, 300)
+    assert img.size == (200, 300) and img.getpixel((100, 150))[3] == 0
+
+
+def test_normalising_keeps_an_existing_size_and_is_idempotent():
+    sized = b'<svg xmlns="http://www.w3.org/2000/svg" width="50mm" height="80mm" viewBox="0 0 50 80"><rect width="50" height="80"/></svg>'
+    assert normalize_svg_mask(sized) == sized
+    once = normalize_svg_mask(FRAME_SVG)
+    assert normalize_svg_mask(once) == once
 
 
 def test_the_print_loads_an_svg_from_s3_at_canvas_size():
