@@ -158,14 +158,14 @@ export function canvasCardWidthClass(cardCount: number): string {
     : 'w-[86vw] max-w-sm sm:max-w-none sm:w-[calc((100%-0.875rem)/2)] md:w-[calc((100%-2*0.875rem)/3)] lg:w-[calc((100%-3*0.875rem)/4)] xl:w-[calc((100%-4*0.875rem)/5)] 2xl:w-[calc((100%-6*0.875rem)/7)]';
 }
 
-/** The width of a "few cards" card: a comfortable size for the product's
- *  shape, capped so a tall print never grows past ~70% of the window's height
- *  (the preview, its label and the toolbar then fit without scrolling), and
- *  never wider than the row. */
+/** The width of a "few cards" card: as large as the window comfortably holds.
+ *  Up to half the window's width, and no taller than ~70% of its height (the
+ *  preview, its label and the toolbar then fit without scrolling), so a
+ *  portrait print is limited by height and a landscape one by width. Never
+ *  wider than the row, never narrower than 12rem. */
 export function canvasCardStyle(canvasWidth: number, canvasHeight: number): CSSProperties {
   const ratio = canvasWidth > 0 && canvasHeight > 0 ? canvasWidth / canvasHeight : 2 / 3;
-  const comfortable = ratio > 1 ? '34rem' : '24rem';
-  return { '--card-w': `min(100%, ${comfortable}, max(12rem, calc(70vh * ${ratio.toFixed(4)})))` } as CSSProperties;
+  return { '--card-w': `min(100%, 50vw, max(12rem, calc(70vh * ${ratio.toFixed(4)})))` } as CSSProperties;
 }
 
 /** Stored photos the restored design doesn't use are deleted on restore only

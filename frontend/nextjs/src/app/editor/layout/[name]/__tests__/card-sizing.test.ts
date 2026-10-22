@@ -8,14 +8,17 @@ describe('canvas card sizing', () => {
     expect(canvasCardWidthClass(FEW_CARDS + 1)).not.toContain('--card-w');
   });
 
-  it('caps a portrait card by width and by 70% of the window height', () => {
-    const w = String(canvasCardStyle(1200, 1800)['--card-w' as keyof ReturnType<typeof canvasCardStyle>]);
-    expect(w).toContain('24rem');
-    expect(w).toContain('70vh * 0.6667');
+  const widthOf = (w: number, h: number) =>
+    String(canvasCardStyle(w, h)['--card-w' as keyof ReturnType<typeof canvasCardStyle>]);
+
+  it('caps a card at half the window width and ~70% of its height', () => {
+    const portrait = widthOf(1200, 1800);
+    expect(portrait).toContain('50vw');
+    expect(portrait).toContain('70vh * 0.6667');
+    expect(widthOf(1800, 1200)).toContain('70vh * 1.5000');
   });
 
-  it('lets a landscape card be wider, and falls back for a missing size', () => {
-    expect(String(canvasCardStyle(1800, 1200)['--card-w' as keyof ReturnType<typeof canvasCardStyle>])).toContain('34rem');
-    expect(String(canvasCardStyle(0, 0)['--card-w' as keyof ReturnType<typeof canvasCardStyle>])).toContain('0.6667');
+  it('falls back to a portrait shape for a missing size', () => {
+    expect(widthOf(0, 0)).toContain('0.6667');
   });
 });
