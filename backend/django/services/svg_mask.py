@@ -54,6 +54,35 @@ def validate_svg_mask(data: bytes) -> None:
         raise ValueError(f"That SVG could not be rendered: {exc}") from exc
 
 
+_VIEWBOX_VALUE_RE = re.compile(rb"""viewBox\s*=\s*["']\s*[-\d.eE]+[\s,]+[-\d.eE]+[\s,]+([\d.eE]+)[\s,]+([\d.eE]+)\s*["']""", re.I)
+
+
+def normalize_svg_mask(data: bytes) -> bytes:
+    """Give the root `<svg>` a pixel width and height taken from its viewBox.
+
+    A browser sizes an `<img>` from the SVG's own width and height; with only
+    a viewBox Chrome reports a 100x150 box (fitted into 300x150), and the
+    editor preview then draws the mask at the wrong scale. The print ignores
+    these attributes (rasterize_svg_mask overrides them), so this only fixes
+    the preview. An SVG that already has a numeric width and height is kept.
+    """
+    root = _ROOT_RE.search(data)
+    if not root:
+        return data
+    tag = root.group(0)
+    if len(_SIZE_RE.findall(tag)) >= 2:
+        return data
+    box = _VIEWBOX_VALUE_RE.search(tag)
+    if not box:
+        return data
+    w, h = box.group(1).decode(), box.group(2).decode()
+    for attr in (b"width", b"height"):
+        tag_wo = re.sub(rb"""\s%s\s*=\s*(["']).*?\1""" % attr, b"", tag, flags=re.I | re.S)
+        tag = tag_wo
+    new = tag[:-1].rstrip(b"/") + (' width="%s" height="%s"' % (w, h)).encode() + (b"/>" if tag.rstrip().endswith(b"/>") else b">")
+    return data[:root.start()] + new + data[root.end():]
+
+
 def rasterize_svg_mask(data: bytes, width: int, height: int) -> Image.Image:
     """The SVG drawn at exactly width x height as RGBA.
 
