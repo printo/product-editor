@@ -394,10 +394,14 @@ class MaskDownloadView(APIView):
                     )
 
                 content_type, _ = mimetypes.guess_type(path)
-                return FileResponse(
+                response = FileResponse(
                     open(path, 'rb'),
                     content_type=content_type or 'image/png'
                 )
+                if filename.lower().endswith('.svg'):
+                    # Only ever an <img>/canvas source; never let it run as a page.
+                    response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+                return response
         except Exception as e:
             logger.error(f"Error serving mask {filename}: {e}")
             return Response(
