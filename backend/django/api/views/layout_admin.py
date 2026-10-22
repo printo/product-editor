@@ -502,26 +502,30 @@ def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
         else:
             continue
         ext = os.path.splitext(upload.name)[1].lower()
-        if ext != '.png':
-            raise ValueError("Masks must be PNG files, with a transparent window where the photo shows.")
+        if ext not in ('.png', '.svg'):
+            raise ValueError("Masks must be PNG or SVG files, with a transparent window where the photo shows.")
         stem = f"{layout_name}_{target}_mask" if target else f"{layout_name}_mask"
         data = upload.read()
+        if ext == '.svg':
+            from services.svg_mask import validate_svg_mask
+            validate_svg_mask(data)
         # A content fingerprint in the name gives every distinct mask its own
         # URL, so a CDN or browser can cache it for good: replacing a mask
         # changes its URL instead of serving the old image from cache while
         # the print uses the new one.
         digest = hashlib.sha256(data).hexdigest()[:10]
-        pending.append((f"{stem}_{digest}.png", data, block))
+        pending.append((f"{stem}_{digest}{ext}", data, block))
 
     if not pending:
         return
     storage = get_storage()
     for mask_filename, data, block in pending:
+        content_type = 'image/svg+xml' if mask_filename.endswith('.svg') else 'image/png'
         if isinstance(storage, S3Storage):
             # <prefix>/masks/ (NOT order-based uploads/) — the key
             # MaskDownloadView serves and the render reads.
             s3_key = storage.mask_key(mask_filename)
-            storage.s3.put_object(Bucket=storage.bucket, Key=s3_key, Body=data, ContentType='image/png')
+            storage.s3.put_object(Bucket=storage.bucket, Key=s3_key, Body=data, ContentType=content_type)
             logger.info(f"Uploaded mask to S3: {s3_key}")
         else:
             mask_path = os.path.join(storage.masks_dir(), mask_filename)

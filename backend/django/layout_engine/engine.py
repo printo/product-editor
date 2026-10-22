@@ -177,7 +177,7 @@ class LayoutEngine:
                 frames.append({"x": x, "y": y, "width": cell_w, "height": cell_h})
         return frames
 
-    def _load_mask(self, mask_url: str):
+    def _load_mask(self, mask_url: str, size: tuple | None = None):
         """Load a layout mask for printing, or return None when there is none.
 
         Local disk first (masks saved before layouts moved to Postgres), then
@@ -186,12 +186,18 @@ class LayoutEngine:
         missing file raises, and so does a store that couldn't answer
         (services.storage.MaskUnavailable, which the render task retries).
         Returning None here used to crash on the caller's `mask_img.size`.
+
+        An SVG mask is drawn at `size` (the canvas in pixels) rather than
+        loaded and resized, which is what keeps its edges sharp in print.
         """
         if not mask_url:
             return None
         mask_filename = os.path.basename(mask_url)
         mask_path = os.path.join(os.path.dirname(self.layouts_dir), "masks", mask_filename)
+        is_svg = mask_filename.lower().endswith(".svg")
         if os.path.exists(mask_path):
+            if is_svg:
+                return self._rasterize_svg_mask(open(mask_path, "rb").read(), size)
             return Image.open(mask_path).convert("RGBA")
 
         import io
@@ -203,7 +209,16 @@ class LayoutEngine:
                 f"Mask '{mask_filename}' was not found. Upload the mask again "
                 f"in the layout editor."
             ) from exc
+        if is_svg:
+            return self._rasterize_svg_mask(data, size)
         return Image.open(io.BytesIO(data)).convert("RGBA")
+
+    @staticmethod
+    def _rasterize_svg_mask(data: bytes, size: tuple | None):
+        if not size:
+            raise ValueError("An SVG mask needs the canvas size to be drawn at.")
+        from services.svg_mask import rasterize_svg_mask
+        return rasterize_svg_mask(data, size[0], size[1])
 
     @staticmethod
     def _normalize_frames(frames: list, canvas_w: int, canvas_h: int) -> list:
@@ -880,7 +895,10 @@ class LayoutEngine:
 
         mask_img = None
         if surface_def.get("maskUrl") and surface_def.get("maskOnExport", False):
-            mask_img = self._load_mask(surface_def["maskUrl"])
+            mask_img = self._load_mask(
+                surface_def["maskUrl"],
+                (surface_def["canvas"]["width"], surface_def["canvas"]["height"]),
+            )
             # Pre-resize the mask once to canvas size so _composite_canvas
             # doesn't rerun LANCZOS for every batch in the surface. A 200-canvas
             # render previously did 200 mask resizes; now it does 1.

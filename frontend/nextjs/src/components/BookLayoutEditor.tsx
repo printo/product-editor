@@ -350,7 +350,7 @@ function RoleEditor({
             <div className="flex items-center gap-2 mb-1.5">
               <label className="flex items-center gap-2 cursor-pointer min-w-0">
                 <span className="px-2 py-1 text-xs rounded border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 shrink-0">
-                  {role.maskUrl ? 'Replace PNG' : 'Upload PNG'}
+                  {role.maskUrl ? 'Replace mask' : 'Upload PNG or SVG'}
                 </span>
                 <span className="text-xs text-zinc-500 truncate" data-testid={`${testIdPrefix}-mask-current`}>
                   {maskFile
@@ -361,7 +361,7 @@ function RoleEditor({
                 </span>
                 <input
                   type="file"
-                  accept="image/png"
+                  accept="image/png,image/svg+xml,.svg"
                   className="sr-only"
                   data-testid={`${testIdPrefix}-mask-input`}
                   onChange={(e) => {

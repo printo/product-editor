@@ -47,3 +47,8 @@ boto3>=1.26.0
 # package's own tables, so a bump can move them — re-run the refresh tests.
 # MIT; only dependency is python-dateutil (already pulled in by botocore).
 holidays==0.105
+
+# ── SVG layout masks (services/svg_mask.py) ─────────────────────────────────
+# Rasterises an SVG mask at the canvas's exact 300-DPI pixel size so its edges
+# stay sharp in print. abi3 wheel with resvg built in — no system packages.
+resvg-py==0.5.0

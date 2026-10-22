@@ -1574,7 +1574,7 @@ export default function LayoutCreatorPage() {
                           type="file"
                           ref={maskInputRef}
                           className="hidden"
-                          accept="image/png"
+                          accept="image/png,image/svg+xml,.svg"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (file) {
@@ -1593,7 +1593,7 @@ export default function LayoutCreatorPage() {
                           className="w-full px-4 py-2.5 border border-slate-200 border-dashed rounded-lg text-xs font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
                         >
                           <Plus className="w-4 h-4" />
-                          {activeMaskFile ? 'Change Mask Image' : 'Upload PNG Mask'}
+                          {activeMaskFile ? 'Change Mask Image' : 'Upload PNG or SVG Mask'}
                         </button>
                       </div>
                       {(activeMaskFile || activeMaskUrl) && (
