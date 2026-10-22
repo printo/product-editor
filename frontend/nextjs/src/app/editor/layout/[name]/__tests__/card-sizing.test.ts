@@ -11,11 +11,11 @@ describe('canvas card sizing', () => {
   const widthOf = (w: number, h: number) =>
     String(canvasCardStyle(w, h)['--card-w' as keyof ReturnType<typeof canvasCardStyle>]);
 
-  it('caps a card at half the window width and ~70% of its height', () => {
+  it('caps a card at 70% of the window width and ~80% of its height', () => {
     const portrait = widthOf(1200, 1800);
-    expect(portrait).toContain('50vw');
-    expect(portrait).toContain('70vh * 0.6667');
-    expect(widthOf(1800, 1200)).toContain('70vh * 1.5000');
+    expect(portrait).toContain('70vw');
+    expect(portrait).toContain('80vh * 0.6667');
+    expect(widthOf(1800, 1200)).toContain('80vh * 1.5000');
   });
 
   it('falls back to a portrait shape for a missing size', () => {

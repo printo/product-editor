@@ -159,13 +159,13 @@ export function canvasCardWidthClass(cardCount: number): string {
 }
 
 /** The width of a "few cards" card: as large as the window comfortably holds.
- *  Up to half the window's width, and no taller than ~70% of its height (the
- *  preview, its label and the toolbar then fit without scrolling), so a
- *  portrait print is limited by height and a landscape one by width. Never
- *  wider than the row, never narrower than 12rem. */
+ *  Up to 70% of the window's width and ~80% of its height (the label and the
+ *  toolbar above take the rest), so a portrait print is limited by height and
+ *  a landscape one by width. Never wider than the row, never narrower than
+ *  12rem. */
 export function canvasCardStyle(canvasWidth: number, canvasHeight: number): CSSProperties {
   const ratio = canvasWidth > 0 && canvasHeight > 0 ? canvasWidth / canvasHeight : 2 / 3;
-  return { '--card-w': `min(100%, 50vw, max(12rem, calc(70vh * ${ratio.toFixed(4)})))` } as CSSProperties;
+  return { '--card-w': `min(100%, 70vw, max(12rem, calc(80vh * ${ratio.toFixed(4)})))` } as CSSProperties;
 }
 
 /** Stored photos the restored design doesn't use are deleted on restore only
