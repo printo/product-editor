@@ -5,7 +5,7 @@ import { LazyImg } from '@/components/LazyImg';
 import { MonthTileThumb, type ThumbColors } from '@/components/MonthTileThumb';
 import { MONTH_NAMES_EN, displayLabelFor, type CalendarCardPage } from '@/lib/calendar';
 import type { CalendarCellOverride, HolidayEntry, WeekStart } from '@/types/calendar';
-import { CANVAS_CARD_WIDTH_CLASS } from './editor-utils';
+import { canvasCardStyle, canvasCardWidthClass } from './editor-utils';
 
 /** What the cards need to draw a calendar page: the months, the customer's
  *  theme and entries, and where a tap on each zone goes. */
@@ -66,19 +66,25 @@ export function CalendarGridZone({ page, calendar }: { page: CalendarCardPage; c
   );
 }
 
+function aspectParts(aspectRatio: string): [number, number] {
+  const [w, h] = aspectRatio.split('/').map(Number);
+  return [w || 1200, h || 1800];
+}
+
 /** A month that prints with an earlier card's photo because there are fewer
  *  photos than months. Shown so every printed page is visible; its date grid
  *  edits as usual, and it offers a photo of its own instead of the repeat. */
-export function CalendarRepeatCard({ page, sourceDataUrl, aspectRatio, calendar }: {
+export function CalendarRepeatCard({ page, sourceDataUrl, aspectRatio, calendar, cardCount }: {
   page: CalendarCardPage;
   sourceDataUrl: string | undefined;
   aspectRatio: string;
   calendar: CalendarCardsConfig;
+  cardCount: number;
 }) {
   const label = displayLabelFor(page.year, page.month);
   const monthName = MONTH_NAMES_EN[page.month - 1];
   return (
-    <div className={CANVAS_CARD_WIDTH_CLASS} data-testid="calendar-repeat-card">
+    <div className={canvasCardWidthClass(cardCount)} style={canvasCardStyle(...aspectParts(aspectRatio))} data-testid="calendar-repeat-card">
       <div className="px-1 py-1.5 flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">{label}</h3>
         <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-400">

@@ -14,6 +14,7 @@ export function CanvasGrid({ canvases, surfaceStates, calendar, ...card }: CardP
   surfaceStates: SurfaceState[];
   calendar?: CalendarCardsConfig | null;
 }) {
+  const cardCount = Math.max(canvases.length, calendar?.pages.length ?? 0);
   const aspectRatio = `${card.layout.canvas?.width || 1200} / ${card.layout.canvas?.height || 1800}`;
   return (
     <>
@@ -29,17 +30,17 @@ export function CanvasGrid({ canvases, surfaceStates, calendar, ...card }: CardP
             // A centred, wrapping flex row rather than a grid: a grid's fixed
             // column tracks leave a lone card (or a short last row) hugging
             // the left edge, while flex centres whatever the row holds. Each
-            // card sets its own per-breakpoint width (CANVAS_CARD_WIDTH_CLASS)
-            // to the share a grid column had, so a full row looks as it did,
-            // and a card never shrinks to its content width (an earlier
+            // card sets its own width (canvasCardWidthClass): a comfortable
+            // size when there are only a few, else the share a grid column
+            // had. A card never shrinks to its content width (an earlier
             // `sm:w-auto` left dead space between cards).
             <div className="flex flex-wrap justify-center gap-3 sm:gap-3.5">
               {canvases.map((canvas, idx) => {
                 const page = calendar?.pages[idx];
-                if (!calendar || !page) return <CanvasCard key={idx} canvas={canvas} idx={idx} {...card} />;
+                if (!calendar || !page) return <CanvasCard key={idx} canvas={canvas} idx={idx} cardCount={cardCount} {...card} />;
                 return (
                   <CanvasCard
-                    key={idx} canvas={canvas} idx={idx} {...card}
+                    key={idx} canvas={canvas} idx={idx} cardCount={cardCount} {...card}
                     title={displayLabelFor(page.year, page.month)} subtitle={`Image ${idx + 1}`}
                   >
                     <CalendarGridZone page={page} calendar={calendar} />
@@ -48,7 +49,7 @@ export function CanvasGrid({ canvases, surfaceStates, calendar, ...card }: CardP
               })}
               {calendar?.pages.slice(canvases.length).map(page => (
                 <CalendarRepeatCard
-                  key={`repeat-${page.surfaceIndex}`} page={page} calendar={calendar} aspectRatio={aspectRatio}
+                  key={`repeat-${page.surfaceIndex}`} page={page} calendar={calendar} aspectRatio={aspectRatio} cardCount={cardCount}
                   sourceDataUrl={canvases[page.canvasIdx]?.dataUrl ?? undefined}
                 />
               ))}

@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { OrientationOutcome } from '@/lib/ml-orientation';
 import type { HolidayEntry } from '@/types/calendar';
 import type { Overlay } from './types';
@@ -138,14 +139,34 @@ const CARD_COUNT_HINT_PREFIX = 'pe:cards:';
 /** Upper bound on placeholders, so a corrupt hint can't render 10k nodes. */
 export const MAX_SKELETON_CARDS = 24;
 
+/** How many cards still count as "a few": they get a comfortable size of their
+ *  own (`canvasCardStyle`); more than this and the cards share the row. */
+export const FEW_CARDS = 3;
+
 /** Root classes of a card in the canvas row (`CanvasCard`, `CalendarRepeatCard`).
  *  The row is a centred, wrapping flex row, so a short row (one card, or the
- *  last few) sits in the middle instead of hugging the left edge. Each card
- *  takes the width a column of the old 2/3/4/5/7-column grid had, with the
- *  row's gap (`sm:gap-3.5` = 0.875rem) taken off, so a full row still fills
- *  the width edge to edge. On mobile the card is a fixed 86vw, centred. */
-export const CANVAS_CARD_WIDTH_CLASS =
-  'w-[86vw] max-w-sm sm:max-w-none sm:w-[calc((100%-0.875rem)/2)] md:w-[calc((100%-2*0.875rem)/3)] lg:w-[calc((100%-3*0.875rem)/4)] xl:w-[calc((100%-4*0.875rem)/5)] 2xl:w-[calc((100%-6*0.875rem)/7)]';
+ *  last few) sits in the middle instead of hugging the left edge. On mobile
+ *  the card is a fixed 86vw, centred. From `sm` up:
+ *  - a few cards take the width `canvasCardStyle` gives (`--card-w`); a share
+ *    of the row made a lone card a seventh of a wide monitor;
+ *  - many cards take the share a column of the 2/3/4/5/7-column grid had, less
+ *    the row's gap (`sm:gap-3.5` = 0.875rem), so a full row still fills the
+ *    width edge to edge. */
+export function canvasCardWidthClass(cardCount: number): string {
+  return cardCount <= FEW_CARDS
+    ? 'w-[86vw] max-w-sm sm:max-w-none sm:w-[var(--card-w)]'
+    : 'w-[86vw] max-w-sm sm:max-w-none sm:w-[calc((100%-0.875rem)/2)] md:w-[calc((100%-2*0.875rem)/3)] lg:w-[calc((100%-3*0.875rem)/4)] xl:w-[calc((100%-4*0.875rem)/5)] 2xl:w-[calc((100%-6*0.875rem)/7)]';
+}
+
+/** The width of a "few cards" card: a comfortable size for the product's
+ *  shape, capped so a tall print never grows past ~70% of the window's height
+ *  (the preview, its label and the toolbar then fit without scrolling), and
+ *  never wider than the row. */
+export function canvasCardStyle(canvasWidth: number, canvasHeight: number): CSSProperties {
+  const ratio = canvasWidth > 0 && canvasHeight > 0 ? canvasWidth / canvasHeight : 2 / 3;
+  const comfortable = ratio > 1 ? '34rem' : '24rem';
+  return { '--card-w': `min(100%, ${comfortable}, max(12rem, calc(70vh * ${ratio.toFixed(4)})))` } as CSSProperties;
+}
 
 /** Stored photos the restored design doesn't use are deleted on restore only
  *  once this old, so a second tab on the same order keeps the photos it has
