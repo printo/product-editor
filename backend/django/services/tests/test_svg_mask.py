@@ -20,6 +20,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "product_editor.settings")
 os.environ.setdefault("DEBUG", "1")
 django.setup()
 
+from PIL import Image
+
 from layout_engine.engine import LayoutEngine
 from services import storage as storage_mod
 from services.svg_mask import rasterize_svg_mask, validate_svg_mask
@@ -99,6 +101,27 @@ def test_the_print_loads_an_svg_from_s3_at_canvas_size():
         eng = LayoutEngine(os.path.join(work, "layouts"), os.path.join(work, "exports"))
         mask = eng._load_mask("/api/layouts/masks/f_mask_ab.svg", (1200, 1800))
     assert mask.size == (1200, 1800) and mask.getpixel((600, 900))[3] == 0
+
+
+def test_an_svg_mask_is_printed_over_the_photo_end_to_end():
+    work = tempfile.mkdtemp(prefix="pe-svgmask-")
+    photo = os.path.join(work, "red.png")
+    Image.new("RGB", (400, 600), (255, 0, 0)).save(photo)
+    layout = {
+        "name": "svg_test",
+        "canvas": {"width": 300, "height": 450, "dpi": 300},
+        "frames": [{"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}],
+        "maskUrl": "/api/layouts/masks/svg_test_mask_ab.svg",
+        "maskOnExport": True,
+    }
+    with S3Backend() as s3:
+        s3.client.put_object(Bucket=s3.storage.bucket, Key="product-editor/masks/svg_test_mask_ab.svg", Body=FRAME_SVG)
+        engine = LayoutEngine(os.path.join(work, "layouts"), os.path.join(work, "exports"), layout_definition=layout)
+        outputs = engine.generate("svg_test", [photo])
+    with Image.open(outputs[0]) as out:
+        rgb = out.convert("RGB")
+        assert rgb.getpixel((5, 5)) == (120, 70, 36), rgb.getpixel((5, 5))
+        assert rgb.getpixel((150, 225)) == (255, 0, 0), rgb.getpixel((150, 225))
 
 
 if __name__ == "__main__":
