@@ -14,8 +14,8 @@ describe('canvas card sizing', () => {
   it('caps a card at 70% of the window width and ~75% of its height', () => {
     const portrait = widthOf(1200, 1800);
     expect(portrait).toContain('70vw');
-    expect(portrait).toContain('75vh * 0.6667');
-    expect(widthOf(1800, 1200)).toContain('75vh * 1.5000');
+    expect(portrait).toContain('min(75vh, 100vh - 15.5rem) * 0.6667');
+    expect(widthOf(1800, 1200)).toContain('min(75vh, 100vh - 15.5rem) * 1.5000');
   });
 
   it('falls back to a portrait shape for a missing size', () => {
@@ -25,7 +25,7 @@ describe('canvas card sizing', () => {
   it('lets the sides of a front/back product share 70% of the window, each ~70% tall at most', () => {
     const two = String(surfaceCardStyle(1200, 1800, 2)['--card-w' as keyof ReturnType<typeof surfaceCardStyle>]);
     expect(two).toContain('(70vw - 1.50rem) / 2');
-    expect(two).toContain('70vh * 0.6667');
+    expect(two).toContain('min(70vh, 100vh - 16.5rem) * 0.6667');
     expect(two).toContain('max(280px');
     expect(String(surfaceCardStyle(1800, 1200, 2)['--card-w' as keyof ReturnType<typeof surfaceCardStyle>])).toContain('max(400px');
     const three = String(surfaceCardStyle(1200, 1800, 3)['--card-w' as keyof ReturnType<typeof surfaceCardStyle>]);
