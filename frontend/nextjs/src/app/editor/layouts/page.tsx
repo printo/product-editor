@@ -260,6 +260,7 @@ export default function LayoutCreatorPage() {
 
   const [selectedLayout, setSelectedLayout] = useState<LayoutConfig | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [confirmMaskRemove, setConfirmMaskRemove] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Derived in render, not inside the effect: depending on `session` itself
@@ -399,6 +400,15 @@ export default function LayoutCreatorPage() {
   const activeMaskFile = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskFile : maskFile;
   const activeMaskUrl = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskUrl : maskUrl;
   const activeMaskOnExport = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskOnExport : maskOnExport;
+  const removeActiveMask = () => {
+    if (layoutType === 'product') {
+      setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: null, maskUrl: null } : s));
+    } else {
+      setMaskFile(null); setMaskUrl(null);
+    }
+    setMaskWarning(null);
+    if (maskInputRef.current) maskInputRef.current.value = '';
+  };
   const [maskPreviewSrc, setMaskPreviewSrc] = useState<string | null>(null);
   useEffect(() => {
     if (!activeMaskFile) { setMaskPreviewSrc(activeMaskUrl); return; }
@@ -1632,15 +1642,7 @@ export default function LayoutCreatorPage() {
                           type="button"
                           title="Remove mask"
                           aria-label="Remove mask"
-                          onClick={() => {
-                            if (layoutType === 'product') {
-                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: null, maskUrl: null } : s));
-                            } else {
-                              setMaskFile(null); setMaskUrl(null);
-                            }
-                            setMaskWarning(null);
-                            if (maskInputRef.current) maskInputRef.current.value = '';
-                          }}
+                          onClick={() => setConfirmMaskRemove(true)}
                           className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg shrink-0"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1838,6 +1840,40 @@ export default function LayoutCreatorPage() {
                 {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                 {isEditMode ? 'Update Layout' : 'Create Layout'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmMaskRemove && (
+        <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-label="Remove mask?">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setConfirmMaskRemove(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-1">Remove mask?</h3>
+              <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+                The mask is detached from this layout once you save. You can upload another one afterwards.
+              </p>
+              <div className="flex w-full gap-2">
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => setConfirmMaskRemove(false)}
+                  className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { removeActiveMask(); setConfirmMaskRemove(false); }}
+                  className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           </div>
         </div>
