@@ -1594,31 +1594,17 @@ export default function LayoutCreatorPage() {
                             }
                           }}
                         />
-                        <button
-                          type="button"
-                          onClick={() => maskInputRef.current?.click()}
-                          className="w-full px-4 py-2.5 border border-slate-200 border-dashed rounded-lg text-xs font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
-                        >
-                          <Plus className="w-4 h-4" />
-                          {activeMaskFile ? 'Change Mask Image' : 'Upload PNG or SVG Mask'}
-                        </button>
+                        {!(activeMaskFile || activeMaskUrl) && (
+                          <button
+                            type="button"
+                            onClick={() => maskInputRef.current?.click()}
+                            className="w-full px-4 py-2.5 border border-slate-200 border-dashed rounded-lg text-xs font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Upload PNG or SVG Mask
+                          </button>
+                        )}
                       </div>
-                      {(activeMaskFile || activeMaskUrl) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (layoutType === 'product') {
-                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: null, maskUrl: null } : s));
-                            } else {
-                              setMaskFile(null); setMaskUrl(null);
-                            }
-                            setMaskWarning(null);
-                          }}
-                          className="px-3 py-2.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold hover:bg-rose-100"
-                        >
-                          Remove
-                        </button>
-                      )}
                     </div>
                     {maskWarning && (
                       <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
@@ -1626,15 +1612,15 @@ export default function LayoutCreatorPage() {
                         {maskWarning}
                       </div>
                     )}
-                    {(activeMaskFile || activeMaskUrl) && maskPreviewSrc && (
+                    {(activeMaskFile || activeMaskUrl) && (
                       <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
                         <div
                           className="w-20 h-20 shrink-0 rounded-md border border-slate-200 overflow-hidden"
                           style={{ backgroundImage: 'repeating-conic-gradient(#e2e8f0 0% 25%, #fff 0% 50%)', backgroundSize: '12px 12px' }}
                         >
-                          <img src={maskPreviewSrc} alt="Uploaded mask" className="w-full h-full object-contain" />
+                          {maskPreviewSrc && <img src={maskPreviewSrc} alt="Uploaded mask" className="w-full h-full object-contain" />}
                         </div>
-                        <div className="flex flex-col min-w-0">
+                        <div className="flex flex-col min-w-0 flex-1">
                           <span className="text-xs font-bold text-slate-700 truncate">
                             {activeMaskFile ? activeMaskFile.name : (activeMaskUrl ?? '').split('?')[0].split('/').pop()}
                           </span>
@@ -1642,6 +1628,23 @@ export default function LayoutCreatorPage() {
                             {activeMaskFile ? 'Not saved yet — saves with the layout' : 'Saved mask'}
                           </span>
                         </div>
+                        <button
+                          type="button"
+                          title="Remove mask"
+                          aria-label="Remove mask"
+                          onClick={() => {
+                            if (layoutType === 'product') {
+                              setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: null, maskUrl: null } : s));
+                            } else {
+                              setMaskFile(null); setMaskUrl(null);
+                            }
+                            setMaskWarning(null);
+                            if (maskInputRef.current) maskInputRef.current.value = '';
+                          }}
+                          className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     )}
                     {(activeMaskFile || activeMaskUrl) && (
