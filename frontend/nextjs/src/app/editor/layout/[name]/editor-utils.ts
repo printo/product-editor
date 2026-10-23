@@ -69,8 +69,12 @@ export function shouldAutoRotate90(
  * Decision order, per photo:
  *
  *  1. `shouldAutoRotate90` — does rotating 90° make the photo fill the
- *     frame meaningfully better? If yes → rotate 90°. This is the FILL
- *     case: a landscape photo into a portrait classic frame, etc.
+ *     frame meaningfully better? If yes → rotate a quarter turn. This is
+ *     the FILL case: a landscape photo into a portrait classic frame, etc.
+ *     Either quarter turn fills the frame equally, so when the pose model
+ *     found which way is up and that is a quarter turn (90 or 270), it
+ *     picks the direction; otherwise it is 90. A fixed 90 used to stand
+ *     people stored sideways with their heads to the right on their heads.
  *     For a near-square frame this is always false (rotation can't
  *     improve fill on a square) — which is exactly the "if the frame is
  *     square it shouldn't rotate" rule.
@@ -96,8 +100,12 @@ export function resolveRotation(
   imgW: number, imgH: number, frameW: number, frameH: number,
   { fillByRotating = true }: { fillByRotating?: boolean } = {},
 ): number {
-  // 1. FILL priority — rotate to best fill a clearly portrait/landscape frame.
-  if (fillByRotating && shouldAutoRotate90(imgW, imgH, frameW, frameH)) return 90;
+  // 1. FILL priority — rotate to best fill a clearly portrait/landscape frame,
+  //    in the direction the pose model says is upright when it knows.
+  if (fillByRotating && shouldAutoRotate90(imgW, imgH, frameW, frameH)) {
+    if (typeof outcome === 'object' && (outcome.rotation === 90 || outcome.rotation === 270)) return outcome.rotation;
+    return 90;
+  }
   // 2. Aspect-neutral / near-square frame — let the ML correct genuine
   //    sideways content (Retro polaroid case).
   if (typeof outcome === 'object') return outcome.rotation;

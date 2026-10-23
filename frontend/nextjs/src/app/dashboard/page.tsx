@@ -9,7 +9,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
-import Link from 'next/link';
 import { clsx } from 'clsx';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -260,7 +259,11 @@ export default function Dashboard() {
                   key={layout.id}
                   className="group bg-white rounded-2xl border border-slate-100/60 overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 active:shadow-xl active:shadow-indigo-500/10 transition-all duration-300 hover:-translate-y-1 active:-translate-y-1"
                 >
-                  <Link href={layoutEditorHref(layout.id, orientationChoice[layout.id] ?? null, layout.orientationInfo)} className="block">
+                  {/* A plain link, not next/link: the editor reads its address
+                      (?orientation= among it) while it first renders, and a
+                      client-side transition renders it before the address bar
+                      has changed, so the choice was silently dropped. */}
+                  <a href={layoutEditorHref(layout.id, orientationChoice[layout.id] ?? null, layout.orientationInfo)} className="block">
                   <LayoutPreview layout={layout} />
                   <div className="p-3 sm:p-5 pb-0 sm:pb-0">
                     <h3 className={`${ubuntu.className} text-base font-bold text-slate-900/90 uppercase tracking-tight truncate group-hover:text-indigo-600 group-active:text-indigo-600 transition-colors`}>
@@ -286,7 +289,7 @@ export default function Dashboard() {
                       </p>
                     )}
                   </div>
-                  </Link>
+                  </a>
                   <div className="px-3 sm:px-5 pb-3 sm:pb-5">
                     <OrientationChoiceControl
                       info={layout.orientationInfo}
