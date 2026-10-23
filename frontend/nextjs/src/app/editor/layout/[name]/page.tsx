@@ -171,7 +171,7 @@ export default function LayoutEditorPage() {
   const { setToolbarSentinel, isToolbarStuck, setToolbarEl, toolbarHeight } = useStickyToolbar(headerHeight);
 
   const [orientationReport, setOrientationReport] = useState<OrientationReport | null>(null);
-  useDashboardHeader(embedToken, router, { report: orientationReport, hasPhotos: files.length > 0 });
+  useDashboardHeader(embedToken, router);
 
   useLoginRedirect({ status, session, embedToken, router });
 

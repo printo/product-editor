@@ -98,6 +98,13 @@ def test_report_says_up_front_whether_the_layout_can_be_turned():
     assert apply_orientation(sq, None)[1]["blocked"] == "square_layout"
 
 
+def test_orientation_info_is_what_the_layout_list_needs():
+    from services.layout_orientation import orientation_info
+    assert orientation_info(_landscape()) == {"orientation": "landscape", "blocked": None}
+    assert orientation_info({**_landscape(), "frameCaptionsEnabled": True}) == {"orientation": "landscape", "blocked": "has_captions"}
+    assert orientation_info({"name": "x"}) == {"orientation": None, "blocked": "not_rotatable"}
+
+
 def test_opt_out_flag_and_product_types():
     flagged = {**_landscape(), "orientationRotatable": False}
     assert apply_orientation(flagged, "portrait")[1]["reason"] == "not_rotatable"

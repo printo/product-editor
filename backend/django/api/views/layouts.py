@@ -14,6 +14,7 @@ from drf_spectacular.utils import (
 )
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
+from services.layout_orientation import orientation_info
 from services.storage import get_storage
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
 from ._common import is_safe_layout_name, layout_policy_cache_key
@@ -62,6 +63,7 @@ def _summarize_layout(data):
         },
         "updatedAt": data.get("updatedAt"),
         "templateCount": data.get("templateCount", 0),
+        "orientationInfo": data.get("orientationInfo"),
     }
 
 
@@ -138,7 +140,8 @@ class ListLayoutsView(APIView):
             from .templates import template_counts
             counts = template_counts(published_only=True)
             layouts_data = [
-                {**d, 'templateCount': counts.get(d.get('name'), 0)} for d in layouts_data
+                {**d, 'templateCount': counts.get(d.get('name'), 0), 'orientationInfo': orientation_info(d)}
+                for d in layouts_data
             ]
             if request.query_params.get('fields') == 'summary':
                 payload = [_summarize_layout(d) for d in layouts_data]
