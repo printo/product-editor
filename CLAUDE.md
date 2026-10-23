@@ -563,7 +563,7 @@ printo.in's CMS may send `orientation` (`portrait` | `landscape`) on `POST /api/
 - **Dashboard toggle.** The dashboard has no session, so a Portrait / Landscape toggle in the app's top bar (`OrientationToggle` in `EditorToolbar.tsx`, dashboard only) reloads the editor with `?orientation=` and a fresh order id; `editor/init` reads it from the query and `editor/render` from the body, **only for an ops-flagged key** (the internal one), never an embed caller's. Same function, so a layout tried here prints the way the embed will. Locked, with the reason as its tooltip, when the report says the layout can't be turned.
 - `orientationRotatable` defaults **on**; ops switch it off per layout with the "Can rotate" checkbox on `/editor/layouts`.
 - A template is not shown on a turned layout (its decoration is placed for the authored one).
-- Photos are not turned by this: each is re-fitted into its new frame and the pose model keeps heads up.
+- Photos are not turned by this: each is re-fitted into its new frame by the normal pipeline, so **rotate-to-fill still applies** (decision 2026-10-23, kept as is): a portrait photo in a wide turned frame can be turned sideways, exactly as in a layout drawn that way.
 - Printo is told not to send `orientation` until a layout has been printed turned and checked.
 - Pinned by `services/tests/test_layout_orientation.py`, `test_orientation_render.py` (real engine), `api/tests/test_orientation.py`, `embed/proxy/__tests__/order-orientation.test.ts`.
 
