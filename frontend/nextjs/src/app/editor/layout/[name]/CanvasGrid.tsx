@@ -23,7 +23,7 @@ export function CanvasGrid({ canvases, surfaceStates, calendar, ...card }: CardP
           {surfaceStates.length > 1 ? (
             <div className="flex gap-6 items-start justify-center overflow-x-auto pb-4 px-4 w-full custom-scrollbar">
               {surfaceStates.map((surface) => (
-                <SurfaceCard key={surface.key} surface={surface} {...card} />
+                <SurfaceCard key={surface.key} surface={surface} sideCount={surfaceStates.length} {...card} />
               ))}
             </div>
           ) : (

@@ -6,7 +6,7 @@ import { clsx } from 'clsx';
 import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, Pencil, RotateCw, Trash2 } from 'lucide-react';
 import { LazyImg } from '@/components/LazyImg';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
-import { activatesCard, canvasCardWidthClass, canvasCardStyle, isLostLocalImage } from './editor-utils';
+import { FEW_CARDS, activatesCard, canvasCardWidthClass, canvasCardStyle, isLostLocalImage, surfaceCardStyle } from './editor-utils';
 import type { CanvasItem, SurfaceState } from './types';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
@@ -63,17 +63,18 @@ function EditHint({ placement = 'center' }: {
 }
 
 export function SurfaceCard({
-  surface, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop, openEditor,
+  surface, sideCount, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop, openEditor,
   handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard,
   handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur, swapSource, setSwapSource, handleQuickDelete,
-}: CardProps & { surface: SurfaceState }) {
+}: CardProps & { surface: SurfaceState; sideCount: number }) {
     const cw = surface.def.canvas?.width || 1200;
     const ch = surface.def.canvas?.height || 1800;
     const surfaceCanvas = surface.canvases[0] || null;
+    const fewSides = sideCount <= FEW_CARDS;
     return (
       <div 
-        className="shrink-0 flex flex-col gap-3"
-        style={{ width: cw > ch ? '400px' : '280px' }}
+        className={clsx('shrink-0 flex flex-col gap-3', fewSides && (cw > ch ? 'w-[400px]' : 'w-[280px]') + ' sm:w-[var(--card-w)]')}
+        style={fewSides ? surfaceCardStyle(cw, ch, sideCount) : { width: cw > ch ? '400px' : '280px' }}
         draggable={!repositionMode}
         onDragStart={(e) => handleDragStart(e, 0, surface.key)}
         onDragOver={(e) => handleDragOver(e, 0, surface.key)}

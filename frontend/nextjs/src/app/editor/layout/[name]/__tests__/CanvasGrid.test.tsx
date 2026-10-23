@@ -207,7 +207,7 @@ describe('CanvasCard', () => {
 describe('SurfaceCard', () => {
   it('names its side, and every action carries the side', () => {
     const props = cardProps();
-    render(<SurfaceCard surface={surface('back', 'Back')} {...props} />);
+    render(<SurfaceCard sideCount={2} surface={surface('back', 'Back')} {...props} />);
     expect(screen.getByRole('heading')).toHaveTextContent('Back');
     expect(screen.getByText('102×152mm')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -226,7 +226,7 @@ describe('SurfaceCard', () => {
   it('a side with a lost added image opens the editor on that side', () => {
     const props = cardProps();
     const lostImage = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
-    render(<SurfaceCard surface={surface('back', 'Back', canvas({ overlays: [lostImage] }))} {...props} />);
+    render(<SurfaceCard sideCount={2} surface={surface('back', 'Back', canvas({ overlays: [lostImage] }))} {...props} />);
     fireEvent.click(screen.getByRole('button', { name: /Added image missing/ }));
     expect(props.openEditor).toHaveBeenCalledWith(0, 'back');
     expect(props.handleCardClick).not.toHaveBeenCalled();
@@ -234,7 +234,7 @@ describe('SurfaceCard', () => {
 
   it('drags as its side', () => {
     const props = cardProps();
-    const { container } = render(<SurfaceCard surface={surface('back', 'Back')} {...props} />);
+    const { container } = render(<SurfaceCard sideCount={2} surface={surface('back', 'Back')} {...props} />);
     const draggable = container.querySelector('[draggable="true"]')!;
     fireEvent.dragStart(draggable);
     fireEvent.drop(draggable);

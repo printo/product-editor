@@ -1,4 +1,4 @@
-import { FEW_CARDS, canvasCardStyle, canvasCardWidthClass } from '../editor-utils';
+import { FEW_CARDS, canvasCardStyle, canvasCardWidthClass, surfaceCardStyle } from '../editor-utils';
 
 describe('canvas card sizing', () => {
   it('gives a few cards a size of their own and many cards a share of the row', () => {
@@ -20,5 +20,15 @@ describe('canvas card sizing', () => {
 
   it('falls back to a portrait shape for a missing size', () => {
     expect(widthOf(0, 0)).toContain('0.6667');
+  });
+
+  it('lets the sides of a front/back product share 70% of the window, each ~70% tall at most', () => {
+    const two = String(surfaceCardStyle(1200, 1800, 2)['--card-w' as keyof ReturnType<typeof surfaceCardStyle>]);
+    expect(two).toContain('(70vw - 1.50rem) / 2');
+    expect(two).toContain('70vh * 0.6667');
+    expect(two).toContain('max(280px');
+    expect(String(surfaceCardStyle(1800, 1200, 2)['--card-w' as keyof ReturnType<typeof surfaceCardStyle>])).toContain('max(400px');
+    const three = String(surfaceCardStyle(1200, 1800, 3)['--card-w' as keyof ReturnType<typeof surfaceCardStyle>]);
+    expect(three).toContain('(70vw - 3.00rem) / 3');
   });
 });
