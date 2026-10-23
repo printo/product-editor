@@ -6,7 +6,7 @@ import { clsx } from 'clsx';
 import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, Pencil, RotateCw, Trash2 } from 'lucide-react';
 import { LazyImg } from '@/components/LazyImg';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
-import { CANVAS_CARD_WIDTH_CLASS, activatesCard, isLostLocalImage } from './editor-utils';
+import { activatesCard, canvasCardWidthClass, canvasCardStyle, isLostLocalImage } from './editor-utils';
 import type { CanvasItem, SurfaceState } from './types';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
@@ -226,13 +226,15 @@ export function SurfaceCard({
 
 /** One card of a single-surface product's grid: the print preview and its quick-action rail. */
 export function CanvasCard({
-  canvas, idx, layout, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop,
+  canvas, idx, cardCount, layout, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop,
   openEditor, handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard,
   handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur, swapSource, setSwapSource, handleQuickDelete,
   title, subtitle, children,
 }: CardProps & {
   canvas: CanvasItem;
   idx: number;
+  /** How many cards the row holds; a few get a size of their own, many share the row. */
+  cardCount: number;
   /** Card heading; "Image N" when absent. */
   title?: string;
   subtitle?: string;
@@ -240,7 +242,7 @@ export function CanvasCard({
   children?: ReactNode;
 }) {
   return (
-    <div className={CANVAS_CARD_WIDTH_CLASS}>
+    <div className={canvasCardWidthClass(cardCount)} style={canvasCardStyle(layout.canvas?.width || 1200, layout.canvas?.height || 1800)}>
       {/* Deliberately outside the bordered card below — this is a UI
           label, not part of the printed design, and boxing it together
           with the photo made it read as if it were. Dimensions/frame

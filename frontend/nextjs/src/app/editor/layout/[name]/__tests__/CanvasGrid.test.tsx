@@ -100,7 +100,7 @@ describe('CanvasGrid — one-month-a-page calendar', () => {
 describe('CanvasCard', () => {
   const setup = (over: Partial<CardProps> = {}, c = canvas(), idx = 2) => {
     const props = cardProps(over);
-    render(<CanvasCard canvas={c} idx={idx} {...props} />);
+    render(<CanvasCard canvas={c} idx={idx} cardCount={1} {...props} />);
     return { props, card: screen.getByRole('button', { name: `Edit canvas ${idx + 1}` }) };
   };
 
