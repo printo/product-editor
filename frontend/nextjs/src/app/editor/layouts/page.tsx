@@ -399,6 +399,13 @@ export default function LayoutCreatorPage() {
   const activeMaskFile = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskFile : maskFile;
   const activeMaskUrl = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskUrl : maskUrl;
   const activeMaskOnExport = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskOnExport : maskOnExport;
+  const [maskPreviewSrc, setMaskPreviewSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!activeMaskFile) { setMaskPreviewSrc(activeMaskUrl); return; }
+    const objectUrl = URL.createObjectURL(activeMaskFile);
+    setMaskPreviewSrc(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [activeMaskFile, activeMaskUrl]);
 
   const setActiveFrames = useCallback((updater: LayoutFrame[] | ((prev: LayoutFrame[]) => LayoutFrame[])) => {
     if (layoutType === 'product') {
@@ -1617,6 +1624,24 @@ export default function LayoutCreatorPage() {
                       <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                         {maskWarning}
+                      </div>
+                    )}
+                    {(activeMaskFile || activeMaskUrl) && maskPreviewSrc && (
+                      <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                        <div
+                          className="w-20 h-20 shrink-0 rounded-md border border-slate-200 overflow-hidden"
+                          style={{ backgroundImage: 'repeating-conic-gradient(#e2e8f0 0% 25%, #fff 0% 50%)', backgroundSize: '12px 12px' }}
+                        >
+                          <img src={maskPreviewSrc} alt="Uploaded mask" className="w-full h-full object-contain" />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-bold text-slate-700 truncate">
+                            {activeMaskFile ? activeMaskFile.name : (activeMaskUrl ?? '').split('?')[0].split('/').pop()}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {activeMaskFile ? 'Not saved yet — saves with the layout' : 'Saved mask'}
+                          </span>
+                        </div>
                       </div>
                     )}
                     {(activeMaskFile || activeMaskUrl) && (
