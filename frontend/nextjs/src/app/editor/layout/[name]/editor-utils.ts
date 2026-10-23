@@ -168,6 +168,24 @@ export function canvasCardStyle(canvasWidth: number, canvasHeight: number): CSSP
   return { '--card-w': `min(100%, 70vw, max(12rem, calc(75vh * ${ratio.toFixed(4)})))` } as CSSProperties;
 }
 
+/** Gap between the sides of a multi-side product, in rem (`gap-6`). */
+export const SIDE_GAP_REM = 1.5;
+
+/** The width of one side of a front/back product when it has a few sides
+ *  (`FEW_CARDS` or fewer; a book's many pages keep a fixed width). The sides
+ *  share up to 70% of the window's width between them, and none is taller
+ *  than ~70% of the window's height (a side's label row is taller than a
+ *  single card's, so this is a little less than `canvasCardStyle`'s 75%).
+ *  Never narrower than the old fixed width (400px landscape, 280px portrait).
+ *  Used from `sm` up; a phone keeps the fixed width and scrolls the row. */
+export function surfaceCardStyle(canvasWidth: number, canvasHeight: number, sideCount: number): CSSProperties {
+  const ratio = canvasWidth > 0 && canvasHeight > 0 ? canvasWidth / canvasHeight : 2 / 3;
+  const n = Math.max(1, sideCount);
+  const share = `(70vw - ${((n - 1) * SIDE_GAP_REM).toFixed(2)}rem) / ${n}`;
+  const floor = ratio > 1 ? '400px' : '280px';
+  return { '--card-w': `max(${floor}, min(calc(${share}), calc(70vh * ${ratio.toFixed(4)})))` } as CSSProperties;
+}
+
 /** Stored photos the restored design doesn't use are deleted on restore only
  *  once this old, so a second tab on the same order keeps the photos it has
  *  just added (they are referenced only by that tab's unsaved state). */
