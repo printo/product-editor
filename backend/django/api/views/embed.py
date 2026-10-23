@@ -19,6 +19,7 @@ from drf_spectacular.utils import (
 )
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
+from services.layout_orientation import apply_orientation, parse_orientation
 from services.order_qty import InvalidOrderQty, MAX_ORDER_QTY, parse_order_qty
 from services.template_decoration import editor_url as build_editor_url, is_template_id, parse_template_flow
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
@@ -123,6 +124,18 @@ class EmbedSessionView(APIView):
                         "Include the customer's original photos (`1_customer_uploads/`) in the "
                         "delivered ZIP. Set false for a smaller, faster download of just the "
                         "mock + print files; `uploads_download_url` is then null."
+                    ),
+                ),
+                "orientation": drf_serializers.ChoiceField(
+                    choices=["portrait", "landscape"],
+                    required=False,
+                    help_text=(
+                        "Print orientation your CMS chose for this product. The layout is "
+                        "turned a quarter turn clockwise when it is authored the other way "
+                        "round, and served exactly as authored when this is omitted, "
+                        "unrecognised, or the layout cannot be turned. This call never fails "
+                        "over it: the editor-init response and the webhook carry an "
+                        "`orientation` report saying whether it was applied and why not."
                     ),
                 ),
                 "qty": drf_serializers.IntegerField(
@@ -245,6 +258,12 @@ class EmbedSessionView(APIView):
         except InvalidOrderQty as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Print orientation. A value we do not recognise is dropped, not
+        # rejected: the layout then prints as authored and the report in the
+        # editor-init response and the webhook says so. A bad value in the
+        # caller's CMS must not strand a customer's session.
+        orientation = parse_orientation(request.data.get('orientation')) or ''
+
         # A template rides on the editor address, not on the session row: the
         # editor reads `?template=` the way it reads `order_id`, and
         # EditorInitView re-validates it. The session only needs to turn the
@@ -272,6 +291,7 @@ class EmbedSessionView(APIView):
             callback_url=callback_url,
             include_uploads=include_uploads,
             qty=qty,
+            orientation=orientation,
         )
         return Response({
             'token': str(session.token),
@@ -288,6 +308,7 @@ class EmbedSessionView(APIView):
             'callback_url': callback_url or None,
             'include_uploads': include_uploads,
             'qty': qty,
+            'orientation': orientation or None,
             'template_id': template_id or None,
             'template_flow': template_flow,
             # Ready to open when the caller named a template: its layout, the
@@ -401,6 +422,7 @@ class EmbedSessionValidateView(APIView):
             'callback_url': session.callback_url or None,
             'include_uploads': session.include_uploads,
             'qty': session.qty,
+            'orientation': session.orientation or None,
             'expires_at': session.expires_at.isoformat(),
         })
 
@@ -464,7 +486,14 @@ class EditorInitView(APIView):
                     ),
                     "template": drf_serializers.DictField(
                         allow_null=True,
-                        help_text="The published template named by `?template=`, else null.",
+                        help_text="The published template named by `?template=`, else null (also null when the layout was turned to another orientation).",
+                    ),
+                    "orientation": drf_serializers.DictField(
+                        help_text=(
+                            "`{requested, applied, reason, orientation}`: whether the session's "
+                            "orientation turned this layout, why not if it did not, and the "
+                            "orientation of the layout as served."
+                        ),
                     ),
                 },
             ),
@@ -535,6 +564,14 @@ class EditorInitView(APIView):
             # column — if it is somehow unusable, drop it rather than fail the
             # editor's mount request over it.
             init_qty = None
+        # Orientation the caller's CMS chose, echoed from X-Order-Orientation by
+        # the trusted embed proxy (EmbedSession.orientation); the dashboard
+        # sends none. Applied after the layout cache so one cached layout
+        # serves both orientations. Never an error, see layout_orientation.
+        layout_data, orientation_report = apply_orientation(
+            layout_data, request.headers.get('X-Order-Orientation'),
+        )
+
         # `?template=<id>` (customer picker, dashboard link, or the embed
         # editor_url): the published template on THIS layout, in the same
         # call. Outside the layout cache above — a publish must show at once.
@@ -554,7 +591,9 @@ class EditorInitView(APIView):
                     {'detail': f"Template '{template_param}' is not published on layout '{layout_data.get('name')}'"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            template_data = serialize_template(t)
+            # A template's decoration is placed for the layout as authored; on a
+            # turned layout it would land in the wrong place.
+            template_data = None if orientation_report['applied'] else serialize_template(t)
 
         response = Response({
             'layout': layout_data,
@@ -562,6 +601,7 @@ class EditorInitView(APIView):
             'order_id': (request.headers.get('X-Order-ID') or '').strip() or None,
             'qty': init_qty,
             'template': template_data,
+            'orientation': orientation_report,
         })
         # Cacheable on the proxy edge for short-lived shared cache; private so a
         # tenant's surfaces= filter doesn't bleed across tenants.

@@ -343,6 +343,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
     """
     from api.models import CanvasData, RenderJob
     from layout_engine.engine import LayoutEngine
+    from services.layout_orientation import apply_orientation
     from services.storage import get_storage
     try:
         import psutil
@@ -471,6 +472,13 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                 canvas.layout_name, job_id
             )
             raise
+
+        # Turn the layout the way the editor showed it. The submit-time report
+        # is the contract: it only says applied when the layout could be
+        # turned, and the same function runs here, so print and preview agree.
+        orientation = (canvas.render_state or {}).get('orientation') or {}
+        if orientation.get('applied'):
+            layout_def, _ = apply_orientation(layout_def, orientation.get('requested'))
 
         # Give each async job its own exports subdirectory so concurrent jobs
         # for the same layout name never overwrite each other's output files.
@@ -853,6 +861,10 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
         'export_format': canvas.export_format,
         # Null when the session set no qty. See services/order_qty.qty_summary.
         'qty_summary':   (canvas.render_state or {}).get('qty_summary'),
+        # Null for a job submitted before orientation existed. Otherwise
+        # {requested, applied, reason, orientation}: what the session asked
+        # for and whether the print was turned to match.
+        'orientation':   (canvas.render_state or {}).get('orientation'),
     }
     # Sign the raw bytes so the caller can verify byte-for-byte. The shared
     # secret is api_key.key — the same key the caller used to create the

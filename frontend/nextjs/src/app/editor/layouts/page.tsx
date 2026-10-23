@@ -119,6 +119,7 @@ interface LayoutConfig {
   maskUrl?: string;
   maskOnExport?: boolean;
   frameCaptionsEnabled?: boolean;
+  orientationRotatable?: boolean;
 }
 
 interface SurfaceEditorState {
@@ -227,6 +228,10 @@ export default function LayoutCreatorPage() {
   // Per-template opt-in for per-frame captions. When on, the customer editor
   // shows a caption box per print area (gated on layout.frameCaptionsEnabled).
   const [frameCaptionsEnabled, setFrameCaptionsEnabled] = useState(false);
+  // Whether the layout may be turned to the other orientation when the
+  // embedding site asks for one. On unless ops switch it off; captions,
+  // overlays and SVG masks keep a layout as authored regardless.
+  const [orientationRotatable, setOrientationRotatable] = useState(true);
 
   // Custom frames
   const [frames, setFrames] = useState<LayoutFrame[]>([]);
@@ -554,6 +559,7 @@ export default function LayoutCreatorPage() {
         type: 'product',
         tags: tags.split(',').map(t => t.trim()).filter(Boolean),
         frameCaptionsEnabled,
+        orientationRotatable,
         surfaces: surfacesData,
       };
 
@@ -582,6 +588,7 @@ export default function LayoutCreatorPage() {
         maskUrl: maskUrl || null,
         maskOnExport: maskOnExport,
         frameCaptionsEnabled,
+        orientationRotatable,
       };
 
       if (maskFile) {
@@ -700,6 +707,7 @@ export default function LayoutCreatorPage() {
       setLayoutId(name);
       setTags(data.tags?.join(', ') || '');
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
+      setOrientationRotatable(data.orientationRotatable !== false);
       setMaskWarning(null);
 
       // Multi-surface product layout
@@ -807,6 +815,7 @@ export default function LayoutCreatorPage() {
       setMaskOnExport(data.maskOnExport || false);
       setMaskFile(null);
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
+      setOrientationRotatable(data.orientationRotatable !== false);
       setIsEditMode(false); // Treat as new creation so it won't conflict
       setIsModalOpen(true);
     }
@@ -1677,6 +1686,10 @@ export default function LayoutCreatorPage() {
                         <label className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 font-semibold cursor-pointer transition-colors" title="Let customers add a caption to each print area in the editor">
                           <input type="checkbox" checked={frameCaptionsEnabled} onChange={(e) => setFrameCaptionsEnabled(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
                           Captions
+                        </label>
+                        <label className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 font-semibold cursor-pointer transition-colors" title="Allow the embedding site to ask for the other orientation (portrait or landscape). The layout is turned a quarter turn; photos are re-fitted into the turned areas. Off keeps it as authored.">
+                          <input type="checkbox" checked={orientationRotatable} onChange={(e) => setOrientationRotatable(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                          Can rotate
                         </label>
                         <button type="button" onClick={() => setShowGridGen(!showGridGen)} className="text-xs text-slate-500 hover:text-indigo-600 font-semibold transition-colors">Grid Gen</button>
                         <button type="button" onClick={() => setActiveFrames(prev => [...prev, { id: Math.random().toString(36).slice(2, 11), xMm: 0, yMm: 0, widthMm: 50, heightMm: 50, bleedMm: 0, x: 0, y: 0, width: 0, height: 0 }])} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Area</button>

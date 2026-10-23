@@ -52,9 +52,22 @@ This handler is what completes step 3.
     "shortfall":                       4,
     "customer_acknowledged_shortfall": true,
     "summary":                         "Customer agreed to proceed with 8 photos instead of the 12 ordered."
+  },
+  "orientation": {
+    "requested":   "portrait",
+    "applied":     true,
+    "reason":      null,
+    "orientation": "portrait"
   }
 }
 ```
+
+**`orientation` — whether the print was turned.** `null` for jobs submitted
+before this existed. Otherwise it says what your session asked for and what we
+did: `requested` is the value you sent (`null` if none or unrecognised),
+`applied` is whether the layout was turned, `reason` says why not when it
+wasn't, and `orientation` is the orientation of the file we printed. See
+[section 4c](#4c-ask-for-portrait-or-landscape-optional-as-of-oct-23-2026).
 
 **`qty_summary` — what the customer actually sent for print.** Present when the
 embed session was created with `qty` on a single-surface product, and on **every
@@ -207,6 +220,13 @@ router.post('/api/internal/pe-callback', async (req: Request, res: Response) => 
     file_count?: number;
     layout_name?: string;
     export_format?: 'png' | 'pdf';
+    // null for jobs submitted before orientation existed. See section 4c.
+    orientation?: {
+      requested: 'portrait' | 'landscape' | null;
+      applied: boolean;
+      reason: string | null;
+      orientation: 'portrait' | 'landscape' | 'square' | null;
+    } | null;
     // null unless the session set qty on a single-surface product.
     qty_summary?: {
       ordered_qty: number;
@@ -603,6 +623,46 @@ A handful of layouts were renamed before this closed — those still resolve
 under their pre-rename identifier via a permanent alias, so nothing to fix on
 your end even for those.
 
+### 4c. Ask for portrait or landscape (optional, as of Oct 23, 2026)
+
+Each layout is drawn one way round. If your CMS knows the product should print
+the other way, send `orientation` when you create the session and we turn the
+layout for you, so nobody has to create a second layout:
+
+```json
+POST /api/embed/session
+{ "order_id": "EXT-JOB-123", "orientation": "portrait" }
+```
+
+`orientation` is `"portrait"` or `"landscape"` (case does not matter). The
+iframe URL does not change. What the customer sees in the editor, the mock
+files and the print files all use the same turned layout, and each photo is
+re-fitted into its new frame.
+
+**This never makes a session or an order fail.** The layout is served exactly
+as it is drawn when:
+
+| Situation | `reason` in the webhook |
+|---|---|
+| you send no `orientation` | `not_sent` |
+| the value is not `portrait` or `landscape` | `invalid_value` |
+| the layout is already that orientation | `already_that_orientation` |
+| the layout is square | `square_layout` |
+| the layout is switched off for turning, or is a calendar or book | `not_rotatable` |
+| the layout has frame captions, or fixed text or sticker overlays | `has_captions`, `has_overlays` |
+| the layout's mask is an SVG | `svg_mask` |
+
+The session response echoes `orientation` (or `null` if it was dropped). It
+cannot say whether the layout will be turned, because the layout is named only
+in the iframe URL; the `orientation` object on the completion webhook and on
+`GET /api/editor/init` is where `applied` and `reason` appear. A turned layout
+is turned a quarter turn **clockwise**. Layouts with a template picker show no
+template when the layout is turned.
+
+**Do not send `orientation` for a product until Printo has confirmed that
+layout prints correctly turned.** Until then it is safe to leave out; nothing
+changes without it.
+
 ### 5. Firewall
 
 Allow inbound HTTPS from Product Editor's egress IP range to your `/api/internal/pe-callback` endpoint. Confirm the IP set with infra; add to allowlist.
@@ -647,6 +707,7 @@ const body = JSON.stringify({
   layout_name: 'classic_4x6',
   export_format: 'png',
   qty_summary: { ordered_qty: 12, placed_photos: 8, shortfall: 4, customer_acknowledged_shortfall: true, summary: 'Customer agreed to proceed with 8 photos instead of the 12 ordered.' },
+  orientation: { requested: null, applied: false, reason: 'not_sent', orientation: 'landscape' },
 });
 const sig = crypto
   .createHmac('sha256', process.env.PRODUCT_EDITOR_API_KEY!)

@@ -323,6 +323,30 @@ class MaskDownloadView(APIView):
     """View to serve layout mask images from S3 or local storage."""
     permission_classes = [AllowAny]  # Publicly accessible if URL is known
 
+    @staticmethod
+    def _rotated(storage, filename):
+        import io
+        from django.http import HttpResponse
+        from PIL import Image
+        from services.storage import MaskUnavailable
+
+        if filename.lower().endswith('.svg'):
+            return Response({"detail": "An SVG mask cannot be turned."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            data = storage.read_mask(filename)
+        except FileNotFoundError:
+            return Response({"detail": "Mask not found"}, status=status.HTTP_404_NOT_FOUND)
+        except MaskUnavailable as exc:
+            logger.error("Mask %s unavailable for rotation: %s", filename, exc)
+            return Response({"detail": "S3 service unavailable"}, status=status.HTTP_502_BAD_GATEWAY)
+        with Image.open(io.BytesIO(data)) as src:
+            turned = src.convert("RGBA").transpose(Image.Transpose.ROTATE_270)
+        out = io.BytesIO()
+        turned.save(out, format="PNG")
+        response = HttpResponse(out.getvalue(), content_type="image/png")
+        response['Cache-Control'] = 'private, max-age=300'
+        return response
+
     @extend_schema(
         tags=["layouts"],
         summary="Fetch a layout mask image",
@@ -353,6 +377,12 @@ class MaskDownloadView(APIView):
                 {"detail": "Invalid filename: path traversal not allowed"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        # ?rotate=90: the mask for a layout that services.layout_orientation
+        # turned a quarter turn clockwise. Served as bytes (never a redirect to
+        # the stored original) so the editor draws the same mask the print does.
+        if request.query_params.get('rotate') == '90':
+            return self._rotated(storage, filename)
 
         try:
             if isinstance(storage, S3Storage):

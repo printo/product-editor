@@ -192,7 +192,7 @@ class LayoutEngine:
         """
         if not mask_url:
             return None
-        mask_filename = os.path.basename(mask_url)
+        mask_filename = os.path.basename(mask_url.split("?", 1)[0])
         mask_path = os.path.join(os.path.dirname(self.layouts_dir), "masks", mask_filename)
         is_svg = mask_filename.lower().endswith(".svg")
         if os.path.exists(mask_path):
@@ -255,6 +255,7 @@ class LayoutEngine:
             "frames": layout.get("frames"),
             "maskUrl": layout.get("maskUrl"),
             "maskOnExport": layout.get("maskOnExport", False),
+            "maskRotate": layout.get("maskRotate"),
         }
         padding = layout.get("grid", {}).get("padding", 10)
         rows = layout.get("grid", {}).get("rows")
@@ -899,6 +900,12 @@ class LayoutEngine:
                 surface_def["maskUrl"],
                 (surface_def["canvas"]["width"], surface_def["canvas"]["height"]),
             )
+            if surface_def.get("maskRotate") == 90:
+                # services.layout_orientation turned the canvas a quarter turn
+                # clockwise; the stored mask is still the authored way round.
+                turned = mask_img.transpose(Image.Transpose.ROTATE_270)
+                mask_img.close()
+                mask_img = turned
             # Pre-resize the mask once to canvas size so _composite_canvas
             # doesn't rerun LANCZOS for every batch in the surface. A 200-canvas
             # render previously did 200 mask resizes; now it does 1.
