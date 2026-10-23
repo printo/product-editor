@@ -91,6 +91,16 @@ class OrientationApiTest(TestCase):
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(res.json()['orientation'], 'landscape')
 
+    # ── layout lists ─────────────────────────────────────────────────────
+
+    def test_layout_lists_say_how_each_layout_is_drawn_and_whether_it_can_turn(self):
+        for url in ('/api/layouts', '/api/layouts?fields=summary'):
+            res = self.client.get(url, **self.auth)
+            self.assertEqual(res.status_code, 200, res.content)
+            by_name = {l['name']: l for l in res.json()['layouts']}
+            self.assertEqual(by_name[NAME]['orientationInfo'], {'orientation': 'landscape', 'blocked': None})
+            self.assertEqual(by_name[BLOCKED]['orientationInfo']['blocked'], 'has_captions')
+
     # ── editor init ──────────────────────────────────────────────────────
 
     def test_init_turns_a_layout_for_the_other_orientation(self):

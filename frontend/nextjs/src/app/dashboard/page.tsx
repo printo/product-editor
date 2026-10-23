@@ -18,6 +18,7 @@ import { useHeader } from '@/context/HeaderContext';
 import { LayoutSVG } from '@/components/LayoutSVG';
 import { ubuntu } from '@/lib/site-fonts';
 import { TagFilter } from '@/components/ui/TagFilter';
+import { layoutEditorHref, orientationLockedReason, type OrientationChoice, type OrientationInfo } from '@/lib/layout-orientation';
 
 const LayoutPreview = ({ layout }: { layout: any }) => {
   const isMulti = layout.surfaceCount > 1;
@@ -64,6 +65,42 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
   );
 };
 
+/** Portrait / Landscape for one card. Fixed here, before the editor opens, so a
+ *  design is never half one orientation and half the other. A layout that
+ *  cannot be turned shows both locked, with the reason as the tooltip. */
+const OrientationChoiceControl = ({ info, value, onChange }: {
+  info: OrientationInfo | null;
+  value: OrientationChoice | null;
+  onChange: (choice: OrientationChoice) => void;
+}) => {
+  const locked = orientationLockedReason(info);
+  const shown = locked ? null : value ?? (info?.orientation === 'portrait' || info?.orientation === 'landscape' ? info.orientation : null);
+  return (
+    <div
+      role="group"
+      aria-label="Print orientation"
+      title={locked ?? 'Open this layout in portrait or landscape'}
+      className={clsx('mt-3 flex items-center rounded-full border border-indigo-100 bg-slate-50 p-0.5', locked && 'opacity-50')}
+    >
+      {(['portrait', 'landscape'] as const).map(choice => (
+        <button
+          key={choice}
+          type="button"
+          disabled={Boolean(locked)}
+          aria-pressed={shown === choice}
+          onClick={() => onChange(choice)}
+          className={clsx(
+            'flex-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors disabled:cursor-not-allowed',
+            shown === choice ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50',
+          )}
+        >
+          {choice}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 export default function Dashboard() {
   const [layouts, setLayouts] = useState<any[]>([]);
   const [isFetchingLayouts, setIsFetchingLayouts] = useState(false);
@@ -72,6 +109,8 @@ export default function Dashboard() {
   // the text search, same convention as the ops layout list.
   const [activeTagFilter, setActiveTagFilter] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // The orientation picked on each card; a card left alone opens as drawn.
+  const [orientationChoice, setOrientationChoice] = useState<Record<string, OrientationChoice>>({});
 
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
   const { data: session, status } = useSession();
@@ -108,6 +147,7 @@ export default function Dashboard() {
       createdBy: item.createdBy || 'System',
       surfaceCount: isProduct ? item.surfaces.length : 0,
       templateCount: typeof item.templateCount === 'number' ? item.templateCount : 0,
+      orientationInfo: (item.orientationInfo ?? null) as OrientationInfo | null,
       _raw: item,
     };
   }, []);
@@ -216,13 +256,13 @@ export default function Dashboard() {
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-6">
               {filtered.map((layout) => (
-                <Link
+                <div
                   key={layout.id}
-                  href={`/editor/layout/${layout.id}`}
                   className="group bg-white rounded-2xl border border-slate-100/60 overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 active:shadow-xl active:shadow-indigo-500/10 transition-all duration-300 hover:-translate-y-1 active:-translate-y-1"
                 >
+                  <Link href={layoutEditorHref(layout.id, orientationChoice[layout.id] ?? null, layout.orientationInfo)} className="block">
                   <LayoutPreview layout={layout} />
-                  <div className="p-3 sm:p-5">
+                  <div className="p-3 sm:p-5 pb-0 sm:pb-0">
                     <h3 className={`${ubuntu.className} text-base font-bold text-slate-900/90 uppercase tracking-tight truncate group-hover:text-indigo-600 group-active:text-indigo-600 transition-colors`}>
                       {layout.displayName}
                     </h3>
@@ -246,7 +286,15 @@ export default function Dashboard() {
                       </p>
                     )}
                   </div>
-                </Link>
+                  </Link>
+                  <div className="px-3 sm:px-5 pb-3 sm:pb-5">
+                    <OrientationChoiceControl
+                      info={layout.orientationInfo}
+                      value={orientationChoice[layout.id] ?? null}
+                      onChange={(choice) => setOrientationChoice(prev => ({ ...prev, [layout.id]: choice }))}
+                    />
+                  </div>
+                </div>
               ))}
             </div>
           )}

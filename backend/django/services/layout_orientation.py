@@ -139,6 +139,14 @@ def _rotate_surface(surface: dict) -> None:
         surface["maskRotate"] = 90
 
 
+def orientation_info(definition: dict) -> dict:
+    """What a layout list needs to draw its Portrait / Landscape choice: the
+    orientation the layout is drawn in and why it can never be turned (None
+    when it can). The same codes as apply_orientation's report."""
+    report = apply_orientation(definition, None)[1]
+    return {"orientation": report["orientation"], "blocked": report["blocked"]}
+
+
 def apply_orientation(definition: dict, requested: Any) -> tuple:
     """
     `(definition, report)`. The definition is a turned copy when the report says
