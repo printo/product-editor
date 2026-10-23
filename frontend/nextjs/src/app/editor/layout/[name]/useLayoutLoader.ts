@@ -8,6 +8,7 @@ import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { reconcilePageCount } from './book-pages';
 import type { FitMode, SurfaceState } from './types';
 import { isLayoutTemplate, type LayoutTemplate } from './layout-template';
+import type { OrientationReport } from './orientation';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 
@@ -18,7 +19,7 @@ export function useLayoutLoader({
   layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
   selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
   setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
-  urlTemplateId, setActiveTemplate, setTemplateNotice,
+  urlTemplateId, setActiveTemplate, setTemplateNotice, urlOrientation, setOrientationReport,
 }: {
   layoutName: string;
   embedToken: string | null;
@@ -44,6 +45,10 @@ export function useLayoutLoader({
   setActiveTemplate?: Setter<LayoutTemplate | null>;
   /** Told when the address named a template that is no longer available. */
   setTemplateNotice?: Setter<string | null>;
+  /** Dashboard `?orientation=`; sent with the layout request. */
+  urlOrientation?: 'portrait' | 'landscape' | null;
+  /** What the server did with the orientation: see services/layout_orientation.py. */
+  setOrientationReport?: Setter<OrientationReport | null>;
 }) {
   // The client-generated id in play before the embed session id was adopted —
   // lets the restore effect fall back to a pre-adoption autosave once.
@@ -68,7 +73,7 @@ export function useLayoutLoader({
         // C6 batched mount: one round trip for layout JSON + fonts list.
         // /editor/init re-uses GetLayoutView's cache, so no extra disk hit.
         const surfacesParam = new URLSearchParams(window.location.search).get('surfaces') || '';
-        const baseInitUrl = `${apiBase}/editor/init?layout=${encodeURIComponent(layoutName)}${surfacesParam ? `&surfaces=${encodeURIComponent(surfacesParam)}` : ''}`;
+        const baseInitUrl = `${apiBase}/editor/init?layout=${encodeURIComponent(layoutName)}${surfacesParam ? `&surfaces=${encodeURIComponent(surfacesParam)}` : ''}${urlOrientation ? `&orientation=${urlOrientation}` : ''}`;
         // The template named on the address comes back with the layout.
         // A link to a template that has since been unpublished must not
         // take the editor down with it: retry without, and say so.
@@ -85,6 +90,7 @@ export function useLayoutLoader({
         }
         const payload = await res.json();
         const item = payload.layout;
+        setOrientationReport?.(payload.orientation ?? null);
         if (isLayoutTemplate(payload.template)) {
           setActiveTemplate?.(payload.template);
         }
@@ -190,7 +196,7 @@ export function useLayoutLoader({
     // orderId is read only for the embed adoption comparison — including it
     // would re-fetch the layout every time the id is adopted (loop).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutName, embedToken, status, apiBase, getAuthHeaders, urlTemplateId]);
+  }, [layoutName, embedToken, status, apiBase, getAuthHeaders, urlTemplateId, urlOrientation]);
 
   return { legacyOrderIdRef };
 }

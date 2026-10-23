@@ -172,3 +172,63 @@ class OrientationApiTest(TestCase):
         report = self._submit('O-10')
         self.assertFalse(report['applied'])
         self.assertEqual(report['reason'], 'not_sent')
+
+
+class DashboardOrientationTest(OrientationApiTest):
+    """The dashboard has no session, so its toggle sends the choice itself;
+    only the internal ops key is believed, never an embed caller's."""
+
+    def setUp(self):
+        super().setUp()
+        ops = APIKey.objects.create(name='orientation-ops', key='test-orientation-ops', is_ops_team=True)
+        self.ops_auth = {'HTTP_AUTHORIZATION': f'Bearer {ops.key}'}
+
+    def test_init_honours_the_query_param_for_the_ops_key(self):
+        res = self.client.get(f'/api/editor/init?layout={NAME}&orientation=portrait', **self.ops_auth)
+        data = res.json()
+        self.assertTrue(data['orientation']['applied'])
+        self.assertEqual(data['layout']['canvas']['width'], 2000)
+
+    def test_init_ignores_the_query_param_for_an_embed_key(self):
+        res = self.client.get(f'/api/editor/init?layout={NAME}&orientation=portrait', **self.auth)
+        data = res.json()
+        self.assertFalse(data['orientation']['applied'])
+        self.assertEqual(data['orientation']['reason'], 'not_sent')
+        self.assertEqual(data['layout']['canvas']['width'], 3000)
+
+    def test_the_session_header_still_wins_over_the_query_param(self):
+        res = self.client.get(
+            f'/api/editor/init?layout={NAME}&orientation=portrait',
+            HTTP_X_ORDER_ORIENTATION='landscape', **self.ops_auth,
+        )
+        self.assertEqual(res.json()['orientation']['reason'], 'already_that_orientation')
+
+    def _submit_as(self, auth, order_id, body_orientation):
+        UploadedFile.objects.create(
+            api_key=APIKey.objects.get(key=auth['HTTP_AUTHORIZATION'].split()[1]),
+            file_path=f'/tmp/{order_id}.png', original_filename='a.png',
+            file_size_bytes=1, upload_session_id=f'up-{order_id}',
+        )
+        payload = {
+            'layout_name': NAME, 'order_id': order_id, 'orientation': body_orientation,
+            'canvases': [{'canvas_index': 0, 'frames': [{'frame_index': 0, 'upload_id': f'up-{order_id}'}]}],
+        }
+        captured = {}
+
+        def fake_submit(self_, **kwargs):
+            captured.update(kwargs)
+            return {'job_id': 'j', 'order_id': order_id, 'status_url': '/x', 'queue': 'standard'}
+
+        with mock.patch('api.render_submission.RenderSubmissionService.submit', fake_submit):
+            res = self.client.post('/api/editor/render', payload, content_type='application/json', **auth)
+        self.assertEqual(res.status_code, 202, res.content)
+        return captured['render_state']['orientation']
+
+    def test_render_takes_the_dashboard_choice_from_the_body(self):
+        report = self._submit_as(self.ops_auth, 'D-1', 'portrait')
+        self.assertTrue(report['applied'])
+
+    def test_render_ignores_a_body_orientation_from_an_embed_key(self):
+        report = self._submit_as(self.auth, 'D-2', 'portrait')
+        self.assertFalse(report['applied'])
+        self.assertEqual(report['reason'], 'not_sent')

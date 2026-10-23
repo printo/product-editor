@@ -464,6 +464,8 @@ class EditorInitView(APIView):
         parameters=[
             OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True),
             OpenApiParameter("surfaces", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("orientation", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
+                             description="`portrait` or `landscape`. Dashboard (internal key) only; embed sessions carry their orientation themselves and ignore this."),
             OpenApiParameter("template", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
                              description="A published template id on this layout; returned as `template`, 404 if not published here."),
         ],
@@ -568,9 +570,13 @@ class EditorInitView(APIView):
         # the trusted embed proxy (EmbedSession.orientation); the dashboard
         # sends none. Applied after the layout cache so one cached layout
         # serves both orientations. Never an error, see layout_orientation.
-        layout_data, orientation_report = apply_orientation(
-            layout_data, request.headers.get('X-Order-Orientation'),
-        )
+        # The dashboard has no session to carry it, so its orientation toggle
+        # sends ?orientation= instead; honoured only for the internal ops key,
+        # so an embed caller's iframe URL can never override its CMS's choice.
+        requested_orientation = request.headers.get('X-Order-Orientation')
+        if requested_orientation is None and getattr(request.user, 'is_ops_team', False):
+            requested_orientation = request.query_params.get('orientation')
+        layout_data, orientation_report = apply_orientation(layout_data, requested_orientation)
 
         # `?template=<id>` (customer picker, dashboard link, or the embed
         # editor_url): the published template on THIS layout, in the same

@@ -43,6 +43,7 @@ import { useCardActions } from './useCardActions';
 import { useCanvasGeneration, useObjectUrls, useRenderCanvas } from './useCanvasGeneration';
 import { useFileIntake } from './useFileIntake';
 import { useServerRender } from './useServerRender';
+import type { OrientationReport } from './orientation';
 import { useAutosaveAndRestore, usePhotoStore } from './useDesignPersistence';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
@@ -56,7 +57,7 @@ import { TruncatedImagesDialog } from './dialogs/TruncatedImagesDialog';
 export default function LayoutEditorPage() {
   const {
     layoutName, router, session, status, embedToken, parentOrigin, setSessionQty, orderQty,
-    orderId, setOrderId, getAuthHeaders, apiBase, serverHeicConvert, urlTemplateId, templateFlow,
+    orderId, setOrderId, getAuthHeaders, apiBase, serverHeicConvert, urlTemplateId, templateFlow, urlOrientation,
   } = useEditorEnvironment();
 
   const [layout, setLayout] = useState<any | null>(null);
@@ -169,7 +170,8 @@ export default function LayoutEditorPage() {
 
   const { setToolbarSentinel, isToolbarStuck, setToolbarEl, toolbarHeight } = useStickyToolbar(headerHeight);
 
-  useDashboardHeader(embedToken, router);
+  const [orientationReport, setOrientationReport] = useState<OrientationReport | null>(null);
+  useDashboardHeader(embedToken, router, { report: orientationReport, hasPhotos: files.length > 0 });
 
   useLoginRedirect({ status, session, embedToken, router });
 
@@ -177,7 +179,7 @@ export default function LayoutEditorPage() {
     layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
     selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
     setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
-    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning,
+    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning, urlOrientation, setOrientationReport,
   });
 
   const { getFileUrl, fileUrlCache, createdObjectURLs } = useObjectUrls();
@@ -428,7 +430,7 @@ export default function LayoutEditorPage() {
     serverRenderLabel, includeUploads, setIncludeUploads, includeUploadsRef, disclaimerChecked, setDisclaimerChecked,
     submitted, setSubmitted, submittedJobId, setSubmittedJobId, executeBatchDownload, handleSubmitDesign,
   } = useServerRender({
-    layout, layoutName, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey,
+    layout, layoutName, urlOrientation, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey,
     isCalendarProduct, calendarTheme, calendarType, genzPalette, calendarCells, isBookProduct, bookPageCount,
     qtyNeeded, totalUploadedCount, setIsDownloading, setShowDownloadModal, setRenderProgress, setError,
   });

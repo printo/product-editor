@@ -6,17 +6,66 @@ import { ArrowLeft, Check, Download, Droplets, LayoutTemplate as TemplateIcon, L
 import { useHeader } from '@/context/HeaderContext';
 import { formatLayoutDisplayName } from './editor-utils';
 import type { FitMode, SurfaceState } from './types';
+import {
+  authoredOrientation, orientationLockedReason, orientationSwitchSearch,
+  type OrientationChoice, type OrientationReport,
+} from './orientation';
 
-/** Dashboard only: the page title and the Back to Layouts button in the app's top bar. */
-export function useDashboardHeader(embedToken: string | null, router: { push(href: string): void }) {
+/** Dashboard only: Portrait / Landscape buttons that open the layout the way
+ *  the embed will receive it when the caller's session asks for that
+ *  orientation, so the whole flow can be tried here first. Switching reloads
+ *  the editor on a fresh order, so a design made for the other shape is never
+ *  restored onto it. */
+function OrientationToggle({ report, hasPhotos }: { report: OrientationReport; hasPhotos: boolean }) {
+  const shown = report.orientation === 'square' ? null : report.orientation;
+  const locked = orientationLockedReason(report);
+  const authored = authoredOrientation(report);
+  const choose = (choice: OrientationChoice) => {
+    if (locked || choice === shown) return;
+    if (hasPhotos && !window.confirm('Switching orientation starts a new design. Your current photos will be cleared. Continue?')) return;
+    window.location.assign(`${window.location.pathname}${orientationSwitchSearch(window.location.search, choice, authored)}`);
+  };
+  return (
+    <div
+      role="group"
+      aria-label="Print orientation"
+      title={locked ?? 'Open this layout in portrait or landscape. The embed does the same when the caller sends orientation.'}
+      className={clsx('flex items-center rounded-full border-2 border-indigo-100/60 bg-white/60 p-0.5 shadow-sm', locked && 'opacity-50')}
+    >
+      {(['portrait', 'landscape'] as const).map(choice => (
+        <button
+          key={choice}
+          type="button"
+          disabled={Boolean(locked)}
+          aria-pressed={shown === choice}
+          onClick={() => choose(choice)}
+          className={clsx(
+            'px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest transition-colors disabled:cursor-not-allowed',
+            shown === choice ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50',
+          )}
+        >
+          {choice}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Dashboard only: the page title, the orientation toggle and the Back to Layouts button in the app's top bar. */
+export function useDashboardHeader(
+  embedToken: string | null,
+  router: { push(href: string): void },
+  orientation: { report: OrientationReport | null; hasPhotos: boolean } = { report: null, hasPhotos: false },
+) {
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
+  const { report, hasPhotos } = orientation;
   useEffect(() => {
     if (embedToken) return;
     // Dashboard flow only — the embed iframe returns above, so a customer
     // inside printo.in's page never sees internal page naming.
     setTitle('Preview Canvas');
     setDescription('');
-    setCenterActions(null);
+    setCenterActions(report && report.orientation ? <OrientationToggle report={report} hasPhotos={hasPhotos} /> : null);
     setRightActions(
       <button
         onClick={() => router.push('/dashboard')}
@@ -28,7 +77,7 @@ export function useDashboardHeader(embedToken: string | null, router: { push(hre
         <span className="hidden md:inline">Back to Layouts</span>
       </button>
     );
-  }, [embedToken, router, setTitle, setDescription, setCenterActions, setRightActions]);
+  }, [embedToken, router, report, hasPhotos, setTitle, setDescription, setCenterActions, setRightActions]);
 }
 
 type Props = {
