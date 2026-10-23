@@ -182,6 +182,25 @@ Corollary: **`authjs.session-token` missing from `document.cookie` does not mean
 - Routes 404ing in dev → `pnpm dev:clean`.
 - IntersectionObserver never fires in automated browser panes; screenshots force delivery.
 
+### Checking a deployed UI change on production (Claude in Chrome)
+
+For a layout or sizing change, check the *deployed* build, not only the local one: the dashboard puts two header bars above the cards that the embed does not (a local embed check missed a 41px overflow, PR #289). The user signs in themselves in the Chrome tab (never enter their credentials), then, from that session and **only with the user's go-ahead for each write**:
+
+- **Measure** with `javascript_tool` against `/editor/layout/<name>`: add a photo with the `DataTransfer` trick above and read `getBoundingClientRect()` of the card (`[role=button][aria-label^="Edit canvas"]`, its parent) against `innerHeight`; step window sizes with `resize_window` (outer size; note the original first and restore it, the screen caps the height).
+- **Make test data without an API key** through the dashboard's own proxy, same-origin with the session cookie: `POST /api/internal/proxy/ops/layouts/<name>` (multipart `layout_data`) creates a layout; `POST /api/internal/proxy/embed/session` with `{"order_id":"ZZ-..."}` returns an embed token. Load `/editor/layout/<name>?token=<token>` in a **same-origin `<iframe>`** (build it from a blank same-origin page such as `/api/health`) to measure the embed at storefront sizes; a cross-origin printo.in page can only be screenshotted. Keep tokens out of logs.
+- **Purge is the user's call.** `DELETE .../ops/orders/<id>/purge?api_key=DIRECT` (the dashboard authenticates as `DIRECT` while the two keys are equal) is refused by the auto-mode classifier as irreversible; test orders (`PE-…`, `ZZ-…`) otherwise expire on the retention clock (3 days). Name test layouts `zz_…` and tell the user what was left behind.
+
+### Real-phone check (needs the user's phone)
+
+A desktop window narrowed under 640 px is **not** a phone: touch, the address-bar height, safe areas and the on-screen keyboard are not emulated. So before calling a change to the editor's phone layout (`<sm`: the 86vw `max-w-sm` card, the quick-action rail, the toolbar, the sideways-scrolling two-sided row, tap-to-swap, pinch) verified, **ask the user for a screenshot from a real phone with a short message**, and say exactly what to look at:
+
+1. Send me a phone (iPhone Safari and/or Android Chrome) screenshot of the editor with **one photo** and then with **several**.
+2. Is the whole card visible without sideways scrolling, and is the quick-action rail (rotate, fit, blur, delete) fully on the card?
+3. Are Save & Continue / Download reachable without a zoom?
+4. For a front/back product, does the row scroll sideways with both sides reachable?
+
+To give the user something to open, create a session as above and send them `https://product-editor.printo.in/editor/layout/<name>?token=<token>` (valid about 2 hours) or have them use a real product page on `alpha.printo.in/product-editor`. Until a phone screenshot exists, report phone behaviour as **not verified on a device**. State of play (2026-10-23): the card-sizing rules (#285, #286, #289) change nothing below `sm` and were checked only in desktop windows down to 500 px.
+
 ### Docker (primary workflow)
 ```bash
 docker-compose up -d
