@@ -65,8 +65,10 @@ export function useDashboardHeader(
     // inside printo.in's page never sees internal page naming.
     setTitle('Preview Canvas');
     setDescription('');
-    setCenterActions(report && report.orientation ? <OrientationToggle report={report} hasPhotos={hasPhotos} /> : null);
+    setCenterActions(null);
     setRightActions(
+      <div className="flex items-center gap-2 md:gap-3">
+      {report && report.orientation ? <OrientationToggle report={report} hasPhotos={hasPhotos} /> : null}
       <button
         onClick={() => router.push('/dashboard')}
         aria-label="Back to layouts"
@@ -76,6 +78,7 @@ export function useDashboardHeader(
         <ArrowLeft className="w-4 h-4 md:w-3.5 md:h-3.5 group-hover:-translate-x-1 transition-transform" />
         <span className="hidden md:inline">Back to Layouts</span>
       </button>
+      </div>
     );
   }, [embedToken, router, report, hasPhotos, setTitle, setDescription, setCenterActions, setRightActions]);
 }

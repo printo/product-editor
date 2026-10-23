@@ -7,7 +7,7 @@ import {
 } from '../orientation';
 
 const report = (over: Partial<OrientationReport>): OrientationReport => ({
-  requested: null, applied: false, reason: 'not_sent', orientation: 'landscape', ...over,
+  requested: null, applied: false, reason: 'not_sent', orientation: 'landscape', blocked: null, ...over,
 });
 
 describe('authoredOrientation', () => {
@@ -25,11 +25,13 @@ describe('authoredOrientation', () => {
 });
 
 describe('orientationLockedReason', () => {
-  it.each(['not_rotatable', 'has_captions', 'has_overlays', 'svg_mask', 'square_layout'])('locks on %s', (reason) => {
-    expect(orientationLockedReason(report({ reason }))).toEqual(expect.any(String));
+  it.each(['not_rotatable', 'has_captions', 'has_overlays', 'svg_mask', 'square_layout'])('locks on %s', (blocked) => {
+    expect(orientationLockedReason(report({ blocked }))).toEqual(expect.any(String));
   });
-  it.each(['not_sent', 'already_that_orientation', null])('stays open on %s', (reason) => {
-    expect(orientationLockedReason(report({ reason }))).toBeNull();
+  it('stays open when the layout can be turned, whatever the request did', () => {
+    expect(orientationLockedReason(report({ blocked: null, reason: 'not_sent' }))).toBeNull();
+    expect(orientationLockedReason(report({ blocked: null, reason: 'already_that_orientation' }))).toBeNull();
+    expect(orientationLockedReason(null)).toBeNull();
   });
 });
 

@@ -97,6 +97,7 @@ class OrientationApiTest(TestCase):
         data = self._init(NAME, 'portrait')
         self.assertEqual(data['orientation'], {
             'requested': 'portrait', 'applied': True, 'reason': None, 'orientation': 'portrait',
+            'blocked': None,
         })
         self.assertEqual((data['layout']['canvas']['width'], data['layout']['canvas']['height']), (2000, 3000))
         self.assertEqual([f['id'] for f in data['layout']['frames']], ['a', 'b'])
@@ -106,6 +107,11 @@ class OrientationApiTest(TestCase):
         self.assertFalse(data['orientation']['applied'])
         self.assertEqual(data['orientation']['reason'], 'not_sent')
         self.assertEqual(data['layout']['canvas']['width'], 3000)
+
+    def test_init_reports_a_blocked_layout_even_when_nothing_was_asked(self):
+        data = self._init(BLOCKED)
+        self.assertEqual(data['orientation']['blocked'], 'has_captions')
+        self.assertEqual(data['orientation']['reason'], 'not_sent')
 
     def test_init_the_turned_layout_does_not_poison_the_cache(self):
         self._init(NAME, 'portrait')
@@ -163,7 +169,7 @@ class OrientationApiTest(TestCase):
             expires_at=timezone.now() + timedelta(hours=1),
         )
         report = self._submit('O-9')
-        self.assertEqual(report, {'requested': 'portrait', 'applied': True, 'reason': None, 'orientation': 'portrait'})
+        self.assertEqual(report, {'requested': 'portrait', 'applied': True, 'reason': None, 'orientation': 'portrait', 'blocked': None})
 
     def test_submit_without_a_session_orientation_prints_as_authored(self):
         EmbedSession.objects.create(

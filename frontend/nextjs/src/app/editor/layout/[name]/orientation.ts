@@ -5,6 +5,8 @@ export type OrientationReport = {
   applied: boolean;
   reason: string | null;
   orientation: 'portrait' | 'landscape' | 'square' | null;
+  /** Why the layout can never be turned, whatever was asked; null when it can. */
+  blocked: string | null;
 };
 
 export type OrientationChoice = 'portrait' | 'landscape';
@@ -20,8 +22,8 @@ const CANNOT_TURN: Record<string, string> = {
 
 /** Why the toggle is locked, or null when either orientation can be chosen. */
 export function orientationLockedReason(report: OrientationReport | null): string | null {
-  if (!report?.reason) return null;
-  return CANNOT_TURN[report.reason] ?? null;
+  if (!report?.blocked) return null;
+  return CANNOT_TURN[report.blocked] ?? null;
 }
 
 /** The orientation the layout was drawn in. The report says what is served;

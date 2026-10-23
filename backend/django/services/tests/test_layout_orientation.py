@@ -34,7 +34,7 @@ def _close(a, b):
 
 def test_landscape_to_portrait_turns_canvas_and_frames():
     out, report = apply_orientation(_landscape(), "portrait")
-    assert report == {"requested": "portrait", "applied": True, "reason": None, "orientation": "portrait"}
+    assert report == {"requested": "portrait", "applied": True, "reason": None, "orientation": "portrait", "blocked": None}
     assert out["canvas"]["width"] == 2000 and out["canvas"]["height"] == 3000
     assert out["canvas"]["widthMm"] == 200 and out["canvas"]["heightMm"] == 300
     a, b = out["frames"]
@@ -87,6 +87,15 @@ def test_same_orientation_and_square_do_nothing():
     sq["canvas"].update(width=2000, height=2000)
     out, report = apply_orientation(sq, "portrait")
     assert report["reason"] == "square_layout" and report["applied"] is False
+
+
+def test_report_says_up_front_whether_the_layout_can_be_turned():
+    assert apply_orientation(_landscape(), None)[1]["blocked"] is None
+    assert apply_orientation({**_landscape(), "frameCaptionsEnabled": True}, None)[1]["blocked"] == "has_captions"
+    assert apply_orientation({**_landscape(), "orientationRotatable": False}, None)[1]["blocked"] == "not_rotatable"
+    sq = _landscape()
+    sq["canvas"].update(width=2000, height=2000)
+    assert apply_orientation(sq, None)[1]["blocked"] == "square_layout"
 
 
 def test_opt_out_flag_and_product_types():

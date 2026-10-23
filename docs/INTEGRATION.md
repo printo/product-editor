@@ -57,7 +57,8 @@ This handler is what completes step 3.
     "requested":   "portrait",
     "applied":     true,
     "reason":      null,
-    "orientation": "portrait"
+    "orientation": "portrait",
+    "blocked":     null
   }
 }
 ```
@@ -66,7 +67,7 @@ This handler is what completes step 3.
 before this existed. Otherwise it says what your session asked for and what we
 did: `requested` is the value you sent (`null` if none or unrecognised),
 `applied` is whether the layout was turned, `reason` says why not when it
-wasn't, and `orientation` is the orientation of the file we printed. See
+wasn't, and `orientation` is the orientation of the file we printed, and `blocked` is why that layout can never be turned (same codes as `reason`), or `null` when it can. See
 [section 4c](#4c-ask-for-portrait-or-landscape-optional-as-of-oct-23-2026).
 
 **`qty_summary` — what the customer actually sent for print.** Present when the
@@ -226,6 +227,7 @@ router.post('/api/internal/pe-callback', async (req: Request, res: Response) => 
       applied: boolean;
       reason: string | null;
       orientation: 'portrait' | 'landscape' | 'square' | null;
+      blocked: string | null;
     } | null;
     // null unless the session set qty on a single-surface product.
     qty_summary?: {
@@ -707,7 +709,7 @@ const body = JSON.stringify({
   layout_name: 'classic_4x6',
   export_format: 'png',
   qty_summary: { ordered_qty: 12, placed_photos: 8, shortfall: 4, customer_acknowledged_shortfall: true, summary: 'Customer agreed to proceed with 8 photos instead of the 12 ordered.' },
-  orientation: { requested: null, applied: false, reason: 'not_sent', orientation: 'landscape' },
+  orientation: { requested: null, applied: false, reason: 'not_sent', orientation: 'landscape', blocked: null },
 });
 const sig = crypto
   .createHmac('sha256', process.env.PRODUCT_EDITOR_API_KEY!)

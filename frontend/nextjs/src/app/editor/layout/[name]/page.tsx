@@ -332,9 +332,12 @@ export default function LayoutEditorPage() {
   };
 
   // The layout's published templates (none for calendars and books yet).
-  const { templates, templatesLoaded } = useLayoutTemplates({
+  // A template's decoration is placed for the layout as drawn, so a layout
+  // turned to the other orientation offers none (editor/init omits it too).
+  const { templates: layoutTemplates, templatesLoaded } = useLayoutTemplates({
     apiBase, getAuthHeaders, layoutName: layout?.name, enabled: !!layout && !isCalendarProduct && !isBookProduct,
   });
+  const templates = useMemo(() => (orientationReport?.applied ? [] : layoutTemplates), [orientationReport?.applied, layoutTemplates]);
   const totalCardCount = surfaceStates.reduce((n, s) => n + s.canvases.length, 0);
   // Picking a template is the first step: the picker opens by itself, once,
   // on a fresh design. Always on the dashboard; in the embed only when the

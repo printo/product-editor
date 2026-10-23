@@ -151,10 +151,17 @@ def apply_orientation(definition: dict, requested: Any) -> tuple:
                    not_rotatable | has_captions | has_overlays | svg_mask |
                    already_that_orientation | square_layout
       orientation  what the served layout is: portrait / landscape / square
+      blocked      why this layout can never be turned (same codes as reason,
+                   minus the request-specific ones), or None when it can; lets
+                   the dashboard toggle lock itself before anything is asked
     """
     current = layout_orientation(definition)
     cleaned = parse_orientation(requested)
-    report = {"requested": cleaned, "applied": False, "reason": None, "orientation": current}
+    blocker = "square_layout" if current == "square" else (_blocker(definition) if current else "not_rotatable")
+    report = {
+        "requested": cleaned, "applied": False, "reason": None, "orientation": current,
+        "blocked": blocker,
+    }
 
     if requested is None or str(requested).strip() == "":
         report["reason"] = "not_sent"
@@ -171,7 +178,6 @@ def apply_orientation(definition: dict, requested: Any) -> tuple:
     if current == cleaned:
         report["reason"] = "already_that_orientation"
         return definition, report
-    blocker = _blocker(definition)
     if blocker:
         report["reason"] = blocker
         return definition, report
