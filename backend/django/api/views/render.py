@@ -11,6 +11,7 @@ from django.core.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse, inline_serializer
 from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
+from services.layout_orientation import apply_orientation
 from services.order_qty import calendar_qty_summary, count_placed_photos, qty_summary, qty_violation
 from ..permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts
 from ..authentication import APIKeyUser
@@ -499,6 +500,14 @@ class EditorRenderView(APIView):
                     ),
                     child=drf_serializers.DictField(),
                 ),
+                "orientation": drf_serializers.ChoiceField(
+                    choices=["portrait", "landscape"], required=False,
+                    help_text=(
+                        "Dashboard only (internal key), and only when no embed session exists "
+                        "for the order: the orientation chosen with the editor's toggle. "
+                        "Embed orders take theirs from the session and ignore this."
+                    ),
+                ),
                 "qty_shortfall_acknowledged": drf_serializers.BooleanField(
                     required=False, default=False,
                     help_text=(
@@ -639,6 +648,24 @@ class EditorRenderView(APIView):
                 request.data.get('qty_shortfall_acknowledged'),
             )
 
+        # ── Orientation ─────────────────────────────────────────────────────
+        # Read from the session row (order_id + api_key, most recent), not a
+        # header, for the same reason as the quantity above. The report is
+        # snapshotted so the render turns the layout exactly when the editor
+        # did, and the webhook can tell the caller what happened.
+        requested_orientation = (
+            EmbedSession.objects
+            .filter(order_id=order_id, api_key=api_key)
+            .order_by('-created_at')
+            .values_list('orientation', flat=True)
+            .first()
+        ) or None
+        # No session row means the dashboard: its orientation toggle sends the
+        # choice in the body, trusted only from the internal ops key.
+        if requested_orientation is None and getattr(request.user, 'is_ops_team', False):
+            requested_orientation = request.data.get('orientation')
+        _, orientation_report = apply_orientation(layout_def or {}, requested_orientation)
+
         # ── Collect + validate all upload_ids ───────────────────────────────
         all_upload_ids = []
         for canvas in canvases_payload:
@@ -694,6 +721,7 @@ class EditorRenderView(APIView):
             'format_version': 1,
             'include_uploads': include_uploads,
             'qty_summary': order_qty_summary,
+            'orientation': orientation_report,
         }
 
         # ── Submit via shared render submission service ──────────────────────

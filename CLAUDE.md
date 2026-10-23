@@ -573,6 +573,19 @@ Shared modules exist to stop the drift — extend them rather than adding parall
 
 A layout's identifier is its **unique, case-sensitive, immutable `LayoutCatalogue.name`**. `display_name` is the ops-editable customer-facing name, carried as `displayName` on every layout-serving response, auto-filled by `default_display_name_for(name)` (mirrored by `formatLayoutDisplayName()`), and never blanked by a save that omits it. **`name` cannot be renamed** — the view rejects a differing `old_name` with 400 and `LayoutCatalogue.save()` raises if `.name` changed. The alias mechanism (`renamed_to` + `resolve_active`) remains so a pre-retirement rename keeps resolving; nothing can create a new pointer. Ops endpoints surface `isDeprecated` and `renamedTo`.
 
+## Layout orientation
+
+printo.in's CMS may send `orientation` (`portrait` | `landscape`) on `POST /api/embed/session`; a layout drawn the other way round is turned a quarter turn **clockwise**, so nobody duplicates layouts. `services/layout_orientation.py::apply_orientation` is the one function: `EditorInitView` calls it with the proxy-injected `X-Order-Orientation` (so the editor, thumbnails and mock draw the turned layout from the served JSON, **no TS twin**), and `render_canvas_task` calls it again when the submit-time report says `applied`. Canvas width/height and their mm swap, frames move `(x,y,w,h) → (1-y-h, x, h, w)` with array order untouched (photo N still lands in frame N), a raster mask is served turned by `GET /api/layouts/masks/<f>?rotate=90` (`maskRotate: 90` tells the engine).
+
+- **Never an error.** Missing, unknown, same-orientation, square or unturnable → served as authored; the report `{requested, applied, reason, orientation}` rides `/editor/init`, `render_state['orientation']` and the webhook. Reasons: `not_sent`, `invalid_value`, `already_that_orientation`, `square_layout`, `not_rotatable` (`orientationRotatable: false`, calendar, book), `has_captions`, `has_overlays`, `svg_mask`. The session call cannot report `applied` — the layout is named only in the iframe URL.
+- **The render looks the session up itself** (`order_id` + `api_key`, most recent), like `qty`; the header is for display only. A new header injected by the embed proxy must be in the cached tuple.
+- **Dashboard toggle.** The dashboard has no session, so a Portrait / Landscape toggle in the app's top bar (`OrientationToggle` in `EditorToolbar.tsx`, dashboard only) reloads the editor with `?orientation=` and a fresh order id; `editor/init` reads it from the query and `editor/render` from the body, **only for an ops-flagged key** (the internal one), never an embed caller's. Same function, so a layout tried here prints the way the embed will. Locked, with the reason as its tooltip, when the report says the layout can't be turned.
+- `orientationRotatable` defaults **on**; ops switch it off per layout with the "Can rotate" checkbox on `/editor/layouts`.
+- A template is not shown on a turned layout (its decoration is placed for the authored one).
+- Photos are not turned by this: each is re-fitted into its new frame by the normal pipeline, so **rotate-to-fill still applies** (decision 2026-10-23, kept as is): a portrait photo in a wide turned frame can be turned sideways, exactly as in a layout drawn that way.
+- Printo is told not to send `orientation` until a layout has been printed turned and checked.
+- Pinned by `services/tests/test_layout_orientation.py`, `test_orientation_render.py` (real engine), `api/tests/test_orientation.py`, `embed/proxy/__tests__/order-orientation.test.ts`.
+
 ## Code Style
 
 Use comments sparingly; only for complex or non-obvious logic.
@@ -676,7 +689,7 @@ Smoke: `scripts/smoke-test-calendar.sh`. Benchmark: a 12-surface render was ~1.8
 
 ## Migrations
 
-Run only via the `backend` container. Current latest: `0022_apikey_daily_cap_opt_in`.
+Run only via the `backend` container. Current latest: `0023_embedsession_orientation`.
 
 | Migration | Change |
 |---|---|
@@ -701,6 +714,7 @@ Run only via the `backend` container. Current latest: `0022_apikey_daily_cap_opt
 | 0019 | `LayoutCatalogue.renamed_to` |
 | 0020 | `LayoutCatalogue.display_name` + backfill |
 | 0021 | `LayoutTemplate` |
+| 0023 | `EmbedSession.orientation` (blank = as authored) |
 | 0022 | `APIKey.max_requests_per_day` → `PositiveIntegerField`, default blank (no cap), every existing unchosen value blanked; the field is enforced from here on |
 
 **Ownership contract:** `editor_state` is frontend-owned — written only by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written only by `EditorRenderView` at submit, read only by `render_canvas_task`. Never cross the streams.
@@ -795,5 +809,6 @@ The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0**. Printo.in's s
 | **Flip CSP to enforcing.** Report-only since April. Check Sentry for `CSP violation` events over the last couple of weeks; if the only sources are the already-allowed ones (Google Fonts, Cloudflare beacon), set `CSP_REPORT_ONLY=False` in prod `.env` and `./deploy.sh` (the frontend must rebuild). Roll back by flipping it back and deploying again. | Kanna |
 | Rate limiter → Redis if the frontend container is ever scaled horizontally (`actions/auth.ts` is in-memory). | Kanna / DevOps |
 | Book spine: caliper-check one printed sample against the resolved spine before the first cover ships (convention itself settled 2026-10-17). | Catalog Ops |
+| Orientation v2: hand-drawn portrait/landscape variants inside one layout (wins over auto-turn), for layouts a plain quarter turn gets wrong (polaroid caption strip, headline collages, 2×2 ↔ 4-in-a-row); SVG-mask and caption layouts; templates on a turned layout. Build only if a real layout needs it. | Kanna |
 | Big files: `editor/layouts/page.tsx` (~1,930 lines, one component) and `components/CalendarLayoutEditor.tsx` (~1,920) are now the largest files in the repo; `engine.py` and `tasks.py` are both over 1,400 and `garbage_collector_task` alone is ~380 lines of sequential sweeps. Split with a characterization test first, as the editor page was. | Kanna |
 | Cloudflare Origin Certificate on prod (`proxy/nginx/certs/`) and SSL mode **Full (strict)**; `deploy.sh` otherwise bootstraps a self-signed cert that needs "Full". | Kanna |

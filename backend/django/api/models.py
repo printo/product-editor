@@ -279,6 +279,10 @@ class EmbedSession(models.Model):
     # editor then falls back to that URL param and nothing server-side is
     # enforced, which is what every pre-existing session does.
     qty = models.PositiveIntegerField(null=True, blank=True, default=None)
+    # 'portrait' / 'landscape' as the caller's CMS chose for this product, or
+    # blank for "serve the layout as authored" (every pre-existing session).
+    # Anything else is dropped at creation, never stored.
+    orientation = models.CharField(max_length=16, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_revoked = models.BooleanField(default=False)

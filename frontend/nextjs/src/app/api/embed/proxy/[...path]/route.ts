@@ -37,7 +37,7 @@ const INTERNAL_SECRET = process.env.EMBED_INTERNAL_SECRET || '';
 // ── In-process token → API key cache ─────────────────────────────────────────
 // Module-level so it persists across requests within the same Next.js worker
 // process (Node.js keeps module scope alive between hot invocations).
-interface CacheEntry { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean; qty: number | null; exp: number }
+interface CacheEntry { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean; qty: number | null; orientation: string | null; exp: number }
 const tokenCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 110 * 60 * 1000; // 110 minutes (session TTL is 120 min)
 // Hard cap to prevent unbounded growth in pathological scenarios
@@ -63,7 +63,7 @@ function evictExpired(): void {
   }
 }
 
-interface SessionInfo { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean; qty: number | null }
+interface SessionInfo { apiKey: string; orderId: string | null; callbackUrl: string | null; includeUploads: boolean; qty: number | null; orientation: string | null }
 
 /**
  * Exchange an embed token for the real API key, order_id, callback_url and
@@ -82,7 +82,7 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
   if (cached && cached.exp > now) {
     return {
       apiKey: cached.apiKey, orderId: cached.orderId, callbackUrl: cached.callbackUrl,
-      includeUploads: cached.includeUploads, qty: cached.qty,
+      includeUploads: cached.includeUploads, qty: cached.qty, orientation: cached.orientation,
     };
   }
 
@@ -114,8 +114,12 @@ async function resolveSession(embedToken: string): Promise<SessionInfo | null> {
       const rawQty = data.qty;
       const qty: number | null =
         typeof rawQty === 'number' && Number.isInteger(rawQty) && rawQty > 0 ? rawQty : null;
-      tokenCache.set(embedToken, { apiKey, orderId, callbackUrl, includeUploads, qty, exp: now + CACHE_TTL_MS });
-      return { apiKey, orderId, callbackUrl, includeUploads, qty };
+      // Print orientation the caller's CMS chose. Only the two known words
+      // count; anything else reads as "serve the layout as authored".
+      const orientation: string | null =
+        data.orientation === 'portrait' || data.orientation === 'landscape' ? data.orientation : null;
+      tokenCache.set(embedToken, { apiKey, orderId, callbackUrl, includeUploads, qty, orientation, exp: now + CACHE_TTL_MS });
+      return { apiKey, orderId, callbackUrl, includeUploads, qty, orientation };
     }
     return null;
   } catch {
@@ -231,7 +235,7 @@ async function handler(
   if (!session) {
     return NextResponse.json({ detail: 'Invalid or expired embed token' }, { status: 401 });
   }
-  const { apiKey, orderId, callbackUrl, includeUploads, qty } = session;
+  const { apiKey, orderId, callbackUrl, includeUploads, qty, orientation } = session;
 
   const upstreamUrl = `${INTERNAL_API}/${upstreamPath}${trailingSlash}${req.nextUrl.search}`;
 
@@ -259,6 +263,9 @@ async function handler(
   // and editor/render re-checks the submission against it. Omitted entirely
   // when the session carries none, which means "do not enforce".
   if (qty !== null) forwardHeaders['X-Order-Qty'] = String(qty);
+  // Orientation, same pattern: editor/init turns the layout with it. The
+  // render does not read this header; it looks the session up itself.
+  if (orientation !== null) forwardHeaders['X-Order-Orientation'] = orientation;
   // Only set Content-Type when we'll actually have a body — for GET/HEAD
   // it's meaningless and some upstreams reject the combination.
   if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {

@@ -16,12 +16,14 @@ type Setter<T> = Dispatch<SetStateAction<T>>;
  *  label, the include-uploads choice, the disclaimer tick and the embed's
  *  submitted panel. */
 export function useServerRender({
-  layout, layoutName, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey,
+  layout, layoutName, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey, urlOrientation,
   isCalendarProduct, calendarTheme, calendarType, genzPalette, calendarCells, isBookProduct, bookPageCount,
   qtyNeeded, totalUploadedCount, setIsDownloading, setShowDownloadModal, setRenderProgress, setError,
 }: {
   layout: any;
   layoutName: string;
+  /** Dashboard orientation toggle (`?orientation=`); never set in the embed. */
+  urlOrientation?: 'portrait' | 'landscape' | null;
   embedToken: string | null;
   parentOrigin: string;
   apiBase: string;
@@ -318,6 +320,8 @@ export function useServerRender({
         body: JSON.stringify({
           layout_name: layoutName,
           order_id: orderId,
+          // Dashboard toggle only; the embed's orientation lives on its session.
+          ...(urlOrientation ? { orientation: urlOrientation } : {}),
           canvases: canvasesPayload,
           // True when the pre-submit modal showed QtyShortfallWarning and the
           // customer submitted anyway. The server recounts the photos itself

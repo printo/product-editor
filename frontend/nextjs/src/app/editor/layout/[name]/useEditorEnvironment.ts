@@ -68,6 +68,15 @@ export function useEditorEnvironment() {
     };
   }, []);
 
+  // Dashboard only: the orientation picked with the header toggle rides the
+  // address. The embed ignores it; there the session's orientation is applied
+  // server-side and the customer's URL cannot change what prints.
+  const urlOrientation = useMemo<'portrait' | 'landscape' | null>(() => {
+    if (typeof window === 'undefined' || embedToken) return null;
+    const v = (new URLSearchParams(window.location.search).get('orientation') || '').toLowerCase();
+    return v === 'portrait' || v === 'landscape' ? v : null;
+  }, [embedToken]);
+
   // Stable order ID — read from URL or generate a new friendly ID.
   // Written back to the URL immediately so a refresh / share keeps the same ID.
   const [orderId, setOrderId] = useState<string>(() => {
@@ -123,6 +132,7 @@ export function useEditorEnvironment() {
   return {
     layoutName, router, session, status, embedToken, parentOrigin, setSessionQty, orderQty,
     orderId, setOrderId, getAuthHeaders, apiBase, serverHeicConvert, urlTemplateId, templateFlow,
+    urlOrientation,
   };
 }
 
