@@ -57,6 +57,13 @@ describe('resolveRotation', () => {
     }
   });
 
+  it('turns it to fill the way the pose model says is up, so a sideways person is never stood on their head', () => {
+    // A photo stored sideways with the heads to the right needs 270 to be
+    // upright; the old fixed 90 filled the frame with them upside down.
+    expect(resolveRotation(pose(270), ...LANDSCAPE_PHOTO, ...CLASSIC_5X7)).toBe(270);
+    expect(resolveRotation(pose(90), ...LANDSCAPE_PHOTO, ...CLASSIC_5X7)).toBe(90);
+  });
+
   it('follows the pose model when turning would not improve the fill', () => {
     expect(resolveRotation(pose(270), ...PORTRAIT_PHOTO, ...CLASSIC_5X7)).toBe(270);
     expect(resolveRotation(pose(90), ...PORTRAIT_PHOTO, ...RETRO_POLAROID)).toBe(90);
