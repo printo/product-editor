@@ -159,13 +159,15 @@ export function canvasCardWidthClass(cardCount: number): string {
 }
 
 /** The width of a "few cards" card: as large as the window comfortably holds.
- *  Up to 70% of the window's width and ~75% of its height (the label and the
- *  toolbar above take the rest), so a portrait print is limited by height and
- *  a landscape one by width. Never wider than the row, never narrower than
- *  12rem. */
+ *  Up to 70% of the window's width and ~75% of its height, and never taller
+ *  than the window less ~15.5rem: the dashboard puts two header bars, the
+ *  label and some margin above the card, so on a short window the percentage
+ *  alone pushes the card past the bottom. A portrait print is limited by
+ *  height and a landscape one by width. Never wider than the row, never
+ *  narrower than 12rem. */
 export function canvasCardStyle(canvasWidth: number, canvasHeight: number): CSSProperties {
   const ratio = canvasWidth > 0 && canvasHeight > 0 ? canvasWidth / canvasHeight : 2 / 3;
-  return { '--card-w': `min(100%, 70vw, max(12rem, calc(75vh * ${ratio.toFixed(4)})))` } as CSSProperties;
+  return { '--card-w': `min(100%, 70vw, max(12rem, calc(min(75vh, 100vh - 15.5rem) * ${ratio.toFixed(4)})))` } as CSSProperties;
 }
 
 /** Gap between the sides of a multi-side product, in rem (`gap-6`). */
@@ -174,8 +176,8 @@ export const SIDE_GAP_REM = 1.5;
 /** The width of one side of a front/back product when it has a few sides
  *  (`FEW_CARDS` or fewer; a book's many pages keep a fixed width). The sides
  *  share up to 70% of the window's width between them, and none is taller
- *  than ~70% of the window's height (a side's label row is taller than a
- *  single card's, so this is a little less than `canvasCardStyle`'s 75%).
+ *  than ~70% of the window's height or the window less ~16.5rem (a side's
+ *  label row is taller than a single card's; see `canvasCardStyle`).
  *  Never narrower than the old fixed width (400px landscape, 280px portrait).
  *  Used from `sm` up; a phone keeps the fixed width and scrolls the row. */
 export function surfaceCardStyle(canvasWidth: number, canvasHeight: number, sideCount: number): CSSProperties {
@@ -183,7 +185,7 @@ export function surfaceCardStyle(canvasWidth: number, canvasHeight: number, side
   const n = Math.max(1, sideCount);
   const share = `(70vw - ${((n - 1) * SIDE_GAP_REM).toFixed(2)}rem) / ${n}`;
   const floor = ratio > 1 ? '400px' : '280px';
-  return { '--card-w': `max(${floor}, min(calc(${share}), calc(70vh * ${ratio.toFixed(4)})))` } as CSSProperties;
+  return { '--card-w': `max(${floor}, min(calc(${share}), calc(min(70vh, 100vh - 16.5rem) * ${ratio.toFixed(4)})))` } as CSSProperties;
 }
 
 /** Stored photos the restored design doesn't use are deleted on restore only
