@@ -21,6 +21,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { spineWidthMm } from '@/lib/book-layout';
 import { NumberField } from '@/components/ui/NumberField';
+import { TagPicker } from '@/components/ui/TagPicker';
+import type { LayoutTagInfo } from '@/lib/layout-tags';
 
 // ─── Draft types ─────────────────────────────────────────────────────────────
 
@@ -53,6 +55,8 @@ export interface BookLayoutDraft {
    * makes the server auto-derive one from `name` (default_display_name_for).
    */
   displayName?: string;
+  /** Tag keys from the ops tag list (several allowed). */
+  tagKeys?: string[];
   productType: 'book';
   bleedMm: number;
   gutterMm: number;
@@ -88,6 +92,10 @@ export interface BookLayoutEditorProps {
    * overlays, frame ids, …) survives a save instead of being dropped.
    */
   baseLayout?: Record<string, unknown>;
+  /** The ops tag list (`useLayoutTags`). Omit it and the Tags field is hidden;
+   *  the layout's tags are still saved as loaded. */
+  tagOptions?: LayoutTagInfo[];
+  tagOptionsError?: string | null;
   /** Called when ops clicks Save. Parent serialises + POSTs `layoutJson` as
    *  `layout_data` and `displayName` as the separate `display_name` field.
    *  `maskFiles` holds newly chosen mask PNGs per role, for upload. Resolve
@@ -114,6 +122,7 @@ function defaultBookLayout(name: string): BookLayoutDraft {
   return {
     name,
     displayName: '',
+    tagKeys: [],
     productType: 'book',
     bleedMm: 3,
     gutterMm: 10,
@@ -185,12 +194,14 @@ export function draftToLayoutJson(draft: BookLayoutDraft, baseLayout: Json = {})
   if (draft.hasBackCover) {
     book.backCover = roleToJson(draft.backCover, asObject(baseBook.backCover));
   }
-  // displayName comes back on GET but is its own column, saved separately.
-  const { displayName: _displayName, ...rest } = baseLayout;
+  // displayName comes back on GET but is its own column, saved separately;
+  // `tags` (names) is filled in on every read and never stored.
+  const { displayName: _displayName, tags: _tagNames, ...rest } = baseLayout;
   return {
     ...rest,
     name: draft.name,
     productType: draft.productType,
+    ...(Array.isArray(draft.tagKeys) ? { tagKeys: draft.tagKeys } : {}),
     book,
   };
 }
@@ -438,6 +449,8 @@ export function BookLayoutEditor({
   newLayoutName = 'untitled_book',
   isExistingLayout = false,
   baseLayout,
+  tagOptions,
+  tagOptionsError,
   onSave,
   onCancel,
 }: BookLayoutEditorProps) {
@@ -516,6 +529,16 @@ export function BookLayoutEditor({
                        focus:outline-none focus:ring-2 focus:ring-zinc-900"
           />
         </label>
+        {tagOptions && (
+          <div className="max-w-md">
+            <TagPicker
+              tags={tagOptions}
+              value={draft.tagKeys ?? []}
+              onChange={(tagKeys) => patch({ tagKeys })}
+              error={tagOptionsError}
+            />
+          </div>
+        )}
         <label className="flex flex-col gap-1 text-xs max-w-xs">
           <span className="font-medium text-zinc-700">Layout name (identifier)</span>
           <input

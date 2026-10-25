@@ -686,3 +686,45 @@ class LayoutTemplate(models.Model):
 
     def __str__(self):
         return f"LayoutTemplate({self.template_id} on {self.layout_id}, {self.status})"
+
+
+class LayoutTag(models.Model):
+    """
+    One entry in the ops-managed tag list (Photo Prints, Wedding, ...).
+
+    `key` is what layouts store (definition `tagKeys`) and what callers filter
+    by; it is fixed once created, like `LayoutCatalogue.name`. `name` is the
+    label people see and may be renamed at any time: layout responses look the
+    name up per request, so a rename shows everywhere without touching a
+    layout. A tag is switched off, never deleted, so a layout never loses one.
+    See services/layout_tags.py.
+    """
+
+    key = models.CharField(
+        max_length=50, unique=True, db_index=True,
+        help_text="e.g. 'photo_prints'. Lowercase letters, digits and single underscores. Immutable.",
+    )
+    name = models.CharField(max_length=60, help_text="What people see, e.g. 'Photo Prints'. Renameable.")
+    is_active = models.BooleanField(
+        default=True, db_index=True,
+        help_text="Switched-off tags stay on the layouts that carry them but leave the picker.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'layout_tags'
+        ordering = ['name', 'key']
+
+    def save(self, *args, **kwargs):
+        from services.layout_tags import is_tag_key
+        if not is_tag_key(self.key):
+            raise ValueError("LayoutTag.key must be lowercase letters, digits and single underscores (1-50 chars)")
+        if self.pk is not None:
+            existing = LayoutTag.objects.only('key').filter(pk=self.pk).first()
+            if existing is not None and existing.key != self.key:
+                raise ValueError("LayoutTag.key is immutable once created")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"LayoutTag({self.key}: {self.name})"

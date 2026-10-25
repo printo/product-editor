@@ -27,6 +27,7 @@ import {
   CalendarDays,
   BookOpen,
   LayoutTemplate as TemplateIcon,
+  Tag as TagIcon,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -34,11 +35,11 @@ import { LayoutSVG } from '@/components/LayoutSVG';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { TagFilter } from '@/components/ui/TagFilter';
-import { Dropdown } from '@/components/ui/Dropdown';
 import { Toast, ToastStack } from '@/components/ui/Toast';
 import { useHeader } from '@/context/HeaderContext';
 import { canManageTemplates } from '@/lib/roles';
-import { AVAILABLE_TAGS } from '@/lib/product-tags';
+import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
+import { TagPicker } from '@/components/ui/TagPicker';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { hasTransparentPixels } from '@/lib/image-utils';
 import { mmToPx as mmToPxExact, pxToMm as pxToMmExact, mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
@@ -106,6 +107,7 @@ interface LayoutConfig {
   };
   frames?: LayoutFrame[];
   tags?: string[];
+  tagKeys?: string[];
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string;
@@ -133,9 +135,6 @@ interface SurfaceEditorState {
   maskUrl: string | null;
   maskOnExport: boolean;
 }
-
-// Product-category tags — see src/lib/product-tags.ts (shared with the
-// dashboard's filter chips).
 
 // Template authoring works in whole pixels and 2-dp millimetres, so these
 // round the shared conversions. Module scope keeps them stable across renders.
@@ -223,7 +222,8 @@ export default function LayoutCreatorPage() {
   // editors (2026-09-16). Frozen once a layout exists (`name` is immutable);
   // free-typed on create, same as the other two editors' "Layout name" field.
   const [layoutId, setLayoutId] = useState('untitled_layout');
-  const [tags, setTags] = useState('');
+  // Tag keys (several per layout); names come from the ops-managed list.
+  const [tagKeys, setTagKeys] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   // Tag filter: clicking a chip sets this; '' means "All". Independent of
   // the text search so ops can type "5x7" while filtered to Photo Prints.
@@ -299,6 +299,7 @@ export default function LayoutCreatorPage() {
     is_staff: session?.is_staff,
     is_ops_team: session?.is_ops_team,
   });
+  const { tags: tagList, error: tagListError } = useLayoutTags(status === 'authenticated');
 
   useEffect(() => {
     if (isModalOpen) {
@@ -340,7 +341,7 @@ export default function LayoutCreatorPage() {
           {/* !w-auto + min-w-0 override SearchInput's mobile w-[175px] shrink-0 so
               this row (search + filter + Fonts + nav) can fit a 375px viewport. */}
           <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} layouts`} className="flex-1 min-w-0 !w-auto" />
-          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden xl:flex" />
+          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} tags={tagList} className="hidden xl:flex" />
           <button
             onClick={() => setShowFontModal(true)}
             aria-label="Fonts"
@@ -362,6 +363,17 @@ export default function LayoutCreatorPage() {
               <span className="hidden 2xl:inline">Holidays</span>
             </Link>
           )}
+          {canManageHolidays && (
+            <Link
+              href="/editor/layouts/tags"
+              aria-label="Tags"
+              title="Layout tags"
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-2.5 md:px-3 md:py-2 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
+            >
+              <TagIcon className="w-4 h-4 md:w-3.5 md:h-3.5" />
+              <span className="hidden 2xl:inline">Tags</span>
+            </Link>
+          )}
         </div>
       );
       // The Django admin link lives on the header's role badge (HeaderUserMenu),
@@ -373,7 +385,7 @@ export default function LayoutCreatorPage() {
     // without it the dropdown would keep rendering the tag selected at mount.
     // The access flag likewise: the Holidays link is in that snapshot, so it
     // would stay hidden for an ops user whose session resolved after mount.
-  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, selectedFonts.length, layouts.length, canManageHolidays]);
+  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, tagList, selectedFonts.length, layouts.length, canManageHolidays]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 
@@ -487,7 +499,8 @@ export default function LayoutCreatorPage() {
           return {
             ...item,
             id: item.name,
-            tags: item.tags || []
+            tags: item.tags || [],
+            tagKeys: layoutTagKeys(item),
           };
         });
         setLayouts(layoutDetails);
@@ -591,7 +604,7 @@ export default function LayoutCreatorPage() {
       layoutData = {
         name: layoutId,
         type: 'product',
-        tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+        tagKeys,
         frameCaptionsEnabled,
         orientationRotatable,
         surfaces: surfacesData,
@@ -610,7 +623,7 @@ export default function LayoutCreatorPage() {
 
       layoutData = {
         name: layoutId,
-        tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+        tagKeys,
         canvas: {
           width: canvasW,
           height: canvasH,
@@ -739,7 +752,7 @@ export default function LayoutCreatorPage() {
       // that predates the field falls back to a mechanical prettification.
       setLayoutName(data.displayName || data.name.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()));
       setLayoutId(name);
-      setTags(data.tags?.join(', ') || '');
+      setTagKeys(layoutTagKeys(data));
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
       setOrientationRotatable(data.orientationRotatable !== false);
       setMaskWarning(null);
@@ -832,7 +845,7 @@ export default function LayoutCreatorPage() {
       // A copy is a brand-new layout — reset the identifier to the same
       // untyped default as Create, rather than colliding with the source.
       setLayoutId('untitled_layout');
-      setTags(data.tags?.join(', ') || '');
+      setTagKeys(layoutTagKeys(data));
       if (data.frames) {
         const loadedFrames = data.frames.map((f: any) => ({
           ...f,
@@ -859,7 +872,7 @@ export default function LayoutCreatorPage() {
     setIsEditMode(false);
     setLayoutName('');
     setLayoutId('untitled_layout');
-    setTags('');
+    setTagKeys([]);
     setWidthMm(101.6);
     setHeightMm(152.4);
     setDpi(300);
@@ -968,7 +981,7 @@ export default function LayoutCreatorPage() {
         {/* Below xl the header has no room for the tag filter (the search box shrank to its
             icon), and on phones none for Holidays either, so they sit here instead. */}
         <div className="flex xl:hidden items-center gap-2 mb-4">
-          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="flex flex-1 min-w-0 md:flex-none" />
+          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} tags={tagList} className="flex flex-1 min-w-0 md:flex-none" />
           {canManageHolidays && (
             <Link
               href="/editor/layouts/holidays"
@@ -976,6 +989,15 @@ export default function LayoutCreatorPage() {
             >
               <CalendarDays className="w-4 h-4" />
               Holidays
+            </Link>
+          )}
+          {canManageHolidays && (
+            <Link
+              href="/editor/layouts/tags"
+              className="md:hidden flex items-center gap-1.5 px-3 py-2.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 shrink-0"
+            >
+              <TagIcon className="w-4 h-4" />
+              Tags
             </Link>
           )}
         </div>
@@ -1005,7 +1027,7 @@ export default function LayoutCreatorPage() {
               onClick={() => {
                 setIsEditMode(false);
                 setLayoutName('');
-                setTags('');
+                setTagKeys([]);
                 setFrames([]);
                 setSurfaces([]);
                 setLayoutType('single');
@@ -1071,10 +1093,10 @@ export default function LayoutCreatorPage() {
               const q = searchQuery.toLowerCase();
               const name = typeof l === 'string' ? l : (l.name || '');
               const layoutTags: string[] = l.tags || [];
-              // Text search matches name OR any tag.
+              // Text search matches name OR any tag name.
               const matchesSearch = !q || name.toLowerCase().includes(q) || layoutTags.some((t: string) => t.toLowerCase().includes(q));
-              // Tag chip filter: '' means All, otherwise must include that tag.
-              const matchesTag = !activeTagFilter || layoutTags.includes(activeTagFilter);
+              // Tag filter holds a tag key: '' means All.
+              const matchesTag = !activeTagFilter || (l.tagKeys || []).includes(activeTagFilter);
               // Soft-deleted rows stay in the API response (see showDeleted
               // toggle above) — keep them out of the grid unless asked for.
               const isDeprecated = typeof l === 'object' && !!l.isDeprecated;
@@ -1359,15 +1381,7 @@ export default function LayoutCreatorPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Primary Tag</label>
-                        <Dropdown
-                          value={tags}
-                          onChange={setTags}
-                          options={[{ value: '', label: 'Select a Tag...' }, ...AVAILABLE_TAGS.map(t => ({ value: t, label: t }))]}
-                          triggerClassName="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-slate-900 bg-white"
-                          panelClassName="w-full"
-                          optionClassName="text-sm font-medium"
-                        />
+                        <TagPicker tags={tagList} value={tagKeys} onChange={setTagKeys} error={tagListError} />
                       </div>
                     </div>
 

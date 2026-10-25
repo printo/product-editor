@@ -145,7 +145,8 @@ class LayoutManagementView(APIView):
                 data['createdAt'] = layout.created_at.isoformat()
                 data['updatedAt'] = layout.updated_at.isoformat()
                 data['version'] = layout.version
-                response = Response(data)
+                from .layout_tags import with_layout_tag_names
+                response = Response(with_layout_tag_names(data))
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
             except Exception as e:
@@ -183,8 +184,12 @@ class LayoutManagementView(APIView):
             # Drafts included: this is the ops list. Read per request, not
             # cached, so a new draft shows at once.
             from .templates import template_counts
+            from .layout_tags import with_layout_tag_names
             counts = template_counts(published_only=False)
-            layouts_data = [{**d, 'templateCount': counts.get(d.get('name'), 0)} for d in layouts_data]
+            layouts_data = [
+                {**d, 'templateCount': counts.get(d.get('name'), 0)}
+                for d in with_layout_tag_names(layouts_data)
+            ]
             response = Response({"layouts": layouts_data})
             response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
             return response
@@ -236,13 +241,19 @@ class LayoutManagementView(APIView):
                     ),
                 ),
                 "layout_data": drf_serializers.JSONField(
-                    help_text="The layout definition. Also accepted under the key `layout`. A JSON string is parsed.",
+                    help_text=(
+                        "The layout definition. Also accepted under the key `layout`. A JSON string is parsed. "
+                        "Tags go in `tagKeys` (a list of keys from `GET /api/layout-tags`, at most 20); "
+                        "a legacy `tags` list of names is mapped to keys. Unknown keys or names are a 400, "
+                        "and a switched-off tag cannot be newly added. Sending neither keeps the layout's "
+                        "current tags. Only the keys are stored."
+                    ),
                 ),
             },
         ),
         responses={
             200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The layout as stored."),
-            400: OpenApiResponse(description="Missing name/layout_data, invalid name, malformed JSON, failed product validation, or an `old_name` that differs from `name` (renaming the identifier is retired — see docs above)."),
+            400: OpenApiResponse(description="Missing name/layout_data, invalid name, malformed JSON, failed product validation, an unknown or switched-off tag, or an `old_name` that differs from `name` (renaming the identifier is retired — see docs above)."),
             403: OpenApiResponse(description="Caller is not on the ops team, or the path resolved outside the layouts directory."),
         },
     )
@@ -353,6 +364,29 @@ class LayoutManagementView(APIView):
             # Infer product_type from definition
             product_type = layout_data.get('productType', 'single_canvas')
 
+            # Tags: the definition stores keys only (`tagKeys`); names are
+            # looked up on every read. An editor that sends no tags keeps the
+            # layout's existing ones (the calendar editor used to wipe them).
+            from services.layout_tags import InvalidTag, resolve_layout_tag_keys
+            from .layout_tags import tag_lookup
+            previous = LayoutCatalogue.objects.filter(name=layout_name).values_list('definition', flat=True).first()
+            previous_keys = previous.get('tagKeys') if isinstance(previous, dict) else None
+            lookup = tag_lookup()
+            if previous_keys is None and isinstance(previous, dict) and isinstance(previous.get('tags'), list):
+                previous_keys = [lookup['key_by_name'][n.lower()] for n in previous['tags']
+                                 if isinstance(n, str) and n.lower() in lookup['key_by_name']]
+            try:
+                tag_keys = resolve_layout_tag_keys(
+                    layout_data,
+                    existing_keys=previous_keys,
+                    known=lookup['known'],
+                    key_by_name=lookup['key_by_name'],
+                )
+            except InvalidTag as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            layout_data = {k: v for k, v in layout_data.items() if k != 'tags'}
+            layout_data['tagKeys'] = tag_keys
+
             with db_transaction.atomic():
                 # Preserve an ops-curated display_name across an update that
                 # doesn't send one (an old client build, or the calendar/book
@@ -392,7 +426,11 @@ class LayoutManagementView(APIView):
             # Invalidate caches
             invalidate_layout_caches(layout_name)
 
-            return Response({"status": "success", "name": layout_name, "display_name": resolved_display_name, "layout": layout_data})
+            from .layout_tags import with_layout_tag_names
+            return Response({
+                "status": "success", "name": layout_name, "display_name": resolved_display_name,
+                "layout": with_layout_tag_names(layout_data, lookup['name_by_key']),
+            })
         except json.JSONDecodeError:
             return Response({"detail": "Invalid JSON data"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:

@@ -17,6 +17,7 @@ import { useHeader } from '@/context/HeaderContext';
 import { LayoutSVG } from '@/components/LayoutSVG';
 import { ubuntu } from '@/lib/site-fonts';
 import { TagFilter } from '@/components/ui/TagFilter';
+import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 import { layoutEditorHref, orientationLockedReason, type OrientationChoice, type OrientationInfo } from '@/lib/layout-orientation';
 
 const LayoutPreview = ({ layout }: { layout: any }) => {
@@ -114,6 +115,7 @@ export default function Dashboard() {
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { tags: tagList } = useLayoutTags(status === 'authenticated');
 
   // Auth gate — without this, /dashboard renders for unauthenticated visitors
   // and only fails (silently) when the layouts fetch comes back empty/401.
@@ -124,7 +126,7 @@ export default function Dashboard() {
   }, [status, session, router]);
 
   const normalizeLayoutItem = useCallback((item: any) => {
-    if (typeof item === 'string') return { id: item, name: item, displayName: item, frames: [], tags: [], canvas: {}, surfaceCount: 0, templateCount: 0 };
+    if (typeof item === 'string') return { id: item, name: item, displayName: item, frames: [], tags: [], tagKeys: [], canvas: {}, surfaceCount: 0, templateCount: 0 };
     const isProduct = item.type === 'product' && Array.isArray(item.surfaces);
     const canvas = isProduct ? item.surfaces[0]?.canvas : item.canvas;
     const frames = isProduct ? item.surfaces[0]?.frames || [] : item.frames || [];
@@ -140,6 +142,7 @@ export default function Dashboard() {
       canvas: canvas || {},
       frames,
       tags: item.tags || [],
+      tagKeys: layoutTagKeys(item),
       maskUrl: item.maskUrl || null,
       createdAt: item.createdAt || null,
       updatedAt: item.updatedAt || null,
@@ -208,13 +211,13 @@ export default function Dashboard() {
         {/* !w-auto + min-w-0 override SearchInput's mobile w-[175px] shrink-0 so
             search + filter + nav fit a 375px viewport without overlapping. */}
         <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={`Filter across ${layouts.length} layouts`} className="flex-1 min-w-0 !w-auto" />
-        <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="hidden md:flex" />
+        <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} tags={tagList} className="hidden md:flex" />
       </div>
     );
     setRightActions(null);
     // activeTagFilter is a dep because centerActions is a captured JSX snapshot —
     // without it the dropdown would keep rendering the tag selected at mount.
-  }, [searchQuery, activeTagFilter, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
+  }, [searchQuery, activeTagFilter, tagList, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
 
   useEffect(() => {
     if (status === 'authenticated') fetchLayouts();
@@ -224,7 +227,7 @@ export default function Dashboard() {
     const q = searchQuery.toLowerCase();
     const matchesSearch = l.name.toLowerCase().includes(q) ||
       (l.tags && l.tags.some((t: string) => t.toLowerCase().includes(q)));
-    const matchesTag = !activeTagFilter || (l.tags && l.tags.includes(activeTagFilter));
+    const matchesTag = !activeTagFilter || l.tagKeys.includes(activeTagFilter);
     return matchesSearch && matchesTag;
   });
 
@@ -240,7 +243,7 @@ export default function Dashboard() {
           )}
 
           {/* Mobile slot — the header row has no space for a fourth control. */}
-          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} className="flex md:hidden mb-4" />
+          <TagFilter value={activeTagFilter} onChange={setActiveTagFilter} tags={tagList} className="flex md:hidden mb-4" />
 
           {isFetchingLayouts ? (
             <div className="flex justify-center py-20">

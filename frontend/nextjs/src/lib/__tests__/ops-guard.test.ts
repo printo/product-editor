@@ -49,6 +49,12 @@ describe('requiresOpsTier', () => {
     expect(requiresOpsTier('ops/layouts/classic_a4', 'DELETE')).toBe(true);
     expect(requiresOpsTier('ops/calendar-styles/modern-genz', 'PUT')).toBe(true);
     expect(requiresOpsTier('ops/holidays/en-IN/2026', 'PUT')).toBe(true);
+    expect(requiresOpsTier('ops/layout-tags', 'POST')).toBe(true);
+    expect(requiresOpsTier('ops/layout-tags/wedding', 'PATCH')).toBe(true);
+  });
+
+  it('leaves the tag list read open: every editor filters by it', () => {
+    expect(requiresOpsTier('layout-tags', 'GET')).toBe(false);
   });
 
   it('gates the fonts write, which sits outside the ops namespace', () => {

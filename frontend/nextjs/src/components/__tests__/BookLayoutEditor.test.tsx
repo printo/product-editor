@@ -68,12 +68,20 @@ describe('draftToLayoutJson', () => {
   });
 });
 
+describe('draftToLayoutJson — tags', () => {
+  it('sends the tag keys picked in the editor, replacing the stored ones', () => {
+    const json = draftToLayoutJson(goodDraft({ tagKeys: ['photobook', 'gifts'] }), { tagKeys: ['photobook'] }) as any;
+    expect(json.tagKeys).toEqual(['photobook', 'gifts']);
+  });
+});
+
 describe('draftToLayoutJson — keeps what the editor has no control for', () => {
   const stored = {
     name: 'softcover_a4',
     displayName: 'Softcover A4',
     productType: 'book',
     tags: ['Photobook'],
+    tagKeys: ['photobook'],
     book: {
       gutterMm: 12,
       pageOverrides: { '3': { frames: [{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }] } },
@@ -97,7 +105,9 @@ describe('draftToLayoutJson — keeps what the editor has no control for', () =>
         maskUrl: '/api/layouts/masks/softcover_a4_cover_mask.png', maskOnExport: true,
       },
     }), stored) as any;
-    expect(json.tags).toEqual(['Photobook']);
+    // Tag keys survive; the names are filled in on reads and never stored.
+    expect(json.tagKeys).toEqual(['photobook']);
+    expect(json).not.toHaveProperty('tags');
     expect(json.book.pageOverrides).toEqual(stored.book.pageOverrides);
     expect(json.book.cover.overlays).toEqual([{ type: 'text', text: 'Hello' }]);
     expect(json.book.cover.canvas.bleedMm).toBe(3);

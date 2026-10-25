@@ -167,6 +167,10 @@ Verified against a real 24 MP iOS 18 gain-map photo: the server decode matched m
 
 Shipped in PR #259 on 2026-10-13 (prerequisite PR #258), deployed to prod at `7996d8c`; prod held no templates at deploy. The picker opened on the empty page via a "Start with a template" button until 2026-10-13, when it became the first step on a fresh design and the button was removed; until that day a template picked before the first photo was forgotten on reload and the post-restore autosave wrote `template: null` over it. Both ops template pages scrolled into the fixed header on arrival from a scrolled Layouts page (fixed 2026-10-13). The "this card only / all cards" per-edit prompt was decided against the same day (Kanna).
 
+## Layout tags
+
+Until 2026-10-25 the nine tags were a hard-coded list in `lib/product-tags.ts`, a layout stored the tag *names*, and only the generic editor had a field (one "Primary Tag"). The calendar editor rebuilt the whole definition on save and silently dropped any tag; the book editor had no field. The CMS team asked to create their own tags; keys were introduced so a rename never disconnects a layout, and `tags` kept returning names because printo.in's API key can read the layout list and nobody could confirm whether their storefront uses it.
+
 ## Calendar
 
 - Phase 9 bench (May 24 2026): 12-surface render ~1.8 s on the dev container, per-surface ~150 ms, RSS delta < 1 MB; target was ≤ 90 s. The bench script was a `/tmp` artifact and is gone.
