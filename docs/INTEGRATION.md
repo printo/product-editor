@@ -661,9 +661,54 @@ in the iframe URL; the `orientation` object on the completion webhook and on
 is turned a quarter turn **clockwise**. Layouts with a template picker show no
 template when the layout is turned.
 
+**Know before you ask.** `GET /api/layouts` (and its `?fields=summary` form)
+carries `orientationInfo` on every layout: `{ "orientation", "blocked" }`.
+`orientation` is how the layout is drawn (`portrait`, `landscape`, `square`, or
+`null` when it has no readable canvas) and `blocked` is why it can never be
+turned (`not_rotatable`, `has_captions`, `has_overlays`, `svg_mask`,
+`square_layout`), or `null` when it can. A layout with `blocked` set is always
+served as drawn, whatever you send.
+
+```json
+{ "name": "classic_4x6", "orientationInfo": { "orientation": "landscape", "blocked": null } }
+```
+
 **Do not send `orientation` for a product until Printo has confirmed that
 layout prints correctly turned.** Until then it is safe to leave out; nothing
 changes without it.
+
+### 4d. Find layouts by tag (optional, as of Oct 25, 2026)
+
+Printo ops tag layouts (Photo Prints, Wedding, …) and a layout can carry
+several tags. Each tag has a **key**, such as `photo_prints`, which never
+changes, and a **name**, which ops may rename at any time. Store and match on
+the key.
+
+Every layout response (`GET /api/layouts`, `?fields=summary`,
+`GET /api/layouts/<name>`, `GET /api/external/layouts/<name>`) carries both:
+
+```json
+{ "name": "classic_4x6", "tagKeys": ["photo_prints", "wedding"], "tags": ["Photo Prints", "Wedding"] }
+```
+
+`tagKeys` and `tags` are in the same order. `tags` holds names exactly as it
+always has, so anything already reading it keeps working; it changes only
+when ops rename a tag.
+
+To list the tags, or to fetch only the layouts with one tag:
+
+```
+GET /api/layout-tags
+→ { "tags": [ { "key": "photo_prints", "name": "Photo Prints", "isActive": true, "layoutCount": 14 }, … ] }
+
+GET /api/layouts?tag=photo_prints          # works with &fields=summary too
+```
+
+Both use the same Bearer API key as the rest of this guide. A tag ops have
+switched off shows `"isActive": false`: it is no longer offered to new
+layouts but stays on the layouts that already carry it. Tags are never
+deleted, so a key you stored keeps resolving. An unknown key in `?tag=`
+returns an empty list, not an error.
 
 ### 5. Firewall
 
@@ -774,5 +819,7 @@ Instead we hand you the signal and let your frontend decide what "back" means in
 - Webhook fired by `notify_caller_webhook_task` in [`backend/django/api/tasks.py`](../backend/django/api/tasks.py). Task config: `max_retries=5`, retry delay `2 ** retry_number` seconds.
 - Payload shape constructed in the same file (`webhook_payload = {...}`). Keep this doc in sync if the task changes.
 - Embed-session creation: see `EmbedSessionView` in `backend/django/api/views/embed.py`.
-- ZIP download endpoint: `RenderJobDownloadView` in the same file. Streams via `StreamingHttpResponse`; safe for 500 MB+ payloads.
-- Embed proxy path allowlist + token cache: [`frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts`](frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts).
+- ZIP download endpoint: `RenderJobDownloadView` in `backend/django/api/views/downloads.py`. Streams via `StreamingHttpResponse`; safe for 500 MB+ payloads.
+- Layout list, detail and tag filter: `ListLayoutsView` / `GetLayoutView` in `backend/django/api/views/layouts.py`; the tag list is `LayoutTagsView` in `backend/django/api/views/layout_tags.py`.
+- Every endpoint above is also described in the API reference at `/docs/api/` (Scalar).
+- Embed proxy path allowlist + token cache: [`frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts`](../frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts).

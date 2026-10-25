@@ -21,6 +21,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useHeader } from '@/context/HeaderContext';
+import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 import {
   BookLayoutEditor,
   type BookLayoutDraft,
@@ -38,6 +39,7 @@ interface ExistingRoleJson {
 interface ExistingLayoutJson {
   name: string;
   displayName?: string;
+  tagKeys?: string[];
   productType?: string;
   book?: {
     bleedMm?: number;
@@ -76,6 +78,7 @@ function existingToInitial(layout: ExistingLayoutJson): Partial<BookLayoutDraft>
   return {
     name: layout.name,
     displayName: layout.displayName ?? '',
+    tagKeys: layoutTagKeys(layout),
     bleedMm: book.bleedMm ?? 3,
     gutterMm: book.gutterMm ?? 10,
     paperThicknessMm: book.paperThicknessMm ?? 0.12,
@@ -112,6 +115,7 @@ export default function BookLayoutEditorPage() {
   }, [isNew, routeName, setTitle, setDescription, setCenterActions, setRightActions]);
 
   const [initial, setInitial] = useState<Partial<BookLayoutDraft> | null>(null);
+  const { tags: tagOptions, error: tagOptionsError } = useLayoutTags();
   const [baseLayout, setBaseLayout] = useState<Record<string, unknown> | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -221,6 +225,8 @@ export default function BookLayoutEditorPage() {
       newLayoutName={isNew ? 'untitled_book' : routeName}
       isExistingLayout={!isNew}
       baseLayout={baseLayout}
+      tagOptions={tagOptions}
+      tagOptionsError={tagOptionsError}
       onSave={handleSave}
       onCancel={() => router.push('/editor/layouts')}
     />

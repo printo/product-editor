@@ -29,10 +29,12 @@ import type {
   HolidayLocale,
   LayoutCalendar,
 } from '@/types/calendar';
+import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 
 interface ExistingLayoutJson {
   name: string;
   displayName?: string;
+  tagKeys?: string[];
   productType?: string;
   canvas?: {
     width?: number;
@@ -69,6 +71,7 @@ function existingToInitial(layout: ExistingLayoutJson): Partial<CalendarLayoutDr
   return {
     name: layout.name,
     displayName: layout.displayName ?? '',
+    tagKeys: layoutTagKeys(layout),
     mode: count === 1 && calCount === 12 ? 'poster' : 'multi-surface',
     canvasWidthMm: layout.canvas?.widthMm ?? 127,
     canvasHeightMm: layout.canvas?.heightMm ?? 177.8,
@@ -90,6 +93,7 @@ export default function CalendarLayoutEditorPage() {
   const isNew = routeName === 'new';
 
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const { tags: tagOptions, error: tagOptionsError } = useLayoutTags();
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
   useEffect(() => {
     setTitle('Calendar Editor');
@@ -259,6 +263,8 @@ export default function CalendarLayoutEditorPage() {
         isExistingLayout={!isNew}
         genzPalettes={genzPalettes}
         loadHolidays={loadHolidays}
+        tagOptions={tagOptions}
+        tagOptionsError={tagOptionsError}
         onSave={handleSave}
         onCancel={() => router.push('/editor/layouts')}
       />

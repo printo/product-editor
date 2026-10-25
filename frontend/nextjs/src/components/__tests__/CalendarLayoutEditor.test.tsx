@@ -204,6 +204,19 @@ describe('CalendarLayoutEditor — mode toggle', () => {
     expect((poster.calendars as unknown[]).length).toBe(12);
   });
 
+  it('sends the tag keys so a save no longer drops a calendar\'s tags', () => {
+    const draft: CalendarLayoutDraft = {
+      name: 't', productType: 'calendar', mode: 'multi-surface',
+      canvasWidthMm: 127, canvasHeightMm: 177.8, dpi: 300,
+      frames: [], calendars: [{ x: 0, y: 0, width: 1, height: 1 }],
+      style: { themePreset: 'modern-minimalist', calendarType: 'english', weekStart: 'sunday', holidaySource: { enabled: false, locale: 'en-IN' } },
+      defaultYear: 2026,
+    };
+    expect(draftToLayoutJson({ ...draft, tagKeys: ['calendar', 'gifts'] }).tagKeys).toEqual(['calendar', 'gifts']);
+    // No keys in the draft: nothing sent, and the server keeps what it has.
+    expect(draftToLayoutJson(draft)).not.toHaveProperty('tagKeys');
+  });
+
   it('auto-distributes 12 poster calendars in a 4×3 grid', () => {
     const poster = draftToLayoutJson({
       name: 'p',

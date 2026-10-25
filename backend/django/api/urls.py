@@ -10,6 +10,7 @@ from .views import (
     EditorRenderView, EditorInitView, CSPReportView,
     TemplatesListView, TemplateDetailView, TemplateManagementView,
     TemplateAssetUploadView, TemplateAssetDownloadView,
+    LayoutTagsView, LayoutTagManagementView,
 )
 
 # For public aliases of views whose write handlers are mounted again under
@@ -25,6 +26,8 @@ urlpatterns = [
     # Existing endpoints
     path("layout/generate", GenerateLayoutView.as_view(), name="layout-generate"),
     path("layouts", ListLayoutsView.as_view(), name="layouts-list"),
+    # Tag list; GET /api/layouts?tag=<key> filters by it.
+    path("layout-tags", LayoutTagsView.as_view(), name="layout-tags-list"),
     path("layouts/masks/<str:filename>", MaskDownloadView.as_view(), name="layout-mask-download"),
     path("layouts/<str:name>", GetLayoutView.as_view(), name="layout-detail"),
     path("health", HealthView.as_view(), name="health"),
@@ -61,6 +64,11 @@ urlpatterns = [
     # Layout management (Ops Team only)
     path("ops/layouts", LayoutManagementView.as_view(), name="ops-layouts-list"),
     path("ops/layouts/<str:name>", LayoutManagementView.as_view(), name="ops-layouts-detail"),
+
+    # Layout tags (Ops tier via the internal proxy's ops/ gate). No delete:
+    # a tag is switched off with PATCH isActive=false.
+    path("ops/layout-tags", LayoutTagManagementView.as_view(http_method_names=["post", "options"]), name="ops-layout-tags-list"),
+    path("ops/layout-tags/<str:key>", LayoutTagManagementView.as_view(http_method_names=["patch", "options"]), name="ops-layout-tags-detail"),
 
     # DPDP right-to-erasure — immediate purge of one order (Ops Team only)
     path("ops/orders/<str:order_id>/purge", OrderDataPurgeView.as_view(), name="ops-order-purge"),

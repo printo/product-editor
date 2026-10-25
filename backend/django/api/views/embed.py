@@ -178,6 +178,26 @@ class EmbedSessionView(APIView):
                     "embed_url_template": drf_serializers.CharField(
                         help_text="URL template — replace `{layout_name}` with your layout, e.g. `retro_polaroid_4.2x3.5`"
                     ),
+                    "order_id": drf_serializers.CharField(allow_null=True, help_text="Echo of `order_id`, or null."),
+                    "callback_url": drf_serializers.CharField(allow_null=True, help_text="Echo of `callback_url`, or null."),
+                    "include_uploads": drf_serializers.BooleanField(),
+                    "qty": drf_serializers.IntegerField(allow_null=True, help_text="Echo of `qty`, or null when none was sent."),
+                    "orientation": drf_serializers.CharField(
+                        allow_null=True,
+                        help_text=(
+                            "`portrait` / `landscape` as stored, or null when none was sent or the "
+                            "value was not recognised. Whether the layout is actually turned is "
+                            "only known once the layout is chosen: see the `orientation` report on "
+                            "the completion webhook and on `GET /api/editor/init`, and "
+                            "`orientationInfo` on `GET /api/layouts`."
+                        ),
+                    ),
+                    "template_id": drf_serializers.CharField(allow_null=True),
+                    "template_flow": drf_serializers.BooleanField(),
+                    "editor_url": drf_serializers.CharField(
+                        allow_null=True,
+                        help_text="Ready-to-open iframe URL when `template_id` was sent (it names the layout); else null.",
+                    ),
                 },
             ),
             400: OpenApiResponse(
@@ -196,7 +216,15 @@ class EmbedSessionView(APIView):
                 value={
                     "token": "a3f1c2d4-e5b6-7890-abcd-ef1234567890",
                     "expires_at": "2024-01-15T14:30:00+05:30",
-                    "embed_url_template": "/embed/editor/{layout_name}?token=a3f1c2d4-e5b6-7890-abcd-ef1234567890",
+                    "embed_url_template": "/editor/layout/{layout_name}?token=a3f1c2d4-e5b6-7890-abcd-ef1234567890",
+                    "order_id": "EXT-JOB-123",
+                    "callback_url": "https://printo.in/api/internal/pe-callback",
+                    "include_uploads": True,
+                    "qty": 12,
+                    "orientation": "portrait",
+                    "template_id": None,
+                    "template_flow": False,
+                    "editor_url": None,
                 },
                 response_only=True,
                 status_codes=["201"],
@@ -492,9 +520,12 @@ class EditorInitView(APIView):
                     ),
                     "orientation": drf_serializers.DictField(
                         help_text=(
-                            "`{requested, applied, reason, orientation}`: whether the session's "
-                            "orientation turned this layout, why not if it did not, and the "
-                            "orientation of the layout as served."
+                            "`{requested, applied, reason, orientation, blocked}`: whether the "
+                            "session's orientation turned this layout, why not if it did not "
+                            "(`not_sent`, `invalid_value`, `already_that_orientation`, "
+                            "`square_layout`, `not_rotatable`, `has_captions`, `has_overlays`, "
+                            "`svg_mask`), the orientation of the layout as served, and why the "
+                            "layout can never be turned (null when it can)."
                         ),
                     ),
                 },

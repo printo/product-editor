@@ -39,6 +39,8 @@ import {
 } from '@/lib/calendar';
 import { MonthTileThumb } from '@/components/MonthTileThumb';
 import { NumberField } from '@/components/ui/NumberField';
+import { TagPicker } from '@/components/ui/TagPicker';
+import type { LayoutTagInfo } from '@/lib/layout-tags';
 
 // Fabric.js references `window` at module load time — skip SSR.
 const CalendarFabricPreview = dynamic(
@@ -89,6 +91,7 @@ function defaultCalendarLayout(name: string): CalendarLayoutDraft {
   return {
     name,
     displayName: '',
+    tagKeys: [],
     productType: 'calendar',
     mode: 'multi-surface',
     canvasWidthMm: 127,
@@ -125,6 +128,8 @@ export interface CalendarLayoutDraft {
    * makes the server auto-derive one from `name` (default_display_name_for).
    */
   displayName?: string;
+  /** Tag keys from the ops tag list (several allowed). */
+  tagKeys?: string[];
   productType: 'calendar';
   mode: CalendarMode;
   canvasWidthMm: number;
@@ -172,6 +177,10 @@ export interface CalendarLayoutEditorProps {
   loadHolidays?: (locale: HolidayLocale, year: number) => Promise<HolidayEntry[]>;
   /** Clock override for tests — pins the year "Auto-roll" resolves to. */
   now?: Date;
+  /** The ops tag list (`useLayoutTags`). Omit it and the Tags field is hidden;
+   *  the layout's tags are still saved as loaded. */
+  tagOptions?: LayoutTagInfo[];
+  tagOptionsError?: string | null;
   /** Called when ops clicks Save. Parent serialises + POSTs `layoutJson` as
    *  `layout_data` and `displayName` as the separate `display_name` field.
    *  `maskFile` is a newly chosen mask PNG to upload with it (the server
@@ -276,6 +285,9 @@ export function draftToLayoutJson(
     calendar: draft.style,
     monthRange: { count, defaultYear: draft.defaultYear },
   };
+  // Saving rebuilds the whole definition, so the tags must ride along or the
+  // save would drop them. Only keys are sent; the server stores keys only.
+  if (Array.isArray(draft.tagKeys)) out.tagKeys = draft.tagKeys;
   // Mask is layout-global per PRD §10.2.1 — only emit when ops set it,
   // so layouts without masks stay JSON-tidy.
   if (draft.maskUrl) {
@@ -944,6 +956,8 @@ export function CalendarLayoutEditor({
   genzPalettes,
   loadHolidays,
   now,
+  tagOptions,
+  tagOptionsError,
   onSave,
   onCancel,
 }: CalendarLayoutEditorProps) {
@@ -1282,6 +1296,14 @@ export function CalendarLayoutEditor({
                     className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
                   />
                 </label>
+                {tagOptions && (
+                  <TagPicker
+                    tags={tagOptions}
+                    value={draft.tagKeys ?? []}
+                    onChange={(tagKeys) => patch({ tagKeys })}
+                    error={tagOptionsError}
+                  />
+                )}
                 <label className="flex flex-col gap-1 text-xs">
                   <span className="font-medium text-zinc-700">Layout name (identifier)</span>
                   <input

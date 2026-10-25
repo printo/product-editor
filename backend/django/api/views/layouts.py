@@ -52,6 +52,7 @@ def _summarize_layout(data):
         "productType": data.get("productType"),
         "hasCalendar": data.get("productType") == "calendar",
         "tags": data.get("tags", []),
+        "tagKeys": data.get("tagKeys", []),
         "surfaceCount": surface_count,
         "frameCount": frame_count,
         "dimensions": {
@@ -82,11 +83,27 @@ class ListLayoutsView(APIView):
             "`name` yourself, and re-pull periodically if you cache it since ops "
             "can change it any time).\n\n"
             "Pass `?fields=summary` to get a slim catalog (name, displayName, "
-            "productType, hasCalendar, tags, surfaceCount, frameCount, dimensions, "
-            "updatedAt) instead of the full layout defs — intended for external "
-            "systems that auto-pull the catalog to render a picker."
+            "productType, hasCalendar, tags, tagKeys, surfaceCount, frameCount, "
+            "dimensions, updatedAt, templateCount, orientationInfo) instead of the "
+            "full layout defs — intended for external systems that auto-pull the "
+            "catalog to render a picker.\n\n"
+            "**Tags.** Every entry carries `tagKeys` (fixed keys such as "
+            "`photo_prints`, which never change) and `tags` (the same tags' current "
+            "display names, in the same order; ops may rename them). Match and "
+            "store on `tagKeys`. `GET /api/layout-tags` lists every tag; "
+            "`?tag=<key>` returns only the layouts carrying that key.\n\n"
+            "**`orientationInfo`** is `{orientation, blocked}`: the orientation the "
+            "layout is drawn in (`portrait`, `landscape`, `square`, or null when it "
+            "has no readable canvas) and why it can never be turned for an embed "
+            "session's `orientation` (`not_rotatable`, `has_captions`, "
+            "`has_overlays`, `svg_mask`, `square_layout`), or null when it can be."
         ),
         parameters=[
+            OpenApiParameter(
+                "tag", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                required=False,
+                description="Only layouts carrying this tag key, e.g. `photo_prints`. An unknown key returns an empty list.",
+            ),
             OpenApiParameter(
                 "fields", OpenApiTypes.STR, OpenApiParameter.QUERY,
                 required=False,
@@ -138,11 +155,15 @@ class ListLayoutsView(APIView):
             # Published-template counts are read per request, not cached with
             # the list, so a publish shows at once without clearing anything.
             from .templates import template_counts
+            from .layout_tags import with_layout_tag_names
             counts = template_counts(published_only=True)
             layouts_data = [
                 {**d, 'templateCount': counts.get(d.get('name'), 0), 'orientationInfo': orientation_info(d)}
-                for d in layouts_data
+                for d in with_layout_tag_names(layouts_data)
             ]
+            tag_key = (request.query_params.get('tag') or '').strip()
+            if tag_key:
+                layouts_data = [d for d in layouts_data if tag_key in d['tagKeys']]
             if request.query_params.get('fields') == 'summary':
                 payload = [_summarize_layout(d) for d in layouts_data]
             else:
@@ -173,7 +194,8 @@ class GetLayoutView(APIView):
             "resolve under their pre-rename identifier; the response's `name` "
             "then reflects the current one, which may differ from what you "
             "requested. `displayName` is the ops-curated customer-facing name, "
-            "independent of `name`."
+            "independent of `name`. `tagKeys` are the layout's fixed tag keys and "
+            "`tags` the same tags' current names (see `GET /api/layout-tags`)."
         ),
         parameters=[
             OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
@@ -207,8 +229,9 @@ class GetLayoutView(APIView):
             cache_key = f"layout_detail:{name}:{surfaces_param}"
             cached_data = django_cache.get(cache_key)
 
+            from .layout_tags import with_layout_tag_names
             if cached_data is not None:
-                response = Response(cached_data)
+                response = Response(with_layout_tag_names(cached_data))
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
 
@@ -238,7 +261,8 @@ class GetLayoutView(APIView):
 
             django_cache.set(cache_key, data, 120)  # 2 min TTL
 
-            response = Response(data)
+            # Tag names are read per request, never cached, so a rename shows at once.
+            response = Response(with_layout_tag_names(data))
             response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
             return response
 
@@ -268,7 +292,8 @@ class ExternalLayoutDetailView(APIView):
             "still resolve under their pre-rename identifier; the response's "
             "`name` then reflects the current one, which may differ from what "
             "you requested. `displayName` is the ops-curated customer-facing "
-            "name, independent of `name`. See docs/INTEGRATION.md."
+            "name, independent of `name`. `tagKeys` are the layout's fixed tag "
+            "keys and `tags` the same tags' current names. See docs/INTEGRATION.md."
         ),
         parameters=[
             OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
@@ -317,7 +342,8 @@ class ExternalLayoutDetailView(APIView):
                     if s.get('key', '').lower() in requested_keys
                 ]
 
-            return Response(data)
+            from .layout_tags import with_layout_tag_names
+            return Response(with_layout_tag_names(data))
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
