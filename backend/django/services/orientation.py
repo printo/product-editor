@@ -1,6 +1,7 @@
 """
-Server-side auto-orientation detection via MediaPipe Pose Landmarker
-(Apache 2.0, Google).
+Server-side auto-orientation detection via MediaPipe (Apache 2.0, Google):
+the Pose Landmarker first, and the bundled short-range face detector as a
+second opinion when no usable pose is found.
 
 Why server-side: a customer on a slow phone shouldn't get worse rotation
 correction than one on a fast laptop. Centralising the inference keeps the
@@ -15,17 +16,24 @@ How it works:
   4. Snap that vector to the nearest cardinal (0°, 90°, 180°, 270°)
      using a conservative dead-zone so ambiguous angles don't trigger
      unwanted rotation.
+  5. No usable pose (a close-up selfie crops the shoulders, a small subject
+     collapses the keypoints): run the face detector on the photo at each
+     quarter turn and answer with the turn in which the best face stands
+     upright — see `_pick_face_frame`.
 
-Returns a `RotationSuggestion` or `None` if no usable pose was detected,
-in which case the frontend should fall back to its aspect-ratio
+Returns a `RotationSuggestion` or `None` if neither detector gave a usable
+answer, in which case the frontend falls back to its aspect-ratio
 heuristic (`shouldAutoRotate90` in `editor/layout/[name]/editor-utils.ts`).
 
-Singleton model loader: the .task file is ~5–9 MB and the warm-up
-takes ~1–2 s. We load it once per worker process and reuse.
+Singleton model loaders: the pose .task file is ~5–9 MB and the warm-up
+takes ~1–2 s. We load it once per worker process and reuse. The face model
+ships inside the mediapipe wheel (no download, no file in the repo).
 
-Concurrency: thread-safe because each `.detect()` call is independent
-and MediaPipe handles GIL release internally for the inference loop.
-A single PoseLandmarker instance per process is the recommended pattern.
+Concurrency: PoseLandmarker is thread-safe because each `.detect()` call is
+independent and MediaPipe handles GIL release internally for the inference
+loop. A single PoseLandmarker instance per process is the recommended
+pattern. The legacy face-detection solution is not documented thread-safe,
+so its `.process()` runs under a lock (~15 ms per turn).
 """
 from __future__ import annotations
 
@@ -35,7 +43,7 @@ import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +62,13 @@ _MP_LOAD_FAILED = False
 # Tightened from 30° to 15° after the first prod rollout produced false
 # positives on subjects with moderate body tilt (e.g. someone leaning
 # while holding a pet — a ~30° body-axis tilt landed inside the old
-# window and got "corrected" to sideways). 15° is loose enough that
-# slightly-tilted but clearly-upright shots stay at 0°, and tight enough
-# that genuinely-sideways shots (which sit at exactly ±90°) still hit.
-_CARDINAL_DEAD_ZONE_DEG = 15
+# window and got "corrected" to sideways). Widened to 20° on 2026-10-25:
+# a couple standing by a car read 74.4° (body-up pointing right) on the
+# browser's 640 px JPEG copy, 0.6° outside the 15° window, and went in
+# blind. 20° still keeps the ~30° lean that caused the false positives
+# out; measured on 14 real customer photos with no new wrong answer
+# (docs/HISTORY.md, "Auto-orientation").
+_CARDINAL_DEAD_ZONE_DEG = 20
 
 # Landmark visibility threshold — discard the pose entirely if either
 # shoulder or the nose isn't confidently detected. Raised 0.5 → 0.7 after
@@ -80,6 +91,34 @@ _RIGHT_SHOULDER = 12
 
 _MODELS_DIR = Path(__file__).resolve().parent / "ml_models"
 
+# ---- Face second opinion ----------------------------------------------------
+#
+# Measured 2026-10-25 on 14 real customer photos (docs/HISTORY.md): the pose
+# model read 5 of them, declining every close-up selfie (shoulders out of
+# frame → "not perpendicular") and every small subject ("keypoints too
+# close"). BlazeFace short-range, bundled with the mediapipe wheel, found
+# the faces in 7. Its *score* is not an orientation signal — it rates a
+# sideways face at 0.86–0.92 — but its eye/mouth keypoints are coherent
+# only on an upright face, so the quarter turn in which the best face
+# stands upright is the answer. Letting every turn vote was tried and
+# rejected: keypoints on the three wrong turns are noise and outvote the
+# right one.
+_FACE_MIN_SCORE = 0.8          # a turn counts only with a face this confident
+_FACE_MAX_TILT_DEG = 25        # the best face must stand this upright in the chosen turn
+_FACE_AMBIGUOUS_TILT_DEG = 45  # a second turn this upright → decline
+_FACE_AGREE_TILT_DEG = 40      # every confident face in the chosen turn must agree
+_FACE_SOURCE = "face-short"
+
+_FACE_DETECTOR = None
+_FACE_LOAD_LOCK = threading.Lock()
+_FACE_RUN_LOCK = threading.Lock()
+_FACE_LOAD_FAILED = False
+
+# BlazeFace keypoint order in the legacy solution's `relative_keypoints`.
+_RIGHT_EYE = 0
+_LEFT_EYE = 1
+_MOUTH = 3
+
 
 @dataclass
 class RotationSuggestion:
@@ -89,12 +128,12 @@ class RotationSuggestion:
     # the subject is upright. One of: 0, 90, 180, 270.
     rotation: int
 
-    # Confidence of the underlying pose detection, used by the UI to
-    # decide whether to display the "✨ Auto-rotated" badge. 0.0–1.0.
+    # Confidence of the underlying detection, used by the UI to decide
+    # whether to display the "✨ Auto-rotated" badge. 0.0–1.0.
     confidence: float
 
     # Which model produced this — useful for debugging + logging.
-    source: str  # "pose-lite" | "pose-full"
+    source: str  # "pose-lite" | "pose-full" | "face-short"
 
 
 def _resolve_model_path() -> Optional[Path]:
@@ -176,6 +215,39 @@ def _get_landmarker():
     return _MP_LANDMARKER
 
 
+def _get_face_detector():
+    """Lazy-load the bundled BlazeFace short-range detector; None if unavailable."""
+    global _FACE_DETECTOR, _FACE_LOAD_FAILED
+
+    if _FACE_LOAD_FAILED:
+        return None
+    if _FACE_DETECTOR is not None:
+        return _FACE_DETECTOR
+
+    with _FACE_LOAD_LOCK:
+        if _FACE_DETECTOR is not None:
+            return _FACE_DETECTOR
+        if _FACE_LOAD_FAILED:
+            return None
+        try:
+            import mediapipe as mp  # type: ignore
+
+            _FACE_DETECTOR = mp.solutions.face_detection.FaceDetection(
+                # Short range: faces within ~2 m, i.e. the selfies the pose
+                # model drops. The full-range variant found nothing on the
+                # same photos.
+                model_selection=0,
+                min_detection_confidence=0.5,
+            )
+            logger.info("Auto-orientation: loaded MediaPipe short-range face detector")
+        except Exception as e:
+            logger.warning("Auto-orientation: face detector unavailable (%s); pose only", e)
+            _FACE_LOAD_FAILED = True
+            return None
+
+    return _FACE_DETECTOR
+
+
 def _angle_to_rotation(angle_deg: float) -> Optional[int]:
     """
     Snap the body-up angle to the nearest cardinal rotation in Fabric.js
@@ -214,29 +286,105 @@ def _angle_to_rotation(angle_deg: float) -> Optional[int]:
     return None  # ambiguous tilt — caller treats as "no suggestion"
 
 
-def detect_rotation(image_path: str, label: str = "") -> Optional[RotationSuggestion]:
+def _up_angle(eye_a: Tuple[float, float], eye_b: Tuple[float, float], mouth: Tuple[float, float]) -> float:
     """
-    Run PoseLandmarker on the given image and return a rotation suggestion,
-    or None if no usable pose was detected. Safe to call from any worker
-    process — model loading is lazy + cached + thread-safe.
-
-    `label` is a human-readable tag (the uploaded filename) used only for
-    log lines. Every decision branch logs at INFO with an `[orientation]`
-    prefix so the exact reason a photo did / didn't get a rotation is
-    visible in `docker compose logs backend`. This is the diagnostic the
-    ops team's "Classic doesn't rotate" report needs — read the logs
-    after a re-test to see per-photo what the model decided.
+    Clockwise angle, in degrees from image-up, of a face's up vector (mouth →
+    midpoint of the eyes); 0 means the face stands upright in this frame.
+    Same convention as the pose model's body-up angle, so `_angle_to_rotation`
+    applies unchanged.
     """
-    tag = label or image_path
+    eye_x = (eye_a[0] + eye_b[0]) / 2.0
+    eye_y = (eye_a[1] + eye_b[1]) / 2.0
+    return math.degrees(math.atan2(eye_x - mouth[0], -(eye_y - mouth[1])))
 
-    landmarker = _get_landmarker()
-    if landmarker is None:
-        logger.info("[orientation] %s: declined — model unavailable (mode off / load failed)", tag)
+
+def _pick_face_frame(frames: Dict[int, List[Tuple[float, float]]]) -> Tuple[Optional[int], str, float]:
+    """
+    `frames` maps each clockwise quarter turn (0, 90, 180, 270) to the faces
+    found after turning the photo that way, each as (score, tilt°) with tilt
+    from `_up_angle` in the turned frame. Returns (rotation, reason, score):
+    the turn in which the best face stands upright, or None when no turn is
+    both confident and unambiguous. The detector's score only qualifies a
+    face; it never chooses between turns.
+    """
+    candidates = []
+    for turn, faces in frames.items():
+        confident = [(score, tilt) for score, tilt in faces if score >= _FACE_MIN_SCORE]
+        if not confident:
+            continue
+        score, tilt = max(confident, key=lambda face: face[0])
+        candidates.append((abs(tilt), turn, score, tilt, confident))
+    if not candidates:
+        return None, "no confident face in any quarter turn", 0.0
+
+    candidates.sort(key=lambda c: c[0])
+    upright, turn, score, tilt, confident = candidates[0]
+    if upright > _FACE_MAX_TILT_DEG:
+        return None, f"best face still tilted {tilt:.0f}° after {turn}°", score
+    runner_up = [c for c in candidates[1:] if c[0] <= _FACE_AMBIGUOUS_TILT_DEG]
+    if runner_up:
+        return (
+            None,
+            f"ambiguous: a face stands upright after {turn}° (tilt {tilt:.0f}°) "
+            f"and after {runner_up[0][1]}° (tilt {runner_up[0][3]:.0f}°)",
+            score,
+        )
+    if any(abs(face_tilt) > _FACE_AGREE_TILT_DEG for _, face_tilt in confident):
+        return None, f"faces disagree after {turn}°", score
+    return turn, f"face upright after {turn}° (tilt {tilt:.0f}°, {len(confident)} face(s))", score
+
+
+def _face_rotation(rgb, tag: str) -> Optional[RotationSuggestion]:
+    """
+    Second opinion from the face detector: try the photo at each quarter
+    turn and keep the one in which the best face stands upright. `rgb` is
+    the EXIF-upright PIL image the pose model saw.
+    """
+    detector = _get_face_detector()
+    if detector is None:
+        return None
+    try:
+        import numpy as np  # type: ignore
+    except ImportError:
         return None
 
+    frames: Dict[int, List[Tuple[float, float]]] = {}
     try:
-        # PIL is already a backend dep; numpy comes with mediapipe.
-        from PIL import Image, ImageOps  # type: ignore
+        for turn in (0, 90, 180, 270):
+            # PIL rotates counter-clockwise for a positive angle; `turn` is
+            # Fabric's clockwise angle, the one the editor would apply.
+            turned = rgb if turn == 0 else rgb.rotate(-turn, expand=True)
+            arr = np.ascontiguousarray(np.asarray(turned, dtype=np.uint8))
+            with _FACE_RUN_LOCK:
+                result = detector.process(arr)
+            faces: List[Tuple[float, float]] = []
+            for det in (result.detections or []):
+                kp = det.location_data.relative_keypoints
+                tilt = _up_angle(
+                    (kp[_RIGHT_EYE].x, kp[_RIGHT_EYE].y),
+                    (kp[_LEFT_EYE].x, kp[_LEFT_EYE].y),
+                    (kp[_MOUTH].x, kp[_MOUTH].y),
+                )
+                faces.append((float(det.score[0]), tilt))
+            frames[turn] = faces
+    except Exception as e:
+        logger.warning("[orientation] %s: face detector raised: %s", tag, e)
+        return None
+
+    rotation, reason, score = _pick_face_frame(frames)
+    if rotation is None:
+        logger.info("[orientation] %s: declined — %s", tag, reason)
+        return None
+    logger.info(
+        "[orientation] %s: rotation=%d confidence=%.3f source=%s (%s)",
+        tag, rotation, score, _FACE_SOURCE, reason,
+    )
+    return RotationSuggestion(rotation=rotation, confidence=score, source=_FACE_SOURCE)
+
+
+def _pose_rotation(rgb, tag: str, landmarker) -> Optional[RotationSuggestion]:
+    """Run PoseLandmarker on the EXIF-upright PIL image; None when no usable pose."""
+    try:
         import numpy as np  # type: ignore
         import mediapipe as mp  # type: ignore
     except ImportError:
@@ -244,20 +392,8 @@ def detect_rotation(image_path: str, label: str = "") -> Optional[RotationSugges
         return None
 
     try:
-        with Image.open(image_path) as src:
-            # Respect EXIF orientation BEFORE we ask the model — most JPEGs
-            # in the wild are EXIF=1 anyway, but cameras sometimes flag
-            # orientation, and we want the model to see the same "display
-            # upright" view the customer expects to see.
-            src = ImageOps.exif_transpose(src)
-            rgb = src.convert("RGB")
-            # MediaPipe expects RGB uint8 numpy array.
-            arr = np.asarray(rgb, dtype=np.uint8)
-    except Exception as e:
-        logger.warning("[orientation] %s: declined — failed to read image: %s", tag, e)
-        return None
-
-    try:
+        # MediaPipe expects RGB uint8 numpy array.
+        arr = np.asarray(rgb, dtype=np.uint8)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=arr)
         result = landmarker.detect(mp_image)
     except Exception as e:
@@ -266,7 +402,8 @@ def detect_rotation(image_path: str, label: str = "") -> Optional[RotationSugges
 
     if not result.pose_landmarks:
         # No person in this photo — orientation can't be determined from
-        # pose. Caller falls back to the aspect-ratio heuristic.
+        # pose. The face detector gets a turn next, then the caller falls
+        # back to the aspect-ratio heuristic.
         logger.info("[orientation] %s: declined — no pose detected", tag)
         return None
 
@@ -367,3 +504,48 @@ def detect_rotation(image_path: str, label: str = "") -> Optional[RotationSugges
         confidence=float(confidence),
         source=source,
     )
+
+
+def detect_rotation(image_path: str, label: str = "") -> Optional[RotationSuggestion]:
+    """
+    Run the pose model, then the face detector when it declines, and return
+    a rotation suggestion, or None if neither found anything usable. Safe to
+    call from any worker process — model loading is lazy + cached + thread-safe.
+
+    `label` is a human-readable tag (the uploaded filename) used only for
+    log lines. Every decision branch logs at INFO with an `[orientation]`
+    prefix so the exact reason a photo did / didn't get a rotation is
+    visible in `docker compose logs backend`. This is the diagnostic the
+    ops team's "Classic doesn't rotate" report needs — read the logs
+    after a re-test to see per-photo what the model decided.
+    """
+    tag = label or image_path
+
+    landmarker = _get_landmarker()
+    if landmarker is None:
+        logger.info("[orientation] %s: declined — model unavailable (mode off / load failed)", tag)
+        return None
+
+    try:
+        # PIL is already a backend dep; numpy comes with mediapipe.
+        from PIL import Image, ImageOps  # type: ignore
+    except ImportError:
+        logger.info("[orientation] %s: declined — PIL import failed", tag)
+        return None
+
+    try:
+        with Image.open(image_path) as src:
+            # Respect EXIF orientation BEFORE we ask the model — most JPEGs
+            # in the wild are EXIF=1 anyway, but cameras sometimes flag
+            # orientation, and we want the model to see the same "display
+            # upright" view the customer expects to see.
+            src = ImageOps.exif_transpose(src)
+            rgb = src.convert("RGB")
+    except Exception as e:
+        logger.warning("[orientation] %s: declined — failed to read image: %s", tag, e)
+        return None
+
+    suggestion = _pose_rotation(rgb, tag, landmarker)
+    if suggestion is not None:
+        return suggestion
+    return _face_rotation(rgb, tag)
