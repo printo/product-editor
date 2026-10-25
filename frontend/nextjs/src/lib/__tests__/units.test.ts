@@ -1,4 +1,4 @@
-import { mmToPx, pxToMm } from '../units';
+import { mmToPx, pxToMm, mmToUnit, unitToMm } from '../units';
 
 describe('mmToPx / pxToMm', () => {
   it('converts at the given DPI', () => {
@@ -21,6 +21,27 @@ describe('mmToPx / pxToMm', () => {
         expect(pxToMm(px, dpi)).toBe((px / dpi) * 25.4);
         expect(round2(pxToMm(px, dpi))).toBe(round2((px / dpi) * 25.4));
       }
+    }
+  });
+});
+
+describe('mmToUnit / unitToMm', () => {
+  it('passes millimetres through untouched', () => {
+    expect(mmToUnit(101.6, 'mm')).toBe(101.6);
+    expect(unitToMm(101.6, 'mm')).toBe(101.6);
+  });
+
+  it('shows inches at 3 decimals', () => {
+    expect(mmToUnit(101.6, 'in')).toBe(4);
+    expect(mmToUnit(152.4, 'in')).toBe(6);
+    expect(mmToUnit(2, 'in')).toBe(0.079);
+  });
+
+  it('round-trips an inch value through the 2-dp millimetres we save', () => {
+    const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    for (let thou = 0; thou <= 20000; thou += 1) {
+      const inches = thou / 1000;
+      expect(mmToUnit(round2(unitToMm(inches, 'in')), 'in')).toBe(inches);
     }
   });
 });
