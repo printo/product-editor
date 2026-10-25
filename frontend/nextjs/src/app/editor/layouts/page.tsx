@@ -41,7 +41,7 @@ import { canManageTemplates } from '@/lib/roles';
 import { AVAILABLE_TAGS } from '@/lib/product-tags';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { hasTransparentPixels } from '@/lib/image-utils';
-import { mmToPx as mmToPxExact, pxToMm as pxToMmExact } from '@/lib/units';
+import { mmToPx as mmToPxExact, pxToMm as pxToMmExact, mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
 
 // LayoutFabricPreview pulls in Fabric.js (~400 KB gz). Defer its load until
 // the layouts list itself has rendered so the chooser UI paints fast and
@@ -142,6 +142,18 @@ interface SurfaceEditorState {
 const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
 const mmToPx = (mm: number, dpiVal: number) => Math.round(mmToPxExact(mm, dpiVal));
 const pxToMm = (px: number, dpiVal: number) => round2(pxToMmExact(px, dpiVal));
+
+// The display unit is a per-viewer preference; storage can be blocked
+// (privacy modes), in which case the page simply starts in millimetres.
+const UNIT_PREF_KEY = 'pe:layout-editor:unit';
+const readUnitPref = (): LengthUnit => {
+  if (typeof window === 'undefined') return 'mm';
+  try {
+    return window.localStorage.getItem(UNIT_PREF_KEY) === 'in' ? 'in' : 'mm';
+  } catch {
+    return 'mm';
+  }
+};
 
 const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dpiVal: number) => {
   const canvasW = mmToPx(wMmVal, dpiVal);
@@ -255,6 +267,18 @@ export default function LayoutCreatorPage() {
 
   const [snapGrid, setSnapGrid] = useState(true);
   const [zoom, setZoom] = useState(1);
+
+  // Every length on this page is held and saved in mm; `unit` only changes
+  // what the fields show and how typed values are read back.
+  const [unit, setUnitState] = useState<LengthUnit>(readUnitPref);
+  const setUnit = (next: LengthUnit) => {
+    setUnitState(next);
+    try { window.localStorage.setItem(UNIT_PREF_KEY, next); } catch { /* preference is optional */ }
+  };
+  const lengthStep = unit === 'in' ? '0.001' : '0.01';
+  // Frame fields keep the raw typed string in mm mode, as before.
+  const showLength = (mm: number | string | undefined) => (unit === 'mm' ? (mm ?? 0) : mmToUnit(Number(mm || 0), 'in'));
+  const readLength = (raw: string) => (unit === 'mm' || raw === '' ? raw : String(unitToMm(Number(raw), 'in')));
 
   // Grid generator helper state
   const [rows, setRows] = useState(2);
@@ -1376,7 +1400,26 @@ export default function LayoutCreatorPage() {
 
                     {/* Layout Type Toggle */}
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Layout Type</label>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Layout Type</label>
+                        <div className="flex items-center gap-2" title="Unit for every size on this page. Layouts are always saved in millimetres.">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Units</span>
+                          <div role="radiogroup" aria-label="Measurement unit" className="flex rounded-lg border border-slate-200 overflow-hidden">
+                            {(['mm', 'in'] as const).map(u => (
+                              <button
+                                key={u}
+                                type="button"
+                                role="radio"
+                                aria-checked={unit === u}
+                                onClick={() => setUnit(u)}
+                                className={`px-3 py-1 text-[10px] font-black uppercase transition-all ${unit === u ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                              >
+                                {u}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                       <div className="flex rounded-lg border border-slate-200 overflow-hidden">
                         <button
                           type="button"
@@ -1529,13 +1572,13 @@ export default function LayoutCreatorPage() {
                     
                     <div className="grid grid-cols-3 gap-4">
                       <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Width (mm)</label>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Width ({unit})</label>
                         <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
-                          <input 
-                            type="number" step="0.01" min="0" required
-                            value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].widthMm : widthMm}
+                          <input
+                            type="number" step={lengthStep} min="0" required
+                            value={mmToUnit(activeWidthMm, unit)}
                             onChange={(e) => {
-                              const v = Number(e.target.value);
+                              const v = unitToMm(Number(e.target.value), unit);
                               if (layoutType === 'product') {
                                 setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, widthMm: v } : s));
                               } else {
@@ -1544,17 +1587,17 @@ export default function LayoutCreatorPage() {
                             }}
                             className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
                           />
-                          <span className="text-[9px] font-black text-slate-300 uppercase">mm</span>
+                          <span className="text-[9px] font-black text-slate-300 uppercase">{unit}</span>
                         </div>
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Height (mm)</label>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Height ({unit})</label>
                         <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
-                          <input 
-                            type="number" step="0.01" min="0" required
-                            value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].heightMm : heightMm}
+                          <input
+                            type="number" step={lengthStep} min="0" required
+                            value={mmToUnit(activeHeightMm, unit)}
                             onChange={(e) => {
-                              const v = Number(e.target.value);
+                              const v = unitToMm(Number(e.target.value), unit);
                               if (layoutType === 'product') {
                                 setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, heightMm: v } : s));
                               } else {
@@ -1563,7 +1606,7 @@ export default function LayoutCreatorPage() {
                             }}
                             className="bg-transparent text-[11px] font-black text-slate-800 outline-none w-full"
                           />
-                          <span className="text-[9px] font-black text-slate-300 uppercase">mm</span>
+                          <span className="text-[9px] font-black text-slate-300 uppercase">{unit}</span>
                         </div>
                       </div>
                       <div>
@@ -1686,7 +1729,7 @@ export default function LayoutCreatorPage() {
                   {/* Print Areas Management */}
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
                     <div className="flex items-center justify-between">
-                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider focus:outline-none">Print Areas Management (mm)</label>
+                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider focus:outline-none">Print Areas Management ({unit})</label>
                       <div className="flex items-center gap-4">
                         <label className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 font-semibold cursor-pointer transition-colors" title="Let customers add a caption to each print area in the editor">
                           <input type="checkbox" checked={frameCaptionsEnabled} onChange={(e) => setFrameCaptionsEnabled(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
@@ -1712,7 +1755,7 @@ export default function LayoutCreatorPage() {
                       <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex items-end gap-3 animate-in fade-in slide-in-from-top-2">
                         <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Rows</label><input type="number" min="1" value={rows} onChange={e => setRows(Number(e.target.value))} className="w-16 px-2 py-1.5 text-sm rounded border border-slate-200" /></div>
                         <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Cols</label><input type="number" min="1" value={cols} onChange={e => setCols(Number(e.target.value))} className="w-16 px-2 py-1.5 text-sm rounded border border-slate-200" /></div>
-                        <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pad (mm)</label><input type="number" min="0" step="0.01" value={padding} onChange={e => setPadding(round2(Number(e.target.value)))} className="w-20 px-2 py-1.5 text-sm rounded border border-slate-200" /></div>
+                        <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pad ({unit})</label><input type="number" min="0" step={lengthStep} value={mmToUnit(padding, unit)} onChange={e => setPadding(round2(unitToMm(Number(e.target.value), unit)))} className="w-20 px-2 py-1.5 text-sm rounded border border-slate-200" /></div>
                         <button type="button" onClick={handleGenerateGrid} className="px-4 py-1.5 bg-slate-800 text-white rounded text-xs font-bold hover:bg-slate-700">Replace & Generate</button>
                       </div>
                     )}
@@ -1734,12 +1777,12 @@ export default function LayoutCreatorPage() {
                         <div key={f.id} className="bg-slate-50 p-2 rounded-lg border border-slate-100 group space-y-2">
                           <div className="flex items-center gap-2">
                             <span className="w-6 shrink-0 text-center text-xs font-bold text-slate-400">#{i + 1}</span>
-                            <input type="number" min="0" step="0.01" value={f.xMm} onChange={e => updateFrame(f.id!, 'xMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="X (mm)" />
-                            <input type="number" min="0" step="0.01" value={f.yMm} onChange={e => updateFrame(f.id!, 'yMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="Y (mm)" />
-                            <input type="number" min="0" step="0.01" value={f.widthMm} onChange={e => updateFrame(f.id!, 'widthMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="W (mm)" />
-                            <input type="number" min="0" step="0.01" value={f.heightMm} onChange={e => updateFrame(f.id!, 'heightMm', e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title="H (mm)" />
-                            <input type="number" min="0" step="0.01" value={f.bleedMm ?? 0} onChange={e => updateFrame(f.id!, 'bleedMm', e.target.value)} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title="Bleed (mm)" />
-                            <input type="number" min="0" step="0.01" value={f.borderRadiusMm ?? 0} onChange={e => updateFrame(f.id!, 'borderRadiusMm', e.target.value)} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-teal-100 bg-teal-50 text-teal-600 font-bold" title="Corner Radius (mm)" />
+                            <input type="number" min="0" step={lengthStep} value={showLength(f.xMm)} onChange={e => updateFrame(f.id!, 'xMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`X (${unit})`} />
+                            <input type="number" min="0" step={lengthStep} value={showLength(f.yMm)} onChange={e => updateFrame(f.id!, 'yMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`Y (${unit})`} />
+                            <input type="number" min="0" step={lengthStep} value={showLength(f.widthMm)} onChange={e => updateFrame(f.id!, 'widthMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`W (${unit})`} />
+                            <input type="number" min="0" step={lengthStep} value={showLength(f.heightMm)} onChange={e => updateFrame(f.id!, 'heightMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`H (${unit})`} />
+                            <input type="number" min="0" step={lengthStep} value={showLength(f.bleedMm)} onChange={e => updateFrame(f.id!, 'bleedMm', readLength(e.target.value))} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title={`Bleed (${unit})`} />
+                            <input type="number" min="0" step={lengthStep} value={showLength(f.borderRadiusMm)} onChange={e => updateFrame(f.id!, 'borderRadiusMm', readLength(e.target.value))} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-teal-100 bg-teal-50 text-teal-600 font-bold" title={`Corner Radius (${unit})`} />
                             <div className="flex items-center gap-1 shrink-0 md:opacity-0 group-hover:opacity-100 transition-all">
                               <button type="button" onClick={() => centerFrame(f.id!, 'h')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Horizontally"><AlignCenter className="w-3.5 h-3.5" /></button>
                               <button type="button" onClick={() => centerFrame(f.id!, 'v')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Vertically"><AlignJustify className="w-3.5 h-3.5" /></button>
@@ -1757,13 +1800,13 @@ export default function LayoutCreatorPage() {
                               </div>
                               {f.captionEnabled && (
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <div className="flex items-center gap-1" title="Caption font size (mm)">
+                                  <div className="flex items-center gap-1" title={`Caption font size (${unit})`}>
                                     <span className="text-[9px] font-bold text-slate-400 uppercase">Font</span>
-                                    <input type="number" min="1" step="0.1"
-                                      value={f.captionFontMm ?? round2(Number(f.heightMm || 0) * 0.04)}
-                                      onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, captionFontMm: e.target.value } : fr))}
+                                    <input type="number" min={unit === 'in' ? '0.04' : '1'} step={unit === 'in' ? '0.01' : '0.1'}
+                                      value={showLength(f.captionFontMm ?? round2(Number(f.heightMm || 0) * 0.04))}
+                                      onChange={e => setActiveFrames(prev => prev.map(fr => fr.id === f.id ? { ...fr, captionFontMm: readLength(e.target.value) } : fr))}
                                       className="w-14 px-2 py-1 text-xs rounded border border-slate-200" />
-                                    <span className="text-[9px] text-slate-300">mm</span>
+                                    <span className="text-[9px] text-slate-300">{unit}</span>
                                   </div>
                                   <div className="flex items-center gap-0.5 border border-slate-200 rounded-lg p-0.5">
                                     {([['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight]] as const).map(([a, Icon]) => {
