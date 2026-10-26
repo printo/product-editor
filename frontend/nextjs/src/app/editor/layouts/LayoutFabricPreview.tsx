@@ -110,8 +110,12 @@ function useMaskSlotLayer(
     const fc = fabricRef.current;
     if (!fc) return;
 
-    const existing = fc.getObjects().find((o) => o[DATA_KEY] === 'mask' && o.__maskRole === role);
-    if (existing) fc.remove(existing);
+    const removeExisting = (live: Canvas) => {
+      live.getObjects()
+        .filter((o) => o[DATA_KEY] === 'mask' && o.__maskRole === role)
+        .forEach((o) => live.remove(o));
+    };
+    removeExisting(fc);
 
     const src = file ? URL.createObjectURL(file) : url;
     if (!src) { fc.requestRenderAll(); return; }
@@ -120,9 +124,13 @@ function useMaskSlotLayer(
     const cw = widthMm * scale;
     const ch = heightMm * scale;
 
+    // A load still in flight when the slot changes (or when React re-runs
+    // the effect) must not land beside the newer one.
+    let cancelled = false;
     FabricImage.fromURL(src).then(img => {
       const live = fabricRef.current;
-      if (!live) return;
+      if (cancelled || !live) return;
+      removeExisting(live);
       img.scaleToWidth(cw);
       img.scaleToHeight(ch);
       img.set({
@@ -143,6 +151,7 @@ function useMaskSlotLayer(
     }).catch(() => {});
 
     return () => {
+      cancelled = true;
       if (file && src) URL.revokeObjectURL(src);
     };
   }, [fabricRef, role, url, file, widthMm, heightMm, getScale]);
