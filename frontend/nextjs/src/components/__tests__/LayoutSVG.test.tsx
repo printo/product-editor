@@ -73,7 +73,7 @@ describe('LayoutSVG', () => {
     expect(container.querySelector('image')).toHaveAttribute('data-mask', 'artwork');
   });
 
-  it('draws the bleed area as two dashed rectangles when the layout prints it', () => {
+  it('draws the bleed area as one dashed rectangle when the layout prints it', () => {
     const layout = {
       canvas: { width: 1000, height: 1500, widthMm: 100, heightMm: 150 },
       frames: [{ x: 0.17, y: 0.18, width: 0.66, height: 0.64, bleedMm: 3 }],
@@ -82,12 +82,11 @@ describe('LayoutSVG', () => {
     const { container } = render(<LayoutSVG layout={layout} />);
     const sheet = container.querySelector('[data-print-sheet]');
     expect(sheet).not.toBeNull();
-    const [visible, bleed] = Array.from(sheet!.querySelectorAll('rect'));
-    expect(bleed).toHaveAttribute('x', '170');
-    expect(bleed).toHaveAttribute('width', '660');
-    expect(visible).toHaveAttribute('x', '200');
-    expect(visible).toHaveAttribute('width', '600');
-    expect(bleed).toHaveAttribute('stroke', '#f43f5e');
+    const rects = Array.from(sheet!.querySelectorAll('rect'));
+    expect(rects).toHaveLength(1);
+    expect(rects[0]).toHaveAttribute('x', '170');
+    expect(rects[0]).toHaveAttribute('width', '660');
+    expect(rects[0]).toHaveAttribute('stroke', '#f43f5e');
   });
 
   it('draws no sheet for a whole-canvas layout', () => {

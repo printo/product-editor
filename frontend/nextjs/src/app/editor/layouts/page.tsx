@@ -44,10 +44,7 @@ import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { hasTransparentPixels } from '@/lib/image-utils';
 import { mmToPx as mmToPxExact, pxToMm as pxToMmExact, mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
 import { resolveMaskSlots } from '@/lib/mask-slots';
-import {
-  printSheetLabel, printSheetToJson, readPrintSheet, typedSheet, windowsVisibleAreaMm,
-  type PrintSheet, type PrintSheetMode, type PrintSheetSource,
-} from '@/lib/print-sheet';
+import { printSheetLabel, readPrintSheet, type PrintSheet, type PrintSheetMode } from '@/lib/print-sheet';
 import type { MaskSlotSource } from './LayoutFabricPreview';
 
 // LayoutFabricPreview pulls in Fabric.js (~400 KB gz). Defer its load until
@@ -126,15 +123,9 @@ interface LayoutConfig {
 
 type MaskSlot = 'frame' | 'artwork';
 
-/** The "What to print" choice as the form holds it; typed lengths stay raw strings while being edited. */
+/** The "What to print" choice as the form holds it. */
 interface PrintSheetState {
   mode: PrintSheetMode;
-  source: PrintSheetSource;
-  xMm: number | string;
-  yMm: number | string;
-  widthMm: number | string;
-  heightMm: number | string;
-  bleedMm: number | string;
 }
 
 interface SurfaceEditorState {
@@ -193,7 +184,7 @@ const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dp
 };
 
 const EMPTY_SLOT: MaskSlotSource = { url: null, file: null };
-const WHOLE_CANVAS: PrintSheetState = { mode: 'canvas', source: 'windows', xMm: 0, yMm: 0, widthMm: 0, heightMm: 0, bleedMm: 0 };
+const WHOLE_CANVAS: PrintSheetState = { mode: 'canvas' };
 
 /** One slot from a saved layout (or surface), reading a legacy mask into the right slot. */
 const slotFromData = (block: unknown, slot: MaskSlot): MaskSlotSource => ({
@@ -201,38 +192,9 @@ const slotFromData = (block: unknown, slot: MaskSlot): MaskSlotSource => ({
   file: null,
 });
 
-const printSheetStateFrom = (raw: unknown): PrintSheetState => {
-  const sheet = readPrintSheet(raw);
-  const typed = typedSheet(sheet);
-  return {
-    mode: sheet.mode,
-    source: typed ? 'typed' : 'windows',
-    xMm: typed?.xMm ?? 0, yMm: typed?.yMm ?? 0,
-    widthMm: typed?.widthMm ?? 0, heightMm: typed?.heightMm ?? 0,
-    bleedMm: typed?.bleedMm ?? 0,
-  };
-};
+const printSheetStateFrom = (raw: unknown): PrintSheetState => ({ mode: readPrintSheet(raw).mode });
 
-const printSheetJson = (s: PrintSheetState): PrintSheet => printSheetToJson(s.mode, s.source, {
-  xMm: round2(Number(s.xMm || 0)), yMm: round2(Number(s.yMm || 0)),
-  widthMm: round2(Number(s.widthMm || 0)), heightMm: round2(Number(s.heightMm || 0)),
-  bleedMm: round2(Number(s.bleedMm || 0)),
-});
-
-/** Why a typed bleed area cannot print on a canvas of the given size, or null. */
-const typedSheetProblem = (s: PrintSheetState, canvasWMm: number, canvasHMm: number): string | null => {
-  if (s.mode !== 'bleed' || s.source !== 'typed') return null;
-  const sheet = typedSheet(printSheetJson(s));
-  if (!sheet) return 'The typed bleed area needs a position and a size.';
-  if (sheet.widthMm <= 0 || sheet.heightMm <= 0) return 'The typed bleed area needs a positive width and height.';
-  if (sheet.bleedMm < 0) return 'The bleed cannot be negative.';
-  const b = sheet.bleedMm;
-  if (round2(sheet.xMm - b) < 0 || round2(sheet.yMm - b) < 0
-    || round2(sheet.xMm + sheet.widthMm + b) > canvasWMm || round2(sheet.yMm + sheet.heightMm + b) > canvasHMm) {
-    return 'The typed bleed area (visible area plus its bleed) runs outside the canvas.';
-  }
-  return null;
-};
+const printSheetJson = (s: PrintSheetState): PrintSheet => ({ mode: s.mode });
 
 /**
  * One mask slot: pick, thumbnail, file name, remove. The two slots differ only
@@ -608,22 +570,6 @@ export default function LayoutCreatorPage() {
     const ref = slot === 'frame' ? frameMaskInputRef : artworkMaskInputRef;
     if (ref.current) ref.current.value = '';
   };
-  // "Fill from the photo windows": the box around every window, with the
-  // largest window bleed, as a starting point for a typed bleed area.
-  const fillSheetFromWindows = () => {
-    const visible = windowsVisibleAreaMm(activeFrames);
-    if (!visible) {
-      setError('Add a photo window first — the bleed area is filled from the windows.');
-      return;
-    }
-    const bleed = Math.max(0, ...activeFrames.map(f => Number(f.bleedMm || 0)));
-    setActivePrintSheet(p => ({
-      ...p,
-      xMm: round2(visible.xMm), yMm: round2(visible.yMm),
-      widthMm: round2(visible.widthMm), heightMm: round2(visible.heightMm),
-      bleedMm: round2(bleed),
-    }));
-  };
 
   const setActiveFrames = useCallback((updater: LayoutFrame[] | ((prev: LayoutFrame[]) => LayoutFrame[])) => {
     if (layoutType === 'product') {
@@ -744,17 +690,6 @@ export default function LayoutCreatorPage() {
     });
 
     if (outOfBounds && !window.confirm("Some Print Areas are out of the canvas bounds. Save anyway?")) {
-      setIsSaving(false);
-      return;
-    }
-
-    // A typed bleed area that cannot print is refused here with the reason,
-    // before the server does the same.
-    const sheetProblem = layoutType === 'product'
-      ? surfaces.map(s => { const p = typedSheetProblem(s.printSheet, s.widthMm, s.heightMm); return p ? `${s.label || s.key}: ${p}` : null; }).find(Boolean)
-      : typedSheetProblem(printSheet, widthMm, heightMm);
-    if (sheetProblem) {
-      setError(sheetProblem);
       setIsSaving(false);
       return;
     }
@@ -1877,60 +1812,11 @@ export default function LayoutCreatorPage() {
                           </button>
                         ))}
                       </div>
-                      {activePrintSheet.mode === 'bleed' ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-4 text-xs font-semibold text-slate-600">
-                            {([['windows', 'From the photo windows'], ['typed', 'Typed']] as const).map(([source, label]) => (
-                              <label key={source} className="flex items-center gap-1.5 cursor-pointer hover:text-indigo-600">
-                                <input
-                                  type="radio"
-                                  name="print-sheet-source"
-                                  checked={activePrintSheet.source === source}
-                                  onChange={() => setActivePrintSheet(p => ({ ...p, source }))}
-                                  className="text-indigo-600 focus:ring-indigo-500"
-                                />
-                                {label}
-                              </label>
-                            ))}
-                          </div>
-                          <p className="text-[10px] text-slate-500">
-                            {activePrintSheet.source === 'windows'
-                              ? 'The print is the box around every photo window grown by its Bleed. Type one only when printed artwork extends beyond the windows.'
-                              : 'The visible area of the print, in canvas coordinates, grown by the bleed on every side.'}
-                          </p>
-                          {activePrintSheet.source === 'typed' && (
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2 px-1">
-                                {(['xMm', 'yMm', 'widthMm', 'heightMm', 'bleedMm'] as const).map((field) => (
-                                  <div key={field} className="flex-1 min-w-0">
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                                      {{ xMm: 'X', yMm: 'Y', widthMm: 'W', heightMm: 'H', bleedMm: 'Bleed' }[field]}
-                                    </label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step={lengthStep}
-                                      value={showLength(activePrintSheet[field])}
-                                      onChange={e => { const v = readLength(e.target.value); setActivePrintSheet(p => ({ ...p, [field]: v })); }}
-                                      className={`w-full px-2 py-1.5 text-xs rounded border ${field === 'bleedMm' ? 'border-rose-200 bg-rose-50 text-rose-600 font-bold' : 'border-slate-200'}`}
-                                      title={`${{ xMm: 'Visible X', yMm: 'Visible Y', widthMm: 'Visible width', heightMm: 'Visible height', bleedMm: 'Bleed' }[field]} (${unit})`}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={fillSheetFromWindows}
-                                className="text-xs text-slate-500 hover:text-indigo-600 font-semibold transition-colors"
-                              >
-                                Fill from the photo windows
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-slate-500">The print file is the whole canvas.</p>
-                      )}
+                      <p className="text-[10px] text-slate-500">
+                        {activePrintSheet.mode === 'bleed'
+                          ? 'Prints the photo windows plus their Bleed, nothing else: the rose dashed box in the preview. Moving or resizing a window moves the print with it.'
+                          : 'The print file is the whole canvas.'}
+                      </p>
                     </div>
                   </div>
 

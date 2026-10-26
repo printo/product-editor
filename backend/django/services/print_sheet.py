@@ -11,16 +11,15 @@ show the frame.
 
 Two things replace the switch:
 
-* `printSheet` — `{mode: 'canvas' | 'bleed', xMm?, yMm?, widthMm?, heightMm?,
-  bleedMm?}`. `canvas` (and absent) prints the whole canvas as before, byte for
-  byte. `bleed` with no rectangle prints the bleed area taken **from the photo
-  windows**: the box around every frame (each frame's rectangle already
-  includes its own bleed), worked out at render time, nothing stored. `bleed`
-  with a rectangle is a **typed** bleed area: the visible rectangle in canvas
-  mm grown by `bleedMm` on every side; ops type one only when printed artwork
-  extends beyond the photo windows. `bleed` is never a default: a layout such
-  as the retro polaroid keeps its white border and caption in the print.
-
+* `printSheet` — `{mode: 'canvas' | 'bleed'}`. `canvas` (and absent) prints
+  the whole canvas as before, byte for byte. `bleed` prints the bleed area taken
+  **from the photo windows**: the box around every frame (each frame's
+  rectangle already includes its own bleed), worked out at render time, nothing
+  stored, so the print follows the windows wherever ops move them. Nothing is
+  ever typed: what prints is exactly what the customer's windows show (Kannan,
+  2026-10-26, when a typed rectangle was tried and dropped the same day).
+  `bleed` is never a default: a layout such as the retro polaroid keeps its
+  white border and caption in the print.
 * Two mask slots in place of one. `frameMaskUrl` is placed **outside** the
   bleed area (the frame picture): drawn in every preview and in the mock,
   never printed, even where its pixels overlap the bleed ring.
@@ -45,9 +44,6 @@ from typing import Any, Optional
 PRINT_SHEET_MODES = ("canvas", "bleed")
 FRAME_MASK = "frameMaskUrl"
 ARTWORK_MASK = "artworkMaskUrl"
-_RECT_KEYS = ("xMm", "yMm", "widthMm", "heightMm")
-# Rounding slack for a rectangle typed in two-decimal millimetres.
-_MM_TOLERANCE = 0.011
 
 
 def _url(value: Any) -> Optional[str]:
@@ -151,25 +147,6 @@ def has_svg_mask(block: dict) -> bool:
 
 # ── Print sheet ──────────────────────────────────────────────────────────────
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def canvas_mm(canvas: dict) -> tuple[Optional[float], Optional[float]]:
-    """The canvas size in mm: its `widthMm`/`heightMm`, else from its pixel
-    size at its `dpi` (300 when absent). None when there is no readable canvas."""
-    if not isinstance(canvas, dict):
-        return None, None
-    w_mm, h_mm = canvas.get("widthMm"), canvas.get("heightMm")
-    if _is_number(w_mm) and _is_number(h_mm) and w_mm > 0 and h_mm > 0:
-        return float(w_mm), float(h_mm)
-    w, h = canvas.get("width"), canvas.get("height")
-    if not (_is_number(w) and _is_number(h) and w > 0 and h > 0):
-        return None, None
-    dpi = canvas.get("dpi") if _is_number(canvas.get("dpi")) and canvas.get("dpi") > 0 else 300
-    return w * 25.4 / dpi, h * 25.4 / dpi
-
-
 def print_sheet_mode(block: dict) -> str:
     sheet = block.get("printSheet") if isinstance(block, dict) else None
     if isinstance(sheet, dict) and sheet.get("mode") == "bleed":
@@ -177,25 +154,12 @@ def print_sheet_mode(block: dict) -> str:
     return "canvas"
 
 
-def typed_sheet_rect(sheet: Any) -> Optional[dict]:
-    """The typed visible rectangle and bleed, or None when the sheet has no
-    rectangle (the from-the-windows case). Does not validate."""
-    if not isinstance(sheet, dict) or not all(_is_number(sheet.get(k)) for k in _RECT_KEYS):
-        return None
-    bleed = sheet.get("bleedMm")
-    return {
-        "xMm": float(sheet["xMm"]), "yMm": float(sheet["yMm"]),
-        "widthMm": float(sheet["widthMm"]), "heightMm": float(sheet["heightMm"]),
-        "bleedMm": float(bleed) if _is_number(bleed) else 0.0,
-    }
-
-
-def validate_print_sheet(block: dict, canvas: dict) -> Optional[dict]:
+def validate_print_sheet(block: dict) -> Optional[dict]:
     """A cleaned `printSheet` for storage, or None when the block has none.
 
-    Raises ValueError with an ops-readable message: unknown mode, a partial or
-    non-numeric rectangle, a non-positive size, a negative bleed, or a bleed
-    area outside the canvas.
+    Raises ValueError with an ops-readable message for anything but
+    `{mode: 'canvas' | 'bleed'}`: the bleed area always comes from the photo
+    windows, so a rectangle of any kind is refused rather than stored.
     """
     sheet = block.get("printSheet")
     if sheet is None:
@@ -205,52 +169,13 @@ def validate_print_sheet(block: dict, canvas: dict) -> Optional[dict]:
     mode = sheet.get("mode", "canvas")
     if mode not in PRINT_SHEET_MODES:
         raise ValueError("printSheet.mode must be 'canvas' (the whole canvas) or 'bleed' (the bleed area).")
-    present = [k for k in _RECT_KEYS if sheet.get(k) is not None]
-    if not present:
-        bleed = sheet.get("bleedMm")
-        if bleed is not None and not _is_number(bleed):
-            raise ValueError("printSheet.bleedMm must be a number of millimetres.")
-        return {"mode": mode}
-    if len(present) != len(_RECT_KEYS):
-        raise ValueError("A typed bleed area needs all of xMm, yMm, widthMm and heightMm.")
-    for key in _RECT_KEYS:
-        if not _is_number(sheet[key]):
-            raise ValueError(f"printSheet.{key} must be a number of millimetres.")
-    bleed = sheet.get("bleedMm", 0)
-    if bleed is None:
-        bleed = 0
-    if not _is_number(bleed) or bleed < 0:
-        raise ValueError("printSheet.bleedMm must be zero or a positive number of millimetres.")
-    rect = typed_sheet_rect({**sheet, "bleedMm": bleed})
-    if rect["widthMm"] <= 0 or rect["heightMm"] <= 0:
-        raise ValueError("A typed bleed area needs a positive width and height.")
-    w_mm, h_mm = canvas_mm(canvas)
-    if w_mm is None:
-        raise ValueError("A typed bleed area needs a canvas with a size.")
-    left, top = rect["xMm"] - rect["bleedMm"], rect["yMm"] - rect["bleedMm"]
-    right, bottom = rect["xMm"] + rect["widthMm"] + rect["bleedMm"], rect["yMm"] + rect["heightMm"] + rect["bleedMm"]
-    if left < -_MM_TOLERANCE or top < -_MM_TOLERANCE or right > w_mm + _MM_TOLERANCE or bottom > h_mm + _MM_TOLERANCE:
+    extra = sorted(k for k in sheet if k != "mode")
+    if extra:
         raise ValueError(
-            f"The bleed area ({left:.2f}, {top:.2f}) to ({right:.2f}, {bottom:.2f}) mm "
-            f"runs outside the {w_mm:.2f} x {h_mm:.2f} mm canvas."
+            "printSheet takes only `mode`; the bleed area always comes from the photo "
+            f"windows (unexpected: {', '.join(extra)})."
         )
-    return {"mode": mode, **rect}
-
-
-def mm_rect_to_px(rect: dict, canvas: dict) -> tuple[int, int, int, int]:
-    """A visible mm rectangle grown by its bleed, as a pixel box
-    `(left, top, right, bottom)` on the canvas, rounded like the frames are
-    (`LayoutEngine._normalize_frames`) and clamped to the canvas."""
-    canvas_w, canvas_h = int(canvas["width"]), int(canvas["height"])
-    w_mm, h_mm = canvas_mm(canvas)
-    ppm_x = canvas_w / w_mm
-    ppm_y = canvas_h / h_mm
-    bleed = rect.get("bleedMm", 0.0)
-    left = round((rect["xMm"] - bleed) * ppm_x)
-    top = round((rect["yMm"] - bleed) * ppm_y)
-    right = round((rect["xMm"] + rect["widthMm"] + bleed) * ppm_x)
-    bottom = round((rect["yMm"] + rect["heightMm"] + bleed) * ppm_y)
-    return max(0, left), max(0, top), min(canvas_w, right), min(canvas_h, bottom)
+    return {"mode": mode}
 
 
 def windows_bleed_box_px(frames: list, canvas: dict) -> Optional[tuple[int, int, int, int]]:
@@ -278,35 +203,15 @@ def resolve_print_box(surface_def: dict) -> Optional[tuple[int, int, int, int]]:
     if print_sheet_mode(surface_def) != "bleed":
         return None
     canvas = surface_def["canvas"]
-    rect = typed_sheet_rect(surface_def.get("printSheet"))
-    if rect is not None:
-        box = mm_rect_to_px(rect, canvas)
-    else:
-        box = windows_bleed_box_px(surface_def.get("frames") or [], canvas)
-        if box is None:
-            return None
+    box = windows_bleed_box_px(surface_def.get("frames") or [], canvas)
+    if box is None:
+        return None
     left, top, right, bottom = box
     if right - left <= 0 or bottom - top <= 0:
         raise ValueError(
             f"The bleed area of surface '{surface_def.get('key', 'default')}' is empty "
-            f"({left}, {top}) to ({right}, {bottom}) px; check the layout's print sheet."
+            f"({left}, {top}) to ({right}, {bottom}) px; check the layout's photo windows."
         )
     if (left, top, right, bottom) == (0, 0, int(canvas["width"]), int(canvas["height"])):
         return None
     return box
-
-
-def rotate_print_sheet(sheet: Any, canvas_w_mm: float, canvas_h_mm: float) -> Any:
-    """A typed sheet turned a quarter turn clockwise with the canvas, in the
-    authored canvas's mm: (x, y, w, h) -> (H - y - h, x, h, w). A sheet
-    without a rectangle is returned unchanged; its box follows the frames."""
-    rect = typed_sheet_rect(sheet)
-    if rect is None:
-        return sheet
-    return {
-        **sheet,
-        "xMm": canvas_h_mm - rect["yMm"] - rect["heightMm"],
-        "yMm": rect["xMm"],
-        "widthMm": rect["heightMm"],
-        "heightMm": rect["widthMm"],
-    }

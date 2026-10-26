@@ -145,24 +145,17 @@ def test_every_response_carries_both_slots_and_the_derived_legacy_pair():
 # ── Validation ──────────────────────────────────────────────────────────────
 
 def test_print_sheet_validation():
-    canvas = dict(CANVAS)
-    assert validate_print_sheet({}, canvas) is None
-    assert validate_print_sheet({"printSheet": {"mode": "canvas"}}, canvas) == {"mode": "canvas"}
-    assert validate_print_sheet({"printSheet": {"mode": "bleed"}}, canvas) == {"mode": "bleed"}
-    typed = validate_print_sheet({"printSheet": {"mode": "bleed", "xMm": 10, "yMm": 10, "widthMm": 80, "heightMm": 130, "bleedMm": 2}}, canvas)
-    assert typed == {"mode": "bleed", "xMm": 10.0, "yMm": 10.0, "widthMm": 80.0, "heightMm": 130.0, "bleedMm": 2.0}
+    assert validate_print_sheet({}) is None
+    assert validate_print_sheet({"printSheet": {"mode": "canvas"}}) == {"mode": "canvas"}
+    assert validate_print_sheet({"printSheet": {"mode": "bleed"}}) == {"mode": "bleed"}
     for bad, needle in (
         ({"mode": "window"}, "mode"),
-        ({"mode": "bleed", "xMm": 1, "yMm": 1, "widthMm": 10}, "all of"),
-        ({"mode": "bleed", "xMm": "1", "yMm": 1, "widthMm": 10, "heightMm": 10}, "number"),
-        ({"mode": "bleed", "xMm": 1, "yMm": 1, "widthMm": 0, "heightMm": 10}, "positive"),
-        ({"mode": "bleed", "xMm": 1, "yMm": 1, "widthMm": 10, "heightMm": 10, "bleedMm": -1}, "bleedMm"),
-        ({"mode": "bleed", "xMm": 1, "yMm": 1, "widthMm": 10, "heightMm": 10, "bleedMm": 2}, "outside"),
-        ({"mode": "bleed", "xMm": 50, "yMm": 10, "widthMm": 60, "heightMm": 10}, "outside"),
+        # The bleed area is never typed: a rectangle is refused, not stored.
+        ({"mode": "bleed", "xMm": 10, "yMm": 10, "widthMm": 80, "heightMm": 130, "bleedMm": 2}, "only `mode`"),
         ("bleed", "object"),
     ):
         try:
-            validate_print_sheet({"printSheet": bad}, canvas)
+            validate_print_sheet({"printSheet": bad})
         except ValueError as exc:
             assert needle in str(exc), (bad, exc)
         else:
@@ -174,8 +167,9 @@ def test_the_print_box_is_the_windows_bleed_area_in_pixels():
     assert resolve_print_box({"canvas": dict(CANVAS), "frames": frames, "printSheet": {"mode": "bleed"}}) == (170, 270, 830, 1230)
     assert resolve_print_box({"canvas": dict(CANVAS), "frames": frames}) is None
     assert resolve_print_box({"canvas": dict(CANVAS), "frames": frames, "printSheet": {"mode": "canvas"}}) is None
-    typed = {"mode": "bleed", "xMm": 10, "yMm": 20, "widthMm": 80, "heightMm": 110, "bleedMm": 2}
-    assert resolve_print_box({"canvas": dict(CANVAS), "frames": frames, "printSheet": typed}) == (80, 180, 920, 1320)
+    # Moving the window moves the print with it: the box is read from the frames.
+    moved = LayoutEngine._normalize_frames([_frame(30, 40, 60, 90, 3)], 1000, 1500)
+    assert resolve_print_box({"canvas": dict(CANVAS), "frames": moved, "printSheet": {"mode": "bleed"}}) == (270, 370, 930, 1330)
     # A window filling the whole canvas prints the whole canvas.
     full = LayoutEngine._normalize_frames([_frame(0, 0, 100, 150, 0)], 1000, 1500)
     assert resolve_print_box({"canvas": dict(CANVAS), "frames": full, "printSheet": {"mode": "bleed"}}) is None
@@ -226,21 +220,24 @@ def test_two_windows_print_on_one_sheet_spanning_both():
         assert _near(rgb.getpixel((420, 570)), WHITE), rgb.getpixel((420, 570))
 
 
-def test_a_typed_bleed_area_prints_the_artwork_inside_it_and_never_the_frame():
+def test_artwork_prints_inside_the_bleed_area_and_the_frame_picture_never_does():
     work = tempfile.mkdtemp(prefix="pe-sheet-")
     layout = _one_window(
-        bleed=0,
-        printSheet={"mode": "bleed", "xMm": 15, "yMm": 25, "widthMm": 70, "heightMm": 100, "bleedMm": 0},
+        bleed=3,
+        printSheet={"mode": "bleed"},
         artworkMaskUrl=_artwork(work),
         frameMaskUrl=_frame_picture(work),
     )
     (out,) = _render(work, layout)
     with Image.open(out) as img:
-        assert img.size == (700, 1000), img.size
+        # the window's bleed area: 17..83 x 27..123 mm
+        assert img.size == (660, 960), img.size
         rgb = img.convert("RGB")
-        assert _near(rgb.getpixel((20, 20)), GOLD), f"artwork should print in the ring: {rgb.getpixel((20, 20))}"
-        assert _near(rgb.getpixel((350, 500)), RED), "the photo shows through the artwork's hole"
-        assert not _near(rgb.getpixel((2, 2)), BROWN), "the frame picture never prints"
+        # the gold ring runs 15..20 mm from the left; the sheet starts at 17 mm
+        assert _near(rgb.getpixel((10, 480)), GOLD), f"artwork should print inside the sheet: {rgb.getpixel((10, 480))}"
+        assert _near(rgb.getpixel((330, 480)), RED), "the photo shows through the artwork's hole"
+        for px in ((2, 2), (657, 2), (2, 957), (657, 957)):
+            assert not _near(rgb.getpixel(px), BROWN), f"the frame picture never prints: {px}"
     with Image.open(_mock_path(out)) as mock:
         assert mock.size == (400, 600)
         assert _near(mock.getpixel((10, 10)), BROWN), "the mock keeps the frame picture"
@@ -292,26 +289,16 @@ def test_the_mock_of_a_cropped_layout_keeps_the_full_canvas_and_both_masks():
         assert _near(mock.getpixel((200, 300)), RED), "photo"
 
 
-def test_a_turned_typed_layout_crops_the_turned_rectangle():
+def test_a_turned_layout_crops_the_turned_bleed_box():
+    """The box follows the turned frames; the setting itself has nothing to turn."""
     work = tempfile.mkdtemp(prefix="pe-sheet-")
-    layout = _one_window(bleed=0, printSheet={"mode": "bleed", "xMm": 10, "yMm": 20, "widthMm": 60, "heightMm": 100, "bleedMm": 2})
-    turned, report = apply_orientation(layout, "landscape")
-    assert report["applied"] is True
-    sheet = turned["printSheet"]
-    # (x, y, w, h) → (H - y - h, x, h, w) with H = 150 mm
-    assert (sheet["xMm"], sheet["yMm"], sheet["widthMm"], sheet["heightMm"], sheet["bleedMm"]) == (30, 10, 100, 60, 2)
-    (out,) = _render(work, turned)
+    turned, report = apply_orientation(_one_window(bleed=3, printSheet={"mode": "bleed"}), "landscape")
+    assert report["applied"] is True and turned["printSheet"] == {"mode": "bleed"}
+    (out,) = _render(work, {**turned, "name": "turned_windows"})
     with Image.open(out) as img:
-        # 104 x 64 mm with the bleed, on a 150 x 100 mm turned canvas
-        assert img.size == (1040, 640), img.size
-        rgb = img.convert("RGB")
-        assert _near(rgb.getpixel((520, 320)), RED)
-    # From the photo windows there is nothing to turn: the box follows the frames.
-    from_windows, _ = apply_orientation(_one_window(bleed=3, printSheet={"mode": "bleed"}), "landscape")
-    assert from_windows["printSheet"] == {"mode": "bleed"}
-    (out2,) = _render(work, {**from_windows, "name": "turned_windows"})
-    with Image.open(out2) as img:
+        # 96 x 66 mm with the bleed, on a 150 x 100 mm turned canvas
         assert img.size == (960, 660), img.size
+        assert _near(img.convert("RGB").getpixel((480, 330)), RED)
 
 
 def test_a_multi_surface_product_gets_its_own_bleed_area_per_surface():
@@ -325,7 +312,7 @@ def test_a_multi_surface_product_gets_its_own_bleed_area_per_surface():
              "frameMaskUrl": _frame_picture(work)},
             {"key": "back", "label": "Back", "canvas": dict(CANVAS),
              "frames": [_frame(10, 10, 80, 130, 0)],
-             "printSheet": {"mode": "bleed", "xMm": 5, "yMm": 5, "widthMm": 90, "heightMm": 140, "bleedMm": 0}},
+             "printSheet": {"mode": "bleed"}},
         ],
     }
     # One canvas per side, grouped by surface key as the editor submits it.
@@ -335,10 +322,10 @@ def test_a_multi_surface_product_gets_its_own_bleed_area_per_surface():
     )
     assert len(outputs) == 2, outputs
     sizes = {os.path.basename(p): Image.open(p).size for p in outputs}
-    assert sizes == {"two_sided_front_1.png": (660, 960), "two_sided_back_1.png": (900, 1400)}, sizes
+    assert sizes == {"two_sided_front_1.png": (660, 960), "two_sided_back_1.png": (800, 1300)}, sizes
     with Image.open(outputs[0]) as front, Image.open(outputs[1]) as back:
         assert _near(front.convert("RGB").getpixel((330, 480)), RED)
-        assert _near(back.convert("RGB").getpixel((450, 700)), BLUE)
+        assert _near(back.convert("RGB").getpixel((400, 650)), BLUE)
         assert not _near(front.convert("RGB").getpixel((2, 2)), BROWN), "the front's frame picture never prints"
 
 

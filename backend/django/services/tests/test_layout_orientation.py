@@ -169,26 +169,12 @@ def test_both_mask_slots_are_marked_for_a_matching_turn():
     assert "maskRotate" not in out
 
 
-def test_a_typed_bleed_area_turns_with_the_frames():
-    typed = {"mode": "bleed", "xMm": 10, "yMm": 20, "widthMm": 120, "heightMm": 160, "bleedMm": 3}
-    out, report = apply_orientation({**_landscape(), "printSheet": typed}, "portrait")
-    assert report["applied"] is True
-    # (x, y, w, h) -> (H - y - h, x, h, w) with H = 200 mm, bleed untouched
-    assert out["printSheet"] == {"mode": "bleed", "xMm": 200 - 20 - 160, "yMm": 10, "widthMm": 160, "heightMm": 120, "bleedMm": 3}
-    # from the photo windows there is nothing to turn
-    out, _ = apply_orientation({**_landscape(), "printSheet": {"mode": "bleed"}}, "portrait")
-    assert out["printSheet"] == {"mode": "bleed"}
-    # whole-canvas sheets are left alone too
-    out, _ = apply_orientation({**_landscape(), "printSheet": {"mode": "canvas"}}, "portrait")
-    assert out["printSheet"] == {"mode": "canvas"}
-
-
-def test_a_typed_bleed_area_turns_from_the_pixel_size_when_canvas_mm_is_unknown():
-    src = {**_landscape(), "printSheet": {"mode": "bleed", "xMm": 10, "yMm": 20, "widthMm": 100, "heightMm": 100}}
-    del src["canvas"]["widthMm"], src["canvas"]["heightMm"]
-    # 3000 x 2000 px at 254 dpi = 300 x 200 mm, so H is still 200 mm
-    out, _ = apply_orientation(src, "portrait")
-    assert _close(out["printSheet"]["xMm"], 200 - 20 - 100) and out["printSheet"]["yMm"] == 10
+def test_the_print_sheet_rides_the_turn_untouched():
+    # The bleed area comes from the frames at render time, so the setting
+    # itself has nothing to turn.
+    for sheet in ({"mode": "bleed"}, {"mode": "canvas"}):
+        out, report = apply_orientation({**_landscape(), "printSheet": sheet}, "portrait")
+        assert report["applied"] is True and out["printSheet"] == sheet
 
 
 if __name__ == "__main__":

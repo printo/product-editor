@@ -545,7 +545,7 @@ def _normalize_print_settings(layout_data: dict, is_multi_surface: bool) -> None
         normalize_mask_slots(block)
         label = f"Surface '{block.get('key')}': " if is_multi_surface else ""
         try:
-            sheet = validate_print_sheet(block, block.get('canvas') or {})
+            sheet = validate_print_sheet(block)
         except ValueError as exc:
             raise ValueError(f"{label}{exc}") from exc
         if sheet is None:

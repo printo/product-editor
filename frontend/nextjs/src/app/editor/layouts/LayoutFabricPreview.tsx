@@ -19,7 +19,7 @@ import {
   initAligningGuidelines,
 } from '@/lib/fabric-utils';
 import { alignFrames, nudgeFrames, type AlignEdge } from './frame-align';
-import { printSheetAreasMm, type MmRect } from '@/lib/print-sheet';
+import { printSheetAreaMm } from '@/lib/print-sheet';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ interface LayoutFabricPreviewProps {
   frameMask: MaskSlotSource;
   /** The artwork: inside the bleed area, printed. Drawn under the frame picture. */
   artworkMask: MaskSlotSource;
-  /** The layout's `printSheet` (any shape `printSheetAreasMm` reads); draws the bleed area when it prints. */
+  /** The layout's `printSheet`; draws the bleed area as one rose dashed rectangle when it prints. */
   printSheet?: unknown;
   snapGrid: boolean;
   onFramesChange: (frames: LayoutFrame[]) => void;
@@ -375,20 +375,15 @@ export function LayoutFabricPreview({
       }
     });
 
-    // The print sheet, when the layout prints its bleed area: the visible
-    // rectangle in emerald and the bleed around it in the rose the bleed
-    // guides use. Rebuilt with the frames because "from the photo windows"
-    // follows them.
-    const sheet = printSheetAreasMm(printSheet, frames);
+    // The print sheet, when the layout prints its bleed area: one rose dashed
+    // rectangle, the box around the windows plus their bleed. Rebuilt with
+    // the frames because it follows them.
+    const sheet = printSheetAreaMm(printSheet, frames);
     if (sheet) {
-      const sheetRect = (r: MmRect, stroke: string) => {
-        const rect = createBleedRect(r.xMm * scale, r.yMm * scale, r.widthMm * scale, r.heightMm * scale, 0);
-        rect.set({ stroke, strokeWidth: 2, strokeDashArray: [8, 5], opacity: 0.9 });
-        rect.__fabricEditor = 'sheet';
-        return rect;
-      };
-      fc.add(sheetRect(sheet.visible, '#10b981'));
-      fc.add(sheetRect(sheet.bleed, '#f43f5e'));
+      const rect = createBleedRect(sheet.xMm * scale, sheet.yMm * scale, sheet.widthMm * scale, sheet.heightMm * scale, 0);
+      rect.set({ strokeWidth: 2, strokeDashArray: [8, 5], opacity: 0.9 });
+      rect.__fabricEditor = 'sheet';
+      fc.add(rect);
     }
 
     // Masks stay on top of the frames, artwork under the frame picture, as

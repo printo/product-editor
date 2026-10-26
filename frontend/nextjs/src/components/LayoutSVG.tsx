@@ -3,7 +3,7 @@
 import React from 'react';
 import { mmToPx } from '@/lib/units';
 import { resolveMaskSlots } from '@/lib/mask-slots';
-import { printSheetAreasPx } from '@/lib/print-sheet';
+import { printSheetAreaPx } from '@/lib/print-sheet';
 
 interface LayoutSVGProps {
   layout: any;
@@ -13,9 +13,7 @@ interface LayoutSVGProps {
   maskUrl?: string;
 }
 
-// The dashed guides the ops preview and the live editor use for the same two
-// things: the visible area in emerald, the bleed in rose.
-const VISIBLE_STROKE = '#10b981';
+// The rose the ops preview and the live editor use for their bleed guides.
 const BLEED_STROKE = '#f43f5e';
 
 export const LayoutSVG = ({ layout, className = "w-full h-full", surfaceKey, maskUrl: maskUrlProp }: LayoutSVGProps) => {
@@ -48,7 +46,7 @@ export const LayoutSVG = ({ layout, className = "w-full h-full", surfaceKey, mas
   // Calendars and books always print whole; only a generic layout has a sheet.
   const sheet = layout.productType === 'calendar' || layout.productType === 'book'
     ? null
-    : printSheetAreasPx(block?.printSheet, canvas, frames);
+    : printSheetAreaPx(block?.printSheet, canvas, frames);
 
   const viewBox = `0 0 ${canvas.width} ${canvas.height}`;
   const dpi = canvas.dpi || 300;
@@ -135,18 +133,12 @@ export const LayoutSVG = ({ layout, className = "w-full h-full", surfaceKey, mas
       )}
 
       {/* The print sheet: what the print file is when the layout prints its
-          bleed area rather than the whole canvas. Visible area, then the
-          bleed around it. */}
+          bleed area rather than the whole canvas. */}
       {sheet && (
         <g data-print-sheet="bleed" style={{ pointerEvents: 'none' }}>
           <rect
-            x={sheet.visible.x} y={sheet.visible.y}
-            width={sheet.visible.width} height={sheet.visible.height}
-            fill="none" stroke={VISIBLE_STROKE} strokeWidth="3" strokeDasharray="12 8" opacity="0.9"
-          />
-          <rect
-            x={sheet.bleed.x} y={sheet.bleed.y}
-            width={sheet.bleed.width} height={sheet.bleed.height}
+            x={sheet.x} y={sheet.y}
+            width={sheet.width} height={sheet.height}
             fill="none" stroke={BLEED_STROKE} strokeWidth="3" strokeDasharray="12 8" opacity="0.9"
           />
         </g>

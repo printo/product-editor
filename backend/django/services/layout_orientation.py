@@ -22,7 +22,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Optional
 
-from services.print_sheet import ARTWORK_MASK, FRAME_MASK, canvas_mm, has_svg_mask, rotate_print_sheet
+from services.print_sheet import ARTWORK_MASK, FRAME_MASK, has_svg_mask
 
 ORIENTATIONS = ("portrait", "landscape")
 
@@ -127,14 +127,8 @@ def _rotate_surface(surface: dict) -> None:
     grid = surface.get("grid")
     if not frames and isinstance(grid, dict) and grid.get("rows") and grid.get("cols"):
         surface["grid"] = {**grid, "rows": grid["cols"], "cols": grid["rows"]}
-    # A typed bleed area turns with the frames, in the authored canvas's mm
-    # (read before the swap). One taken from the photo windows needs nothing:
-    # its box follows the turned frames at render time.
-    sheet = surface.get("printSheet")
-    if isinstance(sheet, dict):
-        authored_w_mm, authored_h_mm = canvas_mm(canvas)
-        if authored_h_mm is not None:
-            surface["printSheet"] = rotate_print_sheet(sheet, authored_w_mm, authored_h_mm)
+    # The print sheet needs nothing here: its bleed area is taken from the
+    # frames at render time, so it follows them through the turn.
     canvas["width"], canvas["height"] = h, w
     if w_mm is not None or h_mm is not None:
         canvas["widthMm"], canvas["heightMm"] = h_mm, w_mm
