@@ -312,14 +312,17 @@ export function constrainToCanvas(
   target: FabricObject,
   canvasWidth: number,
   canvasHeight: number,
+  inset = 0,
 ) {
+  // `inset` keeps a margin around the object inside the canvas: a print
+  // area's bleed strip, so the area plus its bleed never hangs over the edge.
   const left = target.left ?? 0;
   const top = target.top ?? 0;
   const w = (target.width ?? 0) * (target.scaleX ?? 1);
   const h = (target.height ?? 0) * (target.scaleY ?? 1);
   target.set({
-    left: Math.max(0, Math.min(left, canvasWidth - w)),
-    top: Math.max(0, Math.min(top, canvasHeight - h)),
+    left: Math.max(inset, Math.min(left, canvasWidth - w - inset)),
+    top: Math.max(inset, Math.min(top, canvasHeight - h - inset)),
   });
 }
 

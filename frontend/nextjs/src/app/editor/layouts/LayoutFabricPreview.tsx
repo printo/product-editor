@@ -485,7 +485,7 @@ export function LayoutFabricPreview({
 
       const cw = widthMm * scale;
       const ch = heightMm * scale;
-      constrainToCanvas(target, cw, ch);
+      constrainToCanvas(target, cw, ch, Number(framesRef.current[idx]?.bleedMm || 0) * scale);
 
       const left = target.left ?? 0;
       const top = target.top ?? 0;
@@ -526,7 +526,7 @@ export function LayoutFabricPreview({
           top: snapToGrid(top, gridPx),
         });
       }
-      constrainToCanvas(target, cw, ch);
+      constrainToCanvas(target, cw, ch, Number(framesRef.current[idx]?.bleedMm || 0) * scale);
 
       // Sync associated objects (bleed, label)
       const left = target.left ?? 0;
@@ -565,8 +565,12 @@ export function LayoutFabricPreview({
       const h = (target.height ?? 0) * (target.scaleY ?? 1);
       if (w < minPx) target.set({ scaleX: minPx / (target.width ?? 1) });
       if (h < minPx) target.set({ scaleY: minPx / (target.height ?? 1) });
+      // Never wider or taller than the canvas less the bleed on both sides.
+      const insetPx = Number(framesRef.current[idx]?.bleedMm || 0) * scale;
+      if (w > cw - 2 * insetPx) target.set({ scaleX: Math.max(minPx, cw - 2 * insetPx) / (target.width ?? 1) });
+      if (h > ch - 2 * insetPx) target.set({ scaleY: Math.max(minPx, ch - 2 * insetPx) / (target.height ?? 1) });
 
-      constrainToCanvas(target, cw, ch);
+      constrainToCanvas(target, cw, ch, Number(framesRef.current[idx]?.bleedMm || 0) * scale);
 
       // Sync associated objects (bleed, label)
       const left = target.left ?? 0;
