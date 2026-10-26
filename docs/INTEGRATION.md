@@ -161,6 +161,16 @@ A single-part archive puts its files at the root, since a folder containing only
 one kind of file is just an extra level to walk. The combined archive keeps its
 three numbered folders exactly as before.
 
+**The print file's pixel size follows the layout's bleed area, not the preview
+canvas** (as of Oct 26, 2026). For a physical photo frame the layout prints only
+the photo plus the strip the frame hides or the trimmer removes, so a file in
+`3_print/` can be smaller than the canvas the customer saw. It is still one
+file per printed side, however many photo windows that side has. The mock in
+`2_mock/` always shows the full design the customer saw, frame picture
+included, at the canvas's own proportions, so it is the right image for a cart
+or order preview. `file_count` counts the same files as before. A layout that
+prints its whole canvas is unchanged, byte for byte.
+
 **Status codes worth handling:**
 
 | Code | Meaning |
@@ -652,7 +662,7 @@ as it is drawn when:
 | the layout is square | `square_layout` |
 | the layout is switched off for turning, or is a calendar or book | `not_rotatable` |
 | the layout has frame captions, or fixed text or sticker overlays | `has_captions`, `has_overlays` |
-| the layout's mask is an SVG | `svg_mask` |
+| either of the layout's masks (frame picture or artwork) is an SVG | `svg_mask` |
 
 The session response echoes `orientation` (or `null` if it was dropped). It
 cannot say whether the layout will be turned, because the layout is named only
