@@ -152,6 +152,45 @@ def test_frame_mm_dropped_when_canvas_mm_is_unknown():
     assert "xMm" not in out["frames"][0] and _close(out["frames"][0]["x"], 0.1)
 
 
+def test_an_svg_in_either_mask_slot_keeps_the_layout_as_authored():
+    assert apply_orientation({**_landscape(), "frameMaskUrl": "/api/layouts/masks/f.svg"}, "portrait")[1]["reason"] == "svg_mask"
+    assert apply_orientation({**_landscape(), "artworkMaskUrl": "/api/layouts/masks/a.svg"}, "portrait")[1]["reason"] == "svg_mask"
+    assert apply_orientation({**_landscape(), "frameMaskUrl": "/api/layouts/masks/f.png", "artworkMaskUrl": "/api/layouts/masks/a.png"}, "portrait")[1]["applied"] is True
+
+
+def test_both_mask_slots_are_marked_for_a_matching_turn():
+    src = {**_landscape(), "frameMaskUrl": "/api/layouts/masks/f.png", "artworkMaskUrl": "/api/layouts/masks/a.png"}
+    out, report = apply_orientation(src, "portrait")
+    assert report["applied"] is True and out["maskRotate"] == 90
+    assert out["frameMaskUrl"] == "/api/layouts/masks/f.png?rotate=90"
+    assert out["artworkMaskUrl"] == "/api/layouts/masks/a.png?rotate=90"
+    # a slot that is empty stays empty and does not set maskRotate on its own
+    out, _ = apply_orientation({**_landscape(), "frameMaskUrl": None, "artworkMaskUrl": None}, "portrait")
+    assert "maskRotate" not in out
+
+
+def test_a_typed_bleed_area_turns_with_the_frames():
+    typed = {"mode": "bleed", "xMm": 10, "yMm": 20, "widthMm": 120, "heightMm": 160, "bleedMm": 3}
+    out, report = apply_orientation({**_landscape(), "printSheet": typed}, "portrait")
+    assert report["applied"] is True
+    # (x, y, w, h) -> (H - y - h, x, h, w) with H = 200 mm, bleed untouched
+    assert out["printSheet"] == {"mode": "bleed", "xMm": 200 - 20 - 160, "yMm": 10, "widthMm": 160, "heightMm": 120, "bleedMm": 3}
+    # from the photo windows there is nothing to turn
+    out, _ = apply_orientation({**_landscape(), "printSheet": {"mode": "bleed"}}, "portrait")
+    assert out["printSheet"] == {"mode": "bleed"}
+    # whole-canvas sheets are left alone too
+    out, _ = apply_orientation({**_landscape(), "printSheet": {"mode": "canvas"}}, "portrait")
+    assert out["printSheet"] == {"mode": "canvas"}
+
+
+def test_a_typed_bleed_area_turns_from_the_pixel_size_when_canvas_mm_is_unknown():
+    src = {**_landscape(), "printSheet": {"mode": "bleed", "xMm": 10, "yMm": 20, "widthMm": 100, "heightMm": 100}}
+    del src["canvas"]["widthMm"], src["canvas"]["heightMm"]
+    # 3000 x 2000 px at 254 dpi = 300 x 200 mm, so H is still 200 mm
+    out, _ = apply_orientation(src, "portrait")
+    assert _close(out["printSheet"]["xMm"], 200 - 20 - 100) and out["printSheet"]["yMm"] == 10
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

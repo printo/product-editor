@@ -11,6 +11,12 @@ from PIL import Image, ImageOps, ImageDraw, ImageChops, ImageFilter
 
 from services.google_fonts import FontUnavailable
 from services.image_loader import MAX_IMAGE_PIXELS, open_source_rgba, srgb_profile_bytes
+from services.print_sheet import ARTWORK_MASK, FRAME_MASK, resolve_mask_slots, resolve_print_box
+
+# The storefront mock: the customer preview at web size. Mirrored by the
+# download-time fallback in api/views/downloads.py — keep in sync.
+MOCK_LONG_EDGE = 600
+MOCK_QUALITY = 70
 
 logger = logging.getLogger(__name__)
 
@@ -45,18 +51,24 @@ class LayoutEngine:
 
     # ── Atomic file write helper ─────────────────────────────────────────────
 
-    def _write_output_atomic(self, image_data, output_path: str) -> str:
+    def _write_output_atomic(self, image_data, output_path: str, mock_image=None) -> str:
         """
         Write image data to disk atomically using .tmp → rename pattern.
-        
+
         This ensures that downstream services never see partial/corrupted files.
         The temporary file is written in the same directory as the final file
         to guarantee the atomic move operation works on the same filesystem.
-        
+
         Args:
             image_data: PIL Image object to save
             output_path: Final destination path
-            
+            mock_image: the customer preview this print came from (the FULL
+                canvas with every mask), written beside a PNG print as
+                `<stem>_preview.jpg` for the download ZIP's `2_mock/`. The
+                print may be cropped to the layout's bleed area, so the mock
+                is supplied by the caller rather than derived from the print.
+                None writes no mock.
+
         Returns:
             Final output path after atomic move
         """
@@ -125,16 +137,16 @@ class LayoutEngine:
             # free (~30–80 ms per canvas) and means the download view just
             # bundles existing files. PDFs skip — PIL can't open them; the
             # 3_print/ original is the proof for those.
-            if hasattr(image_data, 'save') and ext == '.png':
+            if mock_image is not None and hasattr(image_data, 'save') and ext == '.png':
                 try:
                     mock_path = os.path.splitext(output_path)[0] + '_preview.jpg'
-                    rgb = image_data.convert('RGB')
+                    rgb = mock_image.convert('RGB')
                     # 600 px long-edge @ q=70 — good for email/web preview.
                     # Tightened from 800/q=80: ~50 % smaller mock files (~30 KB
                     # vs ~70 KB for a typical 4×6) with no perceptible loss
                     # at the size the ops team actually views these at.
-                    rgb.thumbnail((600, 600), Image.Resampling.LANCZOS)
-                    rgb.save(mock_path, format='JPEG', quality=70)
+                    rgb.thumbnail((MOCK_LONG_EDGE, MOCK_LONG_EDGE), Image.Resampling.LANCZOS)
+                    rgb.save(mock_path, format='JPEG', quality=MOCK_QUALITY)
                     rgb.close()
                 except Exception as mock_exc:
                     logger.warning(
@@ -220,6 +232,51 @@ class LayoutEngine:
         from services.svg_mask import rasterize_svg_mask
         return rasterize_svg_mask(data, size[0], size[1])
 
+    def _load_surface_mask(self, mask_url: str, surface_def: dict):
+        """One mask slot loaded once per surface, at canvas size, turned when
+        services.layout_orientation turned the canvas. Used for both the
+        artwork slot (printed) and the frame slot (mock only)."""
+        canvas_w = surface_def["canvas"]["width"]
+        canvas_h = surface_def["canvas"]["height"]
+        mask_img = self._load_mask(mask_url, (canvas_w, canvas_h))
+        if surface_def.get("maskRotate") == 90:
+            # services.layout_orientation turned the canvas a quarter turn
+            # clockwise; the stored mask is still the authored way round.
+            turned = mask_img.transpose(Image.Transpose.ROTATE_270)
+            mask_img.close()
+            mask_img = turned
+        # Pre-resize the mask once to canvas size so _composite_canvas
+        # doesn't rerun LANCZOS for every batch in the surface. A 200-canvas
+        # render previously did 200 mask resizes; now it does 1.
+        if mask_img.size != (canvas_w, canvas_h):
+            resized = mask_img.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
+            mask_img.close()
+            mask_img = resized
+        return mask_img
+
+    @staticmethod
+    def _mock_image(canvas: Image.Image, frame_mask) -> Image.Image:
+        """The customer preview the mock is made from: the FULL canvas as
+        composited (artwork mask included) with the frame picture on top.
+        Always a fresh RGB copy, so it survives the print being cropped."""
+        if frame_mask is None:
+            return canvas.convert("RGB")
+        rgba = canvas.convert("RGBA")
+        rgba.alpha_composite(frame_mask)
+        mock = rgba.convert("RGB")
+        rgba.close()
+        return mock
+
+    @staticmethod
+    def _crop_to_print_box(canvas: Image.Image, box) -> Image.Image:
+        """The print sheet: the canvas cropped to its bleed area, or the
+        canvas itself when the layout prints whole."""
+        if box is None:
+            return canvas
+        cropped = canvas.crop(box)
+        canvas.close()
+        return cropped
+
     @staticmethod
     def _normalize_frames(frames: list, canvas_w: int, canvas_h: int) -> list:
         """
@@ -256,7 +313,14 @@ class LayoutEngine:
             "maskUrl": layout.get("maskUrl"),
             "maskOnExport": layout.get("maskOnExport", False),
             "maskRotate": layout.get("maskRotate"),
+            "printSheet": layout.get("printSheet"),
         }
+        # The two mask slots are copied only when the layout carries them:
+        # resolve_mask_slots falls back to the legacy pair above when neither
+        # slot holds a URL, so an untouched layout prints exactly as before.
+        for slot in (FRAME_MASK, ARTWORK_MASK):
+            if slot in layout:
+                surface_def[slot] = layout[slot]
         padding = layout.get("grid", {}).get("padding", 10)
         rows = layout.get("grid", {}).get("rows")
         cols = layout.get("grid", {}).get("cols")
@@ -894,27 +958,19 @@ class LayoutEngine:
         """
         frames = surface_def.get("frames", [])
 
-        mask_img = None
-        if surface_def.get("maskUrl") and surface_def.get("maskOnExport", False):
-            mask_img = self._load_mask(
-                surface_def["maskUrl"],
-                (surface_def["canvas"]["width"], surface_def["canvas"]["height"]),
-            )
-            if surface_def.get("maskRotate") == 90:
-                # services.layout_orientation turned the canvas a quarter turn
-                # clockwise; the stored mask is still the authored way round.
-                turned = mask_img.transpose(Image.Transpose.ROTATE_270)
-                mask_img.close()
-                mask_img = turned
-            # Pre-resize the mask once to canvas size so _composite_canvas
-            # doesn't rerun LANCZOS for every batch in the surface. A 200-canvas
-            # render previously did 200 mask resizes; now it does 1.
-            canvas_w = surface_def["canvas"]["width"]
-            canvas_h = surface_def["canvas"]["height"]
-            if mask_img.size != (canvas_w, canvas_h):
-                resized = mask_img.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
-                mask_img.close()
-                mask_img = resized
+        # Two mask slots (services/print_sheet.py). The artwork mask sits
+        # inside the bleed area and is composited into the print exactly as
+        # the one "Mask on Export" mask was; the frame picture sits outside it
+        # and reaches only the mock, never the print — not even where its
+        # pixels overlap the bleed ring. Each is loaded once per surface.
+        frame_mask_url, artwork_mask_url = resolve_mask_slots(surface_def)
+        mask_img = self._load_surface_mask(artwork_mask_url, surface_def) if artwork_mask_url else None
+        frame_mask_img = self._load_surface_mask(frame_mask_url, surface_def) if frame_mask_url else None
+
+        # The print sheet: None prints the whole canvas (today's output, byte
+        # for byte); a box crops every canvas of this surface to its bleed
+        # area. An empty box raises here, before any photo is touched.
+        print_box = resolve_print_box(surface_def)
 
         # ── Filename resolution (P7.1 — PRD §11.6) ─────────────────────────
         # When display_label is provided, use it as the file stem. Sanitize for
@@ -950,12 +1006,17 @@ class LayoutEngine:
             stem = sanitized_label if use_label else f"{layout_name}{suffix}_1"
             ext = "pdf" if export_format == "pdf" else "png"
             out_path = os.path.join(self.exports_dir, f"{stem}.{ext}")
-            self._write_output_atomic(canvas, out_path)
+            mock = self._mock_image(canvas, frame_mask_img)
+            canvas = self._crop_to_print_box(canvas, print_box)
+            self._write_output_atomic(canvas, out_path, mock_image=mock)
+            mock.close()
             canvas.close()
             del canvas
             gc.collect()
             if mask_img is not None:
                 mask_img.close()
+            if frame_mask_img is not None:
+                frame_mask_img.close()
             return [out_path]
 
         outputs = []
@@ -1005,7 +1066,12 @@ class LayoutEngine:
                 stem = f"{layout_name}{suffix}_{n}"
             ext = "pdf" if export_format == "pdf" else "png"
             out_path = os.path.join(self.exports_dir, f"{stem}.{ext}")
-            self._write_output_atomic(canvas, out_path)
+            # The mock is the customer preview — the full canvas with the
+            # frame picture on top — taken before the print is cropped.
+            mock = self._mock_image(canvas, frame_mask_img)
+            canvas = self._crop_to_print_box(canvas, print_box)
+            self._write_output_atomic(canvas, out_path, mock_image=mock)
+            mock.close()
 
             outputs.append(out_path)
             canvas.close()
@@ -1014,6 +1080,8 @@ class LayoutEngine:
 
         if mask_img is not None:
             mask_img.close()
+        if frame_mask_img is not None:
+            frame_mask_img.close()
 
         return outputs
 

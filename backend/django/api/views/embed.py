@@ -21,6 +21,7 @@ from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from services.layout_orientation import apply_orientation, parse_orientation
 from services.order_qty import InvalidOrderQty, MAX_ORDER_QTY, parse_order_qty
+from services.print_sheet import with_legacy_mask_fields
 from services.template_decoration import editor_url as build_editor_url, is_template_id, parse_template_flow
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
 from ..authentication import APIKeyUser
@@ -633,7 +634,9 @@ class EditorInitView(APIView):
             template_data = None if orientation_report['applied'] else serialize_template(t)
 
         response = Response({
-            'layout': layout_data,
+            # Both mask slots plus the derived legacy pair, after the turn so
+            # every URL carries `?rotate=90` when the layout was turned.
+            'layout': with_legacy_mask_fields(layout_data),
             'fonts': _read_fonts(),
             'order_id': (request.headers.get('X-Order-ID') or '').strip() or None,
             'qty': init_qty,

@@ -10,6 +10,10 @@ from rest_framework import status
 from drf_spectacular.utils import extend_schema, OpenApiResponse, inline_serializer
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
+from services.print_sheet import (
+    ARTWORK_MASK, FRAME_MASK, normalize_mask_slots, uses_single_mask,
+    validate_print_sheet, with_legacy_mask_fields,
+)
 from services.storage import get_storage
 from ..permissions import IsAuthenticatedWithAPIKey, IsOpsTeam
 from ._common import is_safe_layout_name, layout_policy_cache_key
@@ -146,7 +150,7 @@ class LayoutManagementView(APIView):
                 data['updatedAt'] = layout.updated_at.isoformat()
                 data['version'] = layout.version
                 from .layout_tags import with_layout_tag_names
-                response = Response(with_layout_tag_names(data))
+                response = Response(with_legacy_mask_fields(with_layout_tag_names(data)))
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
             except Exception as e:
@@ -188,7 +192,7 @@ class LayoutManagementView(APIView):
             counts = template_counts(published_only=False)
             layouts_data = [
                 {**d, 'templateCount': counts.get(d.get('name'), 0)}
-                for d in with_layout_tag_names(layouts_data)
+                for d in with_legacy_mask_fields(with_layout_tag_names(layouts_data))
             ]
             response = Response({"layouts": layouts_data})
             response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
@@ -361,6 +365,17 @@ class LayoutManagementView(APIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
+            # Mask slots and the print sheet (services/print_sheet.py). A
+            # generic layout is stored with its two slots only — the legacy
+            # pair is converted and dropped — and its `printSheet` is checked
+            # per canvas. Calendars and books keep one mask and ignore the
+            # print sheet, so the derived keys a read adds are stripped here
+            # rather than stored back.
+            try:
+                _normalize_print_settings(layout_data, is_multi_surface)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
             # Infer product_type from definition
             product_type = layout_data.get('productType', 'single_canvas')
 
@@ -429,7 +444,7 @@ class LayoutManagementView(APIView):
             from .layout_tags import with_layout_tag_names
             return Response({
                 "status": "success", "name": layout_name, "display_name": resolved_display_name,
-                "layout": with_layout_tag_names(layout_data, lookup['name_by_key']),
+                "layout": with_legacy_mask_fields(with_layout_tag_names(layout_data, lookup['name_by_key'])),
             })
         except json.JSONDecodeError:
             return Response({"detail": "Invalid JSON data"}, status=status.HTTP_400_BAD_REQUEST)
@@ -502,10 +517,60 @@ class LayoutManagementView(APIView):
 
 _MASK_TARGET_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
 _BOOK_MASK_ROLES = ('cover', 'innerPage', 'backCover')
+# Upload field prefixes → mask slot. `mask` is the legacy field and lands in
+# the frame slot (preview only); calendars and books, which keep one mask,
+# still take it as their single `maskUrl`.
+_MASK_FIELD_SLOTS = (('artwork_mask', 'artwork'), ('frame_mask', 'frame'), ('mask', 'legacy'))
+
+
+def _normalize_print_settings(layout_data: dict, is_multi_surface: bool) -> None:
+    """Store the two mask slots and a checked `printSheet` per canvas.
+
+    Raises ValueError (a 400) for a print sheet that cannot print.
+    """
+    if uses_single_mask(layout_data):
+        from services.print_sheet import mask_blocks
+        for block in mask_blocks(layout_data):
+            block.pop(FRAME_MASK, None)
+            block.pop(ARTWORK_MASK, None)
+            block.pop('printSheet', None)
+        return
+    if is_multi_surface:
+        # The sheet lives on each surface; a root one has no canvas to check against.
+        layout_data.pop('printSheet', None)
+        blocks = [s for s in layout_data['surfaces'] if isinstance(s, dict)]
+    else:
+        blocks = [layout_data]
+    for block in blocks:
+        normalize_mask_slots(block)
+        label = f"Surface '{block.get('key')}': " if is_multi_surface else ""
+        try:
+            sheet = validate_print_sheet(block, block.get('canvas') or {})
+        except ValueError as exc:
+            raise ValueError(f"{label}{exc}") from exc
+        if sheet is None:
+            block.pop('printSheet', None)
+        else:
+            block['printSheet'] = sheet
+
+
+def _mask_field(field: str):
+    """`(slot, target)` for an upload field name, or None for a field that is
+    not a mask. slot is 'frame', 'artwork' or 'legacy'; target is the surface
+    key or book role after the underscore, or None for the layout-wide mask."""
+    for prefix, slot in _MASK_FIELD_SLOTS:
+        if field == prefix:
+            return slot, None
+        if field.startswith(prefix + '_'):
+            target = field[len(prefix) + 1:]
+            if not _MASK_TARGET_RE.match(target):
+                raise ValueError(f"Invalid mask field '{field}'.")
+            return slot, target
+    return None
 
 
 def _mask_target_block(layout_data: dict, target: str) -> dict:
-    """The dict whose `maskUrl` a `mask_<target>` upload sets."""
+    """The dict whose mask slot a `<slot>_<target>` upload sets."""
     if layout_data.get('productType') == 'book':
         book = layout_data.get('book') or {}
         if target in _BOOK_MASK_ROLES and isinstance(book.get(target), dict):
@@ -528,21 +593,28 @@ def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
     """
     from services.storage import S3Storage
 
+    single_mask = uses_single_mask(layout_data)
     pending = []
     for field, upload in files.items():
-        if field == 'mask':
-            target, block = None, layout_data
-        elif field.startswith('mask_'):
-            target = field[len('mask_'):]
-            if not _MASK_TARGET_RE.match(target):
-                raise ValueError(f"Invalid mask field '{field}'.")
-            block = _mask_target_block(layout_data, target)
-        else:
+        parsed = _mask_field(field)
+        if parsed is None:
             continue
+        slot, target = parsed
+        if single_mask and slot != 'legacy':
+            raise ValueError(
+                f"'{field}': a calendar or book layout takes one mask; send it as "
+                f"'mask' or 'mask_<role>'."
+            )
+        block = _mask_target_block(layout_data, target) if target else layout_data
+        if single_mask:
+            key = 'maskUrl'
+        else:
+            key = ARTWORK_MASK if slot == 'artwork' else FRAME_MASK
         ext = os.path.splitext(upload.name)[1].lower()
         if ext not in ('.png', '.svg'):
             raise ValueError("Masks must be PNG or SVG files, with a transparent window where the photo shows.")
-        stem = f"{layout_name}_{target}_mask" if target else f"{layout_name}_mask"
+        kind = 'artwork_mask' if slot == 'artwork' else 'mask'
+        stem = f"{layout_name}_{target}_{kind}" if target else f"{layout_name}_{kind}"
         data = upload.read()
         if ext == '.svg':
             from services.svg_mask import normalize_svg_mask, validate_svg_mask
@@ -553,12 +625,12 @@ def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
         # changes its URL instead of serving the old image from cache while
         # the print uses the new one.
         digest = hashlib.sha256(data).hexdigest()[:10]
-        pending.append((f"{stem}_{digest}{ext}", data, block))
+        pending.append((f"{stem}_{digest}{ext}", data, block, key))
 
     if not pending:
         return
     storage = get_storage()
-    for mask_filename, data, block in pending:
+    for mask_filename, data, block, key in pending:
         content_type = 'image/svg+xml' if mask_filename.endswith('.svg') else 'image/png'
         if isinstance(storage, S3Storage):
             # <prefix>/masks/ (NOT order-based uploads/) — the key
@@ -571,4 +643,4 @@ def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
             with open(mask_path, 'wb') as destination:
                 destination.write(data)
             logger.info(f"Uploaded mask to disk: {mask_path}")
-        block['maskUrl'] = f"/api/layouts/masks/{mask_filename}"
+        block[key] = f"/api/layouts/masks/{mask_filename}"
