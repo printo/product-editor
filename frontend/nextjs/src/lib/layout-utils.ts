@@ -6,6 +6,9 @@
  * NormalizedLayout shape so every consumer works with one type.
  */
 
+import { resolveMaskSlots } from './mask-slots';
+import { readPrintSheet, type PrintSheet } from './print-sheet';
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface CanvasSpec {
@@ -34,8 +37,15 @@ export interface SurfaceDefinition {
   label: string;
   canvas: CanvasSpec;
   frames: FrameSpec[];
+  /** Derived legacy pair, kept for one release; read the slots below instead. */
   maskUrl: string | null;
   maskOnExport: boolean;
+  /** Outside the bleed area: every preview and the mock, never the print. */
+  frameMaskUrl: string | null;
+  /** Inside the bleed area: previews, the mock and the print. */
+  artworkMaskUrl: string | null;
+  /** What the print file is: the whole canvas, or the bleed area. */
+  printSheet: PrintSheet;
 }
 
 export interface NormalizedLayout {
@@ -80,6 +90,8 @@ export function normalizeLayout(raw: any): NormalizedLayout {
         frames: s.frames || [],
         maskUrl: s.maskUrl ?? null,
         maskOnExport: s.maskOnExport ?? false,
+        ...resolveMaskSlots(s),
+        printSheet: readPrintSheet(s.printSheet),
       }))
     : [
         {
@@ -89,6 +101,8 @@ export function normalizeLayout(raw: any): NormalizedLayout {
           frames: raw.frames || [],
           maskUrl: raw.maskUrl ?? null,
           maskOnExport: raw.maskOnExport ?? false,
+          ...resolveMaskSlots(raw),
+          printSheet: readPrintSheet(raw.printSheet),
         },
       ];
 

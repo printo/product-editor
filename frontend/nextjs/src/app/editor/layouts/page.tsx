@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import {
@@ -43,6 +43,12 @@ import { TagPicker } from '@/components/ui/TagPicker';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { hasTransparentPixels } from '@/lib/image-utils';
 import { mmToPx as mmToPxExact, pxToMm as pxToMmExact, mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
+import { resolveMaskSlots } from '@/lib/mask-slots';
+import {
+  printSheetLabel, printSheetToJson, readPrintSheet, typedSheet, windowsVisibleAreaMm,
+  type PrintSheet, type PrintSheetMode, type PrintSheetSource,
+} from '@/lib/print-sheet';
+import type { MaskSlotSource } from './LayoutFabricPreview';
 
 // LayoutFabricPreview pulls in Fabric.js (~400 KB gz). Defer its load until
 // the layouts list itself has rendered so the chooser UI paints fast and
@@ -89,17 +95,7 @@ interface LayoutConfig {
     heightMm?: number;
     dpi?: number;
   };
-  printableArea?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    xMm?: number;
-    yMm?: number;
-    widthMm?: number;
-    heightMm?: number;
-    bleedMm?: number;
-  };
+  productType?: string;
   grid?: {
     rows: number;
     cols: number;
@@ -118,10 +114,27 @@ interface LayoutConfig {
     label: string;
     value: any;
   }[];
+  /** Derived legacy pair, still served for one release; the slots below are what is stored. */
   maskUrl?: string;
   maskOnExport?: boolean;
+  frameMaskUrl?: string | null;
+  artworkMaskUrl?: string | null;
+  printSheet?: PrintSheet;
   frameCaptionsEnabled?: boolean;
   orientationRotatable?: boolean;
+}
+
+type MaskSlot = 'frame' | 'artwork';
+
+/** The "What to print" choice as the form holds it; typed lengths stay raw strings while being edited. */
+interface PrintSheetState {
+  mode: PrintSheetMode;
+  source: PrintSheetSource;
+  xMm: number | string;
+  yMm: number | string;
+  widthMm: number | string;
+  heightMm: number | string;
+  bleedMm: number | string;
 }
 
 interface SurfaceEditorState {
@@ -131,9 +144,9 @@ interface SurfaceEditorState {
   heightMm: number;
   dpi: number;
   frames: LayoutFrame[];
-  maskFile: File | null;
-  maskUrl: string | null;
-  maskOnExport: boolean;
+  frameMask: MaskSlotSource;
+  artworkMask: MaskSlotSource;
+  printSheet: PrintSheetState;
 }
 
 // Template authoring works in whole pixels and 2-dp millimetres, so these
@@ -178,6 +191,132 @@ const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dp
     };
   });
 };
+
+const EMPTY_SLOT: MaskSlotSource = { url: null, file: null };
+const WHOLE_CANVAS: PrintSheetState = { mode: 'canvas', source: 'windows', xMm: 0, yMm: 0, widthMm: 0, heightMm: 0, bleedMm: 0 };
+
+/** One slot from a saved layout (or surface), reading a legacy mask into the right slot. */
+const slotFromData = (block: unknown, slot: MaskSlot): MaskSlotSource => ({
+  url: resolveMaskSlots(block)[slot === 'frame' ? 'frameMaskUrl' : 'artworkMaskUrl'],
+  file: null,
+});
+
+const printSheetStateFrom = (raw: unknown): PrintSheetState => {
+  const sheet = readPrintSheet(raw);
+  const typed = typedSheet(sheet);
+  return {
+    mode: sheet.mode,
+    source: typed ? 'typed' : 'windows',
+    xMm: typed?.xMm ?? 0, yMm: typed?.yMm ?? 0,
+    widthMm: typed?.widthMm ?? 0, heightMm: typed?.heightMm ?? 0,
+    bleedMm: typed?.bleedMm ?? 0,
+  };
+};
+
+const printSheetJson = (s: PrintSheetState): PrintSheet => printSheetToJson(s.mode, s.source, {
+  xMm: round2(Number(s.xMm || 0)), yMm: round2(Number(s.yMm || 0)),
+  widthMm: round2(Number(s.widthMm || 0)), heightMm: round2(Number(s.heightMm || 0)),
+  bleedMm: round2(Number(s.bleedMm || 0)),
+});
+
+/** Why a typed bleed area cannot print on a canvas of the given size, or null. */
+const typedSheetProblem = (s: PrintSheetState, canvasWMm: number, canvasHMm: number): string | null => {
+  if (s.mode !== 'bleed' || s.source !== 'typed') return null;
+  const sheet = typedSheet(printSheetJson(s));
+  if (!sheet) return 'The typed bleed area needs a position and a size.';
+  if (sheet.widthMm <= 0 || sheet.heightMm <= 0) return 'The typed bleed area needs a positive width and height.';
+  if (sheet.bleedMm < 0) return 'The bleed cannot be negative.';
+  const b = sheet.bleedMm;
+  if (round2(sheet.xMm - b) < 0 || round2(sheet.yMm - b) < 0
+    || round2(sheet.xMm + sheet.widthMm + b) > canvasWMm || round2(sheet.yMm + sheet.heightMm + b) > canvasHMm) {
+    return 'The typed bleed area (visible area plus its bleed) runs outside the canvas.';
+  }
+  return null;
+};
+
+/**
+ * One mask slot: pick, thumbnail, file name, remove. The two slots differ only
+ * in where they are placed, which is what decides whether they print.
+ */
+function MaskSlotRow({ title, hint, slot, inputRef, warning, onPick, onRemove }: {
+  title: string;
+  hint: string;
+  slot: MaskSlotSource;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  warning?: string;
+  onPick: (file: File) => void;
+  onRemove: () => void;
+}) {
+  // A picked file previews through an object URL (same pattern as the book
+  // editor's mask preview), released when the file changes or the row unmounts.
+  const previewSrc = useMemo(() => (slot.file ? URL.createObjectURL(slot.file) : slot.url), [slot.file, slot.url]);
+  useEffect(() => {
+    if (!slot.file || !previewSrc) return;
+    return () => URL.revokeObjectURL(previewSrc);
+  }, [slot.file, previewSrc]);
+  const has = Boolean(slot.file || slot.url);
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-col">
+        <span className="text-xs font-bold text-slate-700">{title}</span>
+        <span className="text-[10px] text-slate-500">{hint}</span>
+      </div>
+      <input
+        type="file"
+        ref={inputRef}
+        className="hidden"
+        accept="image/png,image/svg+xml,.svg"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onPick(file);
+        }}
+      />
+      {!has && (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="w-full px-4 py-2.5 border border-slate-200 border-dashed rounded-lg text-xs font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          Upload PNG or SVG
+        </button>
+      )}
+      {warning && (
+        <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          {warning}
+        </div>
+      )}
+      {has && (
+        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+          <div
+            className="w-20 h-20 shrink-0 rounded-md border border-slate-200 overflow-hidden"
+            style={{ backgroundImage: 'repeating-conic-gradient(#e2e8f0 0% 25%, #fff 0% 50%)', backgroundSize: '12px 12px' }}
+          >
+            {previewSrc && <img src={previewSrc} alt={`${title} mask`} className="w-full h-full object-contain" />}
+          </div>
+          <div className="flex flex-col min-w-0 flex-1">
+            <span className="text-xs font-bold text-slate-700 truncate">
+              {slot.file ? slot.file.name : (slot.url ?? '').split('?')[0].split('/').pop()}
+            </span>
+            <span className="text-[10px] text-slate-500">
+              {slot.file ? 'Not saved yet — saves with the layout' : 'Saved mask'}
+            </span>
+          </div>
+          <button
+            type="button"
+            title={`Remove ${title.toLowerCase()}`}
+            aria-label={`Remove ${title.toLowerCase()}`}
+            onClick={onRemove}
+            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg shrink-0"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function LayoutCreatorPage() {
   const { data: session, status } = useSession();
@@ -248,22 +387,25 @@ export default function LayoutCreatorPage() {
   // Custom frames
   const [frames, setFrames] = useState<LayoutFrame[]>([]);
 
-  // Mask State
-  const [maskFile, setMaskFile] = useState<File | null>(null);
-  const [maskUrl, setMaskUrl] = useState<string | null>(null);
-  const [maskOnExport, setMaskOnExport] = useState(false);
-  const maskInputRef = useRef<HTMLInputElement>(null);
+  // Mask slots and the print sheet (single-canvas state; a product keeps
+  // them per surface). The frame picture sits outside the bleed area and
+  // only previews; the artwork sits inside it and prints.
+  const [frameMask, setFrameMask] = useState<MaskSlotSource>(EMPTY_SLOT);
+  const [artworkMask, setArtworkMask] = useState<MaskSlotSource>(EMPTY_SLOT);
+  const [printSheet, setPrintSheet] = useState<PrintSheetState>(WHOLE_CANVAS);
+  const frameMaskInputRef = useRef<HTMLInputElement>(null);
+  const artworkMaskInputRef = useRef<HTMLInputElement>(null);
   // Set after scanning a freshly-picked mask File for transparency (see
   // hasTransparentPixels) — warns before save, not enforced server-side.
-  const [maskWarning, setMaskWarning] = useState<string | null>(null);
+  const [maskWarnings, setMaskWarnings] = useState<Partial<Record<MaskSlot, string>>>({});
 
   // Multi-surface state
   const [layoutType, setLayoutType] = useState<'single' | 'product'>('single');
   const [surfaces, setSurfaces] = useState<SurfaceEditorState[]>([]);
   const [activeSurfaceIdx, setActiveSurfaceIdx] = useState(0);
-  // Each surface has its own mask — a stale warning from surface A must not
+  // Each surface has its own masks — a stale warning from surface A must not
   // linger over surface B's card after switching tabs.
-  useEffect(() => { setMaskWarning(null); }, [activeSurfaceIdx]);
+  useEffect(() => { setMaskWarnings({}); }, [activeSurfaceIdx]);
 
   const [snapGrid, setSnapGrid] = useState(true);
   const [zoom, setZoom] = useState(1);
@@ -289,7 +431,7 @@ export default function LayoutCreatorPage() {
 
   const [selectedLayout, setSelectedLayout] = useState<LayoutConfig | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [confirmMaskRemove, setConfirmMaskRemove] = useState(false);
+  const [confirmMaskRemove, setConfirmMaskRemove] = useState<MaskSlot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Derived in render, not inside the effect: depending on `session` itself
@@ -438,25 +580,50 @@ export default function LayoutCreatorPage() {
   const activeWidthMm = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].widthMm : widthMm;
   const activeHeightMm = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].heightMm : heightMm;
   const activeDpi = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].dpi : dpi;
-  const activeMaskFile = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskFile : maskFile;
-  const activeMaskUrl = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskUrl : maskUrl;
-  const activeMaskOnExport = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].maskOnExport : maskOnExport;
-  const removeActiveMask = () => {
+  const activeFrameMask = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].frameMask : frameMask;
+  const activeArtworkMask = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].artworkMask : artworkMask;
+  const activePrintSheet = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].printSheet : printSheet;
+  // The preview re-reads the sheet by identity, so give it one object per state change.
+  const activePrintSheetJson = useMemo(() => printSheetJson(activePrintSheet), [activePrintSheet]);
+  const setActiveSlot = (slot: MaskSlot, next: MaskSlotSource) => {
+    const key = slot === 'frame' ? 'frameMask' : 'artworkMask';
     if (layoutType === 'product') {
-      setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: null, maskUrl: null } : s));
+      setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, [key]: next } : s));
+    } else if (slot === 'frame') {
+      setFrameMask(next);
     } else {
-      setMaskFile(null); setMaskUrl(null);
+      setArtworkMask(next);
     }
-    setMaskWarning(null);
-    if (maskInputRef.current) maskInputRef.current.value = '';
   };
-  const [maskPreviewSrc, setMaskPreviewSrc] = useState<string | null>(null);
-  useEffect(() => {
-    if (!activeMaskFile) { setMaskPreviewSrc(activeMaskUrl); return; }
-    const objectUrl = URL.createObjectURL(activeMaskFile);
-    setMaskPreviewSrc(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [activeMaskFile, activeMaskUrl]);
+  const setActivePrintSheet = (updater: (prev: PrintSheetState) => PrintSheetState) => {
+    if (layoutType === 'product') {
+      setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, printSheet: updater(s.printSheet) } : s));
+    } else {
+      setPrintSheet(updater);
+    }
+  };
+  const removeActiveMask = (slot: MaskSlot) => {
+    setActiveSlot(slot, EMPTY_SLOT);
+    setMaskWarnings(prev => ({ ...prev, [slot]: undefined }));
+    const ref = slot === 'frame' ? frameMaskInputRef : artworkMaskInputRef;
+    if (ref.current) ref.current.value = '';
+  };
+  // "Fill from the photo windows": the box around every window, with the
+  // largest window bleed, as a starting point for a typed bleed area.
+  const fillSheetFromWindows = () => {
+    const visible = windowsVisibleAreaMm(activeFrames);
+    if (!visible) {
+      setError('Add a photo window first — the bleed area is filled from the windows.');
+      return;
+    }
+    const bleed = Math.max(0, ...activeFrames.map(f => Number(f.bleedMm || 0)));
+    setActivePrintSheet(p => ({
+      ...p,
+      xMm: round2(visible.xMm), yMm: round2(visible.yMm),
+      widthMm: round2(visible.widthMm), heightMm: round2(visible.heightMm),
+      bleedMm: round2(bleed),
+    }));
+  };
 
   const setActiveFrames = useCallback((updater: LayoutFrame[] | ((prev: LayoutFrame[]) => LayoutFrame[])) => {
     if (layoutType === 'product') {
@@ -581,6 +748,17 @@ export default function LayoutCreatorPage() {
       return;
     }
 
+    // A typed bleed area that cannot print is refused here with the reason,
+    // before the server does the same.
+    const sheetProblem = layoutType === 'product'
+      ? surfaces.map(s => { const p = typedSheetProblem(s.printSheet, s.widthMm, s.heightMm); return p ? `${s.label || s.key}: ${p}` : null; }).find(Boolean)
+      : typedSheetProblem(printSheet, widthMm, heightMm);
+    if (sheetProblem) {
+      setError(sheetProblem);
+      setIsSaving(false);
+      return;
+    }
+
     let layoutData: any;
     const formData = new FormData();
 
@@ -597,8 +775,9 @@ export default function LayoutCreatorPage() {
           dpi: s.dpi,
         },
         frames: _mapFrames(s.frames, s.widthMm, s.heightMm, s.dpi),
-        maskUrl: s.maskUrl || null,
-        maskOnExport: s.maskOnExport,
+        frameMaskUrl: s.frameMask.url || null,
+        artworkMaskUrl: s.artworkMask.url || null,
+        printSheet: printSheetJson(s.printSheet),
       }));
 
       layoutData = {
@@ -610,11 +789,10 @@ export default function LayoutCreatorPage() {
         surfaces: surfacesData,
       };
 
-      // Append per-surface mask files
+      // Append per-surface mask files, one field per slot
       surfaces.forEach(s => {
-        if (s.maskFile) {
-          formData.append(`mask_${s.key}`, s.maskFile);
-        }
+        if (s.frameMask.file) formData.append(`frame_mask_${s.key}`, s.frameMask.file);
+        if (s.artworkMask.file) formData.append(`artwork_mask_${s.key}`, s.artworkMask.file);
       });
     } else {
       // Single-surface layout (existing format)
@@ -632,19 +810,15 @@ export default function LayoutCreatorPage() {
           dpi,
         },
         frames: _mapFrames(frames, widthMm, heightMm, dpi),
-        maskUrl: maskUrl || null,
-        maskOnExport: maskOnExport,
+        frameMaskUrl: frameMask.url || null,
+        artworkMaskUrl: artworkMask.url || null,
+        printSheet: printSheetJson(printSheet),
         frameCaptionsEnabled,
         orientationRotatable,
       };
 
-      if (maskFile) {
-        formData.append('mask', maskFile);
-      }
-      if (!maskFile && !maskUrl) {
-        formData.append('remove_mask', 'true');
-      }
-      formData.append('maskOnExport', maskOnExport.toString());
+      if (frameMask.file) formData.append('frame_mask', frameMask.file);
+      if (artworkMask.file) formData.append('artwork_mask', artworkMask.file);
     }
 
     formData.append('name', layoutId);
@@ -755,7 +929,7 @@ export default function LayoutCreatorPage() {
       setTagKeys(layoutTagKeys(data));
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
       setOrientationRotatable(data.orientationRotatable !== false);
-      setMaskWarning(null);
+      setMaskWarnings({});
 
       // Multi-surface product layout
       if (data.type === 'product' && Array.isArray(data.surfaces)) {
@@ -769,9 +943,9 @@ export default function LayoutCreatorPage() {
             heightMm: round2(s.canvas?.heightMm || pxToMm(s.canvas?.height || 0, sDpi)),
             dpi: sDpi,
             frames: _loadFramesFromData(s, s.canvas || {}),
-            maskFile: null,
-            maskUrl: s.maskUrl || null,
-            maskOnExport: s.maskOnExport || false,
+            frameMask: slotFromData(s, 'frame'),
+            artworkMask: slotFromData(s, 'artwork'),
+            printSheet: printSheetStateFrom(s.printSheet),
           };
         });
         setSurfaces(loadedSurfaces);
@@ -820,9 +994,9 @@ export default function LayoutCreatorPage() {
           setFrames(fallbackFrames);
         }
 
-        setMaskUrl(data.maskUrl || null);
-        setMaskOnExport(data.maskOnExport || false);
-        setMaskFile(null);
+        setFrameMask(slotFromData(data, 'frame'));
+        setArtworkMask(slotFromData(data, 'artwork'));
+        setPrintSheet(printSheetStateFrom(data.printSheet));
       }
 
       setIsEditMode(true);
@@ -833,7 +1007,7 @@ export default function LayoutCreatorPage() {
   const openCopyModal = async (name: string) => {
     const data = await fetchLayoutDetail(name);
     if (data) {
-      setMaskWarning(null);
+      setMaskWarnings({});
       const displayDpi = data.canvas.dpi || 300;
       setDpi(displayDpi);
       setWidthMm(round2(data.canvas.widthMm || pxToMm(data.canvas.width, displayDpi)));
@@ -858,9 +1032,9 @@ export default function LayoutCreatorPage() {
         }));
         setFrames(loadedFrames);
       }
-      setMaskUrl(data.maskUrl || null);
-      setMaskOnExport(data.maskOnExport || false);
-      setMaskFile(null);
+      setFrameMask(slotFromData(data, 'frame'));
+      setArtworkMask(slotFromData(data, 'artwork'));
+      setPrintSheet(printSheetStateFrom(data.printSheet));
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
       setOrientationRotatable(data.orientationRotatable !== false);
       setIsEditMode(false); // Treat as new creation so it won't conflict
@@ -877,10 +1051,10 @@ export default function LayoutCreatorPage() {
     setHeightMm(152.4);
     setDpi(300);
     setFrames([]);
-    setMaskUrl(null);
-    setMaskFile(null);
-    setMaskOnExport(false);
-    setMaskWarning(null);
+    setFrameMask(EMPTY_SLOT);
+    setArtworkMask(EMPTY_SLOT);
+    setPrintSheet(WHOLE_CANVAS);
+    setMaskWarnings({});
     setLayoutType('single');
     setSurfaces([]);
     setActiveSurfaceIdx(0);
@@ -889,11 +1063,14 @@ export default function LayoutCreatorPage() {
   };
   // Warn (never block) if a freshly-picked mask PNG has no transparent
   // window — see hasTransparentPixels for why this matters.
-  const checkMaskTransparency = (file: File) => {
-    setMaskWarning(null);
+  const checkMaskTransparency = (slot: MaskSlot, file: File) => {
+    setMaskWarnings(prev => ({ ...prev, [slot]: undefined }));
     hasTransparentPixels(file).then(transparent => {
       if (!transparent) {
-        setMaskWarning('This mask has no transparent pixels — the photo will be fully covered instead of showing through a window. Add a transparent cutout before saving.');
+        setMaskWarnings(prev => ({
+          ...prev,
+          [slot]: 'This mask has no transparent pixels — the photo will be fully covered instead of showing through a window. Add a transparent cutout before saving.',
+        }));
       }
     });
   };
@@ -1031,9 +1208,10 @@ export default function LayoutCreatorPage() {
                 setFrames([]);
                 setSurfaces([]);
                 setLayoutType('single');
-                setMaskUrl(null);
-                setMaskFile(null);
-                setMaskOnExport(false);
+                setFrameMask(EMPTY_SLOT);
+                setArtworkMask(EMPTY_SLOT);
+                setPrintSheet(WHOLE_CANVAS);
+                setMaskWarnings({});
                 setFrameCaptionsEnabled(false);
                 setIsModalOpen(true);
               }}
@@ -1301,12 +1479,22 @@ export default function LayoutCreatorPage() {
                             <span className="text-slate-900 font-bold">{layoutObj.canvas.widthMm?.toFixed(2)} x {layoutObj.canvas.heightMm?.toFixed(2)}mm</span>
                           </div>
                         )}
-                        {layoutObj.maskOnExport !== undefined && (
+                        {layoutObj.productType !== 'calendar' && layoutObj.productType !== 'book' && (
                           <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                            <span className="text-slate-400 font-medium">Mask on Export</span>
-                            <span className="text-slate-900 font-bold">{layoutObj.maskOnExport ? 'Enabled' : 'Disabled'}</span>
+                            <span className="text-slate-400 font-medium">Print</span>
+                            <span className="text-slate-900 font-bold">{printSheetLabel(layoutObj.printSheet)}</span>
                           </div>
                         )}
+                        {(() => {
+                          const slots = resolveMaskSlots(layoutObj);
+                          const names = [slots.frameMaskUrl && 'Frame picture', slots.artworkMaskUrl && 'Artwork'].filter(Boolean);
+                          return names.length > 0 ? (
+                            <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                              <span className="text-slate-400 font-medium">Masks</span>
+                              <span className="text-slate-900 font-bold">{names.join(' + ')}</span>
+                            </div>
+                          ) : null;
+                        })()}
                         <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
                           <span className="text-slate-400 font-medium">Version</span>
                           <span className="text-slate-900 font-bold">{layoutObj.version ?? 'N/A'}</span>
@@ -1442,7 +1630,7 @@ export default function LayoutCreatorPage() {
                               // Copy first surface to flat state
                               const s = surfaces[0];
                               setWidthMm(s.widthMm); setHeightMm(s.heightMm); setDpi(s.dpi);
-                              setFrames(s.frames); setMaskFile(s.maskFile); setMaskUrl(s.maskUrl); setMaskOnExport(s.maskOnExport);
+                              setFrames(s.frames); setFrameMask(s.frameMask); setArtworkMask(s.artworkMask); setPrintSheet(s.printSheet);
                             }
                             setLayoutType('single');
                           }}
@@ -1458,7 +1646,7 @@ export default function LayoutCreatorPage() {
                               setSurfaces([{
                                 key: 'front', label: 'Front',
                                 widthMm, heightMm, dpi, frames,
-                                maskFile, maskUrl, maskOnExport,
+                                frameMask, artworkMask, printSheet,
                               }]);
                               setActiveSurfaceIdx(0);
                             }
@@ -1531,7 +1719,7 @@ export default function LayoutCreatorPage() {
                               setSurfaces(prev => [...prev, {
                                 key: `surface-${n}`, label: `Surface ${n}`,
                                 widthMm: 101.6, heightMm: 152.4, dpi: 300,
-                                frames: [], maskFile: null, maskUrl: null, maskOnExport: false,
+                                frames: [], frameMask: EMPTY_SLOT, artworkMask: EMPTY_SLOT, printSheet: WHOLE_CANVAS,
                               }]);
                               setActiveSurfaceIdx(surfaces.length);
                             }}
@@ -1646,98 +1834,104 @@ export default function LayoutCreatorPage() {
                   </div>
                   </div>
 
-                  {/* Masking Support */}
-
-                  {/* Masking Support */}
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                    <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Canvas Mask & Overlay (Optional)</label>
-                    <div className="flex items-center gap-4">
-                      <div className="flex-1">
-                        <input
-                          type="file"
-                          ref={maskInputRef}
-                          className="hidden"
-                          accept="image/png,image/svg+xml,.svg"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              if (layoutType === 'product') {
-                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskFile: file } : s));
-                              } else {
-                                setMaskFile(file);
-                              }
-                              checkMaskTransparency(file);
-                            }
-                          }}
-                        />
-                        {!(activeMaskFile || activeMaskUrl) && (
-                          <button
-                            type="button"
-                            onClick={() => maskInputRef.current?.click()}
-                            className="w-full px-4 py-2.5 border border-slate-200 border-dashed rounded-lg text-xs font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
-                          >
-                            <Plus className="w-4 h-4" />
-                            Upload PNG or SVG Mask
-                          </button>
-                        )}
-                      </div>
+                  {/* Masks and the print sheet */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-5">
+                    <div>
+                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Masks (Optional)</label>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        PNG or SVG with transparent windows where the photos show. Where a mask is placed decides whether it prints; nothing is ticked as printable.
+                      </p>
                     </div>
-                    {maskWarning && (
-                      <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        {maskWarning}
+                    <MaskSlotRow
+                      title="Frame picture"
+                      hint="Outside the bleed area — shown in every preview and the mock, never printed"
+                      slot={activeFrameMask}
+                      inputRef={frameMaskInputRef}
+                      warning={maskWarnings.frame}
+                      onPick={(file) => { setActiveSlot('frame', { url: activeFrameMask.url, file }); checkMaskTransparency('frame', file); }}
+                      onRemove={() => setConfirmMaskRemove('frame')}
+                    />
+                    <MaskSlotRow
+                      title="Artwork"
+                      hint="Inside the bleed area — shown in previews and the mock, and printed, cropped to the bleed area"
+                      slot={activeArtworkMask}
+                      inputRef={artworkMaskInputRef}
+                      warning={maskWarnings.artwork}
+                      onPick={(file) => { setActiveSlot('artwork', { url: activeArtworkMask.url, file }); checkMaskTransparency('artwork', file); }}
+                      onRemove={() => setConfirmMaskRemove('artwork')}
+                    />
+
+                    <div className="space-y-3 pt-4 border-t border-slate-100">
+                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">What to print</label>
+                      <div className="flex rounded-lg border border-slate-200 overflow-hidden" role="radiogroup" aria-label="What to print">
+                        {([['canvas', 'Whole canvas'], ['bleed', 'Bleed area']] as const).map(([mode, label]) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            role="radio"
+                            aria-checked={activePrintSheet.mode === mode}
+                            onClick={() => setActivePrintSheet(p => ({ ...p, mode }))}
+                            className={`flex-1 px-4 py-2 text-xs font-bold transition-all ${activePrintSheet.mode === mode ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
                       </div>
-                    )}
-                    {(activeMaskFile || activeMaskUrl) && (
-                      <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-                        <div
-                          className="w-20 h-20 shrink-0 rounded-md border border-slate-200 overflow-hidden"
-                          style={{ backgroundImage: 'repeating-conic-gradient(#e2e8f0 0% 25%, #fff 0% 50%)', backgroundSize: '12px 12px' }}
-                        >
-                          {maskPreviewSrc && <img src={maskPreviewSrc} alt="Uploaded mask" className="w-full h-full object-contain" />}
+                      {activePrintSheet.mode === 'bleed' ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-4 text-xs font-semibold text-slate-600">
+                            {([['windows', 'From the photo windows'], ['typed', 'Typed']] as const).map(([source, label]) => (
+                              <label key={source} className="flex items-center gap-1.5 cursor-pointer hover:text-indigo-600">
+                                <input
+                                  type="radio"
+                                  name="print-sheet-source"
+                                  checked={activePrintSheet.source === source}
+                                  onChange={() => setActivePrintSheet(p => ({ ...p, source }))}
+                                  className="text-indigo-600 focus:ring-indigo-500"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-slate-500">
+                            {activePrintSheet.source === 'windows'
+                              ? 'The print is the box around every photo window grown by its Bleed. Type one only when printed artwork extends beyond the windows.'
+                              : 'The visible area of the print, in canvas coordinates, grown by the bleed on every side.'}
+                          </p>
+                          {activePrintSheet.source === 'typed' && (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 px-1">
+                                {(['xMm', 'yMm', 'widthMm', 'heightMm', 'bleedMm'] as const).map((field) => (
+                                  <div key={field} className="flex-1 min-w-0">
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                      {{ xMm: 'X', yMm: 'Y', widthMm: 'W', heightMm: 'H', bleedMm: 'Bleed' }[field]}
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step={lengthStep}
+                                      value={showLength(activePrintSheet[field])}
+                                      onChange={e => { const v = readLength(e.target.value); setActivePrintSheet(p => ({ ...p, [field]: v })); }}
+                                      className={`w-full px-2 py-1.5 text-xs rounded border ${field === 'bleedMm' ? 'border-rose-200 bg-rose-50 text-rose-600 font-bold' : 'border-slate-200'}`}
+                                      title={`${{ xMm: 'Visible X', yMm: 'Visible Y', widthMm: 'Visible width', heightMm: 'Visible height', bleedMm: 'Bleed' }[field]} (${unit})`}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={fillSheetFromWindows}
+                                className="text-xs text-slate-500 hover:text-indigo-600 font-semibold transition-colors"
+                              >
+                                Fill from the photo windows
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <div className="flex flex-col min-w-0 flex-1">
-                          <span className="text-xs font-bold text-slate-700 truncate">
-                            {activeMaskFile ? activeMaskFile.name : (activeMaskUrl ?? '').split('?')[0].split('/').pop()}
-                          </span>
-                          <span className="text-[10px] text-slate-500">
-                            {activeMaskFile ? 'Not saved yet — saves with the layout' : 'Saved mask'}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          title="Remove mask"
-                          aria-label="Remove mask"
-                          onClick={() => setConfirmMaskRemove(true)}
-                          className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg shrink-0"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                    {(activeMaskFile || activeMaskUrl) && (
-                      <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-slate-700">Mask on Export</span>
-                          <span className="text-[10px] text-slate-500">Apply this mask to high-res output?</span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={activeMaskOnExport}
-                            onChange={(e) => {
-                              if (layoutType === 'product') {
-                                setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, maskOnExport: e.target.checked } : s));
-                              } else {
-                                setMaskOnExport(e.target.checked);
-                              }
-                            }}
-                          />
-                          <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                        </label>
-                      </div>
-                    )}
+                      ) : (
+                        <p className="text-[10px] text-slate-500">The print file is the whole canvas.</p>
+                      )}
+                    </div>
                   </div>
 
                   {/* Print Areas Management */}
@@ -1780,7 +1974,7 @@ export default function LayoutCreatorPage() {
                       <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">Y</label></div>
                       <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">W</label></div>
                       <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">H</label></div>
-                      <div className="w-16 shrink-0"><label className="text-[10px] font-bold text-slate-500 uppercase text-center block">Bleed</label></div>
+                      <div className="w-16 shrink-0"><label className="text-[10px] font-bold text-slate-500 uppercase text-center block" title="The strip beyond the visible window that is hidden under the frame or trimmed after printing. A print of the bleed area from the photo windows uses it.">Bleed</label></div>
                       <div className="w-16 shrink-0"><label className="text-[10px] font-bold text-teal-500 uppercase text-center block">Corner</label></div>
                     </div>
 
@@ -1795,7 +1989,7 @@ export default function LayoutCreatorPage() {
                             <input type="number" min="0" step={lengthStep} value={showLength(f.yMm)} onChange={e => updateFrame(f.id!, 'yMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`Y (${unit})`} />
                             <input type="number" min="0" step={lengthStep} value={showLength(f.widthMm)} onChange={e => updateFrame(f.id!, 'widthMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`W (${unit})`} />
                             <input type="number" min="0" step={lengthStep} value={showLength(f.heightMm)} onChange={e => updateFrame(f.id!, 'heightMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`H (${unit})`} />
-                            <input type="number" min="0" step={lengthStep} value={showLength(f.bleedMm)} onChange={e => updateFrame(f.id!, 'bleedMm', readLength(e.target.value))} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title={`Bleed (${unit})`} />
+                            <input type="number" min="0" step={lengthStep} value={showLength(f.bleedMm)} onChange={e => updateFrame(f.id!, 'bleedMm', readLength(e.target.value))} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title={`Bleed (${unit}) — the strip hidden under the frame or trimmed; "From the photo windows" uses it`} />
                             <input type="number" min="0" step={lengthStep} value={showLength(f.borderRadiusMm)} onChange={e => updateFrame(f.id!, 'borderRadiusMm', readLength(e.target.value))} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-teal-100 bg-teal-50 text-teal-600 font-bold" title={`Corner Radius (${unit})`} />
                             <div className="flex items-center gap-1 shrink-0 md:opacity-0 group-hover:opacity-100 transition-all">
                               <button type="button" onClick={() => centerFrame(f.id!, 'h')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Horizontally"><AlignCenter className="w-3.5 h-3.5" /></button>
@@ -1868,8 +2062,9 @@ export default function LayoutCreatorPage() {
                           heightMm={activeHeightMm}
                           dpi={activeDpi}
                           frames={activeFrames}
-                          maskUrl={activeMaskUrl}
-                          maskFile={activeMaskFile}
+                          frameMask={activeFrameMask}
+                          artworkMask={activeArtworkMask}
+                          printSheet={activePrintSheetJson}
                           snapGrid={snapGrid}
                           onFramesChange={setActiveFrames}
                           onFrameSelect={setSelectedFrameId}
@@ -1916,29 +2111,29 @@ export default function LayoutCreatorPage() {
       )}
 
       {confirmMaskRemove && (
-        <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-label="Remove mask?">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setConfirmMaskRemove(false)} />
+        <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-label={confirmMaskRemove === 'frame' ? 'Remove frame picture?' : 'Remove artwork?'}>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setConfirmMaskRemove(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
             <div className="flex flex-col items-center text-center">
               <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
                 <Trash2 className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-1">Remove mask?</h3>
+              <h3 className="text-lg font-bold text-slate-900 mb-1">{confirmMaskRemove === 'frame' ? 'Remove frame picture?' : 'Remove artwork?'}</h3>
               <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-                The mask is detached from this layout once you save. You can upload another one afterwards.
+                {confirmMaskRemove === 'frame' ? 'The frame picture' : 'The artwork'} is detached from this layout once you save. You can upload another one afterwards.
               </p>
               <div className="flex w-full gap-2">
                 <button
                   type="button"
                   autoFocus
-                  onClick={() => setConfirmMaskRemove(false)}
+                  onClick={() => setConfirmMaskRemove(null)}
                   className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all active:scale-95"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={() => { removeActiveMask(); setConfirmMaskRemove(false); }}
+                  onClick={() => { removeActiveMask(confirmMaskRemove); setConfirmMaskRemove(null); }}
                   className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
                 >
                   Remove

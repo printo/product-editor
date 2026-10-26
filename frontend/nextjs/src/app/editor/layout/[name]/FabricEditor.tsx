@@ -10,6 +10,7 @@ const logGroupCollapsed = _DEV ? (...a: unknown[]) => console.groupCollapsed(...
 const logGroupEnd      = _DEV ? () => console.groupEnd()                       : () => {};
 
 import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { resolveMaskSlots } from '@/lib/mask-slots';
 import { computePinch, pointerDistance, pointerMidpoint, type PinchStart } from './pinch-utils';
 import {
   Canvas, FabricImage, Textbox, Point, Path,
@@ -996,27 +997,39 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       }
     });
 
-    // ── Mask ──
-    let maskPromise = Promise.resolve();
-    if (layout?.maskUrl) {
-      log(`  [Mask] Loading from: ${layout.maskUrl}`);
-      maskPromise = FabricImage.fromURL(layout.maskUrl).then(maskImg => {
-        if (fc !== fabricRef.current || buildGenRef.current !== gen) return;
-        const scaleX = canvasW / maskImg.width!;
-        const scaleY = canvasH / maskImg.height!;
-        log(
-          `  [Mask] Loaded: naturalSize=${maskImg.width}×${maskImg.height}px`,
-          `→ scaled to ${canvasW}×${canvasH}px (scaleX=${scaleX.toFixed(3)}, scaleY=${scaleY.toFixed(3)})`,
-        );
-        maskImg.set({
-          left: 0, top: 0, originX: 'left', originY: 'top', scaleX, scaleY,
-          selectable: false, evented: false, opacity: 1,
-        });
-        maskImg.__fabricEditor = 'mask'; fc.add(maskImg); fc.bringObjectToFront(maskImg);
+    // ── Masks ──
+    // Two slots, both above photos and overlays: the artwork (inside the
+    // bleed area, printed) and the frame picture (outside it, preview only)
+    // on top of it, whatever order the two files arrive in.
+    const { frameMaskUrl, artworkMaskUrl } = resolveMaskSlots(layout);
+    const loadMask = (src: string, role: 'artwork' | 'frame') => FabricImage.fromURL(src).then(maskImg => {
+      if (fc !== fabricRef.current || buildGenRef.current !== gen) return;
+      const scaleX = canvasW / maskImg.width!;
+      const scaleY = canvasH / maskImg.height!;
+      log(
+        `  [Mask:${role}] Loaded: naturalSize=${maskImg.width}×${maskImg.height}px`,
+        `→ scaled to ${canvasW}×${canvasH}px (scaleX=${scaleX.toFixed(3)}, scaleY=${scaleY.toFixed(3)})`,
+      );
+      maskImg.set({
+        left: 0, top: 0, originX: 'left', originY: 'top', scaleX, scaleY,
+        selectable: false, evented: false, opacity: 1,
       });
-    } else {
-      log('  [Mask] No maskUrl — skipping mask overlay');
-    }
+      maskImg.__fabricEditor = 'mask'; maskImg.__maskRole = role; fc.add(maskImg);
+    });
+    if (artworkMaskUrl) log(`  [Mask:artwork] Loading from: ${artworkMaskUrl}`);
+    if (frameMaskUrl) log(`  [Mask:frame] Loading from: ${frameMaskUrl}`);
+    if (!artworkMaskUrl && !frameMaskUrl) log('  [Mask] No mask in either slot — skipping mask overlay');
+    const maskPromise = Promise.all([
+      artworkMaskUrl ? loadMask(artworkMaskUrl, 'artwork') : Promise.resolve(),
+      frameMaskUrl ? loadMask(frameMaskUrl, 'frame') : Promise.resolve(),
+    ]).then(() => {
+      if (fc !== fabricRef.current || buildGenRef.current !== gen) return;
+      for (const role of ['artwork', 'frame'] as const) {
+        fc.getObjects()
+          .filter(o => o.__fabricEditor === 'mask' && o.__maskRole === role)
+          .forEach(o => fc.bringObjectToFront(o));
+      }
+    });
 
     Promise.all([...loadFramePromises, ...loadOverlayPromises, maskPromise]).then(() => {
       if (fc !== fabricRef.current || buildGenRef.current !== gen) return;

@@ -255,6 +255,8 @@ export function useFileIntake({
           frames: s.def.frames,
           maskUrl: s.def.maskUrl,
           maskOnExport: s.def.maskOnExport,
+          frameMaskUrl: s.def.frameMaskUrl,
+          artworkMaskUrl: s.def.artworkMaskUrl,
         };
         let canvases: CanvasItem[] = [];
         if (surfaceFiles.length > 0) {

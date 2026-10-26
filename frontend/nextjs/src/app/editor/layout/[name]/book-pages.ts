@@ -22,6 +22,7 @@
  * whatever `SurfaceState`s (with customer edits) already exist.
  */
 import type { SurfaceDefinition } from '@/lib/layout-utils';
+import { resolveMaskSlots } from '@/lib/mask-slots';
 import {
   materializePages,
   resolvePageCount,
@@ -56,6 +57,10 @@ function toSurfaceDefinition(page: MaterializedPage): SurfaceDefinition {
     })),
     maskUrl: page.maskUrl,
     maskOnExport: page.maskOnExport,
+    // A book keeps one mask and the on/off export switch; the slots are
+    // derived from that pair, and a book page always prints whole.
+    ...resolveMaskSlots(page),
+    printSheet: { mode: 'canvas' },
   };
 }
 

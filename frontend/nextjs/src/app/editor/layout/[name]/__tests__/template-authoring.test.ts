@@ -9,6 +9,7 @@ import type { CanvasItem, Overlay } from '../types';
 
 const DEF: SurfaceDefinition = {
   key: 'default', label: 'Front', canvas: { width: 1800, height: 1200 }, maskUrl: null, maskOnExport: false,
+  frameMaskUrl: null, artworkMaskUrl: null, printSheet: { mode: 'canvas' },
   frames: [{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, { x: 0, y: 0, width: 0.2, height: 0.2 }] as SurfaceDefinition['frames'],
 };
 const TEXT: Overlay = { type: 'text', id: 't1', templateId: 'old', templateEdited: true, text: 'Hi', x: 50, y: 10, fontSize: 60, color: '#000000', fontFamily: 'Inter', textAlign: 'center', rotation: 0 };

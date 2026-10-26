@@ -18,6 +18,7 @@ import { LayoutSVG } from '@/components/LayoutSVG';
 import { ubuntu } from '@/lib/site-fonts';
 import { TagFilter } from '@/components/ui/TagFilter';
 import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
+import { resolveMaskSlots } from '@/lib/mask-slots';
 import { layoutEditorHref, orientationLockedReason, type OrientationChoice, type OrientationInfo } from '@/lib/layout-orientation';
 
 const LayoutPreview = ({ layout }: { layout: any }) => {
@@ -60,7 +61,7 @@ const LayoutPreview = ({ layout }: { layout: any }) => {
 
   return (
     <div className="w-full aspect-square flex items-center justify-center p-4 bg-slate-100 border-b border-slate-200 group-hover:bg-slate-200/50 group-active:bg-slate-200/50 transition-colors">
-      <LayoutSVG layout={layout} maskUrl={layout.maskUrl} />
+      <LayoutSVG layout={layout} />
     </div>
   );
 };
@@ -128,8 +129,9 @@ export default function Dashboard() {
   const normalizeLayoutItem = useCallback((item: any) => {
     if (typeof item === 'string') return { id: item, name: item, displayName: item, frames: [], tags: [], tagKeys: [], canvas: {}, surfaceCount: 0, templateCount: 0 };
     const isProduct = item.type === 'product' && Array.isArray(item.surfaces);
-    const canvas = isProduct ? item.surfaces[0]?.canvas : item.canvas;
-    const frames = isProduct ? item.surfaces[0]?.frames || [] : item.frames || [];
+    const first = isProduct ? item.surfaces[0] : item;
+    const canvas = first?.canvas;
+    const frames = first?.frames || [];
     return {
       id: item.name,
       name: item.name,
@@ -143,7 +145,9 @@ export default function Dashboard() {
       frames,
       tags: item.tags || [],
       tagKeys: layoutTagKeys(item),
-      maskUrl: item.maskUrl || null,
+      // Both mask slots and the print sheet of the surface the card draws.
+      ...resolveMaskSlots(first),
+      printSheet: first?.printSheet ?? null,
       createdAt: item.createdAt || null,
       updatedAt: item.updatedAt || null,
       createdBy: item.createdBy || 'System',

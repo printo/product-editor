@@ -366,8 +366,10 @@ export function useCardActions({
           frames: s.def.frames,
           maskUrl: s.def.maskUrl,
           maskOnExport: s.def.maskOnExport,
+          frameMaskUrl: s.def.frameMaskUrl,
+          artworkMaskUrl: s.def.artworkMaskUrl,
         };
-        
+
         const newCanvases = await generateCanvasesForLayout(surfaceLayout, surfaceFiles, s.globalFitMode);
         setSurfaceStates(prev => prev.map((ps, pi) =>
           pi === sIdx ? { ...ps, files: surfaceFiles, canvases: newCanvases } : ps
