@@ -429,6 +429,19 @@ export function LayoutFabricPreview({
   useMaskSlotLayer(fabricRef, 'artwork', artworkMask, widthMm, heightMm, getScale);
   useMaskSlotLayer(fabricRef, 'frame', frameMask, widthMm, heightMm, getScale);
 
+  // The print rectangle follows the windows live. The full rebuild above only
+  // runs once a gesture ends, so while a window is dragged or resized the
+  // rectangle is moved here from the windows' current positions; otherwise it
+  // sits where the window used to be until the mouse is released.
+  const syncSheet = useCallback((fc: Canvas, framesMm: LayoutFrame[], scale: number) => {
+    const rect = fc.getObjects().find((o) => o.__fabricEditor === 'sheet');
+    if (!rect) return;
+    const area = printSheetAreaMm(printSheet, framesMm);
+    if (!area) return;
+    rect.set({ left: area.xMm * scale, top: area.yMm * scale, width: area.widthMm * scale, height: area.heightMm * scale });
+    rect.setCoords();
+  }, [printSheet]);
+
   // ── Fabric events → parent state ─────────────────────────────────────────
 
   useEffect(() => {
@@ -491,6 +504,7 @@ export function LayoutFabricPreview({
         if (i !== idx) return f;
         return { ...f, xMm: newXMm, yMm: newYMm, widthMm: newWMm, heightMm: newHMm };
       });
+      syncSheet(fc, updated, scale);
       onFramesChange(updated);
       requestAnimationFrame(() => { isSyncingRef.current = false; });
     };
@@ -535,6 +549,7 @@ export function LayoutFabricPreview({
           });
         }
       });
+      syncSheet(fc, curFrames.map((f, i) => i === idx ? { ...f, xMm: left / scale, yMm: top / scale } : f), scale);
     };
 
     const handleScaling = (e: any) => {
@@ -579,6 +594,11 @@ export function LayoutFabricPreview({
           });
         }
       });
+      syncSheet(
+        fc,
+        curFrames.map((f, i) => i === idx ? { ...f, xMm: left / scale, yMm: top / scale, widthMm: w / scale, heightMm: h / scale } : f),
+        scale,
+      );
     };
 
     // The grid is a drag aid, not chrome — it only earns screen space while a
@@ -614,7 +634,7 @@ export function LayoutFabricPreview({
       fc.off('mouse:up', hideGrid);
       // selection events are handled in initialization effect
     };
-  }, [widthMm, heightMm, snapGrid, onFramesChange, getScale]);
+  }, [widthMm, heightMm, snapGrid, onFramesChange, getScale, syncSheet]);
 
   // Reposition the given frames' Fabric objects from their mm values and sync
   // back to the parent WITHOUT triggering a rebuild (isSyncingRef guards the
@@ -658,6 +678,8 @@ export function LayoutFabricPreview({
         });
     });
 
+    syncSheet(fc, next, scale);
+
     // Restore the selection so the user can keep nudging / chain alignments.
     const rects = fc.getObjects().filter((o) => o.__fabricEditor === 'frame' && o.__frameId && idSet.has(o.__frameId));
     if (rects.length > 1) {
@@ -671,7 +693,7 @@ export function LayoutFabricPreview({
 
     onFramesChange(next);
     requestAnimationFrame(() => { isSyncingRef.current = false; });
-  }, [getScale, onFramesChange]);
+  }, [getScale, onFramesChange, syncSheet]);
 
   const handleAlign = useCallback((edge: AlignEdge) => {
     const ids = selectedIdsRef.current;
