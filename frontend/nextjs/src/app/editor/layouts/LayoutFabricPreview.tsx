@@ -375,16 +375,17 @@ export function LayoutFabricPreview({
       }
     });
 
-    // The print sheet, when the layout prints its bleed area: one rose dashed
-    // rectangle, the box around the windows plus their bleed. Rebuilt with
-    // the frames because it follows them.
+    // The print file's outline, always shown: around the whole canvas when the
+    // layout prints whole, or around the print areas plus their bleed when it
+    // prints its bleed area (one rose dashed rectangle that follows them).
     const sheet = printSheetAreaMm(printSheet, frames);
-    if (sheet) {
-      const rect = createBleedRect(sheet.xMm * scale, sheet.yMm * scale, sheet.widthMm * scale, sheet.heightMm * scale, 0);
-      rect.set({ strokeWidth: 2, strokeDashArray: [8, 5], opacity: 0.9 });
-      rect.__fabricEditor = 'sheet';
-      fc.add(rect);
-    }
+    const outline = sheet
+      ? { left: sheet.xMm * scale, top: sheet.yMm * scale, width: sheet.widthMm * scale, height: sheet.heightMm * scale }
+      : { left: 1, top: 1, width: cw - 2, height: ch - 2 };
+    const rect = createBleedRect(outline.left, outline.top, outline.width, outline.height, 0);
+    rect.set({ strokeWidth: 2, strokeDashArray: [8, 5], opacity: 0.9 });
+    rect.__fabricEditor = 'sheet';
+    fc.add(rect);
 
     // Masks stay on top of the frames, artwork under the frame picture, as
     // the customer sees them.

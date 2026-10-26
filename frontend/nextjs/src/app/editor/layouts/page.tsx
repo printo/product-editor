@@ -123,7 +123,7 @@ interface LayoutConfig {
 
 type MaskSlot = 'frame' | 'artwork';
 
-/** The "What to print" choice as the form holds it. */
+/** The "Print file" choice as the form holds it. */
 interface PrintSheetState {
   mode: PrintSheetMode;
 }
@@ -1788,7 +1788,7 @@ export default function LayoutCreatorPage() {
                     />
                     <MaskSlotRow
                       title="Artwork"
-                      hint="Inside the print areas — shown in previews and the mock, and printed with them"
+                      hint="Inside the print areas — shown in previews and the mock, and in the print file"
                       slot={activeArtworkMask}
                       inputRef={artworkMaskInputRef}
                       warning={maskWarnings.artwork}
@@ -1796,28 +1796,6 @@ export default function LayoutCreatorPage() {
                       onRemove={() => setConfirmMaskRemove('artwork')}
                     />
 
-                    <div className="space-y-3 pt-4 border-t border-slate-100">
-                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">What to print</label>
-                      <div className="flex rounded-lg border border-slate-200 overflow-hidden" role="radiogroup" aria-label="What to print">
-                        {([['canvas', 'Whole canvas'], ['bleed', 'Print areas only']] as const).map(([mode, label]) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            role="radio"
-                            aria-checked={activePrintSheet.mode === mode}
-                            onClick={() => setActivePrintSheet(p => ({ ...p, mode }))}
-                            className={`flex-1 px-4 py-2 text-xs font-bold transition-all ${activePrintSheet.mode === mode ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-slate-500">
-                        {activePrintSheet.mode === 'bleed'
-                          ? 'Prints the print areas plus their Bleed, nothing else: the rose dashed box in the preview. Moving or resizing a print area moves the print with it.'
-                          : 'The print file is the whole canvas.'}
-                      </p>
-                    </div>
                   </div>
 
                   {/* Print Areas Management */}
@@ -1860,7 +1838,7 @@ export default function LayoutCreatorPage() {
                       <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">Y</label></div>
                       <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">W</label></div>
                       <div className="flex-1 min-w-0"><label className="text-[10px] font-bold text-slate-400 uppercase">H</label></div>
-                      <div className="w-16 shrink-0"><label className="text-[10px] font-bold text-slate-500 uppercase text-center block" title="The strip beyond the print area that is hidden under the frame or trimmed after printing. A 'Print areas only' print includes it.">Bleed</label></div>
+                      <div className="w-16 shrink-0"><label className="text-[10px] font-bold text-slate-500 uppercase text-center block" title="The strip beyond the print area that is hidden under the frame or trimmed after printing. A 'Bleed area' print file includes it.">Bleed</label></div>
                       <div className="w-16 shrink-0"><label className="text-[10px] font-bold text-teal-500 uppercase text-center block">Corner</label></div>
                     </div>
 
@@ -1875,7 +1853,7 @@ export default function LayoutCreatorPage() {
                             <input type="number" min="0" step={lengthStep} value={showLength(f.yMm)} onChange={e => updateFrame(f.id!, 'yMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`Y (${unit})`} />
                             <input type="number" min="0" step={lengthStep} value={showLength(f.widthMm)} onChange={e => updateFrame(f.id!, 'widthMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`W (${unit})`} />
                             <input type="number" min="0" step={lengthStep} value={showLength(f.heightMm)} onChange={e => updateFrame(f.id!, 'heightMm', readLength(e.target.value))} className="flex-1 min-w-0 px-2 py-1.5 text-xs rounded border border-slate-200" title={`H (${unit})`} />
-                            <input type="number" min="0" step={lengthStep} value={showLength(f.bleedMm)} onChange={e => updateFrame(f.id!, 'bleedMm', readLength(e.target.value))} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title={`Bleed (${unit}) — the strip beyond the print area, hidden under the frame or trimmed; 'Print areas only' includes it`} />
+                            <input type="number" min="0" step={lengthStep} value={showLength(f.bleedMm)} onChange={e => updateFrame(f.id!, 'bleedMm', readLength(e.target.value))} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-slate-200 bg-slate-100 text-slate-600 font-bold" title={`Bleed (${unit}) — the strip beyond the print area, hidden under the frame or trimmed; a 'Bleed area' print file includes it`} />
                             <input type="number" min="0" step={lengthStep} value={showLength(f.borderRadiusMm)} onChange={e => updateFrame(f.id!, 'borderRadiusMm', readLength(e.target.value))} className="w-16 shrink-0 px-2 py-1.5 text-xs rounded border border-teal-100 bg-teal-50 text-teal-600 font-bold" title={`Corner Radius (${unit})`} />
                             <div className="flex items-center gap-1 shrink-0 md:opacity-0 group-hover:opacity-100 transition-all">
                               <button type="button" onClick={() => centerFrame(f.id!, 'h')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Center Horizontally"><AlignCenter className="w-3.5 h-3.5" /></button>
@@ -1927,6 +1905,31 @@ export default function LayoutCreatorPage() {
                     </div>
                   </div>
 
+                  {/* Print file: what the print file is. A per-layout output setting,
+                      separate from the print areas, which only place the photos. */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                    <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Print file</label>
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden" role="radiogroup" aria-label="Print file">
+                      {([['canvas', 'Whole canvas'], ['bleed', 'Bleed area']] as const).map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          role="radio"
+                          aria-checked={activePrintSheet.mode === mode}
+                          onClick={() => setActivePrintSheet(p => ({ ...p, mode }))}
+                          className={`flex-1 px-4 py-2 text-xs font-bold transition-all ${activePrintSheet.mode === mode ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      {activePrintSheet.mode === 'bleed'
+                        ? 'The file is cut to the bleed area: the box around the print areas plus their Bleed, the rose dashed line in the preview. It moves with them.'
+                        : 'The file is the whole canvas, edge to edge: the rose dashed line around the preview.'}
+                    </p>
+                  </div>
+
                 </div>
 
                 {/* Right Column: Live Preview (Fixed Viewport) */}
@@ -1963,8 +1966,9 @@ export default function LayoutCreatorPage() {
                     <div className="p-3 border-t border-slate-100 bg-white shrink-0 text-center">
                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">Areas: {activeFrames.length} &middot; {activeDpi} DPI</p>
                       <div className="flex justify-center gap-4 mt-1.5 font-bold uppercase tracking-[0.05em]">
-                        <span className="flex items-center text-[8px] text-emerald-600 gap-1"><div className="w-1.5 h-1.5 rounded-sm border border-emerald-400 border-dashed"></div> Safe Area</span>
-                        <span className="flex items-center text-[8px] text-rose-500 gap-1"><div className="w-1.5 h-1.5 rounded-sm border border-rose-400 border-dashed"></div> Bleed Zone</span>
+                        <span className="flex items-center text-[8px] text-emerald-600 gap-1"><div className="w-1.5 h-1.5 rounded-sm border border-emerald-400 border-dashed"></div> Print area</span>
+                        <span className="flex items-center text-[8px] text-rose-400 gap-1"><div className="w-1.5 h-1.5 rounded-sm border border-rose-300 border-dotted"></div> Bleed</span>
+                        <span className="flex items-center text-[8px] text-rose-600 gap-1"><div className="w-1.5 h-1.5 rounded-sm border-2 border-rose-500 border-dashed"></div> Print file</span>
                       </div>
                     </div>
                   </div>

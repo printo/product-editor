@@ -28,7 +28,7 @@ describe('reading the setting', () => {
 
   it('labels the two choices', () => {
     expect(printSheetLabel(undefined)).toBe('Whole canvas');
-    expect(printSheetLabel({ mode: 'bleed' })).toBe('Print areas only');
+    expect(printSheetLabel({ mode: 'bleed' })).toBe('Bleed area');
   });
 });
 

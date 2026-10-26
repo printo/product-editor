@@ -59,7 +59,7 @@ export function readPrintSheet(raw: unknown): PrintSheet {
 }
 
 export function printSheetLabel(raw: unknown): string {
-  return printSheetMode(raw) === 'bleed' ? 'Print areas only' : 'Whole canvas';
+  return printSheetMode(raw) === 'bleed' ? 'Bleed area' : 'Whole canvas';
 }
 
 /** The box around every window grown by its own bleed: the bleed area from the photo windows. */
