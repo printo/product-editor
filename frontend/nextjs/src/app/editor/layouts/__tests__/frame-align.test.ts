@@ -88,6 +88,16 @@ describe('nudgeFrames', () => {
     expect(out[0].yMm).toBe(0);
   });
 
+  it('keeps the print area plus its bleed inside the canvas', () => {
+    const withBleed: AlignFrame[] = [{ id: 'a', xMm: 10, yMm: 10, widthMm: 40, heightMm: 20, bleedMm: 3 }];
+    const right = nudgeFrames(withBleed, ['a'], 1000, 1000, 100, 100);
+    expect(right[0].xMm).toBe(57); // 100 - 40 - 3
+    expect(right[0].yMm).toBe(77); // 100 - 20 - 3
+    const left = nudgeFrames(withBleed, ['a'], -1000, -1000, 100, 100);
+    expect(left[0].xMm).toBe(3);
+    expect(left[0].yMm).toBe(3);
+  });
+
   it('moves multiple selected frames together', () => {
     const out = nudgeFrames(make(), ['a', 'b'], 2, 2, 500, 500);
     expect(out[0].xMm).toBe(12);

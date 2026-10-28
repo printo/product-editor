@@ -22,6 +22,8 @@ from __future__ import annotations
 import copy
 from typing import Any, Optional
 
+from services.print_sheet import ARTWORK_MASK, FRAME_MASK, has_svg_mask
+
 ORIENTATIONS = ("portrait", "landscape")
 
 # Product types whose geometry is not a free-form frame layout: calendars and
@@ -70,10 +72,6 @@ def layout_orientation(definition: dict) -> Optional[str]:
     return "square"
 
 
-def _mask_filename(mask_url: str) -> str:
-    return mask_url.split("?", 1)[0].lower()
-
-
 def _blocker(definition: dict) -> Optional[str]:
     """Why this layout must not be turned, or None when it may be."""
     if definition.get("orientationRotatable") is False:
@@ -87,8 +85,8 @@ def _blocker(definition: dict) -> Optional[str]:
             return "not_rotatable"
         if surface.get("overlays"):
             return "has_overlays"
-        mask_url = surface.get("maskUrl")
-        if mask_url and _mask_filename(str(mask_url)).endswith(".svg"):
+        # Either slot (frame picture or artwork), or the legacy mask.
+        if has_svg_mask(surface):
             return "svg_mask"
     return None
 
@@ -129,13 +127,21 @@ def _rotate_surface(surface: dict) -> None:
     grid = surface.get("grid")
     if not frames and isinstance(grid, dict) and grid.get("rows") and grid.get("cols"):
         surface["grid"] = {**grid, "rows": grid["cols"], "cols": grid["rows"]}
+    # The print sheet needs nothing here: its bleed area is taken from the
+    # frames at render time, so it follows them through the turn.
     canvas["width"], canvas["height"] = h, w
     if w_mm is not None or h_mm is not None:
         canvas["widthMm"], canvas["heightMm"] = h_mm, w_mm
-    mask_url = surface.get("maskUrl")
-    if mask_url:
-        base = str(mask_url).split("?", 1)[0]
-        surface["maskUrl"] = f"{base}?{MASK_ROTATE_QUERY}"
+    # Every mask slot is served turned (`?rotate=90`), and `maskRotate` tells
+    # the engine to turn the stored files the same way.
+    turned_a_mask = False
+    for key in ("maskUrl", FRAME_MASK, ARTWORK_MASK):
+        url = surface.get(key)
+        if url:
+            base = str(url).split("?", 1)[0]
+            surface[key] = f"{base}?{MASK_ROTATE_QUERY}"
+            turned_a_mask = True
+    if turned_a_mask:
         surface["maskRotate"] = 90
 
 

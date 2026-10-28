@@ -152,6 +152,31 @@ def test_frame_mm_dropped_when_canvas_mm_is_unknown():
     assert "xMm" not in out["frames"][0] and _close(out["frames"][0]["x"], 0.1)
 
 
+def test_an_svg_in_either_mask_slot_keeps_the_layout_as_authored():
+    assert apply_orientation({**_landscape(), "frameMaskUrl": "/api/layouts/masks/f.svg"}, "portrait")[1]["reason"] == "svg_mask"
+    assert apply_orientation({**_landscape(), "artworkMaskUrl": "/api/layouts/masks/a.svg"}, "portrait")[1]["reason"] == "svg_mask"
+    assert apply_orientation({**_landscape(), "frameMaskUrl": "/api/layouts/masks/f.png", "artworkMaskUrl": "/api/layouts/masks/a.png"}, "portrait")[1]["applied"] is True
+
+
+def test_both_mask_slots_are_marked_for_a_matching_turn():
+    src = {**_landscape(), "frameMaskUrl": "/api/layouts/masks/f.png", "artworkMaskUrl": "/api/layouts/masks/a.png"}
+    out, report = apply_orientation(src, "portrait")
+    assert report["applied"] is True and out["maskRotate"] == 90
+    assert out["frameMaskUrl"] == "/api/layouts/masks/f.png?rotate=90"
+    assert out["artworkMaskUrl"] == "/api/layouts/masks/a.png?rotate=90"
+    # a slot that is empty stays empty and does not set maskRotate on its own
+    out, _ = apply_orientation({**_landscape(), "frameMaskUrl": None, "artworkMaskUrl": None}, "portrait")
+    assert "maskRotate" not in out
+
+
+def test_the_print_sheet_rides_the_turn_untouched():
+    # The bleed area comes from the frames at render time, so the setting
+    # itself has nothing to turn.
+    for sheet in ({"mode": "bleed"}, {"mode": "canvas"}):
+        out, report = apply_orientation({**_landscape(), "printSheet": sheet}, "portrait")
+        assert report["applied"] is True and out["printSheet"] == sheet
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

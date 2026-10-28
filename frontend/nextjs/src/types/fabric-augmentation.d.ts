@@ -31,10 +31,16 @@ declare module 'fabric' {
      * added by Fabric/the user.
      *
      * - FabricEditor sets: 'frame' | 'text' | 'shape' | 'image' | 'mask' | 'frameFill' | 'frameCaption'
-     * - LayoutFabricPreview sets: 'frame' | 'guide' | 'grid' | 'bleed' | 'label' | 'mask' | 'frameCaption'
+     * - LayoutFabricPreview sets: 'frame' | 'guide' | 'grid' | 'bleed' | 'label' | 'mask' | 'sheet' | 'frameCaption'
      * - CalendarFabricPreview sets: 'frame' | 'calendar' | 'calendarLabel' | 'guide' | 'grid' | 'label'
      */
-    __fabricEditor?: 'frame' | 'text' | 'shape' | 'image' | 'mask' | 'guide' | 'grid' | 'bleed' | 'label' | 'calendar' | 'calendarLabel' | 'frameFill' | 'frameCaption'
+    __fabricEditor?: 'frame' | 'text' | 'shape' | 'image' | 'mask' | 'guide' | 'grid' | 'bleed' | 'label' | 'sheet' | 'calendar' | 'calendarLabel' | 'frameFill' | 'frameCaption'
+
+    /**
+     * Which mask slot a 'mask' object is: the artwork (inside the bleed area,
+     * printed) sits below the frame picture (outside it, preview only).
+     */
+    __maskRole?: 'artwork' | 'frame'
 
     /** Index into the calendars[] array for CalendarFabricPreview objects. */
     __calendarIdx?: number

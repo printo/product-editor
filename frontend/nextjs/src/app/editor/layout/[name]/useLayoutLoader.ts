@@ -170,6 +170,9 @@ export function useLayoutLoader({
           tags: item.tags || [],
           maskUrl: firstSurface?.maskUrl || null,
           maskOnExport: firstSurface?.maskOnExport ?? false,
+          frameMaskUrl: firstSurface?.frameMaskUrl ?? null,
+          artworkMaskUrl: firstSurface?.artworkMaskUrl ?? null,
+          printSheet: firstSurface?.printSheet ?? { mode: 'canvas' },
           createdAt: item.createdAt || null,
           updatedAt: item.updatedAt || null,
           createdBy: item.createdBy || 'System',
@@ -217,6 +220,9 @@ export function useActiveSurfaceLayout({ activeSurfaceKey, activeSurface, normal
       frames: activeSurface.def.frames,
       maskUrl: activeSurface.def.maskUrl,
       maskOnExport: activeSurface.def.maskOnExport,
+      frameMaskUrl: activeSurface.def.frameMaskUrl,
+      artworkMaskUrl: activeSurface.def.artworkMaskUrl,
+      printSheet: activeSurface.def.printSheet,
       dimensions: activeSurface.def.canvas?.widthMm && activeSurface.def.canvas?.heightMm
         ? `${activeSurface.def.canvas.widthMm.toFixed(2)}x${activeSurface.def.canvas.heightMm.toFixed(2)}mm` : prev?.dimensions,
     } : prev);

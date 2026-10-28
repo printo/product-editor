@@ -1,4 +1,5 @@
 import { Canvas, Rect, FabricImage, Textbox, FabricText, Path } from 'fabric';
+import { resolveMaskSlots } from '@/lib/mask-slots';
 import type { CanvasItem } from './types';
 import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
 import { buildFrameFill, buildFrameCaption } from './frame-fill';
@@ -456,11 +457,15 @@ export async function renderCanvas(
     }
   }
 
-  // ── Mask overlay ────────────────────────────────────────────────────────────
-  const shouldIncludeMask = includeMask || (isExport && usedLayout.maskOnExport);
-  if (usedLayout.maskUrl && shouldIncludeMask) {
+  // ── Mask slots ──────────────────────────────────────────────────────────────
+  // The artwork (inside the bleed area) is part of the design: every preview
+  // and every export carries it, as the print does. The frame picture
+  // (outside the bleed area) is preview only — an isExport render (quick
+  // download, imposition) leaves it out, exactly as the print never carries
+  // it. Artwork first, frame picture on top.
+  const addMask = async (src: string) => {
     try {
-      const maskImg = await FabricImage.fromURL(usedLayout.maskUrl, { crossOrigin: 'anonymous' });
+      const maskImg = await FabricImage.fromURL(src, { crossOrigin: 'anonymous' });
       maskImg.set({
         left: 0,
         top: 0,
@@ -473,7 +478,10 @@ export async function renderCanvas(
       });
       fabricCanvas.add(maskImg);
     } catch { /* ignore failed mask */ }
-  }
+  };
+  const { frameMaskUrl, artworkMaskUrl } = resolveMaskSlots(usedLayout);
+  if (artworkMaskUrl && (includeMask || isExport)) await addMask(artworkMaskUrl);
+  if (frameMaskUrl && includeMask && !isExport) await addMask(frameMaskUrl);
 
   // ── Render and export ───────────────────────────────────────────────────────
   fabricCanvas.renderAll();

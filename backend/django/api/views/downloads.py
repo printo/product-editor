@@ -293,9 +293,8 @@ class RenderJobDownloadView(APIView):
         # on-the-fly fallback below covers older jobs rendered before the
         # render-time mock generation landed; can be removed once those
         # have aged out via GC.
-        # Settings mirror engine.py — keep in sync.
-        MOCK_LONG_EDGE = 600
-        MOCK_QUALITY = 70
+        # The same size and quality the engine writes its mocks at.
+        from layout_engine.engine import MOCK_LONG_EDGE, MOCK_QUALITY
 
         def _build_mock_jpeg_bytes(print_path: str) -> bytes | None:
             """Fallback for older jobs that don't have a mock sibling on disk."""

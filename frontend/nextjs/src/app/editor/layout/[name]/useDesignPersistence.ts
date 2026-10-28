@@ -470,6 +470,7 @@ export function useAutosaveAndRestore({
                   key: h.key, label: h.key,
                   canvas: { width: 0, height: 0 }, frames: [],
                   maskUrl: null, maskOnExport: false,
+                  frameMaskUrl: null, artworkMaskUrl: null, printSheet: { mode: 'canvas' },
                 },
                 files: [],
                 canvases: hydrate(h.canvases),

@@ -54,4 +54,43 @@ describe('LayoutSVG', () => {
     const { container } = render(<LayoutSVG layout={null} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it('draws the artwork mask under the frame picture', () => {
+    const layout = {
+      canvas: { width: 1000, height: 1500 },
+      frames: [],
+      frameMaskUrl: '/api/layouts/masks/frame.png',
+      artworkMaskUrl: '/api/layouts/masks/art.png',
+    };
+    const { container } = render(<LayoutSVG layout={layout} />);
+    const images = Array.from(container.querySelectorAll('image'));
+    expect(images.map(i => i.getAttribute('data-mask'))).toEqual(['artwork', 'frame']);
+    expect(images[1].getAttribute('href')).toBe('/api/layouts/masks/frame.png');
+  });
+
+  it('reads a legacy mask into the right slot', () => {
+    const { container } = render(<LayoutSVG layout={{ canvas: { width: 10, height: 10 }, frames: [], maskUrl: '/m.png', maskOnExport: true }} />);
+    expect(container.querySelector('image')).toHaveAttribute('data-mask', 'artwork');
+  });
+
+  it('draws the bleed area as one dashed rectangle when the layout prints it', () => {
+    const layout = {
+      canvas: { width: 1000, height: 1500, widthMm: 100, heightMm: 150 },
+      frames: [{ x: 0.17, y: 0.18, width: 0.66, height: 0.64, bleedMm: 3 }],
+      printSheet: { mode: 'bleed' },
+    };
+    const { container } = render(<LayoutSVG layout={layout} />);
+    const sheet = container.querySelector('[data-print-sheet]');
+    expect(sheet).not.toBeNull();
+    const rects = Array.from(sheet!.querySelectorAll('rect'));
+    expect(rects).toHaveLength(1);
+    expect(rects[0]).toHaveAttribute('x', '170');
+    expect(rects[0]).toHaveAttribute('width', '660');
+    expect(rects[0]).toHaveAttribute('stroke', '#f43f5e');
+  });
+
+  it('draws no sheet for a whole-canvas layout', () => {
+    const { container } = render(<LayoutSVG layout={{ canvas: { width: 10, height: 10 }, frames: [], printSheet: { mode: 'canvas' } }} />);
+    expect(container.querySelector('[data-print-sheet]')).toBeNull();
+  });
 });

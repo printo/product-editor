@@ -8,6 +8,11 @@ on a book. The generic editor has always sent `mask_<surface key>`, but only
 `mask` was read, so a multi-surface product's new side mask was silently
 dropped. Every target is validated before any file is written.
 
+Since 2026-10-26 a generic layout has two mask slots (services/print_sheet.py):
+`frame_mask*` and the legacy `mask*` fields land in `frameMaskUrl` (the frame
+picture, preview only), `artwork_mask*` in `artworkMaskUrl` (printed).
+Calendars and books keep one `maskUrl` and refuse the slot fields.
+
 Run stand-alone:
     cd backend/django && DJANGO_SETTINGS_MODULE=product_editor.settings DEBUG=1 \
         python -m services.tests.test_mask_uploads
@@ -72,7 +77,7 @@ def test_layout_wide_mask_sets_root_mask_url():
     with _LocalStore() as st:
         _store_uploaded_masks({"mask": _png()}, "a4_frame", layout)
         assert st.masks() == [f"a4_frame_mask_{FP}.png"]
-    assert layout["maskUrl"] == f"/api/layouts/masks/a4_frame_mask_{FP}.png"
+    assert layout["frameMaskUrl"] == f"/api/layouts/masks/a4_frame_mask_{FP}.png"
 
 
 def test_surface_mask_sets_that_surface_only():
@@ -80,9 +85,9 @@ def test_surface_mask_sets_that_surface_only():
     with _LocalStore() as st:
         _store_uploaded_masks({"mask_back": _png()}, "sleeve", layout)
         assert st.masks() == [f"sleeve_back_mask_{FP}.png"]
-    assert layout["surfaces"][1]["maskUrl"] == f"/api/layouts/masks/sleeve_back_mask_{FP}.png"
-    assert "maskUrl" not in layout["surfaces"][0]
-    assert "maskUrl" not in layout
+    assert layout["surfaces"][1]["frameMaskUrl"] == f"/api/layouts/masks/sleeve_back_mask_{FP}.png"
+    assert "frameMaskUrl" not in layout["surfaces"][0]
+    assert "frameMaskUrl" not in layout
 
 
 def test_book_role_masks_set_each_role():
@@ -115,7 +120,7 @@ def test_a_bad_target_writes_nothing_even_after_a_good_one():
         files = {"mask_front": _png(), "mask_nope": _png()}
         _raises(lambda: _store_uploaded_masks(files, "sleeve", layout), "no surface")
         assert not os.path.exists(os.path.join(st.root, "masks")) or st.masks() == []
-    assert "maskUrl" not in layout["surfaces"][0]
+    assert "frameMaskUrl" not in layout["surfaces"][0]
 
 
 def test_non_png_is_rejected():
@@ -134,7 +139,7 @@ def test_other_upload_fields_are_ignored():
     layout = {"canvas": {"width": 10, "height": 10}}
     with _LocalStore():
         _store_uploaded_masks({"thumbnail": _png()}, "a4", layout)
-    assert "maskUrl" not in layout
+    assert "frameMaskUrl" not in layout
 
 
 def test_s3_upload_uses_the_key_the_preview_and_print_read():
@@ -154,8 +159,38 @@ def test_a_replaced_mask_gets_a_new_url_and_the_same_mask_keeps_its_url():
         _store_uploaded_masks({"mask": _png()}, "a4", first)
         _store_uploaded_masks({"mask": _png()}, "a4", again)
         _store_uploaded_masks({"mask": _png(body=PNG + b"v2")}, "a4", other)
-    assert first["maskUrl"] == again["maskUrl"]
-    assert other["maskUrl"] != first["maskUrl"]
+    assert first["frameMaskUrl"] == again["frameMaskUrl"]
+    assert other["frameMaskUrl"] != first["frameMaskUrl"]
+
+
+def test_the_two_slots_take_their_own_fields_and_file_names():
+    layout = {"canvas": {"width": 10, "height": 10}}
+    with _LocalStore() as st:
+        _store_uploaded_masks({"frame_mask": _png(), "artwork_mask": _png(body=PNG + b"art")}, "a4", layout)
+        art_fp = hashlib.sha256(PNG + b"art").hexdigest()[:10]
+        assert st.masks() == [f"a4_artwork_mask_{art_fp}.png", f"a4_mask_{FP}.png"]
+    assert layout["frameMaskUrl"] == f"/api/layouts/masks/a4_mask_{FP}.png"
+    assert layout["artworkMaskUrl"] == f"/api/layouts/masks/a4_artwork_mask_{art_fp}.png"
+    assert "maskUrl" not in layout
+
+
+def test_surface_slots_follow_the_surface_key():
+    layout = {"type": "product", "surfaces": [{"key": "front"}, {"key": "back"}]}
+    with _LocalStore():
+        _store_uploaded_masks({"artwork_mask_back": _png(), "frame_mask_front": _png()}, "sleeve", layout)
+    assert layout["surfaces"][1]["artworkMaskUrl"] == f"/api/layouts/masks/sleeve_back_artwork_mask_{FP}.png"
+    assert layout["surfaces"][0]["frameMaskUrl"] == f"/api/layouts/masks/sleeve_front_mask_{FP}.png"
+    assert "artworkMaskUrl" not in layout["surfaces"][0] and "frameMaskUrl" not in layout["surfaces"][1]
+
+
+def test_a_calendar_keeps_one_mask_and_refuses_the_slot_fields():
+    cal = {"productType": "calendar", "canvas": {"width": 10, "height": 10}}
+    with _LocalStore():
+        _store_uploaded_masks({"mask": _png()}, "cal", cal)
+        _raises(lambda: _store_uploaded_masks({"frame_mask": _png()}, "cal", dict(cal)), "one mask")
+        _raises(lambda: _store_uploaded_masks({"artwork_mask_x": _png()}, "cal", dict(cal)), "one mask")
+    assert cal["maskUrl"] == f"/api/layouts/masks/cal_mask_{FP}.png"
+    assert "frameMaskUrl" not in cal
 
 
 def test_mask_preview_is_a_temporary_redirect():

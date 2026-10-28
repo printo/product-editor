@@ -15,6 +15,7 @@ from drf_spectacular.utils import (
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from services.layout_orientation import orientation_info
+from services.print_sheet import with_legacy_mask_fields
 from services.storage import get_storage
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
 from ._common import is_safe_layout_name, layout_policy_cache_key
@@ -159,7 +160,7 @@ class ListLayoutsView(APIView):
             counts = template_counts(published_only=True)
             layouts_data = [
                 {**d, 'templateCount': counts.get(d.get('name'), 0), 'orientationInfo': orientation_info(d)}
-                for d in with_layout_tag_names(layouts_data)
+                for d in with_legacy_mask_fields(with_layout_tag_names(layouts_data))
             ]
             tag_key = (request.query_params.get('tag') or '').strip()
             if tag_key:
@@ -231,7 +232,7 @@ class GetLayoutView(APIView):
 
             from .layout_tags import with_layout_tag_names
             if cached_data is not None:
-                response = Response(with_layout_tag_names(cached_data))
+                response = Response(with_legacy_mask_fields(with_layout_tag_names(cached_data)))
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
 
@@ -262,7 +263,7 @@ class GetLayoutView(APIView):
             django_cache.set(cache_key, data, 120)  # 2 min TTL
 
             # Tag names are read per request, never cached, so a rename shows at once.
-            response = Response(with_layout_tag_names(data))
+            response = Response(with_legacy_mask_fields(with_layout_tag_names(data)))
             response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
             return response
 
@@ -343,7 +344,7 @@ class ExternalLayoutDetailView(APIView):
                 ]
 
             from .layout_tags import with_layout_tag_names
-            return Response(with_layout_tag_names(data))
+            return Response(with_legacy_mask_fields(with_layout_tag_names(data)))
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

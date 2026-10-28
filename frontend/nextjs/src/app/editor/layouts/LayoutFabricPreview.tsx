@@ -19,6 +19,7 @@ import {
   initAligningGuidelines,
 } from '@/lib/fabric-utils';
 import { alignFrames, nudgeFrames, type AlignEdge } from './frame-align';
+import { printSheetAreaMm } from '@/lib/print-sheet';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -44,13 +45,23 @@ interface LayoutFrame {
   captionColor?: string;
 }
 
+/** One mask slot as the ops editor holds it: a saved URL, or a file picked but not saved yet. */
+export interface MaskSlotSource {
+  url: string | null;
+  file: File | null;
+}
+
 interface LayoutFabricPreviewProps {
   widthMm: number;
   heightMm: number;
   dpi: number;
   frames: LayoutFrame[];
-  maskUrl: string | null;
-  maskFile: File | null;
+  /** The frame picture: outside the bleed area, preview and mock only. Drawn on top. */
+  frameMask: MaskSlotSource;
+  /** The artwork: inside the bleed area, printed. Drawn under the frame picture. */
+  artworkMask: MaskSlotSource;
+  /** The layout's `printSheet`; draws the bleed area as one rose dashed rectangle when it prints. */
+  printSheet?: unknown;
   snapGrid: boolean;
   onFramesChange: (frames: LayoutFrame[]) => void;
   onFrameSelect: (frameId: string | null) => void;
@@ -83,14 +94,78 @@ const ALIGN_BUTTONS: { edge: AlignEdge; Icon: React.ComponentType<{ className?: 
   { edge: 'bottom', Icon: AlignEndHorizontal, title: 'Align bottom edges' },
 ];
 
+// One mask slot drawn on the preview canvas: replaced when its file or URL
+// changes, removed when the slot empties. The frame picture is kept above
+// the artwork whichever of the two files loads last.
+function useMaskSlotLayer(
+  fabricRef: React.RefObject<Canvas | null>,
+  role: 'artwork' | 'frame',
+  slot: MaskSlotSource,
+  widthMm: number,
+  heightMm: number,
+  getScale: () => number,
+) {
+  const { url, file } = slot;
+  useEffect(() => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+
+    const removeExisting = (live: Canvas) => {
+      live.getObjects()
+        .filter((o) => o[DATA_KEY] === 'mask' && o.__maskRole === role)
+        .forEach((o) => live.remove(o));
+    };
+    removeExisting(fc);
+
+    const src = file ? URL.createObjectURL(file) : url;
+    if (!src) { fc.requestRenderAll(); return; }
+
+    const scale = getScale();
+    const cw = widthMm * scale;
+    const ch = heightMm * scale;
+
+    // A load still in flight when the slot changes (or when React re-runs
+    // the effect) must not land beside the newer one.
+    let cancelled = false;
+    FabricImage.fromURL(src).then(img => {
+      const live = fabricRef.current;
+      if (cancelled || !live) return;
+      removeExisting(live);
+      img.scaleToWidth(cw);
+      img.scaleToHeight(ch);
+      img.set({
+        left: 0,
+        top: 0,
+        originX: 'left',
+        originY: 'top',
+        selectable: false,
+        evented: false,
+        opacity: 0.6,
+      });
+      img.__fabricEditor = 'mask';
+      img.__maskRole = role;
+      live.add(img);
+      const frame = live.getObjects().find((o) => o[DATA_KEY] === 'mask' && o.__maskRole === 'frame');
+      if (frame) live.bringObjectToFront(frame);
+      live.renderAll();
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (file && src) URL.revokeObjectURL(src);
+    };
+  }, [fabricRef, role, url, file, widthMm, heightMm, getScale]);
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function LayoutFabricPreview({
   widthMm,
   heightMm,
   frames,
-  maskUrl,
-  maskFile,
+  frameMask,
+  artworkMask,
+  printSheet,
   snapGrid,
   onFramesChange,
   onFrameSelect,
@@ -185,9 +260,10 @@ export function LayoutFabricPreview({
       fc.setDimensions({ width: cw, height: ch });
     }
 
-    // Remove all existing managed objects EXCEPT the mask, which has its own
-    // lifecycle effect below. Clearing it here would drop an uploaded mask on
-    // every frame edit, because that effect doesn't re-run on frame changes.
+    // Remove all existing managed objects EXCEPT the masks, which have their
+    // own lifecycle effect below. Clearing them here would drop an uploaded
+    // mask on every frame edit, because that effect doesn't re-run on frame
+    // changes.
     const existing = fc.getObjects().filter(
       (o: any) => o[DATA_KEY] && o[DATA_KEY] !== 'mask',
     );
@@ -299,10 +375,30 @@ export function LayoutFabricPreview({
       }
     });
 
+    // The print file's outline, always shown: around the whole canvas when the
+    // layout prints whole, or around the print areas plus their bleed when it
+    // prints its bleed area (one rose dashed rectangle that follows them).
+    const sheet = printSheetAreaMm(printSheet, frames);
+    const outline = sheet
+      ? { left: sheet.xMm * scale, top: sheet.yMm * scale, width: sheet.widthMm * scale, height: sheet.heightMm * scale }
+      : { left: 1, top: 1, width: cw - 2, height: ch - 2 };
+    const rect = createBleedRect(outline.left, outline.top, outline.width, outline.height, 0);
+    rect.set({ strokeWidth: 2, strokeDashArray: [8, 5], opacity: 0.9 });
+    rect.__fabricEditor = 'sheet';
+    fc.add(rect);
+
+    // Masks stay on top of the frames, artwork under the frame picture, as
+    // the customer sees them.
+    for (const role of ['artwork', 'frame'] as const) {
+      fc.getObjects()
+        .filter((o) => o[DATA_KEY] === 'mask' && o.__maskRole === role)
+        .forEach((o) => fc.bringObjectToFront(o));
+    }
+
     fc.renderAll();
     // Re-run structural changes or dimensions change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frames, widthMm, heightMm, snapGrid, getScale, captionsEnabled]);
+  }, [frames, widthMm, heightMm, snapGrid, getScale, captionsEnabled, printSheet]);
 
   // ── Sync selection color → Fabric objects ─────────────────────────────────
 
@@ -326,45 +422,26 @@ export function LayoutFabricPreview({
     fc.requestRenderAll();
   }, [selectedFrameId]);
 
-  // ── Mask overlay ─────────────────────────────────────────────────────────
+  // ── Mask overlays ────────────────────────────────────────────────────────
+  // Two slots, each with its own effect: the artwork (inside the bleed
+  // area, printed) and the frame picture (outside it, preview only). Both
+  // sit above the frames, the frame picture on top, at 60% so the frame
+  // outlines stay readable underneath.
+  useMaskSlotLayer(fabricRef, 'artwork', artworkMask, widthMm, heightMm, getScale);
+  useMaskSlotLayer(fabricRef, 'frame', frameMask, widthMm, heightMm, getScale);
 
-  useEffect(() => {
-    const fc = fabricRef.current;
-    if (!fc) return;
-
-    // Remove existing mask
-    const existingMask = fc.getObjects().find((o: any) => o[DATA_KEY] === 'mask');
-    if (existingMask) fc.remove(existingMask);
-
-    const src = maskFile ? URL.createObjectURL(maskFile) : maskUrl;
-    if (!src) return;
-
-    const scale = getScale();
-    const cw = widthMm * scale;
-    const ch = heightMm * scale;
-
-    FabricImage.fromURL(src).then(img => {
-      if (!fabricRef.current) return;
-      img.scaleToWidth(cw);
-      img.scaleToHeight(ch);
-      img.set({
-        left: 0,
-        top: 0,
-        originX: 'left',
-        originY: 'top',
-        selectable: false,
-        evented: false,
-        opacity: 0.6,
-      });
-      img.__fabricEditor = 'mask';
-      fabricRef.current.add(img);
-      fabricRef.current.renderAll();
-    }).catch(() => {});
-
-    return () => {
-      if (maskFile && src) URL.revokeObjectURL(src);
-    };
-  }, [maskUrl, maskFile, widthMm, heightMm, getScale]);
+  // The print rectangle follows the windows live. The full rebuild above only
+  // runs once a gesture ends, so while a window is dragged or resized the
+  // rectangle is moved here from the windows' current positions; otherwise it
+  // sits where the window used to be until the mouse is released.
+  const syncSheet = useCallback((fc: Canvas, framesMm: LayoutFrame[], scale: number) => {
+    const rect = fc.getObjects().find((o) => o.__fabricEditor === 'sheet');
+    if (!rect) return;
+    const area = printSheetAreaMm(printSheet, framesMm);
+    if (!area) return;
+    rect.set({ left: area.xMm * scale, top: area.yMm * scale, width: area.widthMm * scale, height: area.heightMm * scale });
+    rect.setCoords();
+  }, [printSheet]);
 
   // ── Fabric events → parent state ─────────────────────────────────────────
 
@@ -409,7 +486,7 @@ export function LayoutFabricPreview({
 
       const cw = widthMm * scale;
       const ch = heightMm * scale;
-      constrainToCanvas(target, cw, ch);
+      constrainToCanvas(target, cw, ch, Number(framesRef.current[idx]?.bleedMm || 0) * scale);
 
       const left = target.left ?? 0;
       const top = target.top ?? 0;
@@ -428,6 +505,7 @@ export function LayoutFabricPreview({
         if (i !== idx) return f;
         return { ...f, xMm: newXMm, yMm: newYMm, widthMm: newWMm, heightMm: newHMm };
       });
+      syncSheet(fc, updated, scale);
       onFramesChange(updated);
       requestAnimationFrame(() => { isSyncingRef.current = false; });
     };
@@ -449,7 +527,7 @@ export function LayoutFabricPreview({
           top: snapToGrid(top, gridPx),
         });
       }
-      constrainToCanvas(target, cw, ch);
+      constrainToCanvas(target, cw, ch, Number(framesRef.current[idx]?.bleedMm || 0) * scale);
 
       // Sync associated objects (bleed, label)
       const left = target.left ?? 0;
@@ -472,6 +550,7 @@ export function LayoutFabricPreview({
           });
         }
       });
+      syncSheet(fc, curFrames.map((f, i) => i === idx ? { ...f, xMm: left / scale, yMm: top / scale } : f), scale);
     };
 
     const handleScaling = (e: any) => {
@@ -487,8 +566,12 @@ export function LayoutFabricPreview({
       const h = (target.height ?? 0) * (target.scaleY ?? 1);
       if (w < minPx) target.set({ scaleX: minPx / (target.width ?? 1) });
       if (h < minPx) target.set({ scaleY: minPx / (target.height ?? 1) });
+      // Never wider or taller than the canvas less the bleed on both sides.
+      const insetPx = Number(framesRef.current[idx]?.bleedMm || 0) * scale;
+      if (w > cw - 2 * insetPx) target.set({ scaleX: Math.max(minPx, cw - 2 * insetPx) / (target.width ?? 1) });
+      if (h > ch - 2 * insetPx) target.set({ scaleY: Math.max(minPx, ch - 2 * insetPx) / (target.height ?? 1) });
 
-      constrainToCanvas(target, cw, ch);
+      constrainToCanvas(target, cw, ch, Number(framesRef.current[idx]?.bleedMm || 0) * scale);
 
       // Sync associated objects (bleed, label)
       const left = target.left ?? 0;
@@ -516,6 +599,11 @@ export function LayoutFabricPreview({
           });
         }
       });
+      syncSheet(
+        fc,
+        curFrames.map((f, i) => i === idx ? { ...f, xMm: left / scale, yMm: top / scale, widthMm: w / scale, heightMm: h / scale } : f),
+        scale,
+      );
     };
 
     // The grid is a drag aid, not chrome — it only earns screen space while a
@@ -551,7 +639,7 @@ export function LayoutFabricPreview({
       fc.off('mouse:up', hideGrid);
       // selection events are handled in initialization effect
     };
-  }, [widthMm, heightMm, snapGrid, onFramesChange, getScale]);
+  }, [widthMm, heightMm, snapGrid, onFramesChange, getScale, syncSheet]);
 
   // Reposition the given frames' Fabric objects from their mm values and sync
   // back to the parent WITHOUT triggering a rebuild (isSyncingRef guards the
@@ -595,6 +683,8 @@ export function LayoutFabricPreview({
         });
     });
 
+    syncSheet(fc, next, scale);
+
     // Restore the selection so the user can keep nudging / chain alignments.
     const rects = fc.getObjects().filter((o) => o.__fabricEditor === 'frame' && o.__frameId && idSet.has(o.__frameId));
     if (rects.length > 1) {
@@ -608,7 +698,7 @@ export function LayoutFabricPreview({
 
     onFramesChange(next);
     requestAnimationFrame(() => { isSyncingRef.current = false; });
-  }, [getScale, onFramesChange]);
+  }, [getScale, onFramesChange, syncSheet]);
 
   const handleAlign = useCallback((edge: AlignEdge) => {
     const ids = selectedIdsRef.current;

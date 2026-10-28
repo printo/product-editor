@@ -17,6 +17,7 @@ export interface AlignFrame {
   yMm?: number | string;
   widthMm?: number | string;
   heightMm?: number | string;
+  bleedMm?: number | string;
 }
 
 const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
@@ -90,10 +91,12 @@ export function nudgeFrames<T extends AlignFrame>(
     if (f.id == null || !idSet.has(f.id)) return f;
     const w = num(f.widthMm);
     const h = num(f.heightMm);
-    const maxX = Math.max(0, canvasWmm - w);
-    const maxY = Math.max(0, canvasHmm - h);
-    const x = Math.min(Math.max(num(f.xMm) + dxMm, 0), maxX);
-    const y = Math.min(Math.max(num(f.yMm) + dyMm, 0), maxY);
+    // The print area plus its bleed stays inside the canvas.
+    const b = Math.max(0, num(f.bleedMm));
+    const maxX = Math.max(b, canvasWmm - w - b);
+    const maxY = Math.max(b, canvasHmm - h - b);
+    const x = Math.min(Math.max(num(f.xMm) + dxMm, b), maxX);
+    const y = Math.min(Math.max(num(f.yMm) + dyMm, b), maxY);
     return { ...f, xMm: round2(x), yMm: round2(y) };
   });
 }
