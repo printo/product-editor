@@ -179,8 +179,8 @@ export function boxKey(box: MmRect | null | undefined): string | null {
   return `${Math.round(num(box.widthMm))}x${Math.round(num(box.heightMm))}`;
 }
 
-/** `'117 × 168 mm'` for the ops pages. */
+/** `'117 × 168 mm'` for the ops pages, which call the windows "print areas". */
 export function boxLabel(box: MmRect | null | undefined): string {
-  if (!box) return 'no windows';
+  if (!box) return 'no print areas';
   return `${Math.round(num(box.widthMm))} × ${Math.round(num(box.heightMm))} mm`;
 }

@@ -29,6 +29,7 @@
  * overlay onto the target canvas by its millimetre offset from the window
  * box's centre, using the home geometry the server stamped (`authoredOn`).
  */
+import { DEFAULT_TEXT_BOX_WIDTH_PCT } from '@/lib/overlay-text';
 import { windowBoxMm, type MmRect, type StoredWindow } from '@/lib/print-sheet';
 import type { CanvasItem, Overlay } from './types';
 
@@ -66,6 +67,8 @@ export interface LayoutTemplate {
   layoutName: string;
   /** Other layouts with the same window box it is also offered on. */
   alsoOn?: string[];
+  /** Ops reads only: ticked layouts that were retired or no longer have the same box. */
+  alsoOnMismatch?: string[];
   windowBox?: MmRect | null;
   displayName: string;
   status?: 'draft' | 'published';
@@ -186,10 +189,11 @@ export function placeOverlay(o: Overlay, from: SideGeometry | null | undefined, 
   const round = (v: number) => Math.round(v * 1000) / 1000;
   const at = { x: round(pctX(o.x)), y: round(pctY(o.y)) };
   if (o.type === 'text') {
-    return {
-      ...o, ...at, fontSize: round(o.fontSize * pxScale),
-      ...(typeof o.width === 'number' ? { width: round(sizeX(o.width)) } : {}),
-    };
+    // A text without a width wraps at the editor's default share of the
+    // canvas (lib/overlay-text.ts), which is another width in millimetres
+    // on another canvas: pin the box it had on the home canvas.
+    const width = typeof o.width === 'number' ? o.width : DEFAULT_TEXT_BOX_WIDTH_PCT;
+    return { ...o, ...at, fontSize: round(o.fontSize * pxScale), width: round(sizeX(width)) };
   }
   if (o.type === 'shape') {
     return { ...o, ...at, width: round(sizeX(o.width)), height: round(sizeY(o.height)), strokeWidth: round(o.strokeWidth * pxScale) };

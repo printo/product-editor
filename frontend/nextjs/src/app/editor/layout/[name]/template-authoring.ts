@@ -130,6 +130,8 @@ export interface TemplateCandidate {
   printAreaBox: MmRect | null;
   printAreaKey: string | null;
   bleedMm: number;
+  /** The layout's sides (`default`, or `front`, `back`, …): a template is drawn per side, so they must match too. */
+  surfaceKeys: string[];
   templateCount: number;
 }
 
@@ -139,7 +141,12 @@ export interface SizeGroup {
   layouts: TemplateCandidate[];
 }
 
-const NO_WINDOWS = 'none';
+/** The group key of layouts with no print areas, last in the Create picker. */
+export const NO_PRINT_AREAS_KEY = 'none';
+const NO_WINDOWS = NO_PRINT_AREAS_KEY;
+
+const sameSides = (a: Pick<TemplateCandidate, 'surfaceKeys'>, b: Pick<TemplateCandidate, 'surfaceKeys'>) =>
+  (a.surfaceKeys ?? []).join(',') === (b.surfaceKeys ?? []).join(',');
 
 /** "117 × 168 mm, 7.6 mm bleed" for a layout. */
 export function sizeLabel(c: Pick<TemplateCandidate, 'windowBox' | 'bleedMm'>): string {
@@ -147,13 +154,38 @@ export function sizeLabel(c: Pick<TemplateCandidate, 'windowBox' | 'bleedMm'>): 
   return `${boxLabel(c.windowBox)}${bleed}`;
 }
 
+/** A ticked layout the template can no longer be offered on: retired since
+ *  (absent from the live candidates), or its print areas moved so its box
+ *  is another size. Shown ticked so ops can untick it; the server refuses a
+ *  save that still names it. */
+export interface IneligibleTicked {
+  name: string;
+  displayName: string;
+  reason: 'retired' | 'size_changed' | 'sides_changed';
+  size: string;
+}
+
+export function ineligibleTicked(candidates: TemplateCandidate[], homeName: string, ticked: string[]): IneligibleTicked[] {
+  const home = candidates.find(c => c.name === homeName);
+  const byName = new Map(candidates.map(c => [c.name, c]));
+  return ticked
+    .filter(name => name !== homeName)
+    .flatMap((name): IneligibleTicked[] => {
+      const c = byName.get(name);
+      if (!c) return [{ name, displayName: name, reason: 'retired', size: '' }];
+      if (!home?.windowKey || c.windowKey !== home.windowKey) return [{ name, displayName: c.displayName, reason: 'size_changed', size: sizeLabel(c) }];
+      if (!sameSides(c, home)) return [{ name, displayName: c.displayName, reason: 'sides_changed', size: sizeLabel(c) }];
+      return [];
+    });
+}
+
 /** Layouts grouped by window box for the Create picker: the biggest group
- *  first, layouts without windows last. */
+ *  first, layouts without print areas last. */
 export function groupBySize(candidates: TemplateCandidate[]): SizeGroup[] {
   const groups = new Map<string, SizeGroup>();
   for (const c of candidates) {
     const key = c.windowKey ?? NO_WINDOWS;
-    const g = groups.get(key) ?? { key, label: c.windowKey ? sizeLabel(c) : 'No photo windows', layouts: [] };
+    const g = groups.get(key) ?? { key, label: c.windowKey ? sizeLabel(c) : 'No print areas', layouts: [] };
     g.layouts.push(c);
     groups.set(key, g);
   }
@@ -162,22 +194,23 @@ export function groupBySize(candidates: TemplateCandidate[]): SizeGroup[] {
     .sort((a, b) => (a.key === NO_WINDOWS ? 1 : 0) - (b.key === NO_WINDOWS ? 1 : 0) || b.layouts.length - a.layouts.length || a.label.localeCompare(b.label));
 }
 
-/** The other layouts a template authored on `homeName` can be offered on. */
+/** The other layouts a template authored on `homeName` can be offered on:
+ *  the same size (print areas plus bleed) and the same sides. */
 export function sameBoxLayouts(candidates: TemplateCandidate[], homeName: string): TemplateCandidate[] {
   const home = candidates.find(c => c.name === homeName);
   if (!home?.windowKey) return [];
   return candidates
-    .filter(c => c.name !== homeName && c.windowKey === home.windowKey)
+    .filter(c => c.name !== homeName && c.windowKey === home.windowKey && sameSides(c, home))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-/** Layouts with the same print area but a different bleed: not eligible,
- *  shown so a bleed typed differently on one layout is not a mystery. */
+/** Layouts with the same print areas and sides but a different bleed: not
+ *  eligible, shown so a bleed typed differently on one layout is not a mystery. */
 export function nearMissLayouts(candidates: TemplateCandidate[], homeName: string): TemplateCandidate[] {
   const home = candidates.find(c => c.name === homeName);
   if (!home?.printAreaKey) return [];
   return candidates
-    .filter(c => c.name !== homeName && c.windowKey !== home.windowKey && c.printAreaKey === home.printAreaKey)
+    .filter(c => c.name !== homeName && c.windowKey !== home.windowKey && c.printAreaKey === home.printAreaKey && sameSides(c, home))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 

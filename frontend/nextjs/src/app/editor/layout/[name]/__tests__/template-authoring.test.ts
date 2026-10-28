@@ -2,8 +2,10 @@
  * template-authoring.ts — what ops draw on a blank card becomes a template.
  */
 import {
-  blankCard, dataUrlToPngFile, decorationFromCards, isEmptyDecoration, isTemplateId, localImageOverlays, slugFromName, withoutPhotos,
+  authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, groupBySize, ineligibleTicked, isEmptyDecoration, isTemplateId,
+  localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withoutPhotos, type TemplateCandidate,
 } from '../template-authoring';
+import { surfaceGeometry } from '../layout-template';
 import type { SurfaceDefinition } from '@/lib/layout-utils';
 import type { CanvasItem, Overlay } from '../types';
 
@@ -68,6 +70,72 @@ describe('decorationFromCards', () => {
     expect(deco.surfaces.back).toEqual({ overlays: [] });
     expect(isEmptyDecoration(deco)).toBe(true);
     expect(isEmptyDecoration(decorationFromCards([{ key: 'front', card: card({ paperColor: '#eeeeee' }) }]))).toBe(false);
+  });
+});
+
+describe('sharing a template across layouts with the same print areas', () => {
+  const cand = (name: string, displayName: string, windowKey: string | null, printAreaKey: string | null, bleedMm: number, templateCount = 0, surfaceKeys = ['default']): TemplateCandidate => ({
+    name, displayName, windowKey, printAreaKey, bleedMm, templateCount, surfaceKeys, printAreaBox: null,
+    windowBox: windowKey ? { xMm: 0, yMm: 0, widthMm: Number(windowKey.split('x')[0]), heightMm: Number(windowKey.split('x')[1]) } : null,
+  });
+  const candidates = [
+    cand('frame_1in', 'Frame one-inch', '117x168', '102x152', 7.62, 1),
+    cand('frame_half', 'Frame half-inch', '117x168', '102x152', 7.62),
+    cand('thin', 'Thin bleed', '112x162', '102x152', 5),
+    cand('print', 'Print 4x6', '102x152', '102x152', 0),
+    cand('bare', 'Bare', null, null, 0),
+    // Same size, but two sides: the decoration is drawn per side, so not a match.
+    cand('card', 'Folded card', '117x168', '102x152', 7.62, 0, ['front', 'back']),
+  ];
+
+  it('labels a size with its bleed only when there is one', () => {
+    expect(sizeLabel(candidates[0])).toBe('117 × 168 mm, 7.6 mm bleed');
+    expect(sizeLabel(candidates[3])).toBe('102 × 152 mm');
+    expect(sizeLabel(candidates[4])).toBe('no print areas');
+  });
+
+  it('groups layouts by size for the Create picker, biggest group first, no print areas last', () => {
+    const groups = groupBySize(candidates);
+    expect(groups.map(g => g.key)).toEqual(['117x168', '102x152', '112x162', 'none']);
+    expect(groups[0].layouts.map(c => c.name)).toEqual(['card', 'frame_half', 'frame_1in']);
+    expect(groups[0].label).toBe('117 × 168 mm, 7.6 mm bleed');
+    expect(groups[3].label).toBe('No print areas');
+  });
+
+  it('offers the other layouts with the same size and sides, and names the near-misses that differ only in bleed', () => {
+    expect(sameBoxLayouts(candidates, 'frame_1in').map(c => c.name)).toEqual(['frame_half']);
+    expect(sameBoxLayouts(candidates, 'card')).toEqual([]);
+    expect(sameBoxLayouts(candidates, 'bare')).toEqual([]);
+    expect(sameBoxLayouts(candidates, 'missing')).toEqual([]);
+    expect(nearMissLayouts(candidates, 'frame_1in').map(c => c.name)).toEqual(['print', 'thin']);
+    expect(nearMissLayouts(candidates, 'bare')).toEqual([]);
+  });
+
+  it('keeps a ticked layout that was retired, resized or re-sided visible so it can be unticked', () => {
+    const out = ineligibleTicked(candidates, 'frame_1in', ['frame_half', 'thin', 'gone', 'card', 'frame_1in']);
+    expect(out).toEqual([
+      { name: 'thin', displayName: 'Thin bleed', reason: 'size_changed', size: '112 × 162 mm, 5 mm bleed' },
+      { name: 'gone', displayName: 'gone', reason: 'retired', size: '' },
+      { name: 'card', displayName: 'Folded card', reason: 'sides_changed', size: '117 × 168 mm, 7.6 mm bleed' },
+    ]);
+    expect(ineligibleTicked(candidates, 'frame_1in', [])).toEqual([]);
+  });
+
+  it('describes the home layout the way the server stamps it, and places a draft on another layout', () => {
+    const home = { ...DEF, canvas: { width: 1524, height: 2032, widthMm: 152.4, heightMm: 203.2 },
+      frames: [{ x: 0.1166666667, y: 0.0875, width: 0.7666666667, height: 0.825, bleedMm: 7.62 }] as SurfaceDefinition['frames'] };
+    const other = { ...DEF, canvas: { width: 1270, height: 1778, widthMm: 127, heightMm: 177.8 },
+      frames: [{ x: 0.04, y: 0.0285714286, width: 0.92, height: 0.9428571429, bleedMm: 7.62 }] as SurfaceDefinition['frames'] };
+    const stamp = authoredOnFor('frame_1in', [{ key: 'default', def: home }]);
+    expect(stamp).toEqual({ layout: 'frame_1in', surfaces: { default: {
+      canvas: { width: 1524, height: 2032, widthMm: 152.4, heightMm: 203.2 },
+      windowBox: { xMm: 17.78, yMm: 17.78, widthMm: 116.84, heightMm: 167.64 },
+    } } });
+    const decoration = { surfaces: { default: { overlays: [{ ...TEXT, y: 8 }] } }, authoredOn: stamp };
+    // On the home layout the draft is drawn as it is; on the other, placed from the box centre (8% of 203.2 mm → 2% of 177.8 mm).
+    expect(blankCard(home, decoration, null, surfaceGeometry(home)).overlays[0]).toMatchObject({ y: 8 });
+    expect(blankCard(other, decoration, null, surfaceGeometry(other)).overlays[0]).toMatchObject({ y: 2 });
+    expect(blankCard(other, decoration).overlays[0]).toMatchObject({ y: 8 });
   });
 });
 

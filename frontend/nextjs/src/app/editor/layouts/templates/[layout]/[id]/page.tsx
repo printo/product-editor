@@ -31,8 +31,8 @@ import { useObjectUrls } from '@/app/editor/layout/[name]/useCanvasGeneration';
 import type { CanvasItem, SurfaceState } from '@/app/editor/layout/[name]/types';
 import { isLayoutTemplate, surfaceGeometry, type LayoutTemplate, type TemplateDecoration } from '@/app/editor/layout/[name]/layout-template';
 import {
-  authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, isEmptyDecoration, isTemplateId, localImageOverlays,
-  nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withoutPhotos, type TemplateCandidate,
+  authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, ineligibleTicked, isEmptyDecoration, isTemplateId,
+  localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withoutPhotos, type TemplateCandidate,
 } from '@/app/editor/layout/[name]/template-authoring';
 
 const API = '/api/internal/proxy';
@@ -173,6 +173,9 @@ export default function TemplateEditorPage() {
   const home = useMemo(() => candidates.find(c => c.name === layoutName) ?? null, [candidates, layoutName]);
   const sameBox = useMemo(() => sameBoxLayouts(candidates, layoutName), [candidates, layoutName]);
   const nearMisses = useMemo(() => nearMissLayouts(candidates, layoutName), [candidates, layoutName]);
+  // Ticked layouts that were retired or resized since: shown ticked so ops
+  // can untick them (the server refuses a save that still names one).
+  const ineligible = useMemo(() => ineligibleTicked(candidates, layoutName, alsoOn), [candidates, layoutName, alsoOn]);
   const previewName = candidates.find(c => c.name === previewOn)?.displayName ?? previewOn;
   const toggleAlsoOn = (name: string) => setAlsoOn(prev => (prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]));
 
@@ -392,9 +395,9 @@ export default function TemplateEditorPage() {
                 <Layers className="w-3.5 h-3.5" /> Also show on
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                This template is keyed on this layout&rsquo;s window box{home ? `, ${sizeLabel(home)}` : ''}. Any other layout whose photo
-                windows make the same box can offer it. Preview it there before ticking: the artwork keeps its distance from the centre of
-                the windows, so check nothing lands over a photo.
+                This template is keyed on the size of this layout&rsquo;s print areas, bleed included{home ? `: ${sizeLabel(home)}` : ''}.
+                Any other layout whose print areas and bleed make the same size can offer it. Preview it there before ticking: the artwork
+                keeps its distance from the centre of the print areas, so check nothing lands over a photo.
               </p>
             </div>
             <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500">
@@ -410,10 +413,10 @@ export default function TemplateEditorPage() {
               </select>
             </label>
           </div>
-          {sameBox.length === 0 ? (
-            <p className="text-xs text-slate-400">No other layout has this window box yet.</p>
+          {sameBox.length === 0 && ineligible.length === 0 ? (
+            <p className="text-xs text-slate-400">No other layout has print areas of this size yet.</p>
           ) : (
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2" aria-label="Layouts with the same window box">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2" aria-label="Layouts with print areas of the same size">
               {sameBox.map(c => (
                 <li key={c.name} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50">
                   <label className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
@@ -437,14 +440,34 @@ export default function TemplateEditorPage() {
                   </button>
                 </li>
               ))}
+              {ineligible.map(c => (
+                <li key={c.name} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <label className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked
+                      onChange={() => toggleAlsoOn(c.name)}
+                      className="w-4 h-4 accent-indigo-600 shrink-0"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-slate-800 truncate">{c.displayName}</span>
+                      <span className="block text-[10px] text-amber-700 truncate">
+                        {c.reason === 'retired' ? 'Retired layout'
+                          : c.reason === 'sides_changed' ? `Different sides now (${c.size})`
+                            : `No longer the same size (${c.size})`}; untick to save
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              ))}
             </ul>
           )}
           {nearMisses.length > 0 && (
             <div className="text-xs text-slate-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-              <p className="font-bold uppercase tracking-tight text-amber-700 text-[10px] mb-1">Same print area, different bleed</p>
+              <p className="font-bold uppercase tracking-tight text-amber-700 text-[10px] mb-1">Same print areas, different bleed</p>
               <p className="mb-1">
-                These layouts have the same photo window but a different bleed, so their box is another size. Give them the same bleed
-                on the Layouts page and they will appear above.
+                These layouts have the same print areas but a different bleed, so their size is another. Give them the same bleed on the
+                Layouts page and they will appear above.
               </p>
               <ul className="list-disc pl-4">
                 {nearMisses.map(c => <li key={c.name}>{c.displayName} <span className="text-slate-400">({sizeLabel(c)})</span></li>)}

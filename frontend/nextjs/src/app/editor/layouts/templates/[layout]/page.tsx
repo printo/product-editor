@@ -10,14 +10,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Copy, Edit2, Eye, EyeOff, LayoutTemplate as TemplateIcon, Loader2, Plus, Trash2 } from 'lucide-react';
-import { clsx } from 'clsx';
+import { ArrowLeft, Copy, LayoutTemplate as TemplateIcon, Loader2, Plus } from 'lucide-react';
 import { useHeader } from '@/context/HeaderContext';
 import { readError } from '@/lib/read-error';
-import { isTemplateId, slugFromName } from '@/app/editor/layout/[name]/template-authoring';
-import type { LayoutTemplate } from '@/app/editor/layout/[name]/layout-template';
-
-type OpsTemplate = LayoutTemplate & { status: 'draft' | 'published'; layoutChanged?: boolean };
+import { isTemplateId, slugFromName, type TemplateCandidate } from '@/app/editor/layout/[name]/template-authoring';
+import { DeleteTemplateDialog, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
 
 const API = '/api/internal/proxy';
 
@@ -27,6 +24,7 @@ export default function LayoutTemplatesPage() {
   const { setTitle, setDescription, setCenterActions, setRightActions } = useHeader();
 
   const [templates, setTemplates] = useState<OpsTemplate[]>([]);
+  const [layoutNames, setLayoutNames] = useState<Map<string, string>>(new Map());
   const [layoutDisplayName, setLayoutDisplayName] = useState<string>(layoutName);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,9 +61,10 @@ export default function LayoutTemplatesPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [listRes, layoutRes] = await Promise.all([
+      const [listRes, layoutRes, candidatesRes] = await Promise.all([
         fetch(`${API}/ops/templates?layout=${encodeURIComponent(layoutName)}`, { cache: 'no-store' }),
         fetch(`${API}/layouts/${encodeURIComponent(layoutName)}`),
+        fetch(`${API}/ops/templates/candidates`, { cache: 'no-store' }),
       ]);
       if (!listRes.ok) throw new Error(await readError(listRes, `Could not load templates (HTTP ${listRes.status}).`));
       const data = await listRes.json();
@@ -73,6 +72,12 @@ export default function LayoutTemplatesPage() {
       if (layoutRes.ok) {
         const layout = await layoutRes.json();
         if (typeof layout?.displayName === 'string' && layout.displayName) setLayoutDisplayName(layout.displayName);
+      }
+      if (candidatesRes.ok) {
+        // Only for naming the other layouts a template is designed on or offered on.
+        const cands = await candidatesRes.json().catch(() => null);
+        const list: TemplateCandidate[] = Array.isArray(cands?.layouts) ? cands.layouts : [];
+        setLayoutNames(new Map(list.map(c => [c.name, c.displayName])));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load templates.');
@@ -118,12 +123,12 @@ export default function LayoutTemplatesPage() {
       t.id,
       // The copy lives on the same home layout as the original: its
       // decoration is in percent of that canvas, and it is offered on the
-      // same other layouts.
+      // same other layouts, minus any the server would now refuse.
       () => fetch(`${API}/ops/templates`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id, layout: t.layoutName, display_name: `Copy of ${t.displayName}`, status: 'draft',
-          decoration: t.decoration, also_on: t.alsoOn ?? [],
+          decoration: t.decoration, also_on: (t.alsoOn ?? []).filter(n => !(t.alsoOnMismatch ?? []).includes(n)),
         }),
       }),
       'Could not duplicate the template.',
@@ -162,102 +167,40 @@ export default function LayoutTemplatesPage() {
           </div>
         ) : (
           <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Templates">
-            {templates.map(t => {
-              const busy = busyId === t.id;
-              return (
-                <li key={t.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                  <div className="aspect-[4/3] bg-slate-50 border-b border-slate-100 flex items-center justify-center">
-                    {t.thumbnailUrl ? (
-                      <img src={t.thumbnailUrl} alt="" className="w-full h-full object-contain" />
-                    ) : (
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No preview yet</span>
-                    )}
-                  </div>
-                  <div className="p-4 flex flex-col gap-2 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900 truncate">{t.displayName}</p>
-                        <p className="text-[10px] text-slate-400 font-mono truncate">{t.id}</p>
-                      </div>
-                      <span className={clsx(
-                        'shrink-0 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight',
-                        t.status === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500',
-                      )}>
-                        {t.status}
-                      </span>
-                    </div>
-                    {(t.layoutName !== layoutName || (t.alsoOn?.length ?? 0) > 0) && (
-                      <p className="text-[10px] text-slate-500">
-                        {t.layoutName !== layoutName
-                          ? <>Designed on <span className="font-semibold text-slate-700">{t.layoutName}</span>, offered here too</>
-                          : <>Also offered on {t.alsoOn!.length} other {t.alsoOn!.length === 1 ? 'layout' : 'layouts'}</>}
-                      </p>
-                    )}
-                    {t.layoutChanged && (
-                      <p className="text-[10px] font-bold uppercase tracking-tight text-amber-700 bg-amber-50 px-2 py-1 rounded-md">
-                        Layout changed, please review
-                      </p>
-                    )}
-                    <div className="mt-auto pt-2 flex items-center gap-1">
-                      <Link
-                        href={`/editor/layouts/templates/${encodeURIComponent(t.layoutName)}/${encodeURIComponent(t.id)}`}
-                        className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
-                        title="Edit template"
-                        aria-label={`Edit ${t.displayName}`}
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </Link>
-                      <button
-                        onClick={() => duplicate(t)}
-                        disabled={busy}
-                        className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all disabled:opacity-30"
-                        title="Duplicate template"
-                        aria-label={`Duplicate ${t.displayName}`}
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setStatus(t, t.status === 'published' ? 'draft' : 'published')}
-                        disabled={busy}
-                        className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all disabled:opacity-30 inline-flex items-center gap-1 text-[10px] font-bold uppercase"
-                        title={t.status === 'published' ? 'Unpublish: hide from customers' : 'Publish: show to customers'}
-                        aria-label={t.status === 'published' ? `Unpublish ${t.displayName}` : `Publish ${t.displayName}`}
-                      >
-                        {t.status === 'published' ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        {t.status === 'published' ? 'Unpublish' : 'Publish'}
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirm(t)}
-                        disabled={busy}
-                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all disabled:opacity-30 ml-auto"
-                        title="Delete template"
-                        aria-label={`Delete ${t.displayName}`}
-                      >
-                        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
+            {templates.map(t => (
+              <TemplateCard
+                key={t.id}
+                template={t}
+                busy={busyId === t.id}
+                displayNameOf={name => layoutNames.get(name) ?? name}
+                notes={(t.layoutName !== layoutName || (t.alsoOn?.length ?? 0) > 0) && (
+                  <p className="text-[10px] text-slate-500">
+                    {t.layoutName !== layoutName
+                      ? <>Designed on <span className="font-semibold text-slate-700">{layoutNames.get(t.layoutName) ?? t.layoutName}</span>, offered here too</>
+                      : <>Also offered on {t.alsoOn!.length} other {t.alsoOn!.length === 1 ? 'layout' : 'layouts'}</>}
+                  </p>
+                )}
+                extraActions={(
+                  <button
+                    type="button"
+                    onClick={() => duplicate(t)}
+                    disabled={busyId === t.id}
+                    className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all disabled:opacity-30"
+                    title="Duplicate template"
+                    aria-label={`Duplicate ${t.displayName}`}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                )}
+                onSetStatus={setStatus}
+                onDelete={setDeleteConfirm}
+              />
+            ))}
           </ul>
         )}
       </main>
 
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div role="alertdialog" aria-modal="true" aria-label="Delete template" className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7">
-            <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Delete &ldquo;{deleteConfirm.displayName}&rdquo;?</p>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6">
-              Customers stop seeing it. Designs that already use it keep their decoration.
-            </p>
-            <div className="flex items-center gap-3">
-              <button onClick={() => remove(deleteConfirm)} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all active:scale-95">Delete</button>
-              <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteTemplateDialog template={deleteConfirm} onConfirm={remove} onCancel={() => setDeleteConfirm(null)} />
     </div>
   );
 }

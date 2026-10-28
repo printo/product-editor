@@ -77,18 +77,28 @@ def test_key_rounds_half_up_like_javascript():
     assert box_key({}) is None
 
 
-def test_template_size_reads_the_first_surface():
-    single = {'canvas': {'widthMm': 100, 'heightMm': 100}, 'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.5, 'height': 0.5}]}
-    assert template_size(single)['windowKey'] == '50x50'
+def test_template_size_reads_the_first_surface_and_names_the_sides():
+    single = {'canvas': {'widthMm': 100, 'heightMm': 100}, 'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.5, 'height': 0.5, 'bleedMm': 2}]}
+    size = template_size(single)
+    assert size['windowKey'] == '50x50' and size['bleedMm'] == 2 and size['surfaceKeys'] == ['default']
     product = {'type': 'product', 'surfaces': [
         {'key': 'front', **single},
         {'key': 'back', 'canvas': {'widthMm': 100, 'heightMm': 100}, 'frames': [{'x': 0, 'y': 0, 'width': 1, 'height': 1}]},
     ]}
     assert template_size(product)['windowKey'] == '50x50'
+    assert template_size(product)['surfaceKeys'] == ['front', 'back']
     assert [k for k, _ in surface_blocks(product)] == ['front', 'back']
     assert [k for k, _ in surface_blocks(single)] == ['default']
     assert template_size({})['windowBox'] is None and template_size({})['windowKey'] is None
-    assert template_size(None)['windowKey'] is None  # type: ignore[arg-type]
+    assert template_size({})['bleedMm'] == 0 and template_size({})['surfaceKeys'] == ['default']
+    assert template_size(None)['windowKey'] is None and template_size(None)['surfaceKeys'] == []  # type: ignore[arg-type]
+
+
+def test_boxes_round_half_up_like_the_twin():
+    """8.125 is exact in binary: Python's half-even `round` would give 8.12,
+    JavaScript's Math.round gives 8.13; the fixture pins both sides to 8.13."""
+    block = {'canvas': {'widthMm': 8.125, 'heightMm': 8.125}, 'frames': [{'x': 0, 'y': 0, 'width': 1, 'height': 1}]}
+    assert window_box_mm(block) == {'xMm': 0, 'yMm': 0, 'widthMm': 8.13, 'heightMm': 8.13}
 
 
 def test_unreadable_numbers_count_as_zero():

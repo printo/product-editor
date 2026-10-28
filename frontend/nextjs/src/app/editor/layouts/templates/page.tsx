@@ -14,19 +14,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Edit2, Eye, EyeOff, Loader2, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, Search } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useHeader } from '@/context/HeaderContext';
 import { readError } from '@/lib/read-error';
 import { boxLabel } from '@/lib/print-sheet';
 import { useModalA11y } from '@/lib/use-modal-a11y';
-import type { LayoutTemplate } from '@/app/editor/layout/[name]/layout-template';
-import { groupBySize, type TemplateCandidate } from '@/app/editor/layout/[name]/template-authoring';
-
-type OpsTemplate = LayoutTemplate & { status: 'draft' | 'published'; layoutChanged?: boolean };
+import { NO_PRINT_AREAS_KEY, groupBySize, type TemplateCandidate } from '@/app/editor/layout/[name]/template-authoring';
+import { DeleteTemplateDialog, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
 
 const API = '/api/internal/proxy';
-const NO_WINDOWS = 'none';
 
 export default function AllTemplatesPage() {
   const router = useRouter();
@@ -45,11 +42,9 @@ export default function AllTemplatesPage() {
   const [createLayout, setCreateLayout] = useState('');
 
   const createRef = useRef<HTMLDivElement | null>(null);
-  const deleteRef = useRef<HTMLDivElement | null>(null);
   const closeCreate = useCallback(() => setCreating(false), []);
   const closeDelete = useCallback(() => setDeleteConfirm(null), []);
   useModalA11y(createRef, closeCreate, creating);
-  useModalA11y(deleteRef, closeDelete, deleteConfirm !== null);
 
   useEffect(() => {
     setTitle('Templates');
@@ -101,7 +96,7 @@ export default function AllTemplatesPage() {
     const q = query.trim().toLowerCase();
     return templates.filter(t => {
       const home = byName.get(t.layoutName);
-      if (sizeFilter && (home?.windowKey ?? NO_WINDOWS) !== sizeFilter) return false;
+      if (sizeFilter && (home?.windowKey ?? NO_PRINT_AREAS_KEY) !== sizeFilter) return false;
       if (layoutFilter && t.layoutName !== layoutFilter && !(t.alsoOn ?? []).includes(layoutFilter)) return false;
       if (q && !`${t.displayName} ${t.id}`.toLowerCase().includes(q)) return false;
       return true;
@@ -185,8 +180,8 @@ export default function AllTemplatesPage() {
           </button>
         </div>
         <p className="text-xs text-slate-500 mb-5">
-          A template is keyed on its home layout&rsquo;s window box, the box around its photo windows with the bleed included, and can be offered
-          on every other layout with the same box. Customers pick a template, add photos, and every card gets its decoration. Drafts stay hidden until published.
+          A template is keyed on the size of its home layout&rsquo;s print areas, bleed included, and can be offered on every other layout
+          with the same size. Customers pick a template, add photos, and every card gets its decoration. Drafts stay hidden until published.
         </p>
 
         {error && (
@@ -202,30 +197,14 @@ export default function AllTemplatesPage() {
         ) : (
           <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Templates">
             {visible.map(t => {
-              const busy = busyId === t.id;
               const offeredOn = [t.layoutName, ...(t.alsoOn ?? [])];
               return (
-                <li key={t.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                  <div className="aspect-[4/3] bg-slate-50 border-b border-slate-100 flex items-center justify-center">
-                    {t.thumbnailUrl ? (
-                      <img src={t.thumbnailUrl} alt="" className="w-full h-full object-contain" />
-                    ) : (
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No preview yet</span>
-                    )}
-                  </div>
-                  <div className="p-4 flex flex-col gap-2 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900 truncate">{t.displayName}</p>
-                        <p className="text-[10px] text-slate-400 font-mono truncate">{t.id}</p>
-                      </div>
-                      <span className={clsx(
-                        'shrink-0 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight',
-                        t.status === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500',
-                      )}>
-                        {t.status}
-                      </span>
-                    </div>
+                <TemplateCard
+                  key={t.id}
+                  template={t}
+                  busy={busyId === t.id}
+                  displayNameOf={displayNameOf}
+                  notes={(
                     <dl className="text-[11px] text-slate-600 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
                       <dt className="font-bold uppercase tracking-tight text-slate-400">Size</dt>
                       <dd>{boxLabel(t.windowBox)}</dd>
@@ -235,55 +214,25 @@ export default function AllTemplatesPage() {
                         {(t.alsoOn?.length ?? 0) > 0 && <span className="text-indigo-600 font-semibold"> + {t.alsoOn!.length} more</span>}
                       </dd>
                     </dl>
-                    {t.layoutChanged && (
-                      <p className="text-[10px] font-bold uppercase tracking-tight text-amber-700 bg-amber-50 px-2 py-1 rounded-md">
-                        Layout changed, please review
-                      </p>
-                    )}
-                    <div className="mt-auto pt-2 flex items-center gap-1">
-                      <Link
-                        href={`/editor/layouts/templates/${encodeURIComponent(t.layoutName)}/${encodeURIComponent(t.id)}`}
-                        className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center gap-1 text-[10px] font-bold uppercase"
-                        title="Edit template"
-                        aria-label={`Edit ${t.displayName}`}
-                      >
-                        <Edit2 className="w-4 h-4" /> Edit
-                      </Link>
-                      <button
-                        onClick={() => setStatus(t, t.status === 'published' ? 'draft' : 'published')}
-                        disabled={busy}
-                        className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all disabled:opacity-30 inline-flex items-center gap-1 text-[10px] font-bold uppercase"
-                        title={t.status === 'published' ? 'Unpublish: hide from customers' : 'Publish: show to customers'}
-                        aria-label={t.status === 'published' ? `Unpublish ${t.displayName}` : `Publish ${t.displayName}`}
-                      >
-                        {t.status === 'published' ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        {t.status === 'published' ? 'Unpublish' : 'Publish'}
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirm(t)}
-                        disabled={busy}
-                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all disabled:opacity-30 ml-auto"
-                        title="Delete template"
-                        aria-label={`Delete ${t.displayName}`}
-                      >
-                        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </li>
+                  )}
+                  onSetStatus={setStatus}
+                  onDelete={setDeleteConfirm}
+                />
               );
             })}
           </ul>
         )}
       </main>
 
+      <DeleteTemplateDialog template={deleteConfirm} onConfirm={remove} onCancel={closeDelete} />
+
       {creating && (
         <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div ref={createRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Create a template" className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-7 outline-none">
             <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-1">Create a template</p>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Pick the layout to design it on. Its size comes from that layout&rsquo;s photo windows; once saved, the template can also be offered
-              on every other layout with the same size.
+              Pick the layout to design it on. Its size comes from that layout&rsquo;s print areas and bleed; once saved, the template can also
+              be offered on every other layout with the same size.
             </p>
             <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500 mb-6">
               Layout
@@ -319,20 +268,6 @@ export default function AllTemplatesPage() {
         </div>
       )}
 
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div ref={deleteRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label="Delete template" className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7 outline-none">
-            <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Delete &ldquo;{deleteConfirm.displayName}&rdquo;?</p>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6">
-              Customers stop seeing it on every layout it is offered on. Designs that already use it keep their decoration.
-            </p>
-            <div className="flex items-center gap-3">
-              <button onClick={() => remove(deleteConfirm)} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all active:scale-95">Delete</button>
-              <button onClick={closeDelete} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

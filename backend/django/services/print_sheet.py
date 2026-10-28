@@ -39,6 +39,7 @@ Pure Python, no Django. The TypeScript twin of the slot rule is
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 PRINT_SHEET_MODES = ("canvas", "bleed")
@@ -238,8 +239,13 @@ def _mm(value: Any) -> float:
 
 def _round_half_up(value: float) -> int:
     """JavaScript's Math.round for the non-negative numbers a box has."""
-    import math
     return int(math.floor(value + 0.5))
+
+
+def _round2(value: float) -> float:
+    """Two decimals, half up, like the twin's `Math.round(v * 100) / 100`
+    (Python's `round` is half-even and would differ at an exact .xx5)."""
+    return math.floor(value * 100 + 0.5) / 100
 
 
 def surface_blocks(definition: dict) -> list:
@@ -287,8 +293,8 @@ def _box(rects: list) -> Optional[dict]:
     right = max(r[2] for r in rects)
     bottom = max(r[3] for r in rects)
     return {
-        "xMm": round(left, 2), "yMm": round(top, 2),
-        "widthMm": round(right - left, 2), "heightMm": round(bottom - top, 2),
+        "xMm": _round2(left), "yMm": _round2(top),
+        "widthMm": _round2(right - left), "heightMm": _round2(bottom - top),
     }
 
 
@@ -314,12 +320,20 @@ def box_key(box: Optional[dict]) -> Optional[str]:
 
 def template_size(definition: dict) -> dict:
     """What a template is keyed on, read from a layout's first surface:
-    `{windowBox, windowKey, printAreaBox, printAreaKey}` (boxes and keys None
-    when the layout has no windows)."""
+    `{windowBox, windowKey, printAreaBox, printAreaKey, bleedMm, surfaceKeys}`
+    (boxes and keys None when the layout has no windows). `surfaceKeys` names
+    the layout's sides: two layouts share a template only when their sides
+    match as well as their box, since the decoration is stored per side."""
     blocks = surface_blocks(definition)
     block = blocks[0][1] if blocks else {}
     window, visible = window_box_mm(block), print_area_box_mm(block)
+    bleed = 0.0
+    for f in block.get("frames") or []:
+        if isinstance(f, dict):
+            bleed = max(bleed, _mm(f.get("bleedMm")))
     return {
         "windowBox": window, "windowKey": box_key(window),
         "printAreaBox": visible, "printAreaKey": box_key(visible),
+        "bleedMm": bleed,
+        "surfaceKeys": [key for key, _ in blocks],
     }

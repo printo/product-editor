@@ -88,7 +88,9 @@ class CustomerReadsTest(_Base):
         ids = [t['id'] for t in res.json()['templates']]
         self.assertEqual(ids, ['pub'])
         self.assertEqual(res.json()['templates'][0]['layoutName'], 'tpl_test_4x6')
-        self.assertEqual(res.json()['templates'][0]['decoration'], DECO)
+        # The stored decoration, plus the home geometry every read derives.
+        self.assertEqual(res.json()['templates'][0]['decoration']['surfaces'], DECO['surfaces'])
+        self.assertEqual(res.json()['templates'][0]['decoration']['authoredOn']['layout'], 'tpl_test_4x6')
 
         self.assertEqual(self.client.get('/api/templates', **self.partner_auth).status_code, 400)
         self.assertEqual(self.client.get('/api/templates?layout=nope', **self.partner_auth).status_code, 404)
@@ -335,7 +337,7 @@ class SharedTemplatesTest(_Base):
     def test_also_on_is_refused_for_other_sizes_calendars_and_unknown_layouts(self):
         base = {'id': 'picky', 'layout': 'tpl_test_4x6', 'display_name': 'Picky', 'decoration': DECO}
         for also_on, fragment in (
-            (['tpl_other_size'], "tpl_other_size' has a 76x81 mm window box; 'tpl_test_4x6' has 122x81"),
+            (['tpl_other_size'], "tpl_other_size' has 76x81 mm print areas (bleed included); 'tpl_test_4x6' has 122x81 mm"),
             (['tpl_cal'], 'calendars and books'),
             (['tpl_missing'], "Layout 'tpl_missing' not found"),
             (['../escape'], 'invalid layout name'),
@@ -355,19 +357,114 @@ class SharedTemplatesTest(_Base):
         bare = LayoutCatalogue.objects.create(name='tpl_bare', definition={**LAYOUT, 'name': 'tpl_bare', 'frames': []})
         res = self.ops_post('/api/ops/templates', {**base, 'id': 'bare', 'layout': bare.name, 'also_on': ['tpl_frame_half']})
         self.assertEqual(res.status_code, 400)
-        self.assertIn('no photo windows', res.json()['detail'])
+        self.assertIn('no print areas', res.json()['detail'])
 
-    def test_ticking_stamps_a_decoration_saved_before_sharing(self):
+    def test_a_ticked_layout_that_is_retired_or_resized_is_flagged_and_must_be_unticked(self):
+        self.ops_post('/api/ops/templates', {
+            'id': 'shared', 'layout': 'tpl_test_4x6', 'display_name': 'Shared', 'status': 'published',
+            'decoration': DECO, 'also_on': ['tpl_frame_half'],
+        })
+        read = lambda: self.client.get('/api/ops/templates/shared', **self.ops_auth).json()
+        self.assertEqual(read()['alsoOnMismatch'], [])
+        # The customer picker never carries the flag.
+        self.assertNotIn('alsoOnMismatch', self.client.get('/api/templates/shared', **self.partner_auth).json())
+
+        # Ops move the other layout's print areas: it stays ticked, is flagged, and a
+        # save that re-sends it is refused by name until it is unticked.
+        self.half.definition = {**HALF_INCH_FRAME, 'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.5, 'height': 0.5}]}
+        self.half.version += 1
+        self.half.save()
+        self.assertEqual(read()['alsoOn'], ['tpl_frame_half'])
+        self.assertEqual(read()['alsoOnMismatch'], ['tpl_frame_half'])
+        self.assertEqual([t['id'] for t in self.client.get('/api/templates?layout=tpl_frame_half', **self.partner_auth).json()['templates']], ['shared'])
+        refused = self.ops_post('/api/ops/templates/shared', {'display_name': 'Shared!', 'also_on': ['tpl_frame_half']})
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("tpl_frame_half' has 89x64 mm print areas", refused.json()['detail'])
+        # A save that leaves `also_on` out keeps the list and still succeeds.
+        self.assertEqual(self.ops_post('/api/ops/templates/shared', {'display_name': 'Shared!'}).status_code, 200)
+
+        # A retired layout reads the same way.
+        self.half.definition = HALF_INCH_FRAME
+        self.half.is_deprecated = True
+        self.half.save()
+        self.assertEqual(read()['alsoOnMismatch'], ['tpl_frame_half'])
+        refused = self.ops_post('/api/ops/templates/shared', {'also_on': ['tpl_frame_half']})
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn('retired', refused.json()['detail'])
+        ok = self.ops_post('/api/ops/templates/shared', {'also_on': []})
+        self.assertEqual(ok.status_code, 200, ok.content)
+        self.assertEqual(ok.json()['alsoOn'], [])
+        self.assertEqual(ok.json()['alsoOnMismatch'], [])
+
+    def test_every_read_carries_the_home_geometry_as_it_is_now(self):
+        """Nothing is stored: a template saved before sharing reads with the
+        home geometry too, a client's own stamp is dropped, and moving the
+        home layout's print areas moves the geometry on the next read."""
         t = self.make('old-one')
         self.assertNotIn('authoredOn', t.decoration)
-        res = self.ops_post('/api/ops/templates/old-one', {'also_on': ['tpl_frame_half']})
-        self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.json()['decoration']['authoredOn']['layout'], 'tpl_test_4x6')
-        self.assertEqual(res.json()['decoration']['surfaces'], DECO['surfaces'])
-        # A client cannot plant its own stamp: the server's replaces it.
+        for path, auth in (('/api/templates/old-one', self.partner_auth), ('/api/ops/templates/old-one', self.ops_auth)):
+            stamp = self.client.get(path, **auth).json()['decoration']['authoredOn']
+            self.assertEqual(stamp['layout'], 'tpl_test_4x6')
+            self.assertEqual(stamp['surfaces']['default']['windowBox'], {'xMm': 15.24, 'yMm': 10.16, 'widthMm': 121.92, 'heightMm': 81.28})
         forged = {**DECO, 'authoredOn': {'layout': 'elsewhere', 'surfaces': {}}}
         res = self.ops_post('/api/ops/templates/old-one', {'decoration': forged})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertNotIn('authoredOn', LayoutTemplate.objects.get(template_id='old-one').decoration)
         self.assertEqual(res.json()['decoration']['authoredOn']['layout'], 'tpl_test_4x6')
+        self.layout.definition = {**LAYOUT, 'frames': [{'x': 0.2, 'y': 0.1, 'width': 0.8, 'height': 0.8}]}
+        self.layout.version += 1
+        self.layout.save()
+        moved = self.client.get('/api/templates/old-one', **self.partner_auth).json()['decoration']['authoredOn']
+        self.assertEqual(moved['surfaces']['default']['windowBox']['xMm'], 30.48)
+
+    def test_a_two_sided_home_cannot_share_with_a_one_sided_layout(self):
+        """The decoration is drawn per side, so the sides must match too."""
+        two_sided = {
+            'name': 'tpl_card', 'productType': 'single_canvas', 'type': 'product',
+            'surfaces': [
+                {'key': 'front', 'label': 'Front', 'canvas': LAYOUT['canvas'], 'frames': LAYOUT['frames']},
+                {'key': 'back', 'label': 'Back', 'canvas': LAYOUT['canvas'], 'frames': []},
+            ],
+        }
+        LayoutCatalogue.objects.create(name='tpl_card', definition=two_sided, product_type='single_canvas')
+        by_name = {l['name']: l for l in self.client.get('/api/ops/templates/candidates', **self.ops_auth).json()['layouts']}
+        self.assertEqual(by_name['tpl_card']['windowKey'], '122x81')
+        self.assertEqual(by_name['tpl_card']['surfaceKeys'], ['front', 'back'])
+        self.assertEqual(by_name['tpl_test_4x6']['surfaceKeys'], ['default'])
+        res = self.ops_post('/api/ops/templates', {
+            'id': 'sides', 'layout': 'tpl_test_4x6', 'display_name': 'Sides', 'decoration': DECO, 'also_on': ['tpl_card'],
+        })
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("tpl_card' has sides front, back; 'tpl_test_4x6' has default", res.json()['detail'])
+
+    def test_a_retired_home_hides_the_template_everywhere(self):
+        self.ops_post('/api/ops/templates', {
+            'id': 'shared', 'layout': 'tpl_test_4x6', 'display_name': 'Shared', 'status': 'published',
+            'decoration': DECO, 'also_on': ['tpl_frame_half'],
+        })
+        self.layout.is_deprecated = True
+        self.layout.save()
+        self.assertEqual(self.client.get('/api/templates?layout=tpl_frame_half', **self.partner_auth).json()['templates'], [])
+        self.assertEqual(self.client.get('/api/editor/init?layout=tpl_frame_half&template=shared', **self.partner_auth).status_code, 404)
+        self.assertEqual(self.client.get('/api/templates/shared', **self.partner_auth).status_code, 404)
+        from django.core.cache import cache
+        cache.delete_many(['layouts_list_all', 'ops_layouts_list_all'])
+        counts = {l['name']: l['templateCount'] for l in self.client.get('/api/layouts', **self.partner_auth).json()['layouts']}
+        self.assertEqual(counts['tpl_frame_half'], 0)
+        ops = self.client.get('/api/ops/templates/shared', **self.ops_auth).json()
+        self.assertTrue(ops['homeRetired'])
+
+    def test_a_draft_shared_template_counts_nothing_for_customers(self):
+        self.ops_post('/api/ops/templates', {
+            'id': 'draft-shared', 'layout': 'tpl_test_4x6', 'display_name': 'Draft', 'decoration': DECO, 'also_on': ['tpl_frame_half'],
+        })
+        from django.core.cache import cache
+        cache.delete_many(['layouts_list_all', 'ops_layouts_list_all'])
+        counts = {l['name']: l['templateCount'] for l in self.client.get('/api/layouts', **self.partner_auth).json()['layouts']}
+        self.assertEqual((counts['tpl_test_4x6'], counts['tpl_frame_half']), (0, 0))
+        self.assertEqual(self.client.get('/api/templates?layout=tpl_frame_half', **self.partner_auth).json()['templates'], [])
+        by_name = {l['name']: l for l in self.client.get('/api/ops/templates/candidates', **self.ops_auth).json()['layouts']}
+        self.assertEqual((by_name['tpl_test_4x6']['templateCount'], by_name['tpl_frame_half']['templateCount']), (1, 1))
 
     def test_candidates_list_generic_layouts_with_their_size(self):
         self.make('home-draft', status='draft')
@@ -381,6 +478,7 @@ class SharedTemplatesTest(_Base):
         self.assertEqual(by_name['tpl_frame_half']['windowBox'], {'xMm': 27.94, 'yMm': 22.86, 'widthMm': 121.92, 'heightMm': 81.28})
         self.assertEqual(by_name['tpl_test_4x6']['printAreaKey'], '122x81')
         self.assertEqual(by_name['tpl_test_4x6']['bleedMm'], 0)
+        self.assertEqual(by_name['tpl_test_4x6']['surfaceKeys'], ['default'])
         self.assertEqual(by_name['tpl_test_4x6']['templateCount'], 1)   # drafts count for ops
         self.assertEqual(by_name['tpl_frame_half']['templateCount'], 0)
         self.assertEqual(by_name['tpl_test_4x6']['displayName'], self.layout.display_name or 'tpl_test_4x6')

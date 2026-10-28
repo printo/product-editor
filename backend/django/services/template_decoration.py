@@ -181,11 +181,13 @@ def parse_template_flow(value: Any) -> bool:
 # Since 2026-10-28 a template can be offered on every layout whose window box
 # (services/print_sheet.py) is the same size as its home layout's. Its
 # decoration is still stored in percent of the home canvas, so the editor
-# needs the home geometry to place it on another canvas: the server stamps
-# it here on every save, and the client (`layout-template.ts`) moves each
-# overlay by its millimetre offset from the window box's centre. A
-# decoration without the stamp was saved before this and is drawn as it is
-# on its home layout.
+# needs the home geometry to place it on another canvas: every read adds it
+# under `authoredOn`, derived from the home layout as it is NOW (so moving
+# the home layout's print areas moves the art on every layout the same way
+# it moves on the home), and the client (`layout-template.ts`) moves each
+# overlay by its millimetre offset from the window box's centre. Nothing is
+# stored: `validate_decoration` keeps only `surfaces`, so a client cannot
+# plant a stamp of its own.
 
 AUTHORED_ON = 'authoredOn'
 
@@ -217,10 +219,9 @@ def authored_on(definition: Any, layout_name: str) -> dict:
     return {'layout': layout_name, 'surfaces': surfaces}
 
 
-def stamp_authored_on(decoration: dict, definition: Any, layout_name: str) -> dict:
-    """A copy of a validated decoration carrying the home layout's geometry.
-    Anything a client sent under `authoredOn` is replaced: the server is the
-    one source of what a layout looks like."""
-    out = dict(decoration)
+def with_authored_on(decoration: Any, definition: Any, layout_name: str) -> dict:
+    """A copy of a stored decoration with the home layout's current geometry
+    under `authoredOn`, for every read."""
+    out = dict(decoration) if isinstance(decoration, dict) else {}
     out[AUTHORED_ON] = authored_on(definition, layout_name)
     return out

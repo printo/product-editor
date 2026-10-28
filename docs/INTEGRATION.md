@@ -612,9 +612,10 @@ with your API key returns the layout's published templates
 team and never change once created.
 
 **One template, several layouts (as of Oct 28, 2026).** Our ops team can offer
-a template on every layout whose photo windows are the same size as the one it
-was designed on, for example one birthday design for a 4x6 print inside a
-one-inch frame and the same print inside a half-inch frame. Each template
+a template on every layout whose print areas plus their bleed (the bleed area)
+are the same size as on the layout it was designed on, for example one birthday design
+for a 4x6 print inside a one-inch frame and the same print inside a half-inch
+frame. Each template
 carries `layoutName`, the layout it was designed on, and `alsoOn`, the other
 layouts it is offered on; `GET /api/templates?layout=<name>` lists it on every
 one of them and `templateCount` counts it on each. Nothing changes for the

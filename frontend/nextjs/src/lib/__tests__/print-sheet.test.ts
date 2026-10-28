@@ -105,7 +105,7 @@ describe('the window box a template is keyed on (parity with services/print_shee
 
   it('labels a box for the ops pages', () => {
     expect(boxLabel({ xMm: 0, yMm: 0, widthMm: 116.84, heightMm: 167.64 })).toBe('117 × 168 mm');
-    expect(boxLabel(null)).toBe('no windows');
+    expect(boxLabel(null)).toBe('no print areas');
     expect(boxKey(null)).toBeNull();
   });
 });

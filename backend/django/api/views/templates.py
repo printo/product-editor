@@ -31,9 +31,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from services.storage import S3Storage, get_storage
-from services.print_sheet import surface_blocks, template_size
+from services.print_sheet import template_size
 from services.template_decoration import (
-    AUTHORED_ON,
     InvalidTemplate,
     MAX_STICKER_BYTES,
     MAX_STICKER_SIDE_PX,
@@ -41,9 +40,9 @@ from services.template_decoration import (
     STATUS_PUBLISHED,
     is_template_id,
     png_filename,
-    stamp_authored_on,
     sticker_url,
     validate_decoration,
+    with_authored_on,
 )
 
 from ..models import LayoutCatalogue, LayoutTemplate
@@ -72,29 +71,49 @@ def _with_layouts(qs):
     return qs.select_related('layout').prefetch_related('extra_layouts')
 
 
+def _same_shape(a: dict, b: dict) -> bool:
+    """Two layouts can share a template when their first-surface box is the
+    same size and they have the same sides (the decoration is stored per side)."""
+    return a['windowKey'] is not None and a['windowKey'] == b['windowKey'] and a['surfaceKeys'] == b['surfaceKeys']
+
+
 def serialize_template(t: LayoutTemplate, *, layout_version: int | None = None) -> dict:
+    size = template_size(t.layout.definition)
+    extra = list(t.extra_layouts.all())
     data = {
         'id': t.template_id,
         'layoutName': t.layout_id,
         # The other layouts ops ticked; the customer picker on any of them
         # lists this template too. Sorted so a response is stable.
-        'alsoOn': sorted(l.name for l in t.extra_layouts.all()),
-        # The size the template is keyed on: its home layout's window box.
-        'windowBox': template_size(t.layout.definition)['windowBox'],
+        'alsoOn': sorted(l.name for l in extra),
         'displayName': t.display_name,
         'status': t.status,
-        'decoration': t.decoration,
+        # The home layout's geometry as it is now rides with the decoration,
+        # so the editor can place the artwork on another layout's canvas.
+        'decoration': with_authored_on(t.decoration, t.layout.definition, t.layout_id),
         'thumbnailUrl': t.thumbnail_url or None,
         'layoutVersion': t.layout_version,
         'updatedAt': t.updated_at.isoformat() if t.updated_at else None,
     }
     if layout_version is not None:
+        # Ops reads only. A ticked layout that was retired since, or whose
+        # print areas were moved so its box is another size, stays ticked
+        # (ops decide) but is named so the pages can flag it; the next save
+        # that sends `also_on` is refused until it is unticked.
+        data['windowBox'] = size['windowBox']
         data['layoutChanged'] = layout_version != t.layout_version
+        data['homeRetired'] = bool(t.layout.is_deprecated)
+        data['alsoOnMismatch'] = sorted(
+            l.name for l in extra if l.is_deprecated or not _same_shape(size, template_size(l.definition))
+        )
     return data
 
 
 def published_templates(layout_name: str):
-    qs = LayoutTemplate.objects.filter(status=STATUS_PUBLISHED, is_deleted=False)
+    """What the customer picker on `layout_name` lists: published templates
+    authored on it or ticked for it, whose home layout is still live (a
+    retired home hides the template everywhere, as its detail read does)."""
+    qs = LayoutTemplate.objects.filter(status=STATUS_PUBLISHED, is_deleted=False, layout__is_deprecated=False)
     return _with_layouts(_on_layouts(qs, layout_name)).order_by('display_name', 'template_id')
 
 
@@ -103,7 +122,7 @@ def template_counts(*, published_only: bool) -> dict:
     layout and once on every layout it is also offered on. Two queries;
     computed per request rather than cached with the layout list, so a
     publish shows up without clearing any cache."""
-    qs = LayoutTemplate.objects.filter(is_deleted=False)
+    qs = LayoutTemplate.objects.filter(is_deleted=False, layout__is_deprecated=False)
     if published_only:
         qs = qs.filter(status=STATUS_PUBLISHED)
     counts: dict = {}
@@ -130,17 +149,30 @@ def _template_schema(name: str):
             'layoutName': drf_serializers.CharField(help_text='The home layout it was authored on.'),
             'alsoOn': drf_serializers.ListField(
                 child=drf_serializers.CharField(),
-                help_text='Other layouts with the same window box it is also offered on.',
+                help_text='Other layouts whose print areas (bleed included) are the same size, on which it is also offered.',
             ),
-            'windowBox': _box_schema(f"{name}WindowBox"),
             'displayName': drf_serializers.CharField(),
             'status': drf_serializers.CharField(help_text='draft | published'),
             'decoration': drf_serializers.DictField(
-                help_text='Percent of the home canvas; `authoredOn` carries the home geometry the editor places it by.',
+                help_text=(
+                    'Percent of the home canvas. `authoredOn` carries the home layout\'s geometry as it is now '
+                    '(canvas, print-area box per side), which the editor places the artwork by on another layout.'
+                ),
             ),
             'thumbnailUrl': drf_serializers.CharField(allow_null=True),
             'layoutVersion': drf_serializers.IntegerField(),
             'updatedAt': drf_serializers.CharField(allow_null=True),
+            'windowBox': _box_schema(f"{name}WindowBox"),
+            'layoutChanged': drf_serializers.BooleanField(
+                required=False, help_text='Ops reads only: the home layout was saved since the template was.',
+            ),
+            'homeRetired': drf_serializers.BooleanField(
+                required=False, help_text='Ops reads only: the home layout was retired; customers no longer see the template anywhere.',
+            ),
+            'alsoOnMismatch': drf_serializers.ListField(
+                required=False, child=drf_serializers.CharField(),
+                help_text='Ops reads only: ticked layouts that were retired or no longer have the same size or sides.',
+            ),
         },
     )
 
@@ -155,8 +187,9 @@ class TemplatesListView(APIView):
         description=(
             "Ops-authored decorations (background, text, stickers) a customer can "
             "start from on this layout: those authored on it and those ops ticked for "
-            "it from another layout with the same window box (`alsoOn`). Only published "
-            "templates are returned. Reachable from the embed iframe (GET only)."
+            "it from another layout whose print areas (bleed included) are the same size "
+            "(`alsoOn`). Only published templates are returned. Reachable from the embed "
+            "iframe (GET only)."
         ),
         parameters=[
             OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True,
@@ -265,37 +298,32 @@ def _resolve_also_on(body: dict, home: LayoutCatalogue):
         names.append(n)
     if not names:
         return [], None
-    home_key = template_size(home.definition)['windowKey']
-    if home_key is None:
-        return None, f"Layout '{home.name}' has no photo windows to key a shared template on"
+    home_size = template_size(home.definition)
+    if home_size['windowKey'] is None:
+        return None, f"Layout '{home.name}' has no print areas to key a shared template on"
     found = {l.name: l for l in LayoutCatalogue.objects.filter(name__in=names, is_deprecated=False)}
     out = []
     for n in names:
         layout = found.get(n)
         if layout is None:
-            return None, f"Layout '{n}' not found"
+            return None, f"Layout '{n}' not found (unknown or retired); untick it to save"
         if _product_type(layout) in _NO_TEMPLATES:
             return None, f"Templates are not available for calendars and books ('{n}')"
-        key = template_size(layout.definition)['windowKey']
-        if key != home_key:
+        size = template_size(layout.definition)
+        if size['windowKey'] != home_size['windowKey']:
             return None, (
-                f"Layout '{n}' has a {key or 'missing'} mm window box; '{home.name}' has {home_key}. "
-                "Only layouts whose photo windows make the same box can share a template."
+                f"Layout '{n}' has {size['windowKey'] or 'no'} mm print areas (bleed included); "
+                f"'{home.name}' has {home_size['windowKey']} mm. "
+                "Only layouts with the same size can share a template; untick it to save."
+            )
+        if size['surfaceKeys'] != home_size['surfaceKeys']:
+            return None, (
+                f"Layout '{n}' has sides {', '.join(size['surfaceKeys'])}; '{home.name}' has "
+                f"{', '.join(home_size['surfaceKeys'])}. A template is drawn per side, so only layouts "
+                "with the same sides can share it; untick it to save."
             )
         out.append(layout)
     return out, None
-
-
-def _bleed_mm(definition: dict) -> float:
-    blocks = surface_blocks(definition)
-    frames = (blocks[0][1].get('frames') or []) if blocks else []
-    best = 0.0
-    for f in frames:
-        try:
-            best = max(best, float((f or {}).get('bleedMm') or 0))
-        except (TypeError, ValueError):
-            continue
-    return best
 
 
 class TemplateCandidatesView(APIView):
@@ -306,13 +334,14 @@ class TemplateCandidatesView(APIView):
 
     @extend_schema(
         tags=["ops"],
-        summary="Layouts a template can be offered on, with their window box",
+        summary="Layouts a template can be offered on, with the size of their print areas",
         description=(
             "Every live generic layout (calendars and books excluded) with `windowKey`, "
-            "the size of the box around its photo windows rounded to the millimetre, "
-            "bleed included. Two layouts with the same `windowKey` can share a template. "
-            "`printAreaKey` is the same box without the bleed: layouts that agree on it "
-            "but not on `windowKey` differ only in bleed, which the ops page points out."
+            "the size of the box around its print areas (the photo windows, bleed included) "
+            "rounded to the millimetre. Two layouts with the same `windowKey` and the same "
+            "`surfaceKeys` (sides) can share a template. `printAreaKey` is the same box "
+            "without the bleed: layouts that agree on it but not on `windowKey` differ only "
+            "in bleed, which the ops page points out."
         ),
         responses={
             200: inline_serializer(name="TemplateCandidates", fields={
@@ -324,6 +353,7 @@ class TemplateCandidatesView(APIView):
                     'printAreaBox': _box_schema("CandidatePrintAreaBox"),
                     'printAreaKey': drf_serializers.CharField(allow_null=True),
                     'bleedMm': drf_serializers.FloatField(),
+                    'surfaceKeys': drf_serializers.ListField(child=drf_serializers.CharField()),
                     'templateCount': drf_serializers.IntegerField(help_text='Templates offered on it, drafts included.'),
                 })),
             }),
@@ -342,7 +372,6 @@ class TemplateCandidatesView(APIView):
                 'name': layout.name,
                 'displayName': layout.display_name or layout.name,
                 **template_size(definition),
-                'bleedMm': _bleed_mm(definition),
                 'templateCount': counts.get(layout.name, 0),
             })
         return Response({'layouts': items})
@@ -392,11 +421,11 @@ class TemplateManagementView(APIView):
             "it is authored on), `display_name` and `decoration`; updating takes any "
             "of `display_name`, `status`, `decoration`, `also_on`, `thumbnail`. `id` "
             "and `layout` are immutable. `also_on` is the full list of other layouts "
-            "the template is offered on: each must be a live generic layout whose "
-            "window box (the box around its photo windows, bleed included) is the "
-            "same size as the home layout's, else 400 naming the layout. A saved "
-            "decoration is stamped with the home layout's geometry (`authoredOn`), "
-            "which the editor uses to centre the artwork on another layout's window box."
+            "the template is offered on: each must be a live generic layout with the "
+            "same sides whose print areas (bleed included) make a box of the same size "
+            "as the home layout's, else 400 naming the layout. Every read adds the home "
+            "layout's current geometry to the decoration as `authoredOn`, which the "
+            "editor uses to centre the artwork on another layout's print areas."
         ),
         request=inline_serializer(name="TemplateWrite", fields={
             'id': drf_serializers.CharField(required=False),
@@ -458,10 +487,6 @@ class TemplateManagementView(APIView):
                 decoration = validate_decoration(body.get('decoration'))
             except InvalidTemplate as exc:
                 return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-            # The editor places the artwork by its offset from the home
-            # layout's window box, so every saved decoration says what that
-            # box was. Replaces whatever the client sent under the key.
-            decoration = stamp_authored_on(decoration, layout.definition, layout.name)
         also_on, also_on_error = _resolve_also_on(body, layout)
         if also_on_error:
             return Response({'detail': also_on_error}, status=status.HTTP_400_BAD_REQUEST)
@@ -513,10 +538,6 @@ class TemplateManagementView(APIView):
             t.decoration = decoration
             # A re-saved decoration was made against the layout as it is now.
             t.layout_version = layout.version
-        elif also_on and isinstance(t.decoration, dict) and AUTHORED_ON not in t.decoration:
-            # Saved before templates could be shared: the other layouts need
-            # the home geometry to place it, so stamp it from the home layout now.
-            t.decoration = stamp_authored_on(t.decoration, layout.definition, layout.name)
         if thumbnail_url:
             t.thumbnail_url = thumbnail_url
         t.save()

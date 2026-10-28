@@ -207,6 +207,7 @@ describe('placing a shared template on another layout with the same window box',
 
   it('is the identity on the home layout, and leaves an overlay alone without a usable geometry', () => {
     expect(placeOverlay(STICKER, home, home)).toEqual(STICKER);
+    expect(placeOverlay({ ...TEXT, width: 60 }, home, home)).toEqual({ ...TEXT, width: 60 });
     expect(placeOverlay(STICKER, home, null)).toBe(STICKER);
     expect(placeOverlay(STICKER, null, target)).toBe(STICKER);
     const noMm = { canvas: { width: 1000, height: 1000, widthMm: 0, heightMm: 0 }, windowBox: null };
@@ -223,6 +224,25 @@ describe('placing a shared template on another layout with the same window box',
     const atRightEdge: Overlay = { ...STICKER, x: ((17.78 + 116.84) / 152.4) * 100, width: 1 };
     const rightMm = (placeOverlay(atRightEdge, home, wider).x / 100) * 127;
     expect(rightMm).toBeCloseTo(122 - 0.08, 2);   // … and 0.08 mm in from the other edge at 122 mm.
+  });
+
+  it('pins the wrap box of a text that had none, so a headline does not wrap differently on a narrower canvas', () => {
+    // The editor wraps a width-less text at 80% of the canvas (lib/overlay-text.ts):
+    // 121.92 mm on the home canvas, which is 96% of the half-inch frame's 127 mm.
+    const placed = placeOverlay(TEXT, home, target) as Extract<Overlay, { type: 'text' }>;
+    expect(TEXT.width).toBeUndefined();
+    expect(placed.width).toBe(96);
+    // On the home layout the pin is the same box it already had.
+    expect((placeOverlay(TEXT, home, home) as Extract<Overlay, { type: 'text' }>).width).toBe(80);
+  });
+
+  it('falls back to the default side, then the only side, when placing a product template', () => {
+    const twoSided: LayoutTemplate = { ...shared, decoration: { ...shared.decoration, authoredOn: { layout: 'x', surfaces: { front: home, back: home } } } };
+    expect(templateOverlays(twoSided, 'front', target)[0]).toMatchObject({ y: 2 });
+    // No side for the key and more than one side: drawn as stored.
+    expect(templateOverlays(twoSided, 'default', target)[0]).toMatchObject({ y: 8 });
+    const oneSided: LayoutTemplate = { ...shared, decoration: { ...shared.decoration, authoredOn: { layout: 'x', surfaces: { only: home } } } };
+    expect(templateOverlays(oneSided, 'default', target)[0]).toMatchObject({ y: 2 });
   });
 
   it('scales print-pixel sizes when the layouts differ in pixels per millimetre', () => {

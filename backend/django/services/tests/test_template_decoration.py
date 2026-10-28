@@ -2,9 +2,9 @@
 
 DB-free. Pins: a template never holds a customer file, coordinates are
 percent of the canvas, ids are URL-safe slugs, the embed editor address
-carries the template, sticker names are content fingerprints, and a saved
-decoration is stamped with the home layout's geometry (`authoredOn`) so the
-editor can centre it on another layout's window box.
+carries the template, sticker names are content fingerprints, and every read
+adds the home layout's current geometry (`authoredOn`) so the editor can
+centre the decoration on another layout's window box.
 """
 from contextlib import contextmanager
 
@@ -17,9 +17,9 @@ from services.template_decoration import (
     is_template_id,
     parse_template_flow,
     png_filename,
-    stamp_authored_on,
     sticker_url,
     validate_decoration,
+    with_authored_on,
 )
 
 
@@ -149,22 +149,30 @@ def test_template_flow_parses_form_and_json_values():
     assert not parse_template_flow('0') and not parse_template_flow('false')
 
 
-def test_a_saved_decoration_is_stamped_with_the_home_geometry():
+def test_every_read_carries_the_home_geometry_as_it_is_now():
     """The editor places shared artwork by its offset from the home window
-    box's centre, so every save records the home canvas and box per side."""
+    box's centre, so a read adds the home canvas and box per side, derived
+    from the layout as it is now; nothing is stored and a client's own stamp
+    never survives validation."""
     layout = {'canvas': {'width': 1524, 'height': 2032, 'widthMm': 152.4, 'heightMm': 203.2},
               'frames': [{'x': 0.1166666667, 'y': 0.0875, 'width': 0.7666666667, 'height': 0.825, 'bleedMm': 7.62}]}
-    out = stamp_authored_on(validate_decoration(_deco(_text())), layout, 'frame_1in')
+    stored = validate_decoration({**_deco(_text()), AUTHORED_ON: {'layout': 'forged', 'surfaces': {}}})
+    assert AUTHORED_ON not in stored
+    out = with_authored_on(stored, layout, 'frame_1in')
     assert out['surfaces']['default']['overlays'][0]['text'] == 'Happy Birthday'
     assert out[AUTHORED_ON] == {'layout': 'frame_1in', 'surfaces': {'default': {
         'canvas': {'width': 1524, 'height': 2032, 'widthMm': 152.4, 'heightMm': 203.2},
         'windowBox': {'xMm': 17.78, 'yMm': 17.78, 'widthMm': 116.84, 'heightMm': 167.64},
     }}}
-    # Whatever a client sent under the key is replaced: the server knows the layout.
-    forged = {**validate_decoration(_deco(_text())), AUTHORED_ON: {'layout': 'other', 'surfaces': {}}}
-    assert stamp_authored_on(forged, layout, 'frame_1in')[AUTHORED_ON]['layout'] == 'frame_1in'
-    # validate_decoration itself never keeps a client's stamp.
-    assert AUTHORED_ON not in validate_decoration({**_deco(_text()), AUTHORED_ON: {'layout': 'x'}})
+    assert AUTHORED_ON not in stored  # a copy, the stored row is untouched
+    # Move the home layout's print areas and the next read says so.
+    moved = {**layout, 'frames': [{**layout['frames'][0], 'x': 0.2}]}
+    assert with_authored_on(stored, moved, 'frame_1in')[AUTHORED_ON]['surfaces']['default']['windowBox']['xMm'] == 30.48
+
+
+def test_an_unreadable_decoration_still_reads():
+    out = with_authored_on(None, {'canvas': {'widthMm': 10, 'heightMm': 10}, 'frames': []}, 'x')
+    assert out[AUTHORED_ON]['layout'] == 'x' and 'surfaces' not in out
 
 
 def test_the_stamp_covers_every_side_of_a_product():

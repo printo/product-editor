@@ -71,6 +71,15 @@
       "windowBox": null, "windowKey": null, "printAreaBox": null, "printAreaKey": null
     },
     {
+      "name": "a box of exactly 8.125 mm rounds half up on both sides (Python's round would say 8.12)",
+      "canvas": { "width": 81, "height": 81, "widthMm": 8.125, "heightMm": 8.125 },
+      "frames": [{ "x": 0, "y": 0, "width": 1, "height": 1 }],
+      "windowBox": { "xMm": 0, "yMm": 0, "widthMm": 8.13, "heightMm": 8.13 },
+      "windowKey": "8x8",
+      "printAreaBox": { "xMm": 0, "yMm": 0, "widthMm": 8.13, "heightMm": 8.13 },
+      "printAreaKey": "8x8"
+    },
+    {
       "name": "a bleed wider than the window leaves the print area as the stored rectangle",
       "canvas": { "width": 1000, "height": 1000, "widthMm": 100, "heightMm": 100 },
       "frames": [{ "x": 0.4, "y": 0.4, "width": 0.1, "height": 0.1, "bleedMm": 6 }],
