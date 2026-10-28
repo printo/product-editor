@@ -16,6 +16,8 @@ Counts by build, newest first. The report in `graphify-out/GRAPH_REPORT.md` is t
 
 | Date | Source | Nodes / edges / communities | Note |
 |---|---|---|---|
+| 2026-10-28 | `ac0962a`, refresh | 4,547 / 9,832 / 238 | after the print-sheet PR #299. `/graphify --update` had reported 50 "deleted" files that all still exist: paths `.gitignore`/`.graphifyignore` exclude (graphify merges both into its scan) that `save_manifest` never prunes because it keeps any entry whose file is on disk. 11 of them were leftover icon/fixture image nodes. `scripts/graphify-refresh.py` now drops nodes whose source is outside the scan and rebuilds the manifest from it. Re-clustering folded five named communities into neighbours (Calendar Holidays Tests, Calendar Preview Dev Page, Gen-Z Palette Default Tests, Layout Tag Views, Shape Icon Assets); one new one named by hand (Print Sheet Tests) |
+| 2026-10-26 | `54cdeed6`, refresh (PR #298) | 4,457 / 9,573 / 238 | after layout tags; not recorded here at the time |
 | 2026-10-13 | `a2ea33e`, full rebuild (PR #269) | 4,105 / 8,733 / 229 | six subagents; 176 community names carried by overlap, 29 named by hand; `graph.html` stopped being committed the same day — its 22 commits were 10.8 MB of the repository's 13.5 MB pack |
 | (unrecorded) | `16b501b6` | 4,044 / 8,377 / 241 | a build nobody wrote down |
 | 2026-10-08 | `79ba213`, refresh | 3,616 / 7,334 / 219 | docs re-extracted from diffs; `build_merge` kept only incoming hyperedges (dropped 14 of 19), re-added by hand; re-clustering after a 9-file change had reshuffled ~70 of 213 communities, so the partition was kept |
