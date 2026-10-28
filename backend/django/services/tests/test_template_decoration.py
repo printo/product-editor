@@ -2,17 +2,22 @@
 
 DB-free. Pins: a template never holds a customer file, coordinates are
 percent of the canvas, ids are URL-safe slugs, the embed editor address
-carries the template, and sticker names are content fingerprints.
+carries the template, sticker names are content fingerprints, and a saved
+decoration is stamped with the home layout's geometry (`authoredOn`) so the
+editor can centre it on another layout's window box.
 """
 from contextlib import contextmanager
 
 from services.template_decoration import (
+    AUTHORED_ON,
     InvalidTemplate,
     STICKER_URL_PREFIX,
+    authored_on,
     editor_url,
     is_template_id,
     parse_template_flow,
     png_filename,
+    stamp_authored_on,
     sticker_url,
     validate_decoration,
 )
@@ -142,6 +147,42 @@ def test_template_flow_parses_form_and_json_values():
     assert parse_template_flow(True) and parse_template_flow('true') and parse_template_flow('1')
     assert not parse_template_flow(False) and not parse_template_flow('') and not parse_template_flow(None)
     assert not parse_template_flow('0') and not parse_template_flow('false')
+
+
+def test_a_saved_decoration_is_stamped_with_the_home_geometry():
+    """The editor places shared artwork by its offset from the home window
+    box's centre, so every save records the home canvas and box per side."""
+    layout = {'canvas': {'width': 1524, 'height': 2032, 'widthMm': 152.4, 'heightMm': 203.2},
+              'frames': [{'x': 0.1166666667, 'y': 0.0875, 'width': 0.7666666667, 'height': 0.825, 'bleedMm': 7.62}]}
+    out = stamp_authored_on(validate_decoration(_deco(_text())), layout, 'frame_1in')
+    assert out['surfaces']['default']['overlays'][0]['text'] == 'Happy Birthday'
+    assert out[AUTHORED_ON] == {'layout': 'frame_1in', 'surfaces': {'default': {
+        'canvas': {'width': 1524, 'height': 2032, 'widthMm': 152.4, 'heightMm': 203.2},
+        'windowBox': {'xMm': 17.78, 'yMm': 17.78, 'widthMm': 116.84, 'heightMm': 167.64},
+    }}}
+    # Whatever a client sent under the key is replaced: the server knows the layout.
+    forged = {**validate_decoration(_deco(_text())), AUTHORED_ON: {'layout': 'other', 'surfaces': {}}}
+    assert stamp_authored_on(forged, layout, 'frame_1in')[AUTHORED_ON]['layout'] == 'frame_1in'
+    # validate_decoration itself never keeps a client's stamp.
+    assert AUTHORED_ON not in validate_decoration({**_deco(_text()), AUTHORED_ON: {'layout': 'x'}})
+
+
+def test_the_stamp_covers_every_side_of_a_product():
+    product = {'type': 'product', 'surfaces': [
+        {'key': 'front', 'canvas': {'width': 1000, 'height': 1000, 'widthMm': 100, 'heightMm': 100},
+         'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.8, 'height': 0.8}]},
+        {'key': 'back', 'canvas': {'width': 1000, 'height': 1000, 'widthMm': 100, 'heightMm': 100}, 'frames': []},
+    ]}
+    stamp = authored_on(product, 'card')
+    assert set(stamp['surfaces']) == {'front', 'back'}
+    assert stamp['surfaces']['front']['windowBox'] == {'xMm': 10, 'yMm': 10, 'widthMm': 80, 'heightMm': 80}
+    assert stamp['surfaces']['back']['windowBox'] is None
+    assert stamp['surfaces']['back']['canvas'] == {'width': 1000, 'height': 1000, 'widthMm': 100, 'heightMm': 100}
+    # An unreadable layout stamps a zero geometry rather than failing the save.
+    for broken in (None, {'canvas': 'nope'}):
+        assert authored_on(broken, 'x') == {'layout': 'x', 'surfaces': {'default': {
+            'canvas': {'width': 0, 'height': 0, 'widthMm': 0, 'heightMm': 0}, 'windowBox': None,
+        }}}
 
 
 def test_sticker_names_are_content_fingerprints():

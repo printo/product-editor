@@ -154,7 +154,10 @@ class EmbedSessionView(APIView):
                     help_text=(
                         "Open the editor on this published template (`GET /api/templates?layout=…` "
                         "lists them). The response then carries a ready `editor_url` for the "
-                        "template's layout. Unknown or unpublished ids are rejected with 400."
+                        "template's home layout. A template is also offered on the layouts in "
+                        "its `alsoOn`; to open it on one of those, build the iframe address from "
+                        "`embed_url_template` with that layout's name and add `&template=<id>`. "
+                        "Unknown or unpublished ids are rejected with 400."
                     ),
                 ),
                 "template_flow": drf_serializers.BooleanField(
@@ -611,19 +614,19 @@ class EditorInitView(APIView):
         layout_data, orientation_report = apply_orientation(layout_data, requested_orientation)
 
         # `?template=<id>` (customer picker, dashboard link, or the embed
-        # editor_url): the published template on THIS layout, in the same
-        # call. Outside the layout cache above — a publish must show at once.
+        # editor_url): the published template offered on THIS layout (authored
+        # on it, or ticked for it from a layout with the same window box), in
+        # the same call. Outside the layout cache above — a publish must show
+        # at once.
         template_param = (request.query_params.get('template') or '').strip()
         template_data = None
         if template_param:
             from ..models import LayoutTemplate
+            from .templates import published_templates
             from .templates import serialize_template
             if not is_template_id(template_param):
                 return Response({'detail': 'Invalid template id'}, status=status.HTTP_400_BAD_REQUEST)
-            t = LayoutTemplate.objects.filter(
-                template_id=template_param, layout_id=layout_data.get('name'),
-                status='published', is_deleted=False,
-            ).first()
+            t = published_templates(layout_data.get('name')).filter(template_id=template_param).first()
             if t is None:
                 return Response(
                     {'detail': f"Template '{template_param}' is not published on layout '{layout_data.get('name')}'"},

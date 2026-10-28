@@ -624,7 +624,9 @@ class LayoutCatalogue(models.Model):
 
 class LayoutTemplate(models.Model):
     """
-    Ops-authored decoration (background, text, stickers) for one layout.
+    Ops-authored decoration (background, text, stickers) for a layout, offered
+    as well on every other layout with the same window box that ops tick
+    (`extra_layouts`; services/print_sheet.py::template_size).
 
     The customer picks a template and the editor copies its decoration onto
     every card as the card is created; the decoration then lives on the
@@ -648,6 +650,13 @@ class LayoutTemplate(models.Model):
     layout = models.ForeignKey(
         LayoutCatalogue, to_field='name', on_delete=models.CASCADE, related_name='templates',
         db_column='layout_name',
+    )
+    extra_layouts = models.ManyToManyField(
+        LayoutCatalogue, blank=True, related_name='shared_templates',
+        help_text=(
+            "Other layouts this template is also offered on. Ops tick them; each must have "
+            "the same window box as `layout`, the home layout it was authored on."
+        ),
     )
     display_name = models.CharField(max_length=255)
     status = models.CharField(

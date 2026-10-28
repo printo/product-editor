@@ -215,3 +215,111 @@ def resolve_print_box(surface_def: dict) -> Optional[tuple[int, int, int, int]]:
     if (left, top, right, bottom) == (0, 0, int(canvas["width"]), int(canvas["height"])):
         return None
     return box
+
+
+# ── Window box: the size a layout template is keyed on ───────────────────────
+#
+# A template is bound to the box around a layout's photo windows as the
+# layout stores them (each already grown by its bleed): the bleed area when
+# there is a bleed, the print area when there is none (Kannan, 2026-10-28).
+# Two layouts share templates when that box is the same size to the
+# millimetre, whatever the canvas around it (a 1-inch and a half-inch frame
+# picture around the same window). The TypeScript twin is
+# `frontend/nextjs/src/lib/print-sheet.ts`, pinned by
+# storage/parity-fixtures/template-window-box.json.
+
+def _mm(value: Any) -> float:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return n if n == n else 0.0  # NaN → 0
+
+
+def _round_half_up(value: float) -> int:
+    """JavaScript's Math.round for the non-negative numbers a box has."""
+    import math
+    return int(math.floor(value + 0.5))
+
+
+def surface_blocks(definition: dict) -> list:
+    """`[(surface key, block)]` for a layout: each `surfaces[]` entry of a
+    product layout, else the root as `default`."""
+    if not isinstance(definition, dict):
+        return []
+    surfaces = definition.get("surfaces")
+    if definition.get("type") == "product" and isinstance(surfaces, list):
+        return [(str(s.get("key") or "unknown"), s) for s in surfaces if isinstance(s, dict)]
+    return [("default", definition)]
+
+
+def _frame_rects_mm(block: dict, *, inset_bleed: bool) -> list:
+    canvas = block.get("canvas") if isinstance(block, dict) else None
+    if not isinstance(canvas, dict):
+        return []
+    w_mm, h_mm = _mm(canvas.get("widthMm")), _mm(canvas.get("heightMm"))
+    if w_mm <= 0 or h_mm <= 0:
+        return []
+    rects = []
+    for f in block.get("frames") or []:
+        if not isinstance(f, dict):
+            continue
+        left, top = _mm(f.get("x")) * w_mm, _mm(f.get("y")) * h_mm
+        width, height = _mm(f.get("width")) * w_mm, _mm(f.get("height")) * h_mm
+        if inset_bleed:
+            b = max(0.0, _mm(f.get("bleedMm")))
+            if b > 0 and width - 2 * b > 0 and height - 2 * b > 0:
+                left, top, width, height = left + b, top + b, width - 2 * b, height - 2 * b
+        # Clamped to the canvas, as the print is.
+        right, bottom = min(w_mm, left + width), min(h_mm, top + height)
+        left, top = max(0.0, left), max(0.0, top)
+        if right - left <= 0 or bottom - top <= 0:
+            continue
+        rects.append((left, top, right, bottom))
+    return rects
+
+
+def _box(rects: list) -> Optional[dict]:
+    if not rects:
+        return None
+    left = min(r[0] for r in rects)
+    top = min(r[1] for r in rects)
+    right = max(r[2] for r in rects)
+    bottom = max(r[3] for r in rects)
+    return {
+        "xMm": round(left, 2), "yMm": round(top, 2),
+        "widthMm": round(right - left, 2), "heightMm": round(bottom - top, 2),
+    }
+
+
+def window_box_mm(block: dict) -> Optional[dict]:
+    """The box around the windows as stored (bleed included), in mm, or None
+    without windows or millimetres."""
+    return _box(_frame_rects_mm(block, inset_bleed=False))
+
+
+def print_area_box_mm(block: dict) -> Optional[dict]:
+    """The box around the visible windows (each stored rectangle inset by its
+    `bleedMm`), in mm. Equals the window box on a layout without bleed."""
+    return _box(_frame_rects_mm(block, inset_bleed=True))
+
+
+def box_key(box: Optional[dict]) -> Optional[str]:
+    """`'117x168'`: the box's size rounded to the millimetre, the string two
+    layouts must share to share templates."""
+    if not box:
+        return None
+    return f"{_round_half_up(_mm(box.get('widthMm')))}x{_round_half_up(_mm(box.get('heightMm')))}"
+
+
+def template_size(definition: dict) -> dict:
+    """What a template is keyed on, read from a layout's first surface:
+    `{windowBox, windowKey, printAreaBox, printAreaKey}` (boxes and keys None
+    when the layout has no windows)."""
+    blocks = surface_blocks(definition)
+    block = blocks[0][1] if blocks else {}
+    window, visible = window_box_mm(block), print_area_box_mm(block)
+    return {
+        "windowBox": window, "windowKey": box_key(window),
+        "printAreaBox": visible, "printAreaKey": box_key(visible),
+    }

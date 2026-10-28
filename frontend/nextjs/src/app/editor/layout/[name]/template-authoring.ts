@@ -9,8 +9,9 @@
  * uploads it as a sticker first and swaps it for a `clipart` overlay.
  */
 import type { SurfaceDefinition } from '@/lib/layout-utils';
-import type { TemplateDecoration, TemplateSide } from './layout-template';
-import { templateSide } from './layout-template';
+import { boxLabel, type MmRect } from '@/lib/print-sheet';
+import type { AuthoredOn, SideGeometry, SideLike, TemplateDecoration, TemplateSide } from './layout-template';
+import { placeSideOverlays, surfaceGeometry, templateSide } from './layout-template';
 import type { CanvasItem, FrameState, Overlay } from './types';
 
 export const TEMPLATE_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
@@ -24,21 +25,36 @@ export function isTemplateId(value: string): boolean {
   return TEMPLATE_ID_RE.test(value);
 }
 
-/** One blank card for a side: every frame empty, the side's decoration on it. */
-export function blankCard(def: SurfaceDefinition, decoration: TemplateDecoration | null, sample: File | null = null): CanvasItem {
+/** One blank card for a side: every frame empty, the side's decoration on
+ *  it. With `target`, the decoration is placed for that side's window box
+ *  (the "preview on" another layout), the way the customer editor places it. */
+export function blankCard(def: SurfaceDefinition, decoration: TemplateDecoration | null, sample: File | null = null, target?: SideGeometry | null): CanvasItem {
   const side = decoration ? templateSide(decoration, def.key) : null;
   const frames: FrameState[] = (def.frames || []).map((_, i) => ({
     id: i, originalFile: sample, offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: 'cover',
     fillStyle: sample ? 'blur' : undefined,
   }));
+  const overlays = (side?.overlays || []).map(o => ({ ...o }));
   return {
     id: 0, frames,
-    overlays: (side?.overlays || []).map(o => ({ ...o })),
+    overlays: target ? placeSideOverlays(decoration, def.key, overlays, target) : overlays,
     bgColor: side?.bgColor || '#ffffff',
     paperColor: side?.paperColor || '#ffffff',
     dataUrl: null,
     surfaceKey: def.key,
   };
+}
+
+/** The home layout's geometry per side, as the server will stamp it at
+ *  save (`authoredOn`): lets the authoring page preview an unsaved draft on
+ *  another layout with the same placement the customer editor will use. */
+export function authoredOnFor(layoutName: string, sides: Array<{ key: string; def: SideLike }>): AuthoredOn {
+  const surfaces: Record<string, SideGeometry> = {};
+  for (const { key, def } of sides) {
+    const g = surfaceGeometry(def);
+    if (g) surfaces[key] = g;
+  }
+  return { layout: layoutName, surfaces };
 }
 
 /** The card with no photos: what the template holds, and what its thumbnail shows. */
@@ -98,6 +114,71 @@ export function decorationFromCards(
 /** True when the decoration draws nothing at all. */
 export function isEmptyDecoration(decoration: TemplateDecoration): boolean {
   return Object.values(decoration.surfaces).every(s => s.overlays.length === 0 && !s.bgColor && !s.paperColor);
+}
+
+/** A layout as GET /api/ops/templates/candidates lists it: the size a
+ *  template on it is keyed on. `windowKey` is the box around its photo
+ *  windows (bleed included) rounded to the millimetre; two layouts with the
+ *  same key can share a template. `printAreaKey` is the same box without
+ *  the bleed, so layouts that agree on it but not on `windowKey` differ only
+ *  in bleed. */
+export interface TemplateCandidate {
+  name: string;
+  displayName: string;
+  windowBox: MmRect | null;
+  windowKey: string | null;
+  printAreaBox: MmRect | null;
+  printAreaKey: string | null;
+  bleedMm: number;
+  templateCount: number;
+}
+
+export interface SizeGroup {
+  key: string;
+  label: string;
+  layouts: TemplateCandidate[];
+}
+
+const NO_WINDOWS = 'none';
+
+/** "117 × 168 mm, 7.6 mm bleed" for a layout. */
+export function sizeLabel(c: Pick<TemplateCandidate, 'windowBox' | 'bleedMm'>): string {
+  const bleed = Number(c.bleedMm) > 0 ? `, ${Math.round(Number(c.bleedMm) * 10) / 10} mm bleed` : '';
+  return `${boxLabel(c.windowBox)}${bleed}`;
+}
+
+/** Layouts grouped by window box for the Create picker: the biggest group
+ *  first, layouts without windows last. */
+export function groupBySize(candidates: TemplateCandidate[]): SizeGroup[] {
+  const groups = new Map<string, SizeGroup>();
+  for (const c of candidates) {
+    const key = c.windowKey ?? NO_WINDOWS;
+    const g = groups.get(key) ?? { key, label: c.windowKey ? sizeLabel(c) : 'No photo windows', layouts: [] };
+    g.layouts.push(c);
+    groups.set(key, g);
+  }
+  return [...groups.values()]
+    .map(g => ({ ...g, layouts: [...g.layouts].sort((a, b) => a.displayName.localeCompare(b.displayName)) }))
+    .sort((a, b) => (a.key === NO_WINDOWS ? 1 : 0) - (b.key === NO_WINDOWS ? 1 : 0) || b.layouts.length - a.layouts.length || a.label.localeCompare(b.label));
+}
+
+/** The other layouts a template authored on `homeName` can be offered on. */
+export function sameBoxLayouts(candidates: TemplateCandidate[], homeName: string): TemplateCandidate[] {
+  const home = candidates.find(c => c.name === homeName);
+  if (!home?.windowKey) return [];
+  return candidates
+    .filter(c => c.name !== homeName && c.windowKey === home.windowKey)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+/** Layouts with the same print area but a different bleed: not eligible,
+ *  shown so a bleed typed differently on one layout is not a mystery. */
+export function nearMissLayouts(candidates: TemplateCandidate[], homeName: string): TemplateCandidate[] {
+  const home = candidates.find(c => c.name === homeName);
+  if (!home?.printAreaKey) return [];
+  return candidates
+    .filter(c => c.name !== homeName && c.windowKey !== home.windowKey && c.printAreaKey === home.printAreaKey)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 /** A PNG File from a data: URL (the thumbnail the editor renders). */

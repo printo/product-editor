@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Copy, Edit2, Eye, EyeOff, Loader2, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Copy, Edit2, Eye, EyeOff, LayoutTemplate as TemplateIcon, Loader2, Plus, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useHeader } from '@/context/HeaderContext';
 import { readError } from '@/lib/read-error';
@@ -38,14 +38,24 @@ export default function LayoutTemplatesPage() {
     setDescription(`Ready-made decoration for ${layoutDisplayName}`);
     setCenterActions(null);
     setRightActions(
-      <Link
-        href="/editor/layouts"
-        aria-label="Back to Layouts"
-        className="flex items-center gap-1.5 p-2.5 md:px-3 md:py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-full md:rounded border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
-      >
-        <ArrowLeft className="w-3.5 h-3.5" />
-        <span className="hidden md:inline">Layouts</span>
-      </Link>,
+      <div className="flex items-center gap-2">
+        <Link
+          href="/editor/layouts/templates"
+          aria-label="All templates"
+          className="flex items-center gap-1.5 p-2.5 md:px-3 md:py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-full md:rounded border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
+        >
+          <TemplateIcon className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">All templates</span>
+        </Link>
+        <Link
+          href="/editor/layouts"
+          aria-label="Back to Layouts"
+          className="flex items-center gap-1.5 p-2.5 md:px-3 md:py-1.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-full md:rounded border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">Layouts</span>
+        </Link>
+      </div>,
     );
     return () => { setTitle(''); setDescription(''); setCenterActions(null); setRightActions(null); };
   }, [layoutDisplayName, setTitle, setDescription, setCenterActions, setRightActions]);
@@ -106,9 +116,15 @@ export default function LayoutTemplatesPage() {
     if (!isTemplateId(id)) { setError('Could not make an id for the copy.'); return; }
     return act(
       t.id,
+      // The copy lives on the same home layout as the original: its
+      // decoration is in percent of that canvas, and it is offered on the
+      // same other layouts.
       () => fetch(`${API}/ops/templates`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, layout: layoutName, display_name: `Copy of ${t.displayName}`, status: 'draft', decoration: t.decoration }),
+        body: JSON.stringify({
+          id, layout: t.layoutName, display_name: `Copy of ${t.displayName}`, status: 'draft',
+          decoration: t.decoration, also_on: t.alsoOn ?? [],
+        }),
       }),
       'Could not duplicate the template.',
     );
@@ -170,6 +186,13 @@ export default function LayoutTemplatesPage() {
                         {t.status}
                       </span>
                     </div>
+                    {(t.layoutName !== layoutName || (t.alsoOn?.length ?? 0) > 0) && (
+                      <p className="text-[10px] text-slate-500">
+                        {t.layoutName !== layoutName
+                          ? <>Designed on <span className="font-semibold text-slate-700">{t.layoutName}</span>, offered here too</>
+                          : <>Also offered on {t.alsoOn!.length} other {t.alsoOn!.length === 1 ? 'layout' : 'layouts'}</>}
+                      </p>
+                    )}
                     {t.layoutChanged && (
                       <p className="text-[10px] font-bold uppercase tracking-tight text-amber-700 bg-amber-50 px-2 py-1 rounded-md">
                         Layout changed, please review
@@ -177,7 +200,7 @@ export default function LayoutTemplatesPage() {
                     )}
                     <div className="mt-auto pt-2 flex items-center gap-1">
                       <Link
-                        href={`/editor/layouts/templates/${encodeURIComponent(layoutName)}/${encodeURIComponent(t.id)}`}
+                        href={`/editor/layouts/templates/${encodeURIComponent(t.layoutName)}/${encodeURIComponent(t.id)}`}
                         className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
                         title="Edit template"
                         aria-label={`Edit ${t.displayName}`}

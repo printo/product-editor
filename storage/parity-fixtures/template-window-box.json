@@ -1,0 +1,83 @@
+{
+  "_comment": "Ground truth for the window box a layout template is keyed on. Read by backend/django/services/tests/test_template_window_box.py (services/print_sheet.py) and frontend/nextjs/src/lib/__tests__/print-sheet.test.ts (lib/print-sheet.ts). Frames are stored fractions of the canvas, already grown by bleedMm; boxes are mm rounded to 2 dp; keys are width x height rounded to the mm.",
+  "cases": [
+    {
+      "name": "classic 4x6 print: one full-canvas window, no bleed",
+      "canvas": { "width": 1200, "height": 1800, "widthMm": 101.6, "heightMm": 152.4 },
+      "frames": [{ "x": 0, "y": 0, "width": 1, "height": 1, "bleedMm": 0 }],
+      "windowBox": { "xMm": 0, "yMm": 0, "widthMm": 101.6, "heightMm": 152.4 },
+      "windowKey": "102x152",
+      "printAreaBox": { "xMm": 0, "yMm": 0, "widthMm": 101.6, "heightMm": 152.4 },
+      "printAreaKey": "102x152"
+    },
+    {
+      "name": "4x6 window with 0.3 in bleed inside a 1 in frame picture",
+      "canvas": { "width": 1524, "height": 2032, "widthMm": 152.4, "heightMm": 203.2 },
+      "frames": [{ "x": 0.1166666667, "y": 0.0875, "width": 0.7666666667, "height": 0.825, "bleedMm": 7.62,
+                   "xMm": 25.4, "yMm": 25.4, "widthMm": 101.6, "heightMm": 152.4 }],
+      "windowBox": { "xMm": 17.78, "yMm": 17.78, "widthMm": 116.84, "heightMm": 167.64 },
+      "windowKey": "117x168",
+      "printAreaBox": { "xMm": 25.4, "yMm": 25.4, "widthMm": 101.6, "heightMm": 152.4 },
+      "printAreaKey": "102x152"
+    },
+    {
+      "name": "the same window with 0.3 in bleed inside a half-inch frame picture",
+      "canvas": { "width": 1270, "height": 1778, "widthMm": 127, "heightMm": 177.8 },
+      "frames": [{ "x": 0.04, "y": 0.0285714286, "width": 0.92, "height": 0.9428571429, "bleedMm": 7.62,
+                   "xMm": 12.7, "yMm": 12.7, "widthMm": 101.6, "heightMm": 152.4 }],
+      "windowBox": { "xMm": 5.08, "yMm": 5.08, "widthMm": 116.84, "heightMm": 167.64 },
+      "windowKey": "117x168",
+      "printAreaBox": { "xMm": 12.7, "yMm": 12.7, "widthMm": 101.6, "heightMm": 152.4 },
+      "printAreaKey": "102x152"
+    },
+    {
+      "name": "two windows: the box spans both, each inset by its own bleed for the print area",
+      "canvas": { "width": 1000, "height": 1000, "widthMm": 100, "heightMm": 100 },
+      "frames": [{ "x": 0.08, "y": 0.18, "width": 0.37, "height": 0.52, "bleedMm": 2 },
+                 { "x": 0.53, "y": 0.78, "width": 0.39, "height": 0.2, "bleedMm": 2 }],
+      "windowBox": { "xMm": 8, "yMm": 18, "widthMm": 84, "heightMm": 80 },
+      "windowKey": "84x80",
+      "printAreaBox": { "xMm": 10, "yMm": 20, "widthMm": 80, "heightMm": 76 },
+      "printAreaKey": "80x76"
+    },
+    {
+      "name": "a window past the canvas edge is clamped to the canvas, like the print",
+      "canvas": { "width": 1000, "height": 1000, "widthMm": 100, "heightMm": 100 },
+      "frames": [{ "x": -0.05, "y": 0, "width": 1.1, "height": 0.5, "bleedMm": 0 }],
+      "windowBox": { "xMm": 0, "yMm": 0, "widthMm": 100, "heightMm": 50 },
+      "windowKey": "100x50",
+      "printAreaBox": { "xMm": 0, "yMm": 0, "widthMm": 100, "heightMm": 50 },
+      "printAreaKey": "100x50"
+    },
+    {
+      "name": "polaroid: the window is inset and the caption strip below it is outside the box",
+      "canvas": { "width": 1050, "height": 1260, "widthMm": 88.9, "heightMm": 106.68 },
+      "frames": [{ "x": 0.0495238095, "y": 0.0412698413, "width": 0.9, "height": 0.7317460317, "bleedMm": 0 }],
+      "windowBox": { "xMm": 4.4, "yMm": 4.4, "widthMm": 80.01, "heightMm": 78.06 },
+      "windowKey": "80x78",
+      "printAreaBox": { "xMm": 4.4, "yMm": 4.4, "widthMm": 80.01, "heightMm": 78.06 },
+      "printAreaKey": "80x78"
+    },
+    {
+      "name": "no windows: nothing to key on",
+      "canvas": { "width": 1000, "height": 1000, "widthMm": 100, "heightMm": 100 },
+      "frames": [],
+      "windowBox": null, "windowKey": null, "printAreaBox": null, "printAreaKey": null
+    },
+    {
+      "name": "a canvas without millimetres cannot be keyed",
+      "canvas": { "width": 1000, "height": 1000 },
+      "frames": [{ "x": 0, "y": 0, "width": 1, "height": 1 }],
+      "windowBox": null, "windowKey": null, "printAreaBox": null, "printAreaKey": null
+    },
+    {
+      "name": "a bleed wider than the window leaves the print area as the stored rectangle",
+      "canvas": { "width": 1000, "height": 1000, "widthMm": 100, "heightMm": 100 },
+      "frames": [{ "x": 0.4, "y": 0.4, "width": 0.1, "height": 0.1, "bleedMm": 6 }],
+      "windowBox": { "xMm": 40, "yMm": 40, "widthMm": 10, "heightMm": 10 },
+      "windowKey": "10x10",
+      "printAreaBox": { "xMm": 40, "yMm": 40, "widthMm": 10, "heightMm": 10 },
+      "printAreaKey": "10x10"
+    }
+  ]
+}

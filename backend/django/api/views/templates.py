@@ -1,8 +1,10 @@
 """Layout templates: customer reads, ops management, sticker upload and serving.
 
-A template is ops-authored decoration for one layout (see
-services/template_decoration.py). Customers read published templates; the
-embed proxy allows `templates` for GET only. Ops create, edit, publish and
+A template is ops-authored decoration for a layout (see
+services/template_decoration.py), offered as well on every other layout with
+the same window box that ops tick (`extra_layouts`; the size rule is
+services/print_sheet.py::template_size). Customers read published templates;
+the embed proxy allows `templates` for GET only. Ops create, edit, publish and
 hide them under `ops/templates`, which the internal proxy gates to the Ops
 tier by path. Stickers are ops-owned PNGs stored like masks and served by
 `GET /api/templates/assets/<file>` (local file, or a 302 to the CDN on S3).
@@ -12,7 +14,7 @@ import json
 import logging
 import os
 
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import FileResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -29,7 +31,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from services.storage import S3Storage, get_storage
+from services.print_sheet import surface_blocks, template_size
 from services.template_decoration import (
+    AUTHORED_ON,
     InvalidTemplate,
     MAX_STICKER_BYTES,
     MAX_STICKER_SIDE_PX,
@@ -37,6 +41,7 @@ from services.template_decoration import (
     STATUS_PUBLISHED,
     is_template_id,
     png_filename,
+    stamp_authored_on,
     sticker_url,
     validate_decoration,
 )
@@ -48,11 +53,34 @@ from .calendar_assets import OPS_WRITE_AUTH, _OPS_GATE_RESPONSES
 
 logger = logging.getLogger(__name__)
 
+# Templates are for generic layouts only; calendars and books have their own
+# customer state and no hooks for decoration.
+_NO_TEMPLATES = ('calendar', 'book')
+
+
+def _product_type(layout: LayoutCatalogue) -> str:
+    definition = layout.definition if isinstance(layout.definition, dict) else {}
+    return str(definition.get('productType') or layout.product_type or 'single_canvas')
+
+
+def _on_layouts(qs, layout_name: str):
+    """Templates offered on this layout: authored on it, or ticked for it."""
+    return qs.filter(Q(layout_id=layout_name) | Q(extra_layouts__name=layout_name)).distinct()
+
+
+def _with_layouts(qs):
+    return qs.select_related('layout').prefetch_related('extra_layouts')
+
 
 def serialize_template(t: LayoutTemplate, *, layout_version: int | None = None) -> dict:
     data = {
         'id': t.template_id,
         'layoutName': t.layout_id,
+        # The other layouts ops ticked; the customer picker on any of them
+        # lists this template too. Sorted so a response is stable.
+        'alsoOn': sorted(l.name for l in t.extra_layouts.all()),
+        # The size the template is keyed on: its home layout's window box.
+        'windowBox': template_size(t.layout.definition)['windowBox'],
         'displayName': t.display_name,
         'status': t.status,
         'decoration': t.decoration,
@@ -66,22 +94,32 @@ def serialize_template(t: LayoutTemplate, *, layout_version: int | None = None) 
 
 
 def published_templates(layout_name: str):
-    return LayoutTemplate.objects.filter(
-        layout_id=layout_name, status=STATUS_PUBLISHED, is_deleted=False,
-    ).order_by('display_name', 'template_id')
+    qs = LayoutTemplate.objects.filter(status=STATUS_PUBLISHED, is_deleted=False)
+    return _with_layouts(_on_layouts(qs, layout_name)).order_by('display_name', 'template_id')
 
 
 def template_counts(*, published_only: bool) -> dict:
-    """{layout name: template count}. One query; computed per request rather
-    than cached with the layout list, so a publish shows up without clearing
-    any cache."""
+    """{layout name: template count}, a template counting once on its home
+    layout and once on every layout it is also offered on. Two queries;
+    computed per request rather than cached with the layout list, so a
+    publish shows up without clearing any cache."""
     qs = LayoutTemplate.objects.filter(is_deleted=False)
     if published_only:
         qs = qs.filter(status=STATUS_PUBLISHED)
-    return {
-        row['layout_id']: row['n']
-        for row in qs.values('layout_id').annotate(n=Count('id'))
-    }
+    counts: dict = {}
+    for row in qs.values('layout_id').annotate(n=Count('id')):
+        counts[row['layout_id']] = counts.get(row['layout_id'], 0) + row['n']
+    for row in qs.filter(extra_layouts__isnull=False).values('extra_layouts__name').annotate(n=Count('id', distinct=True)):
+        name = row['extra_layouts__name']
+        counts[name] = counts.get(name, 0) + row['n']
+    return counts
+
+
+def _box_schema(name: str):
+    return inline_serializer(name=name, fields={
+        'xMm': drf_serializers.FloatField(), 'yMm': drf_serializers.FloatField(),
+        'widthMm': drf_serializers.FloatField(), 'heightMm': drf_serializers.FloatField(),
+    })
 
 
 def _template_schema(name: str):
@@ -89,10 +127,17 @@ def _template_schema(name: str):
         name=name,
         fields={
             'id': drf_serializers.CharField(),
-            'layoutName': drf_serializers.CharField(),
+            'layoutName': drf_serializers.CharField(help_text='The home layout it was authored on.'),
+            'alsoOn': drf_serializers.ListField(
+                child=drf_serializers.CharField(),
+                help_text='Other layouts with the same window box it is also offered on.',
+            ),
+            'windowBox': _box_schema(f"{name}WindowBox"),
             'displayName': drf_serializers.CharField(),
             'status': drf_serializers.CharField(help_text='draft | published'),
-            'decoration': drf_serializers.DictField(),
+            'decoration': drf_serializers.DictField(
+                help_text='Percent of the home canvas; `authoredOn` carries the home geometry the editor places it by.',
+            ),
             'thumbnailUrl': drf_serializers.CharField(allow_null=True),
             'layoutVersion': drf_serializers.IntegerField(),
             'updatedAt': drf_serializers.CharField(allow_null=True),
@@ -109,8 +154,9 @@ class TemplatesListView(APIView):
         summary="List published templates for a layout",
         description=(
             "Ops-authored decorations (background, text, stickers) a customer can "
-            "start from on this layout. Only published templates are returned. "
-            "Reachable from the embed iframe (GET only)."
+            "start from on this layout: those authored on it and those ops ticked for "
+            "it from another layout with the same window box (`alsoOn`). Only published "
+            "templates are returned. Reachable from the embed iframe (GET only)."
         ),
         parameters=[
             OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True,
@@ -155,9 +201,9 @@ class TemplateDetailView(APIView):
         },
     )
     def get(self, request, template_id):
-        t = LayoutTemplate.objects.filter(
+        t = _with_layouts(LayoutTemplate.objects.filter(
             template_id=template_id, status=STATUS_PUBLISHED, is_deleted=False,
-        ).select_related('layout').first()
+        )).first()
         if t is None or t.layout.is_deprecated:
             return Response({'detail': f"Template '{template_id}' not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(serialize_template(t))
@@ -194,6 +240,114 @@ def _store_png(data: bytes, stem: str) -> str:
     return sticker_url(filename)
 
 
+def _resolve_also_on(body: dict, home: LayoutCatalogue):
+    """`(layouts, error)` for the body's `also_on`: the other layouts the
+    template is offered on. `(None, None)` when the body does not set it
+    (the stored list stays). Each named layout must exist, be live, be a
+    generic layout, and have the same window box as the home layout."""
+    raw = body.get('also_on')
+    if raw is None:
+        return None, None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = [s for s in raw.split(',')]
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+        return None, 'also_on must be a list of layout names'
+    names = []
+    for n in raw:
+        n = n.strip()
+        if not n or n == home.name or n in names:
+            continue
+        if not is_safe_layout_name(n):
+            return None, f"also_on holds an invalid layout name: {n!r}"
+        names.append(n)
+    if not names:
+        return [], None
+    home_key = template_size(home.definition)['windowKey']
+    if home_key is None:
+        return None, f"Layout '{home.name}' has no photo windows to key a shared template on"
+    found = {l.name: l for l in LayoutCatalogue.objects.filter(name__in=names, is_deprecated=False)}
+    out = []
+    for n in names:
+        layout = found.get(n)
+        if layout is None:
+            return None, f"Layout '{n}' not found"
+        if _product_type(layout) in _NO_TEMPLATES:
+            return None, f"Templates are not available for calendars and books ('{n}')"
+        key = template_size(layout.definition)['windowKey']
+        if key != home_key:
+            return None, (
+                f"Layout '{n}' has a {key or 'missing'} mm window box; '{home.name}' has {home_key}. "
+                "Only layouts whose photo windows make the same box can share a template."
+            )
+        out.append(layout)
+    return out, None
+
+
+def _bleed_mm(definition: dict) -> float:
+    blocks = surface_blocks(definition)
+    frames = (blocks[0][1].get('frames') or []) if blocks else []
+    best = 0.0
+    for f in frames:
+        try:
+            best = max(best, float((f or {}).get('bleedMm') or 0))
+        except (TypeError, ValueError):
+            continue
+    return best
+
+
+class TemplateCandidatesView(APIView):
+    """Ops: every live generic layout with the size a template on it would be
+    keyed on, so the Templates page can group layouts by size and the
+    authoring page can offer the same-box layouts (and show near-misses)."""
+    permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
+
+    @extend_schema(
+        tags=["ops"],
+        summary="Layouts a template can be offered on, with their window box",
+        description=(
+            "Every live generic layout (calendars and books excluded) with `windowKey`, "
+            "the size of the box around its photo windows rounded to the millimetre, "
+            "bleed included. Two layouts with the same `windowKey` can share a template. "
+            "`printAreaKey` is the same box without the bleed: layouts that agree on it "
+            "but not on `windowKey` differ only in bleed, which the ops page points out."
+        ),
+        responses={
+            200: inline_serializer(name="TemplateCandidates", fields={
+                'layouts': drf_serializers.ListField(child=inline_serializer(name="TemplateCandidate", fields={
+                    'name': drf_serializers.CharField(),
+                    'displayName': drf_serializers.CharField(),
+                    'windowBox': _box_schema("CandidateWindowBox"),
+                    'windowKey': drf_serializers.CharField(allow_null=True),
+                    'printAreaBox': _box_schema("CandidatePrintAreaBox"),
+                    'printAreaKey': drf_serializers.CharField(allow_null=True),
+                    'bleedMm': drf_serializers.FloatField(),
+                    'templateCount': drf_serializers.IntegerField(help_text='Templates offered on it, drafts included.'),
+                })),
+            }),
+            **_OPS_GATE_RESPONSES,
+        },
+        auth=OPS_WRITE_AUTH,
+    )
+    def get(self, request):
+        counts = template_counts(published_only=False)
+        items = []
+        for layout in LayoutCatalogue.objects.filter(is_deprecated=False).order_by('name'):
+            if _product_type(layout) in _NO_TEMPLATES:
+                continue
+            definition = layout.definition if isinstance(layout.definition, dict) else {}
+            items.append({
+                'name': layout.name,
+                'displayName': layout.display_name or layout.name,
+                **template_size(definition),
+                'bleedMm': _bleed_mm(definition),
+                'templateCount': counts.get(layout.name, 0),
+            })
+        return Response({'layouts': items})
+
+
 class TemplateManagementView(APIView):
     """Ops: list all templates (drafts included), create or update, hide."""
     permission_classes = [IsAuthenticatedWithAPIKey, IsOpsTeam]
@@ -204,7 +358,7 @@ class TemplateManagementView(APIView):
         summary="List templates (ops, drafts included)",
         parameters=[
             OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
-                             description="Only this layout's templates"),
+                             description="Only the templates offered on this layout (authored on it, or ticked for it)"),
         ],
         responses={
             200: inline_serializer(name="OpsTemplateList", fields={
@@ -216,17 +370,17 @@ class TemplateManagementView(APIView):
     )
     def get(self, request, template_id=None):
         if template_id is not None:
-            t = LayoutTemplate.objects.filter(template_id=template_id, is_deleted=False).select_related('layout').first()
+            t = _with_layouts(LayoutTemplate.objects.filter(template_id=template_id, is_deleted=False)).first()
             if t is None:
                 return Response({'detail': f"Template '{template_id}' not found"}, status=status.HTTP_404_NOT_FOUND)
             return Response(serialize_template(t, layout_version=t.layout.version))
-        qs = LayoutTemplate.objects.filter(is_deleted=False).select_related('layout')
+        qs = LayoutTemplate.objects.filter(is_deleted=False)
         layout_name = (request.query_params.get('layout') or '').strip()
         if layout_name:
             if not is_safe_layout_name(layout_name):
                 return Response({'detail': 'Invalid layout name'}, status=status.HTTP_400_BAD_REQUEST)
-            qs = qs.filter(layout_id=layout_name)
-        items = [serialize_template(t, layout_version=t.layout.version) for t in qs]
+            qs = _on_layouts(qs, layout_name)
+        items = [serialize_template(t, layout_version=t.layout.version) for t in _with_layouts(qs)]
         return Response({'templates': items})
 
     @extend_schema(
@@ -234,22 +388,34 @@ class TemplateManagementView(APIView):
         summary="Create or update a template",
         description=(
             "JSON body, or multipart with a `template_data` JSON string plus an "
-            "optional `thumbnail` PNG. Creating needs `id`, `layout`, `display_name` "
-            "and `decoration`; updating takes any of `display_name`, `status`, "
-            "`decoration`, `thumbnail`. `id` and `layout` are immutable: a template is "
-            "sized to its layout, so moving it is a new template."
+            "optional `thumbnail` PNG. Creating needs `id`, `layout` (the home layout "
+            "it is authored on), `display_name` and `decoration`; updating takes any "
+            "of `display_name`, `status`, `decoration`, `also_on`, `thumbnail`. `id` "
+            "and `layout` are immutable. `also_on` is the full list of other layouts "
+            "the template is offered on: each must be a live generic layout whose "
+            "window box (the box around its photo windows, bleed included) is the "
+            "same size as the home layout's, else 400 naming the layout. A saved "
+            "decoration is stamped with the home layout's geometry (`authoredOn`), "
+            "which the editor uses to centre the artwork on another layout's window box."
         ),
         request=inline_serializer(name="TemplateWrite", fields={
             'id': drf_serializers.CharField(required=False),
-            'layout': drf_serializers.CharField(required=False),
+            'layout': drf_serializers.CharField(required=False, help_text='Home layout; immutable.'),
             'display_name': drf_serializers.CharField(required=False),
             'status': drf_serializers.CharField(required=False, help_text='draft | published'),
             'decoration': drf_serializers.DictField(required=False),
+            'also_on': drf_serializers.ListField(
+                required=False, child=drf_serializers.CharField(),
+                help_text='Every other layout to offer it on; replaces the previous list.',
+            ),
         }),
         responses={
             200: _template_schema("OpsTemplateUpdated"),
             201: _template_schema("OpsTemplateCreated"),
-            400: OpenApiResponse(description="Invalid id, unknown layout, or decoration that the editor could not apply."),
+            400: OpenApiResponse(description=(
+                "Invalid id, unknown layout, a decoration the editor could not apply, or an "
+                "`also_on` layout that is missing, a calendar or book, or has a different window box."
+            )),
             **_OPS_GATE_RESPONSES,
         },
         auth=OPS_WRITE_AUTH,
@@ -292,6 +458,13 @@ class TemplateManagementView(APIView):
                 decoration = validate_decoration(body.get('decoration'))
             except InvalidTemplate as exc:
                 return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            # The editor places the artwork by its offset from the home
+            # layout's window box, so every saved decoration says what that
+            # box was. Replaces whatever the client sent under the key.
+            decoration = stamp_authored_on(decoration, layout.definition, layout.name)
+        also_on, also_on_error = _resolve_also_on(body, layout)
+        if also_on_error:
+            return Response({'detail': also_on_error}, status=status.HTTP_400_BAD_REQUEST)
         new_status = body.get('status')
         if new_status is not None and new_status not in STATUSES:
             return Response({'detail': f"status must be one of {', '.join(STATUSES)}"}, status=status.HTTP_400_BAD_REQUEST)
@@ -327,7 +500,8 @@ class TemplateManagementView(APIView):
             t.thumbnail_url = thumbnail_url or ''
             t.layout_version = layout.version
             t.save()
-            logger.info("Created template %s on %s", tid, layout.name)
+            t.extra_layouts.set(also_on or [])
+            logger.info("Created template %s on %s (also on %s)", tid, layout.name, [l.name for l in also_on or []])
             return Response(serialize_template(t, layout_version=layout.version), status=status.HTTP_201_CREATED)
 
         t = existing
@@ -339,9 +513,15 @@ class TemplateManagementView(APIView):
             t.decoration = decoration
             # A re-saved decoration was made against the layout as it is now.
             t.layout_version = layout.version
+        elif also_on and isinstance(t.decoration, dict) and AUTHORED_ON not in t.decoration:
+            # Saved before templates could be shared: the other layouts need
+            # the home geometry to place it, so stamp it from the home layout now.
+            t.decoration = stamp_authored_on(t.decoration, layout.definition, layout.name)
         if thumbnail_url:
             t.thumbnail_url = thumbnail_url
         t.save()
+        if also_on is not None:
+            t.extra_layouts.set(also_on)
         logger.info("Updated template %s (%s)", tid, t.status)
         return Response(serialize_template(t, layout_version=layout.version))
 

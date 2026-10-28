@@ -15,7 +15,7 @@ import type { NormalizedLayout } from '@/lib/layout-utils';
 import { collectDuplicateFills } from '@/lib/submit-guards';
 import { DEFAULT_OVERLAY_FONT } from '@/lib/overlay-fonts';
 import type { FitMode, CanvasItem, SurfaceState } from './types';
-import { applyTemplateToCards, type LayoutTemplate } from './layout-template';
+import { applyTemplateToCards, surfaceGeometry, type LayoutTemplate } from './layout-template';
 import { useLayoutTemplates } from './useLayoutTemplates';
 import { TemplatePickerDialog } from './dialogs/TemplatePickerDialog';
 import { CanvasEditorModal } from './CanvasEditorModal';
@@ -320,7 +320,7 @@ export default function LayoutEditorPage() {
       if (s.canvases.length === 0) return s;
       const def = { ...normalizedLayoutState?._raw, ...s.def };
       const canvases = await Promise.all(
-        applyTemplateToCards(s.canvases, template, s.key).map(async c => ({
+        applyTemplateToCards(s.canvases, template, s.key, surfaceGeometry(s.def)).map(async c => ({
           ...c, dataUrl: await renderCanvas(c, { thumbnail: true, layoutOverride: def }),
         })),
       );

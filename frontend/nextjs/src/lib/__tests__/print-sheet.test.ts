@@ -2,8 +2,11 @@
  * Reading a layout's print sheet and the rectangle the ops editor and the
  * layout cards draw for it. The print itself is cut by services/print_sheet.py.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import {
-  printSheetAreaMm, printSheetAreaPx, printSheetLabel, printSheetMode, readPrintSheet, windowsBleedAreaMm,
+  boxKey, boxLabel, printAreaBoxMm, printSheetAreaMm, printSheetAreaPx, printSheetLabel, printSheetMode, readPrintSheet,
+  windowBoxMm, windowsBleedAreaMm,
 } from '../print-sheet';
 
 // Two windows as the ops editor holds them (visible rect + bleed).
@@ -65,5 +68,44 @@ describe('the rectangle on a layout card', () => {
   it('is nothing for a whole-canvas print or no windows', () => {
     expect(printSheetAreaPx(undefined, canvas, stored)).toBeNull();
     expect(printSheetAreaPx({ mode: 'bleed' }, canvas, [])).toBeNull();
+  });
+});
+
+describe('the window box a template is keyed on (parity with services/print_sheet.py)', () => {
+  interface Case {
+    name: string;
+    canvas: { width: number; height: number; widthMm?: number; heightMm?: number };
+    frames: Array<{ x: number; y: number; width: number; height: number; bleedMm?: number }>;
+    windowBox: { xMm: number; yMm: number; widthMm: number; heightMm: number } | null;
+    windowKey: string | null;
+    printAreaBox: { xMm: number; yMm: number; widthMm: number; heightMm: number } | null;
+    printAreaKey: string | null;
+  }
+  const fixture = path.resolve(__dirname, '../../../../../storage/parity-fixtures/template-window-box.json');
+  const cases: Case[] = JSON.parse(fs.readFileSync(fixture, 'utf8')).cases;
+
+  it('loads the shared fixture', () => {
+    expect(cases.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it.each(cases.map(c => [c.name, c] as const))('%s', (_name, c) => {
+    expect(windowBoxMm(c.canvas, c.frames)).toEqual(c.windowBox);
+    expect(boxKey(windowBoxMm(c.canvas, c.frames))).toBe(c.windowKey);
+    expect(printAreaBoxMm(c.canvas, c.frames)).toEqual(c.printAreaBox);
+    expect(boxKey(printAreaBoxMm(c.canvas, c.frames))).toBe(c.printAreaKey);
+  });
+
+  it('keys a 1-inch and a half-inch frame picture around one window the same', () => {
+    const byName = Object.fromEntries(cases.map(c => [c.name, c]));
+    const key = (c: Case) => boxKey(windowBoxMm(c.canvas, c.frames));
+    expect(key(byName['4x6 window with 0.3 in bleed inside a 1 in frame picture'])).toBe('117x168');
+    expect(key(byName['the same window with 0.3 in bleed inside a half-inch frame picture'])).toBe('117x168');
+    expect(key(byName['classic 4x6 print: one full-canvas window, no bleed'])).toBe('102x152');
+  });
+
+  it('labels a box for the ops pages', () => {
+    expect(boxLabel({ xMm: 0, yMm: 0, widthMm: 116.84, heightMm: 167.64 })).toBe('117 × 168 mm');
+    expect(boxLabel(null)).toBe('no windows');
+    expect(boxKey(null)).toBeNull();
   });
 });
