@@ -4,6 +4,7 @@ import { useEffect, type Dispatch, type MutableRefObject, type RefObject, type S
 import { clsx } from 'clsx';
 import { ArrowLeft, Check, Download, Droplets, LayoutTemplate as TemplateIcon, Loader2, Plus, SendHorizonal } from 'lucide-react';
 import { useHeader } from '@/context/HeaderContext';
+import { dashboardHref } from '@/lib/dashboard-filter';
 import { formatLayoutDisplayName } from './editor-utils';
 import type { FitMode, SurfaceState } from './types';
 
@@ -19,7 +20,7 @@ export function useDashboardHeader(embedToken: string | null, router: { push(hre
     setCenterActions(null);
     setRightActions(
       <button
-        onClick={() => router.push('/dashboard')}
+        onClick={() => router.push(dashboardHref())}
         aria-label="Back to layouts"
         title="Back to Layouts"
         className="text-[11px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 p-2.5 md:px-4 md:py-2 rounded-full md:rounded-2xl border-2 border-indigo-100/50 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center gap-2 group shadow-sm shadow-indigo-100/50"
