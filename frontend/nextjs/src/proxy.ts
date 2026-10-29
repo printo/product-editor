@@ -1,6 +1,7 @@
 import { auth } from "@/pia-auth"
 import { NextResponse } from "next/server"
 import { canManageTemplates, isRegistrationActive, type RoleFlags } from "@/lib/roles"
+import { loginHref } from "@/lib/callback-url"
 
 // Server-side auth gate (Next.js 16 "proxy.ts" convention — formerly middleware).
 // Protected pages still keep their useEffect redirects as a defensive client-side
@@ -19,9 +20,8 @@ export default auth((req) => {
     pathname.startsWith("/dashboard") || pathname.startsWith("/editor/layouts")
 
   if (isProtected && sessionInvalid) {
-    const signIn = new URL("/login", req.url)
-    signIn.searchParams.set("callbackUrl", pathname)
-    return NextResponse.redirect(signIn)
+    // The query rides along so a filtered link (/dashboard?tag=…) survives login.
+    return NextResponse.redirect(new URL(loginHref(pathname, req.nextUrl.search), req.url))
   }
 
   const flags = req.auth as RoleFlags | null

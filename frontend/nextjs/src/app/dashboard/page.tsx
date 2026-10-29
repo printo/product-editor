@@ -20,6 +20,7 @@ import { ubuntu } from '@/lib/site-fonts';
 import { TagFilter } from '@/components/ui/TagFilter';
 import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 import { resolveMaskSlots } from '@/lib/mask-slots';
+import { loginHref } from '@/lib/callback-url';
 import { dashboardFilterQuery, readDashboardFilter, rememberDashboardFilter } from '@/lib/dashboard-filter';
 import { layoutEditorHref, orientationLockedReason, type OrientationChoice, type OrientationInfo } from '@/lib/layout-orientation';
 
@@ -201,7 +202,7 @@ function DashboardContent() {
         // Both attempts came back 401 — the refresh genuinely failed.
         // Send the user to /login so they can re-authenticate cleanly
         // instead of staring at "no layouts found".
-        window.location.href = '/login?callbackUrl=/dashboard';
+        window.location.href = loginHref(window.location.pathname, window.location.search);
         return;
       } else {
         setError(`Failed to load layouts (${res.status}). The server may be unavailable.`);
