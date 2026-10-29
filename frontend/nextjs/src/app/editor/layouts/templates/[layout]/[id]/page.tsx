@@ -67,6 +67,9 @@ export default function TemplateEditorPage() {
   const [previewOn, setPreviewOn] = useState('');
   const [previewSides, setPreviewSides] = useState<Array<{ key: string; label: string; dataUrl: string | null }> | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  // Created by size from the Templates page (`?tick=size`): every other layout
+  // of the size starts ticked, and the page says so.
+  const [preTicked, setPreTicked] = useState(false);
 
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const { getFileUrl } = useObjectUrls();
@@ -133,7 +136,15 @@ export default function TemplateEditorPage() {
         }
         if (candidatesRes.ok) {
           const cands = await candidatesRes.json().catch(() => null);
-          if (!cancelled) setCandidates(Array.isArray(cands?.layouts) ? cands.layouts : []);
+          const list: TemplateCandidate[] = Array.isArray(cands?.layouts) ? cands.layouts : [];
+          if (!cancelled) {
+            setCandidates(list);
+            if (isNew && new URLSearchParams(window.location.search).get('tick') === 'size') {
+              const others = sameBoxLayouts(list, layoutName).map(c => c.name);
+              setAlsoOn(others);
+              setPreTicked(others.length > 0);
+            }
+          }
         }
         if (cancelled) return;
         const norm = normalizeLayout(item);
@@ -399,6 +410,11 @@ export default function TemplateEditorPage() {
                 Any other layout whose print areas and bleed make the same size can offer it. Preview it there before ticking: the artwork
                 keeps its distance from the centre of the print areas, so check nothing lands over a photo.
               </p>
+              {preTicked && (
+                <p className="text-xs text-indigo-700 mt-1">
+                  Every layout of this size is ticked because the template was created by size. Preview each one and untick any that does not suit.
+                </p>
+              )}
             </div>
             <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500">
               Preview on

@@ -40,6 +40,8 @@ export default function AllTemplatesPage() {
   const [filter, setFilter] = useState('');
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
+  // Create asks for the size first, then which layout of that size to design on.
+  const [createSize, setCreateSize] = useState('');
   const [createLayout, setCreateLayout] = useState('');
 
   const createRef = useRef<HTMLDivElement | null>(null);
@@ -134,15 +136,28 @@ export default function AllTemplatesPage() {
     return act(t.id, () => fetch(`${API}/ops/templates/${encodeURIComponent(t.id)}`, { method: 'DELETE' }), 'Could not delete the template.');
   };
 
+  // Sizes a template can be keyed on: groups with print areas.
+  const sizeGroups = useMemo(() => groups.filter(g => g.key !== NO_PRINT_AREAS_KEY), [groups]);
+  const createGroup = sizeGroups.find(g => g.key === createSize) ?? null;
+
   const openCreate = () => {
-    setCreateLayout(groups[0]?.layouts[0]?.name ?? '');
+    const first = sizeGroups[0];
+    setCreateSize(first?.key ?? '');
+    setCreateLayout(first?.layouts[0]?.name ?? '');
     setCreating(true);
   };
 
+  const pickSize = (key: string) => {
+    setCreateSize(key);
+    setCreateLayout(sizeGroups.find(g => g.key === key)?.layouts[0]?.name ?? '');
+  };
+
+  // The authoring page pre-ticks every other layout of the size (`tick=size`),
+  // so a template created by size reaches the whole size unless ops untick one.
   const startCreate = () => {
     if (!createLayout) return;
     setCreating(false);
-    router.push(`/editor/layouts/templates/${encodeURIComponent(createLayout)}/new`);
+    router.push(`/editor/layouts/templates/${encodeURIComponent(createLayout)}/new?tick=size`);
   };
 
   const inputClass = 'px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500';
@@ -174,7 +189,7 @@ export default function AllTemplatesPage() {
           <button
             type="button"
             onClick={openCreate}
-            disabled={loading || candidates.length === 0}
+            disabled={loading || sizeGroups.length === 0}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-[11px] font-bold uppercase tracking-tight rounded-lg hover:bg-indigo-700 shadow-sm transition-all shrink-0 disabled:opacity-50"
           >
             <Plus className="w-3.5 h-3.5" /> Create a template
@@ -232,33 +247,50 @@ export default function AllTemplatesPage() {
           <div ref={createRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Create a template" className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-7 outline-none">
             <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-1">Create a template</p>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Pick the layout to design it on. Its size comes from that layout&rsquo;s print areas and bleed; once saved, the template can also
-              be offered on every other layout with the same size.
+              Pick the size: the print areas plus their bleed. The template is designed on one layout of that size and offered on every
+              layout of that size; you can untick any of them after previewing.
             </p>
+            <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500 mb-4">
+              Size
+              <select
+                id="create-template-size"
+                value={createSize}
+                onChange={e => pickSize(e.target.value)}
+                className={clsx(inputClass, 'normal-case tracking-normal')}
+              >
+                {sizeGroups.map(g => (
+                  <option key={g.key} value={g.key}>
+                    {g.label} · {g.layouts.length} {g.layouts.length === 1 ? 'layout' : 'layouts'}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500 mb-6">
-              Layout
+              Design it on
               <select
                 id="create-template-layout"
                 value={createLayout}
                 onChange={e => setCreateLayout(e.target.value)}
+                disabled={!createGroup}
                 className={clsx(inputClass, 'normal-case tracking-normal')}
               >
-                {groups.map(g => (
-                  <optgroup key={g.key} label={`${g.label} · ${g.layouts.length} ${g.layouts.length === 1 ? 'layout' : 'layouts'}`}>
-                    {g.layouts.map(c => (
-                      <option key={c.name} value={c.name} disabled={!c.windowKey}>
-                        {c.displayName}{c.templateCount > 0 ? ` (${c.templateCount})` : ''}
-                      </option>
-                    ))}
-                  </optgroup>
+                {(createGroup?.layouts ?? []).map(c => (
+                  <option key={c.name} value={c.name}>
+                    {c.displayName}{c.templateCount > 0 ? ` (${c.templateCount})` : ''}
+                  </option>
                 ))}
               </select>
+              {createGroup && createGroup.layouts.length > 1 && (
+                <span className="text-[10px] font-medium normal-case tracking-normal text-slate-400">
+                  Any layout of this size works as the drawing surface; the others are ticked for you on the next page.
+                </span>
+              )}
             </label>
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={startCreate}
-                disabled={!createLayout || !byName.get(createLayout)?.windowKey}
+                disabled={!createLayout}
                 className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
               >
                 Continue

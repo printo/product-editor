@@ -1560,9 +1560,9 @@
     "semantic_hash": "0c252021419a41afe2620b033e0006bd"
   },
   "frontend/nextjs/src/app/editor/layouts/templates/[layout]/[id]/page.tsx": {
-    "mtime": 1793208714.6251762,
-    "ast_hash": "2531d5b8ec3be95fae968b1d7112774c",
-    "semantic_hash": "2531d5b8ec3be95fae968b1d7112774c"
+    "mtime": 1793252126.3764632,
+    "ast_hash": "1cc8bc45a6be7c317746f9b14c79b088",
+    "semantic_hash": "1cc8bc45a6be7c317746f9b14c79b088"
   },
   "frontend/nextjs/src/app/editor/layouts/templates/[layout]/page.tsx": {
     "mtime": 1793208714.5705588,
@@ -1570,9 +1570,9 @@
     "semantic_hash": "86a66ec653cc125d979ccb1168eb07cf"
   },
   "frontend/nextjs/src/app/editor/layouts/templates/page.tsx": {
-    "mtime": 1793251095.9234436,
-    "ast_hash": "3fa4a30d114a632fff3ab416d7d03555",
-    "semantic_hash": "3fa4a30d114a632fff3ab416d7d03555"
+    "mtime": 1793252126.1830132,
+    "ast_hash": "b231f3967cdcacc2f574aa205b4c16d3",
+    "semantic_hash": "b231f3967cdcacc2f574aa205b4c16d3"
   },
   "frontend/nextjs/src/app/layout.tsx": {
     "mtime": 1793205290.64972,
@@ -2300,9 +2300,9 @@
     "semantic_hash": "913c2713a70408abd9f7f892b17a1cc1"
   },
   "CLAUDE.md": {
-    "mtime": 1793250892.6515408,
-    "ast_hash": "2a60ac803582cc2af02772470ebfb2e6",
-    "semantic_hash": "2a60ac803582cc2af02772470ebfb2e6"
+    "mtime": 1793252126.4298291,
+    "ast_hash": "5460885721f91a9ec590f37aea628fec",
+    "semantic_hash": "5460885721f91a9ec590f37aea628fec"
   },
   "CSP_MONITORING_PLAN.md": {
     "mtime": 1793205290.6101503,
