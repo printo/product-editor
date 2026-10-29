@@ -4,14 +4,15 @@
  * /dashboard  —  Layout picker
  *
  * Clicking a layout card navigates to /editor/layout/[name] where the full
- * canvas editor lives.
+ * canvas editor lives. The tag filter and search ride the address
+ * (lib/dashboard-filter.ts), read through useSearchParams, hence the Suspense.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { useHeader } from '@/context/HeaderContext';
 import { LayoutSVG } from '@/components/LayoutSVG';
@@ -19,6 +20,7 @@ import { ubuntu } from '@/lib/site-fonts';
 import { TagFilter } from '@/components/ui/TagFilter';
 import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 import { resolveMaskSlots } from '@/lib/mask-slots';
+import { dashboardFilterQuery, readDashboardFilter, rememberDashboardFilter } from '@/lib/dashboard-filter';
 import { layoutEditorHref, orientationLockedReason, type OrientationChoice, type OrientationInfo } from '@/lib/layout-orientation';
 
 const LayoutPreview = ({ layout }: { layout: any }) => {
@@ -103,12 +105,21 @@ const OrientationChoiceControl = ({ info, value, onChange }: {
 };
 
 export default function Dashboard() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
+  const searchParams = useSearchParams();
   const [layouts, setLayouts] = useState<any[]>([]);
   const [isFetchingLayouts, setIsFetchingLayouts] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => readDashboardFilter(searchParams).q);
   // Tag filter: clicking a chip sets this; '' means "All". Independent of
   // the text search, same convention as the ops layout list.
-  const [activeTagFilter, setActiveTagFilter] = useState('');
+  const [activeTagFilter, setActiveTagFilter] = useState(() => readDashboardFilter(searchParams).tag);
   const [error, setError] = useState<string | null>(null);
   // The orientation picked on each card; a card left alone opens as drawn.
   const [orientationChoice, setOrientationChoice] = useState<Record<string, OrientationChoice>>({});
@@ -222,6 +233,14 @@ export default function Dashboard() {
     // activeTagFilter is a dep because centerActions is a captured JSX snapshot —
     // without it the dropdown would keep rendering the tag selected at mount.
   }, [searchQuery, activeTagFilter, tagList, setTitle, setDescription, setCenterActions, setRightActions, layouts.length]);
+
+  // Replace, not push: each keystroke is not a history entry, and Back from
+  // the editor lands on this one address with the filter in it.
+  useEffect(() => {
+    const filter = { tag: activeTagFilter, q: searchQuery };
+    window.history.replaceState(null, '', `${window.location.pathname}${dashboardFilterQuery(filter)}`);
+    rememberDashboardFilter(filter);
+  }, [activeTagFilter, searchQuery]);
 
   useEffect(() => {
     if (status === 'authenticated') fetchLayouts();
