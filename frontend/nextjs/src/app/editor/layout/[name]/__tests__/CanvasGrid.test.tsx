@@ -66,6 +66,16 @@ describe('CanvasGrid — one-month-a-page calendar', () => {
     expect(zone).toHaveStyle({ left: '5%', top: '50%', width: '90%', height: '40%' });
   });
 
+  it('the edit hint covers the photo window only, not the grid or the blank paper', () => {
+    const props = cardProps({ layout: { canvas: { width: 1200, height: 1800 }, frames: [{ x: 0.05, y: 0.05, width: 0.9, height: 0.4 }] } });
+    render(<CanvasGrid canvases={[canvas(), canvas()]} surfaceStates={[]} {...props} calendar={calendarConfig(2)} />);
+    const first = screen.getByRole('button', { name: 'Edit canvas 1' });
+    const photo = within(first).getByTestId('calendar-photo-zone');
+    expect(photo).toHaveStyle({ left: '5%', top: '5%', width: '90%', height: '40%' });
+    expect(photo).toHaveTextContent('Edit photo');
+    expect(first.className).not.toMatch(/hover:border-indigo/);
+  });
+
   it('a tap on the grid opens the day editor on that month, not the photo editor', () => {
     const props = cardProps();
     const cal = calendarConfig(2);

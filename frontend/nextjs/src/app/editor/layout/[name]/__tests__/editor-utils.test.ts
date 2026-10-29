@@ -1,6 +1,6 @@
 import {
   shouldAutoRotate90, resolveRotation, formatWait, formatLayoutDisplayName,
-  readCardCountHint, writeCardCountHint, MAX_SKELETON_CARDS, activatesCard,
+  readCardCountHint, writeCardCountHint, MAX_SKELETON_CARDS, activatesCard, photoZoneOf,
 } from '../editor-utils';
 import type { OrientationOutcome, OrientationResult } from '@/lib/ml-orientation';
 
@@ -192,5 +192,24 @@ describe('activatesCard', () => {
   it('leaves keys pressed on a button inside the card to that button', () => {
     expect(activatesCard({ key: 'Enter', target: buttonInCard, currentTarget: card })).toBe(false);
     expect(activatesCard({ key: ' ', target: buttonInCard, currentTarget: card })).toBe(false);
+  });
+});
+
+describe('photoZoneOf', () => {
+  const CANVAS = { width: 1200, height: 1800 };
+
+  it('is the box around every photo window, as canvas fractions', () => {
+    expect(photoZoneOf([{ x: 0.1, y: 0.05, width: 0.3, height: 0.2 }, { x: 0.5, y: 0.1, width: 0.4, height: 0.3 }], CANVAS))
+      .toEqual({ x: 0.1, y: 0.05, width: expect.closeTo(0.8), height: expect.closeTo(0.35) });
+  });
+
+  it('reads frames stored in canvas pixels', () => {
+    expect(photoZoneOf([{ x: 120, y: 180, width: 600, height: 900 }], CANVAS)).toEqual({ x: 0.1, y: 0.1, width: 0.5, height: 0.5 });
+  });
+
+  it('is null with no readable frame, so the whole card is highlighted', () => {
+    expect(photoZoneOf(undefined, CANVAS)).toBeNull();
+    expect(photoZoneOf([{}], CANVAS)).toBeNull();
+    expect(photoZoneOf([{ x: 0, y: 0, width: 0, height: 0.5 }], CANVAS)).toBeNull();
   });
 });
