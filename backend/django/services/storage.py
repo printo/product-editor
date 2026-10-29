@@ -550,7 +550,10 @@ class S3Storage(StorageBackend):
 
     def write_sticker(self, filename: str, data: bytes) -> str:
         key = self.sticker_key(filename)
-        self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType='image/png')
+        # The CDN serves the object with this type; the print raster decides
+        # SVG-or-raster by it (lib/icon-raster.ts).
+        content_type = 'image/svg+xml' if filename.lower().endswith('.svg') else 'image/png'
+        self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
         return key
 
     def sticker_exists(self, filename: str) -> bool:

@@ -2,8 +2,9 @@
  * template-authoring.ts — what ops draw on a blank card becomes a template.
  */
 import {
-  authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, groupBySize, ineligibleTicked, isEmptyDecoration, isTemplateId,
-  localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withoutPhotos, type TemplateCandidate,
+  ARTWORK_LABEL, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, groupBySize, ineligibleTicked,
+  isEmptyDecoration, isTemplateId, localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withArtwork,
+  withoutPhotos, type TemplateCandidate,
 } from '../template-authoring';
 import { surfaceGeometry } from '../layout-template';
 import type { SurfaceDefinition } from '@/lib/layout-utils';
@@ -143,6 +144,32 @@ describe('sharing a template across layouts with the same print areas', () => {
     expect(blankCard(home, decoration, null, surfaceGeometry(home)).overlays[0]).toMatchObject({ y: 8 });
     expect(blankCard(other, decoration, null, surfaceGeometry(other)).overlays[0]).toMatchObject({ y: 2 });
     expect(blankCard(other, decoration).overlays[0]).toMatchObject({ y: 8 });
+  });
+});
+
+describe('a full-sheet artwork upload', () => {
+  const frame = { x: 0.1166666667, y: 0.0875, width: 0.7666666667, height: 0.825, bleedMm: 7.62 };
+  const bleedPrint: Pick<SurfaceDefinition, 'canvas' | 'frames' | 'printSheet'> = {
+    canvas: { width: 1524, height: 2032, widthMm: 152.4, heightMm: 203.2 }, frames: [frame] as SurfaceDefinition['frames'], printSheet: { mode: 'bleed' },
+  };
+
+  it('covers the print areas plus bleed on a Bleed area print, and the whole canvas on a Whole canvas print', () => {
+    const art = artworkOverlayFor(bleedPrint, '/api/templates/assets/sticker_abc.svg');
+    expect(art).toMatchObject({ type: 'image', source: 'clipart', label: ARTWORK_LABEL, x: 11.667, y: 8.75, width: 76.667, height: 82.5, rotation: 0, opacity: 1 });
+    expect(artworkOverlayFor({ ...bleedPrint, printSheet: { mode: 'canvas' } }, 'x.png')).toMatchObject({ x: 0, y: 0, width: 100, height: 100 });
+    // No millimetres on the canvas: nothing to measure, so the whole canvas.
+    expect(artworkOverlayFor({ ...bleedPrint, canvas: { width: 1524, height: 2032 } }, 'x.png')).toMatchObject({ x: 0, y: 0, width: 100, height: 100 });
+  });
+
+  it('replaces the previous artwork and keeps it under the rest of the decoration', () => {
+    const first = artworkOverlayFor(bleedPrint, 'one.png');
+    const second = artworkOverlayFor(bleedPrint, 'two.png');
+    const card = blankCard(DEF, { surfaces: { default: { overlays: [TEXT] } } });
+    const once = withArtwork(card, first);
+    expect(once.overlays.map(o => (o.type === 'image' ? o.src : o.type))).toEqual(['one.png', 'text']);
+    const twice = withArtwork(once, second);
+    expect(twice.overlays.map(o => (o.type === 'image' ? o.src : o.type))).toEqual(['two.png', 'text']);
+    expect(twice.dataUrl).toBeNull();
   });
 });
 

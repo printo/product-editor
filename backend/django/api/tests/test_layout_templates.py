@@ -208,6 +208,45 @@ class OpsWritesTest(_Base):
             self.assertEqual(self.client.post('/api/ops/templates/assets', {}, **self.ops_auth).status_code, 400)
             self.assertEqual(self.client.post('/api/ops/templates/assets', {'file': io.BytesIO(png)}, **self.partner_auth).status_code, 403)
 
+    def test_svg_artwork_is_checked_like_a_mask_and_served_as_svg(self):
+        with override_settings(STORAGE_ROOT=self.tmp, STORAGE_BACKEND='local'):
+            svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 150"><rect width="100" height="150" fill="#f17a26"/></svg>'
+            up = io.BytesIO(svg); up.name = 'border.svg'
+            res = self.client.post('/api/ops/templates/assets', {'file': up}, **self.ops_auth)
+            self.assertEqual(res.status_code, 201, res.content)
+            url = res.json()['url']
+            self.assertTrue(url.startswith('/api/templates/assets/sticker_') and url.endswith('.svg'))
+            got = self.client.get(url)
+            self.assertEqual(got.status_code, 200)
+            self.assertEqual(got['Content-Type'], 'image/svg+xml')
+            self.assertIn('sandbox', got['Content-Security-Policy'])
+            body = b''.join(got.streaming_content)
+            self.assertIn(b'width="100" height="150"', body)   # normalised from the viewBox, like a mask
+            # Scripts, outside links and missing sizes are refused with the mask's rules.
+            for bad, fragment in (
+                (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><script>alert(1)</script></svg>', 'scripts'),
+                (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><image href="https://evil.example/x.png"/></svg>', 'outside'),
+                (b'<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>', 'viewBox'),
+            ):
+                up = io.BytesIO(bad); up.name = 'bad.svg'
+                res = self.client.post('/api/ops/templates/assets', {'file': up}, **self.ops_auth)
+                self.assertEqual(res.status_code, 400, fragment)
+                self.assertIn(fragment, res.json()['detail'])
+            # A decoration may point at an SVG sticker.
+            deco = {'surfaces': {'default': {'overlays': [{'type': 'image', 'source': 'clipart', 'src': url, 'label': 'Artwork',
+                                                            'x': 0, 'y': 0, 'width': 100, 'height': 100, 'rotation': 0, 'opacity': 1}]}}}
+            res = self.client.post('/api/ops/templates', {'id': 'svg-art', 'layout': 'tpl_test_4x6', 'display_name': 'SVG art', 'decoration': deco},
+                                   content_type='application/json', **self.ops_auth)
+            self.assertEqual(res.status_code, 201, res.content)
+            # Thumbnails stay PNG: the editor renders them.
+            import json
+            thumb = io.BytesIO(svg); thumb.name = 'thumb.svg'
+            res = self.client.post('/api/ops/templates', {
+                'template_data': json.dumps({'id': 'svg-thumb', 'layout': 'tpl_test_4x6', 'display_name': 'x', 'decoration': DECO}),
+                'thumbnail': thumb,
+            }, **self.ops_auth)
+            self.assertEqual(res.status_code, 400)
+
     def test_thumbnail_is_stored_with_the_template(self):
         with override_settings(STORAGE_ROOT=self.tmp, STORAGE_BACKEND='local'):
             import json

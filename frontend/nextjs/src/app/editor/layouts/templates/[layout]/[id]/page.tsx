@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Check, Image as ImageIcon, Layers, Loader2, PencilRuler, Save } from 'lucide-react';
+import { ArrowLeft, Check, Image as ImageIcon, Layers, Loader2, PencilRuler, Save, Upload } from 'lucide-react';
 import { useHeader } from '@/context/HeaderContext';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import { usePdfPageImport } from '@/components/use-pdf-page-import';
@@ -31,8 +31,9 @@ import { useObjectUrls } from '@/app/editor/layout/[name]/useCanvasGeneration';
 import type { CanvasItem, SurfaceState } from '@/app/editor/layout/[name]/types';
 import { isLayoutTemplate, surfaceGeometry, type LayoutTemplate, type TemplateDecoration } from '@/app/editor/layout/[name]/layout-template';
 import {
-  authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, ineligibleTicked, isEmptyDecoration, isTemplateId,
-  localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withoutPhotos, type TemplateCandidate,
+  ARTWORK_ACCEPT_ATTR, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, ineligibleTicked,
+  isEmptyDecoration, isTemplateId, localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withArtwork,
+  withoutPhotos, type TemplateCandidate,
 } from '@/app/editor/layout/[name]/template-authoring';
 
 const API = '/api/internal/proxy';
@@ -70,6 +71,9 @@ export default function TemplateEditorPage() {
   // Created by size from the Templates page (`?tick=size`): every other layout
   // of the size starts ticked, and the page says so.
   const [preTicked, setPreTicked] = useState(false);
+  // "Upload artwork" per side: the side being uploaded, and its hidden file input.
+  const [artworkBusy, setArtworkBusy] = useState<string | null>(null);
+  const artworkInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const { getFileUrl } = useObjectUrls();
@@ -260,6 +264,32 @@ export default function TemplateEditorPage() {
     setSurfaces(next);
   };
 
+  // A PNG or SVG designed at this side's print size becomes its full-sheet
+  // artwork: uploaded as a sticker, placed over what the side prints, under
+  // whatever text and stickers are already there, and the side redrawn.
+  const uploadArtwork = async (key: string, file: File) => {
+    if (!normalized) return;
+    setArtworkBusy(key);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const res = await fetch(`${API}/ops/templates/assets`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(await readError(res, 'The artwork could not be uploaded. Use a PNG or an SVG.'));
+      const { url } = await res.json();
+      const side = surfaces.find(s => s.key === key);
+      if (!side || typeof url !== 'string') return;
+      const card = withArtwork(side.canvases[0], artworkOverlayFor(side.def, url));
+      const def = { ...normalized._raw, ...side.def, canvas: side.def.canvas, frames: side.def.frames };
+      const dataUrl = await renderCanvas(card, def, getFileUrl, { thumbnail: true }).catch(() => null);
+      setSurfaces(prev => prev.map(s => (s.key === key ? { ...s, canvases: [{ ...card, dataUrl }] } : s)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The artwork could not be uploaded.');
+    } finally {
+      setArtworkBusy(null);
+    }
+  };
+
   const save = async () => {
     if (!normalized) return;
     const id = (isNew ? templateId : routeId).trim();
@@ -275,9 +305,9 @@ export default function TemplateEditorPage() {
         const urls = new Map<number, string>();
         for (const { index, file } of localImageOverlays(s.canvases[0])) {
           const form = new FormData();
-          form.append('file', file, file.name.toLowerCase().endsWith('.png') ? file.name : `${file.name}.png`);
+          form.append('file', file, /\.(png|svg)$/i.test(file.name) ? file.name : `${file.name}.png`);
           const res = await fetch(`${API}/ops/templates/assets`, { method: 'POST', body: form });
-          if (!res.ok) throw new Error(await readError(res, 'A sticker could not be uploaded. Stickers must be PNG files.'));
+          if (!res.ok) throw new Error(await readError(res, 'A sticker could not be uploaded. Stickers must be PNG or SVG files.'));
           urls.set(index, (await res.json()).url);
         }
         stickerUrls.set(s.key, urls);
@@ -358,7 +388,8 @@ export default function TemplateEditorPage() {
         <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-xs text-slate-500 flex-1 min-w-[200px]">
-              Open a side in the canvas editor and add a background, text, icons or your own PNG stickers. Photo frames stay empty for the customer.
+              Upload artwork for a side (a PNG or SVG designed at this size, with transparent holes where the photos go), or open it in the
+              canvas editor to add a background, text, icons and stickers. Photo frames stay empty for the customer.
             </p>
             <input
               ref={sampleInputRef} type="file" accept="image/*" className="hidden"
@@ -386,13 +417,31 @@ export default function TemplateEditorPage() {
                 </div>
                 <div className="p-3 flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-slate-800 truncate">{s.label || s.key}</span>
-                  <button
-                    type="button"
-                    onClick={() => openEditor(s.key)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-tight hover:bg-indigo-700"
-                  >
-                    <PencilRuler className="w-3.5 h-3.5" /> Edit
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <input
+                      ref={el => { artworkInputRefs.current[s.key] = el; }}
+                      type="file"
+                      accept={ARTWORK_ACCEPT_ATTR}
+                      className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) void uploadArtwork(s.key, f); e.target.value = ''; }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => artworkInputRefs.current[s.key]?.click()}
+                      disabled={artworkBusy === s.key}
+                      title="A PNG or SVG designed at this size; it covers what this side prints"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-tight hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {artworkBusy === s.key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Upload artwork
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openEditor(s.key)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-tight hover:bg-indigo-700"
+                    >
+                      <PencilRuler className="w-3.5 h-3.5" /> Edit
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}

@@ -145,12 +145,18 @@ def validate_decoration(decoration: Any) -> dict:
     return out
 
 
-def png_filename(data: bytes, stem: str = 'sticker') -> str:
-    """Content-fingerprinted name, so a re-upload of the same PNG shares the
-    file and a changed sticker gets a new, cache-safe address."""
+STICKER_EXTENSIONS = ('png', 'svg')
+
+
+def png_filename(data: bytes, stem: str = 'sticker', ext: str = 'png') -> str:
+    """Content-fingerprinted name, so a re-upload of the same file shares it
+    and a changed sticker gets a new, cache-safe address. Stickers are PNG
+    or SVG (an SVG is checked like an SVG mask before it is stored)."""
     if not re.match(r'^[a-z]{1,16}$', stem):
         raise ValueError("stem must be a short lowercase word")
-    return f"{stem}_{hashlib.sha256(data).hexdigest()[:16]}.png"
+    if ext not in STICKER_EXTENSIONS:
+        raise ValueError(f"ext must be one of {STICKER_EXTENSIONS}")
+    return f"{stem}_{hashlib.sha256(data).hexdigest()[:16]}.{ext}"
 
 
 def sticker_url(filename: str) -> str:

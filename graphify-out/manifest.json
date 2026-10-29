@@ -155,9 +155,9 @@
     "semantic_hash": "ab00415067e753a43ebadc448b927e89"
   },
   "backend/django/api/tests/test_layout_templates.py": {
-    "mtime": 1793250892.5950441,
-    "ast_hash": "5e8f0e114af1db8a3d61bd79963351b2",
-    "semantic_hash": "5e8f0e114af1db8a3d61bd79963351b2"
+    "mtime": 1793254870.0069017,
+    "ast_hash": "0ef84e16d3bd0838e1ab604d372d7ca2",
+    "semantic_hash": "0ef84e16d3bd0838e1ab604d372d7ca2"
   },
   "backend/django/api/tests/test_order_purge.py": {
     "mtime": 1793205290.6632717,
@@ -245,9 +245,9 @@
     "semantic_hash": "ad03c1a32b3ef799afc633d31355cc03"
   },
   "backend/django/api/views/templates.py": {
-    "mtime": 1793250892.4472904,
-    "ast_hash": "b49e1ba28f236bf65fa44e067fd4c0d5",
-    "semantic_hash": "b49e1ba28f236bf65fa44e067fd4c0d5"
+    "mtime": 1793254869.7765641,
+    "ast_hash": "4789c3db746d8614e46275ed251dcf7e",
+    "semantic_hash": "4789c3db746d8614e46275ed251dcf7e"
   },
   "backend/django/api/views/uploads.py": {
     "mtime": 1793205290.6674194,
@@ -450,19 +450,19 @@
     "semantic_hash": "e7f234e47ba118ec6f55321624b451b1"
   },
   "backend/django/services/storage.py": {
-    "mtime": 1793205290.7549784,
-    "ast_hash": "4f4c1b70cc8afcb4ae9e622bb134675c",
-    "semantic_hash": "4f4c1b70cc8afcb4ae9e622bb134675c"
+    "mtime": 1793254869.5362182,
+    "ast_hash": "95529412f915f2415e9afa28d9747474",
+    "semantic_hash": "95529412f915f2415e9afa28d9747474"
   },
   "backend/django/services/svg_mask.py": {
-    "mtime": 1793205290.7551177,
-    "ast_hash": "e56ba8c688767dd7aee59da6dd2dfcd8",
-    "semantic_hash": "e56ba8c688767dd7aee59da6dd2dfcd8"
+    "mtime": 1793254869.45428,
+    "ast_hash": "c153bd5ff8f1302cc07dda1f30152d13",
+    "semantic_hash": "c153bd5ff8f1302cc07dda1f30152d13"
   },
   "backend/django/services/template_decoration.py": {
-    "mtime": 1793208546.810822,
-    "ast_hash": "d61f2daacc5b31610bb99771b416eabd",
-    "semantic_hash": "d61f2daacc5b31610bb99771b416eabd"
+    "mtime": 1793254869.4982731,
+    "ast_hash": "35c11eeaa0e1bbc14170b47e51c4fc14",
+    "semantic_hash": "35c11eeaa0e1bbc14170b47e51c4fc14"
   },
   "backend/django/services/tests/__init__.py": {
     "mtime": 1793205290.755334,
@@ -1220,9 +1220,9 @@
     "semantic_hash": "1d4e0d7cd4b0f3ed15b153b075861c28"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/template-authoring.test.ts": {
-    "mtime": 1793251095.9926214,
-    "ast_hash": "2cd4e5185af7b4d8fae6c16fe774274d",
-    "semantic_hash": "2cd4e5185af7b4d8fae6c16fe774274d"
+    "mtime": 1793254869.9387796,
+    "ast_hash": "d8c21b1a137e0285a4adb98629acff6f",
+    "semantic_hash": "d8c21b1a137e0285a4adb98629acff6f"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/template.test.ts": {
     "mtime": 1793208714.846747,
@@ -1410,9 +1410,9 @@
     "semantic_hash": "7b78876beda00908ea9b8c8185770a09"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/template-authoring.ts": {
-    "mtime": 1793251095.8798468,
-    "ast_hash": "5fd165859079b3467aeb8ed7f4d3aae4",
-    "semantic_hash": "5fd165859079b3467aeb8ed7f4d3aae4"
+    "mtime": 1793254869.8420131,
+    "ast_hash": "77295cfe0e4e51136e38f74babe7d612",
+    "semantic_hash": "77295cfe0e4e51136e38f74babe7d612"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/types.ts": {
     "mtime": 1793205290.6121662,
@@ -1560,9 +1560,9 @@
     "semantic_hash": "0c252021419a41afe2620b033e0006bd"
   },
   "frontend/nextjs/src/app/editor/layouts/templates/[layout]/[id]/page.tsx": {
-    "mtime": 1793252126.3764632,
-    "ast_hash": "1cc8bc45a6be7c317746f9b14c79b088",
-    "semantic_hash": "1cc8bc45a6be7c317746f9b14c79b088"
+    "mtime": 1793254950.482068,
+    "ast_hash": "126cdc9beb5cd3d3d1cfa838ef31c853",
+    "semantic_hash": "126cdc9beb5cd3d3d1cfa838ef31c853"
   },
   "frontend/nextjs/src/app/editor/layouts/templates/[layout]/page.tsx": {
     "mtime": 1793208714.5705588,
@@ -2300,9 +2300,9 @@
     "semantic_hash": "913c2713a70408abd9f7f892b17a1cc1"
   },
   "CLAUDE.md": {
-    "mtime": 1793252126.4298291,
-    "ast_hash": "5460885721f91a9ec590f37aea628fec",
-    "semantic_hash": "5460885721f91a9ec590f37aea628fec"
+    "mtime": 1793254950.5136924,
+    "ast_hash": "10770374dcc46caa6dd9f5751651aaa0",
+    "semantic_hash": "10770374dcc46caa6dd9f5751651aaa0"
   },
   "CSP_MONITORING_PLAN.md": {
     "mtime": 1793205290.6101503,

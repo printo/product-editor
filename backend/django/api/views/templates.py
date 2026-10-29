@@ -246,19 +246,33 @@ class TemplateDetailView(APIView):
         return Response(serialize_template(t))
 
 
-def _read_png(upload, *, what: str) -> bytes:
-    """The bytes of an uploaded PNG, or raise ValueError with a reason."""
+def _looks_like_svg(data: bytes, name: str) -> bool:
+    head = data[:4096].lstrip()
+    return name.lower().endswith('.svg') or head.startswith(b'<svg') or (head.startswith(b'<?xml') and b'<svg' in head)
+
+
+def _read_image(upload, *, what: str, allow_svg: bool = True) -> tuple[bytes, str]:
+    """`(bytes, 'png' | 'svg')` of an uploaded sticker or thumbnail, or raise
+    ValueError with a reason. An SVG passes the same checks as an SVG mask
+    (no scripts, DOCTYPE or outside links; a viewBox) and is normalised so a
+    browser sizes it from its viewBox."""
     from PIL import Image, UnidentifiedImageError
+    from services.svg_mask import normalize_svg_mask, validate_svg_mask
 
     if upload is None:
         raise ValueError(f"{what} is required")
     if upload.size > MAX_STICKER_BYTES:
         raise ValueError(f"{what} is larger than {MAX_STICKER_BYTES // (1024 * 1024)} MB")
     data = upload.read()
+    if _looks_like_svg(data, getattr(upload, 'name', '') or ''):
+        if not allow_svg:
+            raise ValueError(f"{what} must be a PNG file")
+        validate_svg_mask(data, what=f"SVG {what}s" if what == 'sticker' else f"SVG {what}")
+        return normalize_svg_mask(data), 'svg'
     try:
         with Image.open(io.BytesIO(data)) as img:
             if img.format != 'PNG':
-                raise ValueError(f"{what} must be a PNG file")
+                raise ValueError(f"{what} must be a PNG or SVG file" if allow_svg else f"{what} must be a PNG file")
             w, h = img.size
             if w > MAX_STICKER_SIDE_PX or h > MAX_STICKER_SIDE_PX:
                 raise ValueError(f"{what} must be at most {MAX_STICKER_SIDE_PX} px on each side")
@@ -267,12 +281,12 @@ def _read_png(upload, *, what: str) -> bytes:
         raise ValueError(f"{what} is not an image")
     except (OSError, SyntaxError) as exc:
         raise ValueError(f"{what} could not be read: {exc}")
-    return data
+    return data, 'png'
 
 
-def _store_png(data: bytes, stem: str) -> str:
-    """Store an ops PNG under its content fingerprint; return its URL."""
-    filename = png_filename(data, stem)
+def _store_asset(data: bytes, stem: str, ext: str = 'png') -> str:
+    """Store an ops PNG or SVG under its content fingerprint; return its URL."""
+    filename = png_filename(data, stem, ext)
     get_storage().write_sticker(filename, data)
     return sticker_url(filename)
 
@@ -503,7 +517,7 @@ class TemplateManagementView(APIView):
         thumb = request.FILES.get('thumbnail')
         if thumb is not None:
             try:
-                thumbnail_url = _store_png(_read_png(thumb, what='thumbnail'), 'thumb')
+                thumbnail_url = _store_asset(_read_image(thumb, what='thumbnail', allow_svg=False)[0], 'thumb')
             except ValueError as exc:
                 return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
             except Exception as exc:
@@ -580,11 +594,13 @@ class TemplateAssetUploadView(APIView):
 
     @extend_schema(
         tags=["ops"],
-        summary="Upload a template sticker",
+        summary="Upload a template sticker or artwork",
         description=(
-            "Multipart `file`: a PNG up to 5 MB and 4096 px a side. Stored under its "
-            "content fingerprint, so the same image uploaded twice shares one file and "
-            "a changed image gets a new address. Stickers are never deleted."
+            "Multipart `file`: a PNG up to 5 MB and 4096 px a side, or an SVG up to 5 MB "
+            "that passes the same checks as an SVG mask (no scripts, DOCTYPE or links "
+            "outside the file; a viewBox). Stored under its content fingerprint, so the "
+            "same image uploaded twice shares one file and a changed image gets a new "
+            "address. Stickers are never deleted."
         ),
         request={'multipart/form-data': inline_serializer(name="StickerUpload", fields={
             'file': drf_serializers.FileField(),
@@ -594,7 +610,7 @@ class TemplateAssetUploadView(APIView):
                 'url': drf_serializers.CharField(),
                 'filename': drf_serializers.CharField(),
             }),
-            400: OpenApiResponse(description="Missing, not a PNG, or too large."),
+            400: OpenApiResponse(description="Missing, not a PNG or a safe SVG, or too large."),
             502: OpenApiResponse(description="The store could not take the file."),
             **_OPS_GATE_RESPONSES,
         },
@@ -602,11 +618,11 @@ class TemplateAssetUploadView(APIView):
     )
     def post(self, request):
         try:
-            data = _read_png(request.FILES.get('file'), what='file')
+            data, ext = _read_image(request.FILES.get('file'), what='sticker')
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            url = _store_png(data, 'sticker')
+            url = _store_asset(data, 'sticker', ext)
         except Exception as exc:
             logger.error("Storing sticker failed: %s", exc)
             return Response({'detail': 'Could not store the sticker'}, status=status.HTTP_502_BAD_GATEWAY)
@@ -619,12 +635,12 @@ class TemplateAssetDownloadView(APIView):
 
     @extend_schema(
         tags=["templates"],
-        summary="Download a template sticker or thumbnail",
+        summary="Download a template sticker, artwork or thumbnail",
         parameters=[
             OpenApiParameter("filename", OpenApiTypes.STR, OpenApiParameter.PATH),
         ],
         responses={
-            200: OpenApiResponse(description="The PNG (local storage)."),
+            200: OpenApiResponse(description="The PNG or SVG (local storage)."),
             302: OpenApiResponse(description="Redirect to the CDN or a presigned S3 URL (S3 storage)."),
             400: OpenApiResponse(description="Not a sticker filename."),
             404: OpenApiResponse(description="No such file."),
@@ -632,11 +648,13 @@ class TemplateAssetDownloadView(APIView):
         auth=[],
     )
     def get(self, request, filename):
+        lower = filename.lower()
         if (
             '/' in filename or '\\' in filename or '..' in filename or filename.startswith('.')
-            or not filename.endswith('.png')
+            or not (lower.endswith('.png') or lower.endswith('.svg'))
         ):
             return Response({'detail': 'Invalid filename'}, status=status.HTTP_400_BAD_REQUEST)
+        is_svg = lower.endswith('.svg')
         storage = get_storage()
         if isinstance(storage, S3Storage):
             try:
@@ -652,9 +670,12 @@ class TemplateAssetDownloadView(APIView):
         path = storage.sticker_path(filename)
         if not os.path.abspath(path).startswith(os.path.abspath(storage.stickers_dir())) or not os.path.isfile(path):
             return Response({'detail': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
-        response = FileResponse(open(path, 'rb'), content_type='image/png')
+        response = FileResponse(open(path, 'rb'), content_type='image/svg+xml' if is_svg else 'image/png')
         response['Cache-Control'] = 'public, max-age=86400'
         # The editor draws stickers to a canvas (crossOrigin anonymous) for the
         # print raster; without this a local dev server taints the canvas.
         response['Access-Control-Allow-Origin'] = '*'
+        if is_svg:
+            # Only ever an <img>/canvas source; never let it run as a page (as masks do).
+            response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
         return response

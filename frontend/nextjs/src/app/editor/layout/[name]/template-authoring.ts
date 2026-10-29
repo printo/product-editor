@@ -9,7 +9,7 @@
  * uploads it as a sticker first and swaps it for a `clipart` overlay.
  */
 import type { SurfaceDefinition } from '@/lib/layout-utils';
-import { boxLabelIn, inches, type MmRect } from '@/lib/print-sheet';
+import { boxLabelIn, inches, printSheetMode, windowBoxMm, type MmRect } from '@/lib/print-sheet';
 import type { AuthoredOn, SideGeometry, SideLike, TemplateDecoration, TemplateSide } from './layout-template';
 import { placeSideOverlays, surfaceGeometry, templateSide } from './layout-template';
 import type { CanvasItem, FrameState, Overlay } from './types';
@@ -55,6 +55,40 @@ export function authoredOnFor(layoutName: string, sides: Array<{ key: string; de
     if (g) surfaces[key] = g;
   }
   return { layout: layoutName, surfaces };
+}
+
+/** The label of the one full-sheet artwork a side can carry from the
+ *  "Upload artwork" button; a second upload replaces it. */
+export const ARTWORK_LABEL = 'Artwork';
+
+/** Files the Upload artwork button takes: PNG, or an SVG the server checks like a mask. */
+export const ARTWORK_ACCEPT_ATTR = '.png,.svg,image/png,image/svg+xml';
+
+/**
+ * A full-sheet artwork for a side: an image overlay (a sticker) covering
+ * what that side prints, so the file is designed at the print size with
+ * transparent holes where the photos go. A Bleed area print is covered on
+ * the box around its print areas plus bleed; a Whole canvas print on the
+ * whole canvas. Percent of the canvas, like every overlay, so it is placed
+ * on another layout by the same rule as the rest of the decoration.
+ */
+export function artworkOverlayFor(def: Pick<SurfaceDefinition, 'canvas' | 'frames' | 'printSheet'>, src: string): Overlay {
+  const canvas = def.canvas as { widthMm?: number; heightMm?: number };
+  const wMm = Number(canvas?.widthMm ?? 0);
+  const hMm = Number(canvas?.heightMm ?? 0);
+  const box = printSheetMode(def.printSheet) === 'bleed' && wMm > 0 && hMm > 0 ? windowBoxMm(canvas, def.frames || []) : null;
+  const pct = (v: number) => Math.round(v * 1000) / 1000;
+  const place = box
+    ? { x: pct((box.xMm / wMm) * 100), y: pct((box.yMm / hMm) * 100), width: pct((box.widthMm / wMm) * 100), height: pct((box.heightMm / hMm) * 100) }
+    : { x: 0, y: 0, width: 100, height: 100 };
+  return { type: 'image', id: `artwork-${Date.now()}`, source: 'clipart', src, label: ARTWORK_LABEL, rotation: 0, opacity: 1, ...place };
+}
+
+/** The card with this side's artwork: the previous upload (by label) is
+ *  replaced, and the artwork sits first so text and stickers draw over it. */
+export function withArtwork(card: CanvasItem, artwork: Overlay): CanvasItem {
+  const rest = card.overlays.filter(o => !(o.type === 'image' && o.label === ARTWORK_LABEL));
+  return { ...card, overlays: [artwork, ...rest], dataUrl: null };
 }
 
 /** The card with no photos: what the template holds, and what its thumbnail shows. */
