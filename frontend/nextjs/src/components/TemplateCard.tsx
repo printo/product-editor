@@ -6,6 +6,11 @@
  * designed, what it is offered on), the "layout changed" and "no longer the
  * same size" flags, and the actions. Shared by both pages so their cards
  * cannot drift; the delete confirm lives here for the same reason.
+ *
+ * Laid out like the customer picker and printo.in's "Choose a Design" page
+ * (Kannan, 2026-10-29): the thumbnail inside a fixed box so every card in a
+ * row is one height whichever way the template faces, the name and id
+ * centred under it, the actions along the bottom.
  */
 import { useRef, type ReactNode } from 'react';
 import Link from 'next/link';
@@ -46,21 +51,19 @@ export function TemplateCard({ template: t, busy, notes, extraActions, onSetStat
   const mismatch = t.alsoOnMismatch ?? [];
   const published = t.status === 'published';
   return (
-    <li className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-      <div className="aspect-[4/3] bg-slate-50 border-b border-slate-100 flex items-center justify-center">
+    <li className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col p-4 h-full">
+      <div className="w-full aspect-[4/3] rounded-lg bg-slate-50 flex items-center justify-center overflow-hidden">
         {t.thumbnailUrl ? (
-          <img src={t.thumbnailUrl} alt="" className="w-full h-full object-contain" />
+          <img src={t.thumbnailUrl} alt="" className="max-w-full max-h-full object-contain p-2" />
         ) : (
           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No preview yet</span>
         )}
       </div>
-      <div className="p-4 flex flex-col gap-2 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-slate-900 truncate">{t.displayName}</p>
-            <p className="text-[10px] text-slate-400 font-mono truncate">{t.id}</p>
-          </div>
-          <span className="shrink-0 flex items-center gap-1">
+      <div className="pt-3 flex flex-col gap-2 flex-1">
+        <div className="text-center">
+          <p className="text-sm font-bold text-slate-900 leading-snug line-clamp-2 min-h-[2.6em]">{t.displayName}</p>
+          <p className="text-[10px] text-slate-400 font-mono truncate">ID: {t.id}</p>
+          <p className="mt-1.5 flex items-center justify-center gap-1">
             {(t.facing === 'portrait' || t.facing === 'landscape') && (
               <span
                 className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight bg-indigo-50 text-indigo-700"
@@ -75,7 +78,7 @@ export function TemplateCard({ template: t, busy, notes, extraActions, onSetStat
             )}>
               {t.status}
             </span>
-          </span>
+          </p>
         </div>
         {notes}
         {t.homeRetired && <p className={FLAG}>Home layout retired: customers no longer see this template anywhere</p>}
