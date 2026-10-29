@@ -14,7 +14,7 @@ import { ArrowLeft, Copy, LayoutTemplate as TemplateIcon, Loader2, Plus } from '
 import { useHeader } from '@/context/HeaderContext';
 import { readError } from '@/lib/read-error';
 import { isTemplateId, slugFromName, type TemplateCandidate } from '@/app/editor/layout/[name]/template-authoring';
-import { CARD_ICON_BUTTON, DeleteTemplateDialog, OfferedOn, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
+import { CARD_ICON_BASE, DeleteTemplateDialog, OfferedOn, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
 
 const API = '/api/internal/proxy';
 
@@ -186,7 +186,7 @@ export default function LayoutTemplatesPage() {
                     type="button"
                     onClick={() => duplicate(t)}
                     disabled={busyId === t.id}
-                    className={`${CARD_ICON_BUTTON} text-[#64318E] hover:text-[#64318E]`}
+                    className={`${CARD_ICON_BASE} text-indigo-600 hover:bg-indigo-600 hover:text-white`}
                     title="Duplicate template"
                     aria-label={`Duplicate ${t.displayName}`}
                   >

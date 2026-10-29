@@ -21,8 +21,12 @@ import { clsx } from 'clsx';
 import { useModalA11y } from '@/lib/use-modal-a11y';
 import type { LayoutTemplate } from '@/app/editor/layout/[name]/layout-template';
 
-/** The icon buttons over a card's image (edit, the page's extras, publish, delete). */
-export const CARD_ICON_BUTTON = 'p-1.5 rounded-lg bg-white/90 shadow-sm backdrop-blur text-slate-600 hover:bg-white hover:text-slate-900 transition-all disabled:opacity-30 inline-flex items-center';
+/** The icon buttons over a card's image (edit, the page's extras, publish,
+ *  delete): white at rest, and on hover the button fills with its colour and
+ *  the icon turns white. `CARD_ICON_BASE` is the shape; a page's own button
+ *  adds its colours (the per-layout Duplicate uses the brand purple). */
+export const CARD_ICON_BASE = 'p-1.5 rounded-lg bg-white/90 shadow-sm backdrop-blur transition-colors disabled:opacity-30 inline-flex items-center';
+export const CARD_ICON_BUTTON = `${CARD_ICON_BASE} text-slate-600 hover:bg-indigo-600 hover:text-white`;
 
 /** A template as GET /api/ops/templates serves it. */
 export type OpsTemplate = LayoutTemplate & {
@@ -44,7 +48,7 @@ interface TemplateCardProps {
   busy: boolean;
   /** Under the name: where it was designed, what it is offered on. */
   notes?: ReactNode;
-  /** Between Edit and Publish over the image, e.g. the per-layout page's Duplicate (styled with CARD_ICON_BUTTON). */
+  /** Between Edit and Publish over the image, e.g. the per-layout page's Duplicate (CARD_ICON_BASE plus its colours). */
   extraActions?: ReactNode;
   onSetStatus: (t: OpsTemplate, status: 'draft' | 'published') => void;
   onDelete: (t: OpsTemplate) => void;
@@ -103,7 +107,7 @@ export function TemplateCard({ template: t, busy, notes, extraActions, onSetStat
           </span>
         </div>
         <div className="absolute top-2 right-2 flex items-center gap-1">
-          <Link href={templateEditHref(t)} className={clsx(CARD_ICON_BUTTON, 'text-[#F17A26] hover:text-[#F17A26]')} title="Edit template" aria-label={`Edit ${t.displayName}`}>
+          <Link href={templateEditHref(t)} className={clsx(CARD_ICON_BASE, 'text-[#F17A26] hover:bg-[#F17A26] hover:text-white')} title="Edit template" aria-label={`Edit ${t.displayName}`}>
             <Edit2 className="w-4 h-4" />
           </Link>
           {extraActions}
@@ -121,7 +125,7 @@ export function TemplateCard({ template: t, busy, notes, extraActions, onSetStat
             type="button"
             onClick={() => onDelete(t)}
             disabled={busy}
-            className={clsx(CARD_ICON_BUTTON, 'text-rose-500 hover:text-rose-700')}
+            className={clsx(CARD_ICON_BASE, 'text-rose-500 hover:bg-rose-600 hover:text-white')}
             title="Delete template"
             aria-label={`Delete ${t.displayName}`}
           >
