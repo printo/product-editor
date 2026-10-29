@@ -14,7 +14,7 @@ import { ArrowLeft, Copy, LayoutTemplate as TemplateIcon, Loader2, Plus } from '
 import { useHeader } from '@/context/HeaderContext';
 import { readError } from '@/lib/read-error';
 import { isTemplateId, slugFromName, type TemplateCandidate } from '@/app/editor/layout/[name]/template-authoring';
-import { DeleteTemplateDialog, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
+import { CARD_ICON_BUTTON, DeleteTemplateDialog, OfferedOn, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
 
 const API = '/api/internal/proxy';
 
@@ -178,7 +178,7 @@ export default function LayoutTemplatesPage() {
                   <p className="text-[10px] text-slate-500">
                     {t.layoutName !== layoutName
                       ? <>Designed on <span className="font-semibold text-slate-700">{layoutNames.get(t.layoutName) ?? t.layoutName}</span>, offered here too</>
-                      : <>Also offered on {t.alsoOn!.length} other {t.alsoOn!.length === 1 ? 'layout' : 'layouts'}</>}
+                      : <>Also offered on <OfferedOn names={t.alsoOn ?? []} displayNameOf={name => layoutNames.get(name) ?? name} /></>}
                   </p>
                 )}
                 extraActions={(
@@ -186,7 +186,7 @@ export default function LayoutTemplatesPage() {
                     type="button"
                     onClick={() => duplicate(t)}
                     disabled={busyId === t.id}
-                    className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all disabled:opacity-30"
+                    className={`${CARD_ICON_BUTTON} text-[#64318E] hover:text-[#64318E]`}
                     title="Duplicate template"
                     aria-label={`Duplicate ${t.displayName}`}
                   >

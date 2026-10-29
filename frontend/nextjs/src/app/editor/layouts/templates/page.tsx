@@ -24,7 +24,7 @@ import { useModalA11y } from '@/lib/use-modal-a11y';
 import {
   NO_PRINT_AREAS_KEY, drawnFacing, groupBySize, layoutsInFacing, pairKey, sizeLabel, type BoxFacing, type SizeGroup, type TemplateCandidate,
 } from '@/app/editor/layout/[name]/template-authoring';
-import { DeleteTemplateDialog, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
+import { DeleteTemplateDialog, OfferedOn, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
 import { OrientationToggle } from '@/components/ui/OrientationToggle';
 
 const API = '/api/internal/proxy';
@@ -261,10 +261,7 @@ export default function AllTemplatesPage() {
                       <dt className="font-bold uppercase tracking-tight text-slate-400">Size</dt>
                       <dd>{sizeLabel({ printAreaBox: t.printAreaBox ?? null, bleedMm: t.bleedMm ?? 0 })}</dd>
                       <dt className="font-bold uppercase tracking-tight text-slate-400">On</dt>
-                      <dd className="truncate" title={offeredOn.map(displayNameOf).join(', ')}>
-                        {displayNameOf(t.layoutName)}
-                        {(t.alsoOn?.length ?? 0) > 0 && <span className="text-indigo-600 font-semibold"> + {t.alsoOn!.length} more</span>}
-                      </dd>
+                      <dd><OfferedOn names={offeredOn} displayNameOf={displayNameOf} /></dd>
                     </dl>
                   )}
                   onSetStatus={setStatus}

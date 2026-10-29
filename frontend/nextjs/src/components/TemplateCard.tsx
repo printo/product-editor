@@ -8,16 +8,21 @@
  * cannot drift; the delete confirm lives here for the same reason.
  *
  * Laid out like the customer picker and printo.in's "Choose a Design" page
- * (Kannan, 2026-10-29): the thumbnail inside a fixed box so every card in a
- * row is one height whichever way the template faces, the name and id
- * centred under it, the actions along the bottom.
+ * (Kannan, 2026-10-29): the thumbnail flush in a fixed 4:3 box so every card
+ * in a row is one height whichever way the template faces, the facing and
+ * status pills over its top-left corner and the actions (edit, the page's
+ * extras, publish, delete) as icons over its top-right, then the name and
+ * id on one line and the page's notes. Shared `OfferedOn` opens "+ N more".
  */
-import { useRef, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Edit2, Eye, EyeOff, Loader2, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useModalA11y } from '@/lib/use-modal-a11y';
 import type { LayoutTemplate } from '@/app/editor/layout/[name]/layout-template';
+
+/** The icon buttons over a card's image (edit, the page's extras, publish, delete). */
+export const CARD_ICON_BUTTON = 'p-1.5 rounded-lg bg-white/90 shadow-sm backdrop-blur text-slate-600 hover:bg-white hover:text-slate-900 transition-all disabled:opacity-30 inline-flex items-center';
 
 /** A template as GET /api/ops/templates serves it. */
 export type OpsTemplate = LayoutTemplate & {
@@ -39,7 +44,7 @@ interface TemplateCardProps {
   busy: boolean;
   /** Under the name: where it was designed, what it is offered on. */
   notes?: ReactNode;
-  /** Between Edit and Publish, e.g. the per-layout page's Duplicate. */
+  /** Between Edit and Publish over the image, e.g. the per-layout page's Duplicate (styled with CARD_ICON_BUTTON). */
   extraActions?: ReactNode;
   onSetStatus: (t: OpsTemplate, status: 'draft' | 'published') => void;
   onDelete: (t: OpsTemplate) => void;
@@ -47,38 +52,87 @@ interface TemplateCardProps {
   displayNameOf?: (name: string) => string;
 }
 
+/** The layouts a template is offered on, the first by name and the rest
+ *  behind "+ N more", which opens the whole list in place. */
+export function OfferedOn({ names, displayNameOf = n => n }: { names: string[]; displayNameOf?: (name: string) => string }) {
+  const [open, setOpen] = useState(false);
+  if (names.length === 0) return null;
+  const rest = names.length - 1;
+  return (
+    <span className="min-w-0">
+      <span>{open ? names.map(displayNameOf).join(', ') : displayNameOf(names[0])}</span>
+      {rest > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          className="ml-1 text-indigo-600 font-semibold hover:underline"
+        >
+          {open ? 'show less' : `+ ${rest} more`}
+        </button>
+      )}
+    </span>
+  );
+}
+
 export function TemplateCard({ template: t, busy, notes, extraActions, onSetStatus, onDelete, displayNameOf = n => n }: TemplateCardProps) {
   const mismatch = t.alsoOnMismatch ?? [];
   const published = t.status === 'published';
   return (
-    <li className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col p-4 h-full">
-      <div className="w-full aspect-[4/3] rounded-lg bg-slate-50 flex items-center justify-center overflow-hidden">
+    <li className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
+      <div className="relative w-full aspect-[4/3] bg-slate-50 flex items-center justify-center overflow-hidden">
         {t.thumbnailUrl ? (
-          <img src={t.thumbnailUrl} alt="" className="max-w-full max-h-full object-contain p-2" />
+          <img src={t.thumbnailUrl} alt="" className="max-w-full max-h-full object-contain" />
         ) : (
           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No preview yet</span>
         )}
-      </div>
-      <div className="pt-3 flex flex-col gap-2 flex-1">
-        <div className="text-center">
-          <p className="text-sm font-bold text-slate-900 leading-snug line-clamp-2 min-h-[2.6em]">{t.displayName}</p>
-          <p className="text-[10px] text-slate-400 font-mono truncate">ID: {t.id}</p>
-          <p className="mt-1.5 flex items-center justify-center gap-1">
-            {(t.facing === 'portrait' || t.facing === 'landscape') && (
-              <span
-                className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight bg-indigo-50 text-indigo-700"
-                title={`Designed for ${t.facing}: offered on ${t.facing} orders of its size`}
-              >
-                {t.facing}
-              </span>
-            )}
-            <span className={clsx(
-              'px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight',
-              published ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500',
-            )}>
-              {t.status}
+        <div className="absolute top-2 left-2 flex items-center gap-1">
+          {(t.facing === 'portrait' || t.facing === 'landscape') && (
+            <span
+              className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight bg-indigo-50 text-indigo-700 shadow-sm"
+              title={`Designed for ${t.facing}: offered on ${t.facing} orders of its size`}
+            >
+              {t.facing}
             </span>
-          </p>
+          )}
+          <span className={clsx(
+            'px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight shadow-sm',
+            published ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500',
+          )}>
+            {t.status}
+          </span>
+        </div>
+        <div className="absolute top-2 right-2 flex items-center gap-1">
+          <Link href={templateEditHref(t)} className={clsx(CARD_ICON_BUTTON, 'text-[#F17A26] hover:text-[#F17A26]')} title="Edit template" aria-label={`Edit ${t.displayName}`}>
+            <Edit2 className="w-4 h-4" />
+          </Link>
+          {extraActions}
+          <button
+            type="button"
+            onClick={() => onSetStatus(t, published ? 'draft' : 'published')}
+            disabled={busy}
+            className={CARD_ICON_BUTTON}
+            title={published ? 'Unpublish: hide from customers' : 'Publish: show to customers'}
+            aria-label={published ? `Unpublish ${t.displayName}` : `Publish ${t.displayName}`}
+          >
+            {published ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(t)}
+            disabled={busy}
+            className={clsx(CARD_ICON_BUTTON, 'text-rose-500 hover:text-rose-700')}
+            title="Delete template"
+            aria-label={`Delete ${t.displayName}`}
+          >
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+      <div className="p-3 flex flex-col gap-1.5 flex-1">
+        <div className="flex items-baseline justify-between gap-2 min-w-0">
+          <p className="text-sm font-bold text-slate-900 truncate" title={t.displayName}>{t.displayName}</p>
+          <p className="text-[10px] text-slate-400 font-mono truncate shrink-0 max-w-[55%]" title={t.id}>ID: {t.id}</p>
         </div>
         {notes}
         {t.homeRetired && <p className={FLAG}>Home layout retired: customers no longer see this template anywhere</p>}
@@ -88,38 +142,6 @@ export function TemplateCard({ template: t, busy, notes, extraActions, onSetStat
             No longer the same size: {mismatch.map(displayNameOf).join(', ')}
           </p>
         )}
-        <div className="mt-auto pt-2 flex items-center gap-1">
-          <Link
-            href={templateEditHref(t)}
-            className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center gap-1 text-[10px] font-bold uppercase"
-            title="Edit template"
-            aria-label={`Edit ${t.displayName}`}
-          >
-            <Edit2 className="w-4 h-4" /> Edit
-          </Link>
-          {extraActions}
-          <button
-            type="button"
-            onClick={() => onSetStatus(t, published ? 'draft' : 'published')}
-            disabled={busy}
-            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all disabled:opacity-30 inline-flex items-center gap-1 text-[10px] font-bold uppercase"
-            title={published ? 'Unpublish: hide from customers' : 'Publish: show to customers'}
-            aria-label={published ? `Unpublish ${t.displayName}` : `Publish ${t.displayName}`}
-          >
-            {published ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            {published ? 'Unpublish' : 'Publish'}
-          </button>
-          <button
-            type="button"
-            onClick={() => onDelete(t)}
-            disabled={busy}
-            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all disabled:opacity-30 ml-auto"
-            title="Delete template"
-            aria-label={`Delete ${t.displayName}`}
-          >
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-          </button>
-        </div>
       </div>
     </li>
   );
