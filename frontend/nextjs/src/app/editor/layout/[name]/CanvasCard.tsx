@@ -6,7 +6,7 @@ import { clsx } from 'clsx';
 import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, Pencil, RotateCw, Trash2 } from 'lucide-react';
 import { LazyImg } from '@/components/LazyImg';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
-import { FEW_CARDS, activatesCard, canvasCardWidthClass, canvasCardStyle, isLostLocalImage, surfaceCardStyle } from './editor-utils';
+import { FEW_CARDS, activatesCard, canvasCardWidthClass, canvasCardStyle, isLostLocalImage, photoZoneOf, surfaceCardStyle } from './editor-utils';
 import type { CanvasItem, SurfaceState } from './types';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
@@ -242,6 +242,10 @@ export function CanvasCard({
   /** Drawn over the print preview, e.g. a calendar month's date grid. */
   children?: ReactNode;
 }) {
+  // A calendar page also carries its date grid and blank paper, so the
+  // edit hint covers the photo windows only, as the grid's own hover covers
+  // the grid only.
+  const photoZone = children ? photoZoneOf(layout.frames, layout.canvas) : null;
   return (
     <div className={canvasCardWidthClass(cardCount)} style={canvasCardStyle(layout.canvas?.width || 1200, layout.canvas?.height || 1800)}>
       {/* Deliberately outside the bordered card below — this is a UI
@@ -270,7 +274,7 @@ export function CanvasCard({
           "bg-white border-2 transition-all cursor-pointer group/card relative",
           dragOverIdx?.idx === idx && dragOverIdx?.surfaceKey === null
             ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-xl shadow-indigo-100"
-            : "border-slate-200 hover:border-indigo-400"
+            : photoZone ? "border-slate-200" : "border-slate-200 hover:border-indigo-400"
         )}
         onClick={() => handleCardClick(idx)}
         role="button"
@@ -294,10 +298,31 @@ export function CanvasCard({
           onPointerUp={handlePanEnd}
           onPointerCancel={handlePanEnd}
         >
-          <div className="absolute inset-0 group/photo">
-            {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
-            {!repositionMode && <EditHint placement={children ? 'top' : 'center'} />}
-          </div>
+          {photoZone ? (
+            <>
+              {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+              <div
+                className={clsx(
+                  'absolute group/photo transition-shadow',
+                  !repositionMode && '[@media(hover:hover)]:hover:ring-2 [@media(hover:hover)]:hover:ring-indigo-500',
+                )}
+                style={{
+                  left: `${photoZone.x * 100}%`,
+                  top: `${photoZone.y * 100}%`,
+                  width: `${photoZone.width * 100}%`,
+                  height: `${photoZone.height * 100}%`,
+                }}
+                data-testid="calendar-photo-zone"
+              >
+                {!repositionMode && <EditHint />}
+              </div>
+            </>
+          ) : (
+            <div className="absolute inset-0 group/photo">
+              {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+              {!repositionMode && <EditHint placement={children ? 'top' : 'center'} />}
+            </div>
+          )}
           {children}
 
         {canvas.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
