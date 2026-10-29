@@ -29,7 +29,7 @@ export function CalendarControls({
 }) {
   if (!isCalendarProduct) return null;
   return (
-    <section aria-label="Calendar style" className="rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:px-5">
+    <section aria-label="Calendar style" className="rounded-xl border border-slate-200 bg-white px-4 py-3 sm:px-5">
       <CalendarProductPreview
         themePreset={calendarTheme}
         onThemePresetChange={setCalendarTheme}

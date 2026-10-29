@@ -395,9 +395,9 @@ export default function TemplateEditorPage() {
     <div className="min-h-screen bg-transparent">
       <GoogleFontLinks fonts={fontsLoaded} />
       <main className="max-w-[1100px] mx-auto px-4 sm:px-8 pt-3 pb-12 flex flex-col gap-6">
-        {error && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl">{error}</div>}
+        {error && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-lg">{error}</div>}
 
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+        <section className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 items-end">
           <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500">
             Name
             <input
@@ -433,7 +433,7 @@ export default function TemplateEditorPage() {
           </label>
         </section>
 
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-4">
+        <section className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex flex-col gap-4">
           {shownFacing && shownFacing !== 'square' && (
             <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
               <span className="font-bold uppercase tracking-tight">Faces {shownFacing}.</span>{' '}
@@ -464,7 +464,7 @@ export default function TemplateEditorPage() {
           <p className="text-[10px] text-slate-400">The sample photo is for previewing only; it is never saved with the template.</p>
           <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Sides">
             {surfaces.map(s => (
-              <li key={s.key} className="rounded-xl border border-slate-200 overflow-hidden flex flex-col">
+              <li key={s.key} className="rounded-lg border border-slate-200 overflow-hidden flex flex-col">
                 <div className="aspect-[4/3] bg-slate-50 flex items-center justify-center">
                   {s.canvases[0]?.dataUrl ? (
                     <img src={s.canvases[0].dataUrl} alt="" className="w-full h-full object-contain" />
@@ -505,7 +505,7 @@ export default function TemplateEditorPage() {
           </ul>
         </section>
 
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-4" aria-labelledby="also-show-on">
+        <section className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex flex-col gap-4" aria-labelledby="also-show-on">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex-1 min-w-[240px]">
               <h2 id="also-show-on" className="text-xs font-bold uppercase tracking-tight text-slate-700 flex items-center gap-1.5">
@@ -606,7 +606,7 @@ export default function TemplateEditorPage() {
               </p>
               <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Preview sides">
                 {(previewSides ?? []).map(s => (
-                  <li key={s.key} className="rounded-xl border border-slate-200 overflow-hidden">
+                  <li key={s.key} className="rounded-lg border border-slate-200 overflow-hidden">
                     <div className="aspect-[4/3] bg-slate-50 flex items-center justify-center">
                       {s.dataUrl ? (
                         <img src={s.dataUrl} alt="" className="w-full h-full object-contain" />

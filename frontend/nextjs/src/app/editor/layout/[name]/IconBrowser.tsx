@@ -120,7 +120,7 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
   if (!expanded) {
     return (
       <button onClick={() => setExpanded(true)}
-        className="w-full h-11 flex items-center justify-center gap-3 bg-white border border-slate-200 rounded-xl text-[11px] font-medium uppercase hover:bg-slate-50 transition-all active:scale-[0.98] group shadow-sm">
+        className="w-full h-11 flex items-center justify-center gap-3 bg-white border border-slate-200 rounded-lg text-[11px] font-medium uppercase hover:bg-slate-50 transition-all active:scale-[0.98] group shadow-sm">
         <Sparkles className="w-4 h-4 text-indigo-600 transition-transform group-hover:rotate-12" /> 
         Add New Icon
       </button>
@@ -147,7 +147,7 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
         </div>
         <input type="text" value={query} onChange={e => handleInput(e.target.value)}
           placeholder="Search icons..." autoFocus
-          className="w-full pl-11 pr-4 py-3 text-[11px] font-medium bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-300 shadow-sm" />
+          className="w-full pl-11 pr-4 py-3 text-[11px] font-medium bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-300 shadow-sm" />
       </div>
 
       {loading && (
@@ -164,10 +164,10 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
       )}
 
       {!loading && results.length > 0 && (
-        <div className="grid grid-cols-4 gap-2.5 p-3 bg-white border border-slate-100 rounded-2xl shadow-sm max-h-72 overflow-y-auto custom-scrollbar">
+        <div className="grid grid-cols-4 gap-2.5 p-3 bg-white border border-slate-100 rounded-xl shadow-sm max-h-72 overflow-y-auto custom-scrollbar">
           {results.map(item => (
             <button key={`${item.prefix}:${item.name}`} onClick={() => handleAdd(item)} title={item.name}
-              className="aspect-square bg-slate-50 border border-slate-100 rounded-xl hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all p-2.5 group relative active:scale-90">
+              className="aspect-square bg-slate-50 border border-slate-100 rounded-lg hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all p-2.5 group relative active:scale-90">
               {item.isLocal && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white shadow-sm z-10" />}
               <img src={item.svgUrl} alt={item.name} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300" loading="lazy" />
             </button>

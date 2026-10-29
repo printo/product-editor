@@ -1152,7 +1152,7 @@ export default function LayoutCreatorPage() {
           {/* Single card split into two creation options */}
           {/* Side-by-side on phones (vertical space is scarce there), stacked
               from md up so each option gets the full card width. */}
-          <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl overflow-hidden min-h-[120px] md:min-h-[300px] flex flex-row md:flex-col col-span-1 md:col-span-2 lg:col-span-1">
+          <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl overflow-hidden min-h-[120px] md:min-h-[300px] flex flex-row md:flex-col col-span-1 md:col-span-2 lg:col-span-1">
             {/* Left half — Generic */}
             <button
               data-testid="create-generic-layout-btn"
@@ -1172,7 +1172,7 @@ export default function LayoutCreatorPage() {
               }}
               className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-indigo-50 transition-all cursor-pointer border-r-2 md:border-r-0 md:border-b-2 border-dashed border-slate-200 hover:border-indigo-300"
             >
-              <div className="w-8 h-8 md:w-12 md:h-12 bg-indigo-50 rounded-lg md:rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
+              <div className="w-8 h-8 md:w-12 md:h-12 bg-indigo-50 rounded-lg md:rounded-lg flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
                 <Layout className="w-4 h-4 md:w-6 md:h-6 text-indigo-600" />
               </div>
               <div className="text-center">
@@ -1190,7 +1190,7 @@ export default function LayoutCreatorPage() {
               data-testid="create-calendar-layout-link"
               className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-[#F17A26]/10 transition-all border-r-2 md:border-r-0 md:border-b-2 border-dashed border-slate-200 hover:border-[#F17A26]/40"
             >
-              <div className="w-8 h-8 md:w-12 md:h-12 bg-[#F17A26]/10 rounded-lg md:rounded-xl flex items-center justify-center group-hover:bg-[#F17A26]/20 transition-colors">
+              <div className="w-8 h-8 md:w-12 md:h-12 bg-[#F17A26]/10 rounded-lg md:rounded-lg flex items-center justify-center group-hover:bg-[#F17A26]/20 transition-colors">
                 <CalendarDays className="w-4 h-4 md:w-6 md:h-6 text-[#F17A26]" />
               </div>
               <div className="text-center">
@@ -1208,7 +1208,7 @@ export default function LayoutCreatorPage() {
               data-testid="create-book-layout-link"
               className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-sky-50 transition-all hover:border-sky-300"
             >
-              <div className="w-8 h-8 md:w-12 md:h-12 bg-sky-50 rounded-lg md:rounded-xl flex items-center justify-center group-hover:bg-sky-100 transition-colors">
+              <div className="w-8 h-8 md:w-12 md:h-12 bg-sky-50 rounded-lg md:rounded-lg flex items-center justify-center group-hover:bg-sky-100 transition-colors">
                 <BookOpen className="w-4 h-4 md:w-6 md:h-6 text-sky-700" />
               </div>
               <div className="text-center">
@@ -1261,7 +1261,7 @@ export default function LayoutCreatorPage() {
                   data-testid={`layout-card-${layoutStr}`}
                   data-product-type={isCalendar ? 'calendar' : isBook ? 'book' : 'standard'}
                   data-deprecated={isDeprecated || undefined}
-                  className={`bg-white border rounded-2xl p-6 transition-all group relative ${
+                  className={`bg-white border rounded-xl p-6 transition-all group relative ${
                     isDeprecated
                       ? 'opacity-60 border-slate-200 bg-slate-50/60'
                       : 'border-slate-200 hover:shadow-lg hover:border-indigo-200'
@@ -1270,7 +1270,7 @@ export default function LayoutCreatorPage() {
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-4">
                       {/* Thumbnail Preview */}
-                      <div className="w-16 h-16 bg-slate-50 rounded-xl overflow-hidden border border-slate-100 flex items-center justify-center flex-shrink-0 group-hover:border-indigo-100 transition-colors">
+                      <div className="w-16 h-16 bg-slate-50 rounded-lg overflow-hidden border border-slate-100 flex items-center justify-center flex-shrink-0 group-hover:border-indigo-100 transition-colors">
                         <LayoutSVG layout={layoutObj} className="w-full h-full object-contain" />
                       </div>
                       <div>
@@ -1476,7 +1476,7 @@ export default function LayoutCreatorPage() {
             })}
 
           {layouts.length === 0 && (
-            <div className="col-span-full py-20 bg-white border border-dashed border-slate-300 rounded-3xl flex flex-col items-center justify-center text-slate-400">
+            <div className="col-span-full py-20 bg-white border border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center text-slate-400">
               <div className="p-4 bg-slate-50 rounded-full mb-4">
                 <Layout className="w-8 h-8 opacity-20" />
               </div>
@@ -1510,7 +1510,7 @@ export default function LayoutCreatorPage() {
                 <div className="lg:col-span-7 min-h-0 lg:h-full overflow-y-auto px-6 py-6 space-y-6 custom-scrollbar">
 
                   {/* Basic Info & Canvas */}
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Display Name</label>
@@ -1715,7 +1715,7 @@ export default function LayoutCreatorPage() {
                       </div>
                     )}
 
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Canvas Dimensions</h4>
                       <div className="text-[10px] text-indigo-600 bg-indigo-50/50 px-2 py-1 rounded-md font-black uppercase tracking-tight inline-block border border-indigo-100/50">
@@ -1730,7 +1730,7 @@ export default function LayoutCreatorPage() {
                     <div className="grid grid-cols-3 gap-4">
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Width ({unit})</label>
-                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100 focus-within:border-indigo-300 transition-colors">
                           <input
                             type="number" step={lengthStep} min="0" required
                             value={mmToUnit(activeWidthMm, unit)}
@@ -1749,7 +1749,7 @@ export default function LayoutCreatorPage() {
                       </div>
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Height ({unit})</label>
-                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100 focus-within:border-indigo-300 transition-colors">
                           <input
                             type="number" step={lengthStep} min="0" required
                             value={mmToUnit(activeHeightMm, unit)}
@@ -1768,7 +1768,7 @@ export default function LayoutCreatorPage() {
                       </div>
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">DPI</label>
-                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 focus-within:border-indigo-300 transition-colors">
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100 focus-within:border-indigo-300 transition-colors">
                           <input 
                             type="number" min="300" required
                             value={layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].dpi : dpi}
@@ -1790,7 +1790,7 @@ export default function LayoutCreatorPage() {
                   </div>
 
                   {/* Masks and the print sheet */}
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-5">
+                  <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-5">
                     <div>
                       <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Masks (Optional)</label>
                       <p className="text-[10px] text-slate-500 mt-1">
@@ -1819,7 +1819,7 @@ export default function LayoutCreatorPage() {
                   </div>
 
                   {/* Print Areas Management */}
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
                     <div className="flex items-center justify-between">
                       <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider focus:outline-none">Print Areas Management ({unit})</label>
                       <div className="flex items-center gap-4">
@@ -1927,7 +1927,7 @@ export default function LayoutCreatorPage() {
 
                   {/* Print file: what the print file is. A per-layout output setting,
                       separate from the print areas, which only place the photos. */}
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-3">
                     <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Print file</label>
                     <div className="flex rounded-lg border border-slate-200 overflow-hidden" role="radiogroup" aria-label="Print file">
                       {([['canvas', 'Whole canvas'], ['bleed', 'Bleed area']] as const).map(([mode, label]) => (
@@ -2023,7 +2023,7 @@ export default function LayoutCreatorPage() {
       {confirmMaskRemove && (
         <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-label={confirmMaskRemove === 'frame' ? 'Remove frame picture?' : 'Remove artwork?'}>
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setConfirmMaskRemove(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
+          <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
             <div className="flex flex-col items-center text-center">
               <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
                 <Trash2 className="w-6 h-6" />
@@ -2037,14 +2037,14 @@ export default function LayoutCreatorPage() {
                   type="button"
                   autoFocus
                   onClick={() => setConfirmMaskRemove(null)}
-                  className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+                  className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-all active:scale-95"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={() => { removeActiveMask(confirmMaskRemove); setConfirmMaskRemove(null); }}
-                  className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
+                  className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
                 >
                   Remove
                 </button>
@@ -2058,7 +2058,7 @@ export default function LayoutCreatorPage() {
       {deleteConfirm && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setDeleteConfirm(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
+          <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
             <div className="flex flex-col items-center text-center">
               <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
                 <Trash2 className="w-6 h-6" />
@@ -2071,7 +2071,7 @@ export default function LayoutCreatorPage() {
               <div className="flex w-full gap-2">
                 <button
                   onClick={() => setDeleteConfirm(null)}
-                  className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+                  className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-all active:scale-95"
                 >
                   Cancel
                 </button>
@@ -2080,7 +2080,7 @@ export default function LayoutCreatorPage() {
                     handleDeleteLayout(deleteConfirm);
                     setDeleteConfirm(null);
                   }}
-                  className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
+                  className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
                 >
                   Delete
                 </button>
@@ -2094,7 +2094,7 @@ export default function LayoutCreatorPage() {
           {selectedLayout && (
             <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6">
               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLayout(null)} />
-              <div className="relative bg-slate-900 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col border border-slate-800 animate-in zoom-in-95 duration-200">
+              <div className="relative bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col border border-slate-800 animate-in zoom-in-95 duration-200">
                 <div className="flex items-center justify-between p-6 border-b border-slate-800">
                   <h2 className="text-xl font-bold text-white">JSON Specification</h2>
                   <div className="flex items-center gap-2">
@@ -2124,14 +2124,14 @@ export default function LayoutCreatorPage() {
           {/* Google Fonts Picker Modal */}
           {showFontModal && (
             <div className="fixed inset-0 z-[200000] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFontModal(false)}>
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                 <div className="px-6 py-4 border-b flex items-center justify-between">
                   <h3 className="text-sm font-bold text-slate-900">Google Fonts</h3>
                   <button onClick={() => setShowFontModal(false)} className="p-1 text-slate-400 hover:text-slate-900 rounded"><X className="w-4 h-4" /></button>
                 </div>
                 <div className="px-6 py-3 border-b">
                   <input type="text" placeholder="Search fonts..." value={fontSearch} onChange={e => setFontSearch(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                 </div>
                 <div className="flex-1 overflow-y-auto px-6 py-3 space-y-1">
                   {/* Google Fonts */}

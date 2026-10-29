@@ -28,10 +28,10 @@ export default function CanvasCardSkeleton({ count, aspectRatio }: Props) {
           <div
             key={i}
             aria-hidden="true"
-            className="bg-white rounded-2xl border-2 border-slate-200 w-[86vw] max-w-sm sm:w-auto sm:max-w-none overflow-hidden"
+            className="bg-white rounded-xl border-2 border-slate-200 w-[86vw] max-w-sm sm:w-auto sm:max-w-none overflow-hidden"
           >
             <div
-              className="relative bg-slate-100 animate-pulse rounded-t-2xl"
+              className="relative bg-slate-100 animate-pulse rounded-t-xl"
               style={{ aspectRatio }}
             />
             <div className="p-2.5 space-y-2">

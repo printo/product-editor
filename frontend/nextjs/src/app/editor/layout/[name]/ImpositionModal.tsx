@@ -24,7 +24,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
   return (
     <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowImpositionModal(false)} />
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[85vh] border border-slate-200">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} className="relative w-full max-w-3xl bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 overflow-hidden flex flex-col md:flex-row max-h-[85vh] border border-slate-200">
         {/* Left: Preview */}
         <div className="flex-[1.1] bg-slate-50 p-6 pt-16 flex flex-col items-center relative border-r border-slate-200">
           <div className="absolute top-5 left-6">

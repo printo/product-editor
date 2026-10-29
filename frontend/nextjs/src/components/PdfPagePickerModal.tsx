@@ -112,13 +112,13 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
         aria-modal="true"
         aria-label={`Choose pages from ${file.name}`}
         tabIndex={-1}
-        className="relative w-full max-w-xl max-h-[85vh] flex flex-col bg-white rounded-3xl shadow-[0_32px_80px_-12px_rgba(0,0,0,0.25)] overflow-hidden"
+        className="relative w-full max-w-xl max-h-[85vh] flex flex-col bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 overflow-hidden"
       >
         {/* Header */}
         <div className="px-7 pt-7 pb-5 flex items-start justify-between gap-4 shrink-0">
           <div className="min-w-0">
             <div className="flex items-center gap-2.5 mb-1.5">
-              <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
                 <FileText className="w-4 h-4 text-indigo-600" />
               </div>
               <h3 className="text-base font-bold text-slate-900 tracking-tight truncate">
@@ -134,7 +134,7 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
           <button
             onClick={handleCancel}
             disabled={!!rasterizing}
-            className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-xl transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-lg transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <X className="w-4 h-4 text-slate-400" />
           </button>
@@ -196,7 +196,7 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
                         }
                       }}
                       className={clsx(
-                        'relative aspect-square rounded-xl overflow-hidden border-2 bg-slate-50 transition-all',
+                        'relative aspect-square rounded-lg overflow-hidden border-2 bg-slate-50 transition-all',
                         rasterizing ? 'cursor-not-allowed opacity-60' : 'cursor-pointer active:scale-95',
                         isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300',
                       )}
@@ -215,7 +215,7 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
                       <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-full bg-white/70 backdrop-blur-sm text-[8px] font-bold text-slate-600">
                         {i + 1}
                       </div>
-                      <div className="absolute top-2 right-2 z-20 p-1 bg-white/40 backdrop-blur-md rounded-xl border border-white/40 shadow-sm">
+                      <div className="absolute top-2 right-2 z-20 p-1 bg-white/40 backdrop-blur-md rounded-lg border border-white/40 shadow-sm">
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -239,7 +239,7 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
           <button
             onClick={handleCancel}
             disabled={!!rasterizing}
-            className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 rounded-xl hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
             {openError ? 'Close' : 'Cancel'}
           </button>
@@ -247,7 +247,7 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
             <button
               onClick={handleConfirm}
               disabled={selected.size === 0 || !!rasterizing}
-              className="flex-[2] py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="flex-[2] py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               {rasterizing
                 ? `Converting ${rasterizing.current}/${rasterizing.total}…`

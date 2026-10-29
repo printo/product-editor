@@ -319,13 +319,13 @@ export function CanvasEditorModal({
         {/* Left Surface Rail — Vertical floating list for Multi-surface layouts */}
         {/* Mobile surface chips — the vertical rail is unreachable on phones */}
         {isMultiSurface && (
-          <div className="flex md:hidden absolute top-3 left-3 right-16 z-20 gap-1.5 overflow-x-auto p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-2xl shadow-lg">
+          <div className="flex md:hidden absolute top-3 left-3 right-16 z-20 gap-1.5 overflow-x-auto p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-xl shadow-lg">
             {surfaceStates.map((s) => (
               <button
                 key={s.key}
                 onClick={() => onOpenCanvas(0, s.key)}
                 className={clsx(
-                  "px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
+                  "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
                   s.key === activeSurfaceKey ? "bg-indigo-600 text-white" : "text-slate-500 bg-slate-50"
                 )}
               >
@@ -335,7 +335,7 @@ export function CanvasEditorModal({
           </div>
         )}
         {isMultiSurface && (
-          <div className="hidden md:flex absolute left-12 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-2xl shadow-xl animate-in slide-in-from-left-8 duration-700 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          <div className="hidden md:flex absolute left-12 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-xl shadow-xl animate-in slide-in-from-left-8 duration-700 max-h-[70vh] overflow-y-auto custom-scrollbar">
             {surfaceStates.map((s, idx) => {
               const isActive = s.key === activeSurfaceKey;
               return (
@@ -343,7 +343,7 @@ export function CanvasEditorModal({
                   key={s.key}
                   onClick={() => onOpenCanvas(0, s.key)}
                   className={clsx(
-                    "px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-500 whitespace-nowrap text-left flex items-center gap-3 group",
+                    "px-4 py-3 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-500 whitespace-nowrap text-left flex items-center gap-3 group",
                     isActive 
                       ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200 translate-x-1" 
                       : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50/50"
@@ -363,14 +363,14 @@ export function CanvasEditorModal({
         <div className="absolute bottom-6 right-6 z-20 flex flex-col items-end gap-3">
           
           {/* Navigation Hub (Simple Arrows + Numeric Counter) */}
-          <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-slate-200/50 p-1 rounded-2xl shadow-lg animate-in slide-in-from-bottom-2 duration-500 w-[140px] justify-between">
+          <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-slate-200/50 p-1 rounded-xl shadow-lg animate-in slide-in-from-bottom-2 duration-500 w-[140px] justify-between">
             <button 
               disabled={currentIdx === 0} 
               onClick={() => {
                 if (isMultiSurface) onOpenCanvas(0, surfaceStates[currentIdx - 1].key);
                 else onOpenCanvas(currentIdx - 1);
               }}
-              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-xl hover:bg-slate-50 active:scale-90"
+              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 active:scale-90"
             >
               <ChevronRight className="w-4 h-4 rotate-180" />
             </button>
@@ -387,29 +387,29 @@ export function CanvasEditorModal({
                 if (isMultiSurface) onOpenCanvas(0, surfaceStates[currentIdx + 1].key);
                 else onOpenCanvas(currentIdx + 1);
               }}
-              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-xl hover:bg-slate-50 active:scale-90"
+              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 active:scale-90"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-violet-200/50 p-1 rounded-2xl shadow-lg">
+            <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-violet-200/50 p-1 rounded-xl shadow-lg">
               <button onClick={handleUndo} disabled={undoCount === 0}
-                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-xl transition-all disabled:opacity-20" title="Undo (Ctrl+Z)">
+                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Undo (Ctrl+Z)">
                 <Undo2 className="w-4 h-4" />
               </button>
               <button onClick={handleRedo} disabled={redoCount === 0}
-                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-xl transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)">
+                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)">
                 <Redo2 className="w-4 h-4" />
               </button>
             </div>
-            <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-cyan-200/50 p-1 rounded-2xl shadow-lg w-[140px] justify-between">
-              <button onClick={() => setViewZoom(p => Math.max(0.3, p - 0.15))} className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-xl transition-all"><Minus className="w-4 h-4" /></button>
+            <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-cyan-200/50 p-1 rounded-xl shadow-lg w-[140px] justify-between">
+              <button onClick={() => setViewZoom(p => Math.max(0.3, p - 0.15))} className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Minus className="w-4 h-4" /></button>
               <button onClick={() => setViewZoom(1.0)} className="min-w-[48px] text-[10px] font-black text-cyan-500 uppercase tracking-tighter hover:text-cyan-700 transition-colors">
                 {(viewZoom * 100).toFixed(0)}%
               </button>
-              <button onClick={() => setViewZoom(p => Math.min(3, p + 0.15))} className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-xl transition-all"><Plus className="w-4 h-4" /></button>
+              <button onClick={() => setViewZoom(p => Math.min(3, p + 0.15))} className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Plus className="w-4 h-4" /></button>
             </div>
           </div>
         </div>

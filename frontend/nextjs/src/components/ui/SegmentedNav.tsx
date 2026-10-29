@@ -19,7 +19,7 @@ export const SegmentedNav = ({ items }: SegmentedNavProps) => {
   const activeIndex = items.findIndex((item) => item.active);
 
   return (
-    <nav className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/40 shrink-0 shadow-inner overflow-hidden">
+    <nav className="flex items-center bg-slate-100/80 p-1 rounded-lg border border-slate-200/40 shrink-0 shadow-inner overflow-hidden">
       {/* Positioning context for the pill is this padding-free wrapper, not `nav` itself —
           `nav`'s own p-1 padding sits outside a positioned descendant's containing block
           (percentages resolve against the padding box), so calc-ing left/width against

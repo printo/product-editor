@@ -368,7 +368,7 @@ export function HolidayManager() {
       {!canEdit && (
         <div
           data-testid="holidays-read-only"
-          className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
+          className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
         >
           <Lock className="w-4 h-4 mt-0.5 shrink-0" />
           <p>You can view holidays here. Changing them needs the Operations Team role — ask an admin if you need it.</p>
@@ -476,7 +476,7 @@ export function HolidayManager() {
           <Loader2 className="w-4 h-4 animate-spin" /> Loading holidays…
         </div>
       ) : loaded?.status === 'error' ? (
-        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           <p>{loaded.error}</p>
           <button
             type="button"
@@ -487,7 +487,7 @@ export function HolidayManager() {
           </button>
         </div>
       ) : rows.length === 0 ? (
-        <div data-testid="holidays-empty" className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+        <div data-testid="holidays-empty" className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
           <CalendarDays className="w-8 h-8 mx-auto text-slate-300" />
           <p className="mt-3 text-sm font-semibold text-slate-800">
             {exists || dirty ? `The ${locale} ${year} list is empty` : `No holidays for ${locale} ${year} yet`}
@@ -508,7 +508,7 @@ export function HolidayManager() {
           )}
         </div>
       ) : (
-        <div className="rounded-2xl border border-slate-200 bg-white overflow-x-auto">
+        <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm" data-testid="holidays-table">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold text-slate-500">
@@ -626,7 +626,7 @@ function HolidayForm({
         e.preventDefault();
         onSubmit();
       }}
-      className="rounded-2xl border border-indigo-200 bg-white p-4 md:p-5 space-y-4"
+      className="rounded-xl border border-indigo-200 bg-white p-4 md:p-5 space-y-4"
     >
       <h2 className="text-sm font-bold text-slate-900">{mode === 'add' ? 'Add holiday' : 'Edit holiday'}</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -742,7 +742,7 @@ function ConfirmDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={messageId}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6"
+        className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm mx-4 p-6"
       >
         <p id={titleId} className="text-sm font-bold text-slate-900 mb-2">{title}</p>
         <p id={messageId} className="text-xs text-slate-600 leading-relaxed mb-5">{message}</p>
@@ -750,7 +750,7 @@ function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="flex-1 py-2.5 text-sm font-semibold bg-red-500 text-white rounded-xl hover:bg-red-600"
+            className="flex-1 py-2.5 text-sm font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600"
           >
             {confirmLabel}
           </button>
@@ -758,7 +758,7 @@ function ConfirmDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="flex-1 py-2.5 text-sm font-semibold bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200"
+            className="flex-1 py-2.5 text-sm font-semibold bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200"
           >
             Cancel
           </button>

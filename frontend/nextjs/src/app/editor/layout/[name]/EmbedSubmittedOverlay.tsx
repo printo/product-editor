@@ -67,7 +67,7 @@ export function EmbedSubmittedOverlay({
             </p>
             <button
               onClick={onBackToEditor}
-              className="px-6 py-3 text-sm font-semibold rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+              className="px-6 py-3 text-sm font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
             >
               Back to editor
             </button>
@@ -79,7 +79,7 @@ export function EmbedSubmittedOverlay({
             <p className="text-sm text-slate-500 mb-6">The print files are prepared. You can close this window and continue with your order.</p>
             <button
               onClick={onBackToEditor}
-              className="px-5 py-2.5 text-xs font-semibold rounded-2xl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
+              className="px-5 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
             >
               Edit design again
             </button>
@@ -95,7 +95,7 @@ export function EmbedSubmittedOverlay({
             <p className="text-sm text-slate-500 mb-6">You can keep this window open, or close it — your design is submitted either way.</p>
             <button
               onClick={onBackToEditor}
-              className="px-5 py-2.5 text-xs font-semibold rounded-2xl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
+              className="px-5 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
             >
               Edit design
             </button>

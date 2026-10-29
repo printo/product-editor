@@ -83,7 +83,7 @@ export function TemplateCard({ template: t, busy, notes, extraActions, onSetStat
   const mismatch = t.alsoOnMismatch ?? [];
   const published = t.status === 'published';
   return (
-    <li className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
+    <li className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
       <div className="relative w-full aspect-[4/3] bg-slate-50 flex items-center justify-center overflow-hidden">
         {t.thumbnailUrl ? (
           <img src={t.thumbnailUrl} alt="" className="max-w-full max-h-full object-contain" />
@@ -163,14 +163,14 @@ export function DeleteTemplateDialog({ template, onConfirm, onCancel }: DeleteTe
   if (!template) return null;
   return (
     <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div ref={ref} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label="Delete template" className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-7 outline-none">
+      <div ref={ref} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label="Delete template" className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm mx-4 p-7 outline-none">
         <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Delete &ldquo;{template.displayName}&rdquo;?</p>
         <p className="text-xs text-slate-500 leading-relaxed mb-6">
           Customers stop seeing it on every layout it is offered on. Designs that already use it keep their decoration.
         </p>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => onConfirm(template)} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all active:scale-95">Delete</button>
-          <button type="button" onClick={onCancel} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95">Cancel</button>
+          <button type="button" onClick={() => onConfirm(template)} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-all active:scale-95">Delete</button>
+          <button type="button" onClick={onCancel} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95">Cancel</button>
         </div>
       </div>
     </div>

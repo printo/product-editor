@@ -42,7 +42,7 @@ export function EmptyState({
       {!isProcessing && canvases.length === 0 && !restorePending && (
         <div 
           className={clsx(
-            "flex flex-col items-center justify-center py-24 gap-5 select-none border-2 border-dashed rounded-3xl transition-all cursor-pointer",
+            "flex flex-col items-center justify-center py-24 gap-5 select-none border-2 border-dashed rounded-xl transition-all cursor-pointer",
             dragOverIdx?.idx === -1 
               ? "border-indigo-500 bg-indigo-50/50 scale-[1.01]" 
               : "border-slate-200 bg-slate-50/50"
@@ -68,7 +68,7 @@ export function EmptyState({
             }
           }}
         >
-          <div className="w-16 h-16 rounded-3xl bg-indigo-50 flex items-center justify-center">
+          <div className="w-16 h-16 rounded-xl bg-indigo-50 flex items-center justify-center">
             <Upload className="w-7 h-7 text-indigo-400" />
           </div>
           <div className="text-center space-y-1.5">

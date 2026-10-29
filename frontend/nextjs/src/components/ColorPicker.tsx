@@ -26,7 +26,7 @@ export function ColorPicker({
         </span>
       )}
       <div className="relative group flex items-center gap-2">
-        <div className="w-8 h-8 rounded-xl p-0.5 bg-white border border-slate-200 shadow-sm group-hover:shadow-md transition-all relative overflow-hidden">
+        <div className="w-8 h-8 rounded-lg p-0.5 bg-white border border-slate-200 shadow-sm group-hover:shadow-md transition-all relative overflow-hidden">
           <input
             type="color"
             value={value}

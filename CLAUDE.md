@@ -609,6 +609,7 @@ Use comments sparingly; only for complex or non-obvious logic.
 - A missing closing `` ` `` in a `className={`...`}` literal triggers ~17 cascade TypeScript errors.
 - **`indigo` is not indigo:** `tailwind.config.ts` overrides Tailwind's `indigo` scale with Printo purple (`600 = #64318E`). Don't "fix" a class back to a hex and don't add a second purple scale. The accent orange `#F17A26` has no scale.
 - `components/ui/Dropdown.tsx` over native `<select>` where the highlight must be on-brand; `CalendarLayoutEditor`'s selects stay native (its Jest suite drives them with `selectOptions`).
+- **Corner radii:** popups, cards and panels `rounded-xl` (12 px); buttons, inputs, previews and icon tiles inside them `rounded-lg` (8 px); phone bottom sheets `rounded-t-2xl`; pills stay `rounded-full`. No `rounded-2xl`/`rounded-3xl` on surfaces (they read as bubbly, 2026-10-29). Popup shadow is `shadow-xl ring-1 ring-slate-900/5`.
 - Header height is measured (`HeaderContext.headerHeight` from a `ResizeObserver`), never hardcoded.
 - **z-index ladder:** header `z-[2000]`; editor dialogs and the print-sheet window `z-[2001]`; toasts `z-[3000]`; full-screen modals that must clear the header (the JSON Specification modal) `z-[200000]`.
 - `TagFilter` (filter by tag key) and `TagPicker` (several tags per layout, used by the generic, calendar and book editors) both read `useLayoutTags()` from `lib/layout-tags.ts`. There is no hard-coded tag list any more.
