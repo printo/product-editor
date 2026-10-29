@@ -276,3 +276,37 @@ export function alignOverlay(o: Overlay, key: OverlayAlignment): Overlay {
   if (key === 'middle') return { ...o, y: 50 };
   return o;
 }
+
+/** Where a card's photo windows sit, as fractions of the canvas. */
+export type PhotoZone = { x: number; y: number; width: number; height: number };
+
+/**
+ * The box around every photo window of a layout, as canvas fractions, so a
+ * card can highlight the photo and nothing else (a calendar page also carries
+ * a date grid and blank paper). Frames may be stored as fractions or as
+ * canvas pixels, read the same way as the thumbnail renderer reads them.
+ * Null when no frame is readable: the caller highlights the whole card.
+ */
+export function photoZoneOf(
+  frames: unknown[] | undefined,
+  canvas: { width?: number; height?: number } | undefined,
+): PhotoZone | null {
+  const cw = canvas?.width || 1200;
+  const ch = canvas?.height || 1800;
+  const rects = (frames ?? []).flatMap(f => {
+    const { x, y, width, height } = (f ?? {}) as Record<string, unknown>;
+    if (![x, y, width, height].every(v => typeof v === 'number' && Number.isFinite(v))) return [];
+    const [fx, fy, fw, fh] = [x, y, width, height] as number[];
+    if (fw <= 0 || fh <= 0) return [];
+    const isFraction = fw <= 1 && fh <= 1;
+    return [isFraction ? [fx, fy, fw, fh] : [fx / cw, fy / ch, fw / cw, fh / ch]];
+  });
+  if (rects.length === 0) return null;
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  const left = clamp(Math.min(...rects.map(r => r[0])));
+  const top = clamp(Math.min(...rects.map(r => r[1])));
+  const right = clamp(Math.max(...rects.map(r => r[0] + r[2])));
+  const bottom = clamp(Math.max(...rects.map(r => r[1] + r[3])));
+  if (right <= left || bottom <= top) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}

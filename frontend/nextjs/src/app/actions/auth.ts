@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { signIn } from "@/pia-auth";
 import { AuthError, CredentialsSignin } from "next-auth";
+import { safeCallbackPath } from "@/lib/callback-url";
 
 // Per-IP login rate limiter — fixed-window in-memory.
 // Single-process limit; if frontend is scaled horizontally, replace with Redis.
@@ -59,7 +60,7 @@ export async function loginAction(formData: FormData) {
 
   const username = formData.get("username") as string;
   const password = formData.get("password") as string;
-  const callbackUrl = (formData.get("callbackUrl") as string) || "/dashboard";
+  const callbackUrl = safeCallbackPath(formData.get("callbackUrl") as string | null);
 
   try {
     // redirect:false → signIn sets the session cookie and RETURNS (no thrown
@@ -112,15 +113,16 @@ export async function googleLoginAction(idToken: string, callbackUrl?: string) {
   if (!idToken) {
     return { error: "Google sign-in failed. Please try again." };
   }
+  const destination = safeCallbackPath(callbackUrl);
 
   try {
     // redirect:false → cookie is set, no NEXT_REDIRECT thrown; client hard-navs.
     await signIn("google", {
       id_token: idToken,
       redirect: false,
-      redirectTo: callbackUrl || "/dashboard",
+      redirectTo: destination,
     });
-    return { ok: true, url: callbackUrl || "/dashboard" };
+    return { ok: true, url: destination };
   } catch (error) {
     if (error instanceof CredentialsSignin) {
       switch (error.code) {

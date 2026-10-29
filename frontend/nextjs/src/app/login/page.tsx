@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react
 import Script from 'next/script';
 import { Lock, User, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import { safeCallbackPath } from '@/lib/callback-url';
 import { loginAction, googleLoginAction } from '@/app/actions/auth';
 
 // Public OAuth client ID for printo.in's Google project — safe to expose to the
@@ -19,7 +20,7 @@ const LoginForm = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const callbackUrl = safeCallbackPath(searchParams.get('callbackUrl'));
   // `?error=` is set when the proxy bounces an already-signed-in session back
   // here — today only a deactivated employee. Without this the redirect lands
   // on a blank form with no explanation, which reads as the app logging you out
