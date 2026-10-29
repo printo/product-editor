@@ -721,7 +721,7 @@ Smoke: `scripts/smoke-test-calendar.sh`. Benchmark: a 12-surface render was ~1.8
 
 ## Migrations
 
-Run only via the `backend` container. Current latest: `0026_layouttemplate_orientation`.
+Run only via the `backend` container. Current latest: `0025_layouttemplate_sharing_and_orientation`.
 
 | Migration | Change |
 |---|---|
@@ -748,8 +748,7 @@ Run only via the `backend` container. Current latest: `0026_layouttemplate_orien
 | 0021 | `LayoutTemplate` |
 | 0023 | `EmbedSession.orientation` (blank = as authored) |
 | 0024 | `LayoutTag` (seeded with the nine former hard-coded tags); every layout's `tags` names become `tagKeys`, names matching no seed tag become tags of their own; no version bump |
-| 0025 | `LayoutTemplate.extra_layouts` — the other same-window-box layouts a template is also offered on (the home layout stays `layout`) |
-| 0026 | `LayoutTemplate.orientation` — the way a template faces (`''` as drawn, `portrait`, `landscape`); existing rows stay blank |
+| 0025 | `LayoutTemplate.extra_layouts` (the other same-window-box layouts a template is also offered on; the home layout stays `layout`) and `LayoutTemplate.orientation` (the way a template faces: `''` as drawn, `portrait`, `landscape`; existing rows stay blank). One migration for the whole shared-templates PR, by request |
 | 0022 | `APIKey.max_requests_per_day` → `PositiveIntegerField`, default blank (no cap), every existing unchosen value blanked; the field is enforced from here on |
 
 **Ownership contract:** `editor_state` is frontend-owned — written only by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written only by `EditorRenderView` at submit, read only by `render_canvas_task`. Never cross the streams.
