@@ -13,6 +13,8 @@
  * editor and the layout cards draw. `bleed` is never a default.
  */
 
+import { mmToUnit } from '@/lib/units';
+
 export type PrintSheetMode = 'canvas' | 'bleed';
 
 export interface PrintSheet {
@@ -179,8 +181,13 @@ export function boxKey(box: MmRect | null | undefined): string | null {
   return `${Math.round(num(box.widthMm))}x${Math.round(num(box.heightMm))}`;
 }
 
-/** `'117 × 168 mm'` for the ops pages, which call the windows "print areas". */
-export function boxLabel(box: MmRect | null | undefined): string {
+/** Millimetres as the inches the ops team talks in: two decimals, trailing zeros dropped (`101.6` → `'4'`, `116.84` → `'4.6'`). */
+export function inches(mm: number): string {
+  return String(Math.round(mmToUnit(num(mm), 'in') * 100) / 100);
+}
+
+/** `'4 × 6 in'` for the ops pages, which call the windows "print areas". */
+export function boxLabelIn(box: MmRect | null | undefined): string {
   if (!box) return 'no print areas';
-  return `${Math.round(num(box.widthMm))} × ${Math.round(num(box.heightMm))} mm`;
+  return `${inches(box.widthMm)} × ${inches(box.heightMm)} in`;
 }

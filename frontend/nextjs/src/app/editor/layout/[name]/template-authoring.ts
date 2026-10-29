@@ -9,7 +9,7 @@
  * uploads it as a sticker first and swaps it for a `clipart` overlay.
  */
 import type { SurfaceDefinition } from '@/lib/layout-utils';
-import { boxLabel, type MmRect } from '@/lib/print-sheet';
+import { boxLabelIn, inches, type MmRect } from '@/lib/print-sheet';
 import type { AuthoredOn, SideGeometry, SideLike, TemplateDecoration, TemplateSide } from './layout-template';
 import { placeSideOverlays, surfaceGeometry, templateSide } from './layout-template';
 import type { CanvasItem, FrameState, Overlay } from './types';
@@ -148,10 +148,13 @@ const NO_WINDOWS = NO_PRINT_AREAS_KEY;
 const sameSides = (a: Pick<TemplateCandidate, 'surfaceKeys'>, b: Pick<TemplateCandidate, 'surfaceKeys'>) =>
   (a.surfaceKeys ?? []).join(',') === (b.surfaceKeys ?? []).join(',');
 
-/** "117 × 168 mm, 7.6 mm bleed" for a layout. */
-export function sizeLabel(c: Pick<TemplateCandidate, 'windowBox' | 'bleedMm'>): string {
-  const bleed = Number(c.bleedMm) > 0 ? `, ${Math.round(Number(c.bleedMm) * 10) / 10} mm bleed` : '';
-  return `${boxLabel(c.windowBox)}${bleed}`;
+/** "4 × 6 in, 0.3 in bleed": the size as the team says it, the print areas
+ *  in inches plus their bleed. (The key the server matches on is the box
+ *  with the bleed included, so two labels that differ only in bleed are
+ *  two sizes.) */
+export function sizeLabel(c: Pick<TemplateCandidate, 'printAreaBox' | 'bleedMm'>): string {
+  const bleed = Number(c.bleedMm) > 0 ? `, ${inches(Number(c.bleedMm))} in bleed` : '';
+  return `${boxLabelIn(c.printAreaBox)}${bleed}`;
 }
 
 /** A ticked layout the template can no longer be offered on: retired since
@@ -179,8 +182,9 @@ export function ineligibleTicked(candidates: TemplateCandidate[], homeName: stri
     });
 }
 
-/** Layouts grouped by window box for the Create picker: the biggest group
- *  first, layouts without print areas last. */
+/** Layouts grouped by window box for the Create picker and the Templates
+ *  filter: smallest size first, layouts without print areas last, layouts
+ *  by name within a group. */
 export function groupBySize(candidates: TemplateCandidate[]): SizeGroup[] {
   const groups = new Map<string, SizeGroup>();
   for (const c of candidates) {
@@ -189,9 +193,13 @@ export function groupBySize(candidates: TemplateCandidate[]): SizeGroup[] {
     g.layouts.push(c);
     groups.set(key, g);
   }
+  const area = (g: SizeGroup) => {
+    const b = g.layouts[0]?.windowBox;
+    return b ? b.widthMm * b.heightMm : Number.POSITIVE_INFINITY;
+  };
   return [...groups.values()]
     .map(g => ({ ...g, layouts: [...g.layouts].sort((a, b) => a.displayName.localeCompare(b.displayName)) }))
-    .sort((a, b) => (a.key === NO_WINDOWS ? 1 : 0) - (b.key === NO_WINDOWS ? 1 : 0) || b.layouts.length - a.layouts.length || a.label.localeCompare(b.label));
+    .sort((a, b) => area(a) - area(b) || a.label.localeCompare(b.label));
 }
 
 /** The other layouts a template authored on `homeName` can be offered on:

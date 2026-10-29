@@ -69,7 +69,10 @@ export interface LayoutTemplate {
   alsoOn?: string[];
   /** Ops reads only: ticked layouts that were retired or no longer have the same box. */
   alsoOnMismatch?: string[];
+  /** Ops reads only: the home layout's size, the box the key is made of and the print areas it is shown as. */
   windowBox?: MmRect | null;
+  printAreaBox?: MmRect | null;
+  bleedMm?: number;
   displayName: string;
   status?: 'draft' | 'published';
   decoration: TemplateDecoration;

@@ -74,31 +74,38 @@ describe('decorationFromCards', () => {
 });
 
 describe('sharing a template across layouts with the same print areas', () => {
-  const cand = (name: string, displayName: string, windowKey: string | null, printAreaKey: string | null, bleedMm: number, templateCount = 0, surfaceKeys = ['default']): TemplateCandidate => ({
-    name, displayName, windowKey, printAreaKey, bleedMm, templateCount, surfaceKeys, printAreaBox: null,
-    windowBox: windowKey ? { xMm: 0, yMm: 0, widthMm: Number(windowKey.split('x')[0]), heightMm: Number(windowKey.split('x')[1]) } : null,
+  // Boxes in mm; keys are the server's (rounded to the mm, bleed included for `window`).
+  const box = (wh: [number, number] | null) => (wh ? { xMm: 0, yMm: 0, widthMm: wh[0], heightMm: wh[1] } : null);
+  const key = (wh: [number, number] | null) => (wh ? `${Math.round(wh[0])}x${Math.round(wh[1])}` : null);
+  const cand = (name: string, displayName: string, win: [number, number] | null, area: [number, number] | null, bleedMm: number, templateCount = 0, surfaceKeys = ['default']): TemplateCandidate => ({
+    name, displayName, bleedMm, templateCount, surfaceKeys,
+    windowBox: box(win), windowKey: key(win), printAreaBox: box(area), printAreaKey: key(area),
   });
+  const FOUR_BY_SIX: [number, number] = [101.6, 152.4];
   const candidates = [
-    cand('frame_1in', 'Frame one-inch', '117x168', '102x152', 7.62, 1),
-    cand('frame_half', 'Frame half-inch', '117x168', '102x152', 7.62),
-    cand('thin', 'Thin bleed', '112x162', '102x152', 5),
-    cand('print', 'Print 4x6', '102x152', '102x152', 0),
+    cand('frame_1in', 'Frame one-inch', [116.84, 167.64], FOUR_BY_SIX, 7.62, 1),
+    cand('frame_half', 'Frame half-inch', [116.84, 167.64], FOUR_BY_SIX, 7.62),
+    cand('thin', 'Thin bleed', [111.6, 162.4], FOUR_BY_SIX, 5),
+    cand('print', 'Print 4x6', FOUR_BY_SIX, FOUR_BY_SIX, 0),
     cand('bare', 'Bare', null, null, 0),
     // Same size, but two sides: the decoration is drawn per side, so not a match.
-    cand('card', 'Folded card', '117x168', '102x152', 7.62, 0, ['front', 'back']),
+    cand('card', 'Folded card', [116.84, 167.64], FOUR_BY_SIX, 7.62, 0, ['front', 'back']),
   ];
 
-  it('labels a size with its bleed only when there is one', () => {
-    expect(sizeLabel(candidates[0])).toBe('117 × 168 mm, 7.6 mm bleed');
-    expect(sizeLabel(candidates[3])).toBe('102 × 152 mm');
+  it('labels a size in inches as the print areas plus their bleed, the bleed only when there is one', () => {
+    expect(sizeLabel(candidates[0])).toBe('4 × 6 in, 0.3 in bleed');
+    expect(sizeLabel(candidates[2])).toBe('4 × 6 in, 0.2 in bleed');
+    expect(sizeLabel(candidates[3])).toBe('4 × 6 in');
     expect(sizeLabel(candidates[4])).toBe('no print areas');
   });
 
-  it('groups layouts by size for the Create picker, biggest group first, no print areas last', () => {
+  it('groups layouts by size for the Create picker, smallest size first, no print areas last', () => {
     const groups = groupBySize(candidates);
-    expect(groups.map(g => g.key)).toEqual(['117x168', '102x152', '112x162', 'none']);
-    expect(groups[0].layouts.map(c => c.name)).toEqual(['card', 'frame_half', 'frame_1in']);
-    expect(groups[0].label).toBe('117 × 168 mm, 7.6 mm bleed');
+    expect(groups.map(g => g.key)).toEqual(['102x152', '112x162', '117x168', 'none']);
+    expect(groups[2].layouts.map(c => c.name)).toEqual(['card', 'frame_half', 'frame_1in']);
+    expect(groups[0].label).toBe('4 × 6 in');
+    expect(groups[1].label).toBe('4 × 6 in, 0.2 in bleed');
+    expect(groups[2].label).toBe('4 × 6 in, 0.3 in bleed');
     expect(groups[3].label).toBe('No print areas');
   });
 
@@ -114,9 +121,9 @@ describe('sharing a template across layouts with the same print areas', () => {
   it('keeps a ticked layout that was retired, resized or re-sided visible so it can be unticked', () => {
     const out = ineligibleTicked(candidates, 'frame_1in', ['frame_half', 'thin', 'gone', 'card', 'frame_1in']);
     expect(out).toEqual([
-      { name: 'thin', displayName: 'Thin bleed', reason: 'size_changed', size: '112 × 162 mm, 5 mm bleed' },
+      { name: 'thin', displayName: 'Thin bleed', reason: 'size_changed', size: '4 × 6 in, 0.2 in bleed' },
       { name: 'gone', displayName: 'gone', reason: 'retired', size: '' },
-      { name: 'card', displayName: 'Folded card', reason: 'sides_changed', size: '117 × 168 mm, 7.6 mm bleed' },
+      { name: 'card', displayName: 'Folded card', reason: 'sides_changed', size: '4 × 6 in, 0.3 in bleed' },
     ]);
     expect(ineligibleTicked(candidates, 'frame_1in', [])).toEqual([]);
   });

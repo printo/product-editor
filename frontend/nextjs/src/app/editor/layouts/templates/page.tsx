@@ -18,12 +18,13 @@ import { ArrowLeft, Loader2, Plus, Search } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useHeader } from '@/context/HeaderContext';
 import { readError } from '@/lib/read-error';
-import { boxLabel } from '@/lib/print-sheet';
 import { useModalA11y } from '@/lib/use-modal-a11y';
-import { NO_PRINT_AREAS_KEY, groupBySize, type TemplateCandidate } from '@/app/editor/layout/[name]/template-authoring';
+import { NO_PRINT_AREAS_KEY, groupBySize, sizeLabel, type TemplateCandidate } from '@/app/editor/layout/[name]/template-authoring';
 import { DeleteTemplateDialog, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
 
 const API = '/api/internal/proxy';
+/** A filter value that names a size group rather than one layout. */
+const SIZE_FILTER = 'size:';
 
 export default function AllTemplatesPage() {
   const router = useRouter();
@@ -35,8 +36,8 @@ export default function AllTemplatesPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<OpsTemplate | null>(null);
-  const [sizeFilter, setSizeFilter] = useState('');
-  const [layoutFilter, setLayoutFilter] = useState('');
+  // One dropdown: a size group ("size:<key>") or one layout.
+  const [filter, setFilter] = useState('');
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
   const [createLayout, setCreateLayout] = useState('');
@@ -96,12 +97,15 @@ export default function AllTemplatesPage() {
     const q = query.trim().toLowerCase();
     return templates.filter(t => {
       const home = byName.get(t.layoutName);
-      if (sizeFilter && (home?.windowKey ?? NO_PRINT_AREAS_KEY) !== sizeFilter) return false;
-      if (layoutFilter && t.layoutName !== layoutFilter && !(t.alsoOn ?? []).includes(layoutFilter)) return false;
+      if (filter.startsWith(SIZE_FILTER)) {
+        if ((home?.windowKey ?? NO_PRINT_AREAS_KEY) !== filter.slice(SIZE_FILTER.length)) return false;
+      } else if (filter && t.layoutName !== filter && !(t.alsoOn ?? []).includes(filter)) {
+        return false;
+      }
       if (q && !`${t.displayName} ${t.id}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [templates, byName, sizeFilter, layoutFilter, query]);
+  }, [templates, byName, filter, query]);
 
   const act = async (id: string, run: () => Promise<Response>, failure: string) => {
     setBusyId(id);
@@ -158,14 +162,11 @@ export default function AllTemplatesPage() {
               className={clsx(inputClass, 'w-full pl-9')}
             />
           </label>
-          <select value={sizeFilter} onChange={e => setSizeFilter(e.target.value)} aria-label="Filter by size" className={inputClass}>
-            <option value="">All sizes</option>
-            {groups.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
-          </select>
-          <select value={layoutFilter} onChange={e => setLayoutFilter(e.target.value)} aria-label="Filter by layout" className={inputClass}>
+          <select value={filter} onChange={e => setFilter(e.target.value)} aria-label="Filter by size or layout" className={inputClass}>
             <option value="">All layouts</option>
             {groups.map(g => (
               <optgroup key={g.key} label={g.label}>
+                <option value={`${SIZE_FILTER}${g.key}`}>{g.key === NO_PRINT_AREAS_KEY ? 'Every layout without print areas' : 'Every layout of this size'}</option>
                 {g.layouts.map(c => <option key={c.name} value={c.name}>{c.displayName}</option>)}
               </optgroup>
             ))}
@@ -207,7 +208,7 @@ export default function AllTemplatesPage() {
                   notes={(
                     <dl className="text-[11px] text-slate-600 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
                       <dt className="font-bold uppercase tracking-tight text-slate-400">Size</dt>
-                      <dd>{boxLabel(t.windowBox)}</dd>
+                      <dd>{sizeLabel({ printAreaBox: t.printAreaBox ?? null, bleedMm: t.bleedMm ?? 0 })}</dd>
                       <dt className="font-bold uppercase tracking-tight text-slate-400">On</dt>
                       <dd className="truncate" title={offeredOn.map(displayNameOf).join(', ')}>
                         {displayNameOf(t.layoutName)}

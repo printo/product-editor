@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  boxKey, boxLabel, printAreaBoxMm, printSheetAreaMm, printSheetAreaPx, printSheetLabel, printSheetMode, readPrintSheet,
+  boxKey, boxLabelIn, inches, printAreaBoxMm, printSheetAreaMm, printSheetAreaPx, printSheetLabel, printSheetMode, readPrintSheet,
   windowBoxMm, windowsBleedAreaMm,
 } from '../print-sheet';
 
@@ -103,9 +103,13 @@ describe('the window box a template is keyed on (parity with services/print_shee
     expect(key(byName['classic 4x6 print: one full-canvas window, no bleed'])).toBe('102x152');
   });
 
-  it('labels a box for the ops pages', () => {
-    expect(boxLabel({ xMm: 0, yMm: 0, widthMm: 116.84, heightMm: 167.64 })).toBe('117 × 168 mm');
-    expect(boxLabel(null)).toBe('no print areas');
+  it('labels a box in inches for the ops pages', () => {
+    expect(boxLabelIn({ xMm: 0, yMm: 0, widthMm: 101.6, heightMm: 152.4 })).toBe('4 × 6 in');
+    expect(boxLabelIn({ xMm: 0, yMm: 0, widthMm: 116.84, heightMm: 167.64 })).toBe('4.6 × 6.6 in');
+    expect(boxLabelIn({ xMm: 0, yMm: 0, widthMm: 210.06, heightMm: 296.93 })).toBe('8.27 × 11.69 in');
+    expect(boxLabelIn(null)).toBe('no print areas');
+    expect(inches(7.62)).toBe('0.3');
+    expect(inches(5)).toBe('0.2');
     expect(boxKey(null)).toBeNull();
   });
 });

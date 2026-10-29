@@ -101,6 +101,8 @@ def serialize_template(t: LayoutTemplate, *, layout_version: int | None = None) 
         # (ops decide) but is named so the pages can flag it; the next save
         # that sends `also_on` is refused until it is unticked.
         data['windowBox'] = size['windowBox']
+        data['printAreaBox'] = size['printAreaBox']
+        data['bleedMm'] = size['bleedMm']
         data['layoutChanged'] = layout_version != t.layout_version
         data['homeRetired'] = bool(t.layout.is_deprecated)
         data['alsoOnMismatch'] = sorted(
@@ -163,6 +165,8 @@ def _template_schema(name: str):
             'layoutVersion': drf_serializers.IntegerField(),
             'updatedAt': drf_serializers.CharField(allow_null=True),
             'windowBox': _box_schema(f"{name}WindowBox"),
+            'printAreaBox': _box_schema(f"{name}PrintAreaBox"),
+            'bleedMm': drf_serializers.FloatField(required=False, help_text='Ops reads only: the home layout\'s bleed, shown with the size.'),
             'layoutChanged': drf_serializers.BooleanField(
                 required=False, help_text='Ops reads only: the home layout was saved since the template was.',
             ),

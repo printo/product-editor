@@ -296,6 +296,8 @@ class SharedTemplatesTest(_Base):
         self.assertEqual(data['layoutName'], 'tpl_test_4x6')
         self.assertEqual(data['alsoOn'], ['tpl_frame_half'])
         self.assertEqual(data['windowBox'], {'xMm': 15.24, 'yMm': 10.16, 'widthMm': 121.92, 'heightMm': 81.28})
+        self.assertEqual(data['printAreaBox'], data['windowBox'])   # no bleed on this layout
+        self.assertEqual(data['bleedMm'], 0)
         stamp = data['decoration']['authoredOn']
         self.assertEqual(stamp['layout'], 'tpl_test_4x6')
         self.assertEqual(stamp['surfaces']['default']['canvas'], {'width': 1800, 'height': 1200, 'widthMm': 152.4, 'heightMm': 101.6})
