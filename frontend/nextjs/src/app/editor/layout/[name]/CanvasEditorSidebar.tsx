@@ -8,7 +8,8 @@ import { Dropdown } from '@/components/ui/Dropdown';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
-import { isLostLocalImage } from './editor-utils';
+import { isLostLocalImage, type OverlayAlignment } from './editor-utils';
+import { ARTWORK_LABEL, artworkOverlayFor } from './template-authoring';
 import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import { convertHeicFiles, type ServerHeicConverter } from '@/lib/heic-convert';
 import { DEFAULT_OVERLAY_FONT, overlayFontFamily } from '@/lib/overlay-fonts';
@@ -22,7 +23,7 @@ export interface CanvasEditorSidebarProps {
   selectedLayer: LayerSelection;
   setSelectedLayer: React.Dispatch<React.SetStateAction<LayerSelection>>;
   handleAlign: (fIdx: number, alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
-  handleOverlayAlign: (oIdx: number, alignment: 'center' | 'middle') => void;
+  handleOverlayAlign: (oIdx: number, alignment: OverlayAlignment) => void;
   handleUpdateTransform: (fIdx: number, updates: Partial<{ scale: number; x: number; y: number; rotation: number }>) => void;
   handleSaveChanges: () => void;
   getFileUrl: (file: File) => string;
@@ -579,6 +580,29 @@ export function CanvasEditorSidebar({
                       <input type="range" min="0" max="100" step="5" value={Math.round(imgOverlay.opacity * 100)}
                         onChange={e => updateImage({ opacity: parseInt(e.target.value) / 100 })}
                         className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-emerald-500" />
+                    </div>
+
+                    <div className="space-y-3 pt-5 border-t border-slate-100">
+                      <label className="text-[11px] font-medium text-slate-500 uppercase">Position</label>
+                      <AlignmentToolbar
+                        onHAlign={key => handleOverlayAlign(oIdx, key)}
+                        onVAlign={key => handleOverlayAlign(oIdx, key)}
+                        suffix={imgOverlay.label === ARTWORK_LABEL && layout ? (
+                          // A template's full-sheet artwork belongs over what the
+                          // side prints; one click puts it back there after a nudge.
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const fit = artworkOverlayFor(layout, imgOverlay.src);
+                              updateImage({ x: fit.x, y: fit.y, width: fit.width, height: fit.height, rotation: 0 });
+                            }}
+                            title="Cover what this side prints again: the print areas plus bleed, or the whole canvas"
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-[10px] font-bold uppercase tracking-tight text-slate-600 hover:text-indigo-600 hover:bg-white transition-all"
+                          >
+                            Fit print area
+                          </button>
+                        ) : undefined}
+                      />
                     </div>
 
                     <div className="space-y-5 pt-5 border-t border-slate-100">

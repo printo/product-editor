@@ -72,7 +72,7 @@ export const ARTWORK_ACCEPT_ATTR = '.png,.svg,image/png,image/svg+xml';
  * whole canvas. Percent of the canvas, like every overlay, so it is placed
  * on another layout by the same rule as the rest of the decoration.
  */
-export function artworkOverlayFor(def: Pick<SurfaceDefinition, 'canvas' | 'frames' | 'printSheet'>, src: string): Overlay {
+export function artworkOverlayFor(def: Pick<SurfaceDefinition, 'canvas' | 'frames' | 'printSheet'>, src: string): Extract<Overlay, { type: 'image' }> {
   const canvas = def.canvas as { widthMm?: number; heightMm?: number };
   const wMm = Number(canvas?.widthMm ?? 0);
   const hMm = Number(canvas?.heightMm ?? 0);

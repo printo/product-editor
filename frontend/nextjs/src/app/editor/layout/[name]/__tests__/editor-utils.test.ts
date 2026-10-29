@@ -1,7 +1,8 @@
 import {
   shouldAutoRotate90, resolveRotation, formatWait, formatLayoutDisplayName,
-  readCardCountHint, writeCardCountHint, MAX_SKELETON_CARDS, activatesCard,
+  readCardCountHint, writeCardCountHint, MAX_SKELETON_CARDS, activatesCard, alignOverlay,
 } from '../editor-utils';
+import type { Overlay } from '../types';
 import type { OrientationOutcome, OrientationResult } from '@/lib/ml-orientation';
 
 // Sizes from the worked examples in shouldAutoRotate90's comment.
@@ -192,5 +193,27 @@ describe('activatesCard', () => {
   it('leaves keys pressed on a button inside the card to that button', () => {
     expect(activatesCard({ key: 'Enter', target: buttonInCard, currentTarget: card })).toBe(false);
     expect(activatesCard({ key: ' ', target: buttonInCard, currentTarget: card })).toBe(false);
+  });
+});
+
+describe('alignOverlay', () => {
+  const image: Overlay = { type: 'image', id: 'a', source: 'clipart', src: '/api/templates/assets/sticker_x.svg', label: 'Artwork', x: 12.3, y: 7.5, width: 76.667, height: 82.5, rotation: 0, opacity: 1 };
+  const text: Overlay = { type: 'text', id: 't', text: 'Hi', x: 20, y: 30, fontSize: 40, color: '#000000', fontFamily: 'Inter', textAlign: 'center', rotation: 0 };
+
+  it('places an image by its box: edges flush, centre and middle by half its size', () => {
+    expect(alignOverlay(image, 'left')).toMatchObject({ x: 0, y: 7.5 });
+    expect(alignOverlay(image, 'center')).toMatchObject({ x: 11.7, y: 7.5 });
+    expect(alignOverlay(image, 'right')).toMatchObject({ x: 23.3, y: 7.5 });
+    expect(alignOverlay(image, 'top')).toMatchObject({ x: 12.3, y: 0 });
+    expect(alignOverlay(image, 'middle')).toMatchObject({ x: 12.3, y: 8.8 });
+    expect(alignOverlay(image, 'bottom')).toMatchObject({ x: 12.3, y: 17.5 });
+    expect(alignOverlay(image, 'center')).not.toBe(image);
+  });
+
+  it('keeps the historical centre and middle for text, and ignores the other keys', () => {
+    expect(alignOverlay(text, 'center')).toMatchObject({ x: 50, y: 30 });
+    expect(alignOverlay(text, 'middle')).toMatchObject({ x: 20, y: 50 });
+    expect(alignOverlay(text, 'left')).toBe(text);
+    expect(alignOverlay(text, 'bottom')).toBe(text);
   });
 });

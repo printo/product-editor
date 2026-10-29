@@ -1030,14 +1030,14 @@
     "semantic_hash": "e4c8f70f5c62f45e206ad880f2323d61"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/CanvasEditorModal.tsx": {
-    "mtime": 1793205290.6443489,
-    "ast_hash": "0142e67cae18b2ae16398bc259b45071",
-    "semantic_hash": "0142e67cae18b2ae16398bc259b45071"
+    "mtime": 1793257128.3547113,
+    "ast_hash": "4f003176776d4cc22212405073c65173",
+    "semantic_hash": "4f003176776d4cc22212405073c65173"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/CanvasEditorSidebar.tsx": {
-    "mtime": 1793205290.6456382,
-    "ast_hash": "f6135a08ef6a3626095c1d5e7e87677c",
-    "semantic_hash": "f6135a08ef6a3626095c1d5e7e87677c"
+    "mtime": 1793257115.115275,
+    "ast_hash": "77fc257e9a3ad71fc4a9a237b0655238",
+    "semantic_hash": "77fc257e9a3ad71fc4a9a237b0655238"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/CanvasGrid.tsx": {
     "mtime": 1793205290.6465523,
@@ -1185,9 +1185,9 @@
     "semantic_hash": "24c0a22cacf400e0a2182675a4c4da33"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/editor-utils.test.ts": {
-    "mtime": 1793205290.6074488,
-    "ast_hash": "0ecaf32937a4a149cb9003d5ba3d8653",
-    "semantic_hash": "0ecaf32937a4a149cb9003d5ba3d8653"
+    "mtime": 1793257153.459955,
+    "ast_hash": "2a0f39814c404355187fc20330d92d1e",
+    "semantic_hash": "2a0f39814c404355187fc20330d92d1e"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/file-refs.test.ts": {
     "mtime": 1793205290.6085684,
@@ -1355,9 +1355,9 @@
     "semantic_hash": "bd16e4f3ef86dc87d55c9b587f2289a6"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/editor-utils.ts": {
-    "mtime": 1793205290.6456962,
-    "ast_hash": "a2781dacc90a2c0e3927b204a7595d77",
-    "semantic_hash": "a2781dacc90a2c0e3927b204a7595d77"
+    "mtime": 1793257153.3372197,
+    "ast_hash": "b60a28708c0d4cfdc721c728aa5458f5",
+    "semantic_hash": "b60a28708c0d4cfdc721c728aa5458f5"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/fabric-renderer.ts": {
     "mtime": 1793205290.646377,
@@ -1410,9 +1410,9 @@
     "semantic_hash": "7b78876beda00908ea9b8c8185770a09"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/template-authoring.ts": {
-    "mtime": 1793254869.8420131,
-    "ast_hash": "77295cfe0e4e51136e38f74babe7d612",
-    "semantic_hash": "77295cfe0e4e51136e38f74babe7d612"
+    "mtime": 1793257196.3429322,
+    "ast_hash": "ee1984dd3323da7e72e7337c37feb082",
+    "semantic_hash": "ee1984dd3323da7e72e7337c37feb082"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/types.ts": {
     "mtime": 1793205290.6121662,
