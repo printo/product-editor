@@ -7,6 +7,12 @@
  * (template-authoring.ts). Images from the Uploads tab are uploaded as
  * stickers at save; the thumbnail is the first side rendered without photos.
  *
+ * A template faces one way. `?orientation=portrait|landscape` on a new
+ * template (from the Templates page's Create dialog) loads the layout turned
+ * a quarter turn when it is drawn the other way, exactly as a customer order
+ * with that orientation sees it, and the template is saved for that way; an
+ * existing template loads its own. Nothing here turns a design.
+ *
  * Routes:
  *   /editor/layouts/templates/<layout>/new   → a new template
  *   /editor/layouts/templates/<layout>/<id>  → edit that template
@@ -18,7 +24,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Check, Image as ImageIcon, Loader2, PencilRuler, Save } from 'lucide-react';
+import { ArrowLeft, Check, Image as ImageIcon, Layers, Loader2, PencilRuler, Save, Upload } from 'lucide-react';
 import { useHeader } from '@/context/HeaderContext';
 import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
 import { usePdfPageImport } from '@/components/use-pdf-page-import';
@@ -29,12 +35,31 @@ import { CanvasEditorModal } from '@/app/editor/layout/[name]/CanvasEditorModal'
 import { renderCanvas } from '@/app/editor/layout/[name]/fabric-renderer';
 import { useObjectUrls } from '@/app/editor/layout/[name]/useCanvasGeneration';
 import type { CanvasItem, SurfaceState } from '@/app/editor/layout/[name]/types';
-import { isLayoutTemplate, type LayoutTemplate, type TemplateDecoration } from '@/app/editor/layout/[name]/layout-template';
+import { isLayoutTemplate, surfaceGeometry, type LayoutTemplate, type TemplateDecoration } from '@/app/editor/layout/[name]/layout-template';
 import {
-  blankCard, dataUrlToPngFile, decorationFromCards, isEmptyDecoration, isTemplateId, localImageOverlays, slugFromName, withoutPhotos,
+  ARTWORK_ACCEPT_ATTR, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, drawnFacing, ineligibleTicked,
+  isEmptyDecoration, isTemplateId, localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withArtwork,
+  withoutPhotos, type BoxFacing, type TemplateCandidate,
 } from '@/app/editor/layout/[name]/template-authoring';
+import type { OrientationReport } from '@/app/editor/layout/[name]/orientation';
 
 const API = '/api/internal/proxy';
+
+type Facing = 'portrait' | 'landscape';
+
+/** The way a new template faces, from the Create dialog (`?orientation=`). */
+function facingFromAddress(): Facing | null {
+  if (typeof window === 'undefined') return null;
+  const v = (new URLSearchParams(window.location.search).get('orientation') || '').toLowerCase();
+  return v === 'portrait' || v === 'landscape' ? v : null;
+}
+
+const CANNOT_TURN: Record<string, string> = {
+  not_rotatable: 'it is switched off for rotating',
+  has_captions: 'it has captions',
+  has_overlays: 'it has fixed text or stickers',
+  svg_mask: 'it has an SVG mask',
+};
 
 export default function TemplateEditorPage() {
   const router = useRouter();
@@ -59,6 +84,23 @@ export default function TemplateEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // Sharing: every generic layout with its window box, the other layouts
+  // this template is ticked for, and the one being previewed ('' = home).
+  const [candidates, setCandidates] = useState<TemplateCandidate[]>([]);
+  const [alsoOn, setAlsoOn] = useState<string[]>([]);
+  const [previewOn, setPreviewOn] = useState('');
+  const [previewSides, setPreviewSides] = useState<Array<{ key: string; label: string; dataUrl: string | null }> | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  // Created by size from the Templates page (`?tick=size`): every other layout
+  // of the size starts ticked, and the page says so.
+  const [preTicked, setPreTicked] = useState(false);
+  // The way the template faces ('' = the home layout as drawn), and whether
+  // the home layout is shown turned for it.
+  const [facing, setFacing] = useState<Facing | ''>('');
+  const [turnedHome, setTurnedHome] = useState(false);
+  // "Upload artwork" per side: the side being uploaded, and its hidden file input.
+  const [artworkBusy, setArtworkBusy] = useState<string | null>(null);
+  const artworkInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
   const { getFileUrl } = useObjectUrls();
@@ -68,7 +110,8 @@ export default function TemplateEditorPage() {
 
   useEffect(() => {
     setTitle('Template Editor');
-    setDescription(isNew ? `New template for ${layoutName}` : `Editing ${routeId} on ${layoutName}`);
+    const way = facing ? `${facing} ` : '';
+    setDescription(isNew ? `New ${way}template for ${layoutName}` : `Editing ${routeId} on ${layoutName}${facing ? ` (${facing})` : ''}`);
     setCenterActions(null);
     setRightActions(
       <Link
@@ -81,7 +124,7 @@ export default function TemplateEditorPage() {
       </Link>,
     );
     return () => { setTitle(''); setDescription(''); setCenterActions(null); setRightActions(null); };
-  }, [isNew, layoutName, routeId, setTitle, setDescription, setCenterActions, setRightActions]);
+  }, [isNew, layoutName, routeId, facing, setTitle, setDescription, setCenterActions, setRightActions]);
 
   useEffect(() => {
     new Set([DEFAULT_OVERLAY_FONT, ...selectedFonts]).forEach(f => loadGoogleFont(f));
@@ -91,7 +134,9 @@ export default function TemplateEditorPage() {
   // fixed top bar covers the form; start at the top (window API in an effect).
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
-  // Load the layout, the fonts list and (when editing) the template.
+  // Load the fonts list, (when editing) the template, the candidates, then
+  // the layout the way the template faces: a new template's from the
+  // address, an existing one's own. The server turns the layout (ops key).
   useEffect(() => {
     if (!layoutName) return;
     let cancelled = false;
@@ -99,16 +144,11 @@ export default function TemplateEditorPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [layoutRes, fontsRes, templateRes] = await Promise.all([
-          fetch(`${API}/layouts/${encodeURIComponent(layoutName)}`),
+        const [fontsRes, templateRes, candidatesRes] = await Promise.all([
           fetch(`${API}/fonts`),
           isNew ? Promise.resolve(null) : fetch(`${API}/ops/templates/${encodeURIComponent(routeId)}`, { cache: 'no-store' }),
+          fetch(`${API}/ops/templates/candidates`, { cache: 'no-store' }),
         ]);
-        if (!layoutRes.ok) throw new Error(await readError(layoutRes, `Layout '${layoutName}' not found (HTTP ${layoutRes.status}).`));
-        const item = await layoutRes.json();
-        if (item.productType === 'calendar' || item.productType === 'book') {
-          throw new Error('Templates are not available for calendars and books yet.');
-        }
         let template: LayoutTemplate | null = null;
         if (templateRes) {
           if (!templateRes.ok) throw new Error(await readError(templateRes, `Template '${routeId}' not found (HTTP ${templateRes.status}).`));
@@ -117,10 +157,38 @@ export default function TemplateEditorPage() {
           if (data.layoutName !== layoutName) throw new Error(`Template '${routeId}' belongs to layout '${data.layoutName}'.`);
           template = data;
         }
+        const way: Facing | '' = isNew ? facingFromAddress() ?? '' : (template?.orientation === 'portrait' || template?.orientation === 'landscape' ? template.orientation : '');
+        const layoutRes = await fetch(`${API}/layouts/${encodeURIComponent(layoutName)}${way ? `?orientation=${way}` : ''}`);
+        if (!layoutRes.ok) throw new Error(await readError(layoutRes, `Layout '${layoutName}' not found (HTTP ${layoutRes.status}).`));
+        const item = await layoutRes.json();
+        if (item.productType === 'calendar' || item.productType === 'book') {
+          throw new Error('Templates are not available for calendars and books yet.');
+        }
+        const report = (item.orientationReport ?? null) as OrientationReport | null;
+        if (way && report && !report.applied && report.reason !== 'already_that_orientation') {
+          const why = CANNOT_TURN[report.reason ?? ''] ?? (report.reason === 'square_layout' ? 'it is square' : `${report.reason}`);
+          throw new Error(`This layout cannot be shown in ${way}: ${why}. Design the template on it as drawn, or on a layout drawn ${way}.`);
+        }
+        if (!cancelled) {
+          setFacing(way);
+          setTurnedHome(Boolean(report?.applied));
+        }
         if (fontsRes.ok) {
           const fonts = await fontsRes.json().catch(() => null);
           const list = Array.isArray(fonts?.fonts) ? fonts.fonts : Array.isArray(fonts) ? fonts : [];
           if (list.length) setSelectedFonts(pickerFonts(list));
+        }
+        if (candidatesRes.ok) {
+          const cands = await candidatesRes.json().catch(() => null);
+          const list: TemplateCandidate[] = Array.isArray(cands?.layouts) ? cands.layouts : [];
+          if (!cancelled) {
+            setCandidates(list);
+            if (isNew && new URLSearchParams(window.location.search).get('tick') === 'size') {
+              const others = sameBoxLayouts(list, layoutName, way || null).map(c => c.name);
+              setAlsoOn(others);
+              setPreTicked(others.length > 0);
+            }
+          }
         }
         if (cancelled) return;
         const norm = normalizeLayout(item);
@@ -141,6 +209,7 @@ export default function TemplateEditorPage() {
           setTemplateId(template.id);
           setIdTouched(true);
           setStatus(template.status === 'published' ? 'published' : 'draft');
+          setAlsoOn(Array.isArray(template.alsoOn) ? template.alsoOn : []);
         }
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : 'Failed to load.');
@@ -155,6 +224,56 @@ export default function TemplateEditorPage() {
   const editorLayout = useMemo(() => activeSurface && normalized
     ? { ...normalized._raw, ...activeSurface.def, name: normalized.name, canvas: activeSurface.def.canvas, frames: activeSurface.def.frames }
     : null, [activeSurface, normalized]);
+
+  const home = useMemo(() => candidates.find(c => c.name === layoutName) ?? null, [candidates, layoutName]);
+  const facingOrDrawn: BoxFacing | null = facing || null;
+  const sameBox = useMemo(() => sameBoxLayouts(candidates, layoutName, facingOrDrawn), [candidates, layoutName, facingOrDrawn]);
+  const nearMisses = useMemo(() => nearMissLayouts(candidates, layoutName, facingOrDrawn), [candidates, layoutName, facingOrDrawn]);
+  // Ticked layouts that were retired or resized since: shown ticked so ops
+  // can untick them (the server refuses a save that still names one).
+  const ineligible = useMemo(() => ineligibleTicked(candidates, layoutName, alsoOn, facingOrDrawn), [candidates, layoutName, alsoOn, facingOrDrawn]);
+  // The way the template faces, in words: asked for, else as the home is drawn.
+  const shownFacing: BoxFacing | null = facing || (home ? drawnFacing(home) : null);
+  const previewName = candidates.find(c => c.name === previewOn)?.displayName ?? previewOn;
+  const toggleAlsoOn = (name: string) => setAlsoOn(prev => (prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]));
+
+  // "Preview on": the current, possibly unsaved, decoration drawn on another
+  // layout with the same window box, placed the way the customer editor
+  // will place it (centred on that layout's box; blankCard → placeSideOverlays).
+  useEffect(() => {
+    if (!previewOn || !normalized) { setPreviewSides(null); return; }
+    let cancelled = false;
+    (async () => {
+      setPreviewLoading(true);
+      try {
+        // The other layout the way the template faces: turned when it is drawn the other way.
+        const res = await fetch(`${API}/layouts/${encodeURIComponent(previewOn)}${facing ? `?orientation=${facing}` : ''}`);
+        if (!res.ok) throw new Error(await readError(res, `Layout '${previewOn}' could not be loaded (HTTP ${res.status}).`));
+        const other = normalizeLayout(await res.json());
+        const decoration: TemplateDecoration = {
+          surfaces: Object.fromEntries(surfaces.map(s => [s.key, {
+            overlays: s.canvases[0].overlays, bgColor: s.canvases[0].bgColor, paperColor: s.canvases[0].paperColor,
+          }])),
+          authoredOn: authoredOnFor(layoutName, surfaces.map(s => ({ key: s.key, def: s.def }))),
+        };
+        const sides = await Promise.all(other.surfaces.map(async def => {
+          const card = blankCard(def, decoration, sample, surfaceGeometry(def));
+          const sideDef = { ...other._raw, ...def, canvas: def.canvas, frames: def.frames };
+          const dataUrl = await renderCanvas(card, sideDef, getFileUrl, { thumbnail: true }).catch(() => null);
+          return { key: def.key, label: def.label, dataUrl };
+        }));
+        if (!cancelled) setPreviewSides(sides);
+      } catch (e) {
+        if (!cancelled) {
+          setPreviewSides(null);
+          setError(e instanceof Error ? e.message : 'The preview could not be drawn.');
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [previewOn, normalized, surfaces, sample, layoutName, facing, getFileUrl]);
 
   const openEditor = (key: string = activeKey) => {
     const s = surfaces.find(x => x.key === key);
@@ -189,6 +308,32 @@ export default function TemplateEditorPage() {
     setSurfaces(next);
   };
 
+  // A PNG or SVG designed at this side's print size becomes its full-sheet
+  // artwork: uploaded as a sticker, placed over what the side prints, under
+  // whatever text and stickers are already there, and the side redrawn.
+  const uploadArtwork = async (key: string, file: File) => {
+    if (!normalized) return;
+    setArtworkBusy(key);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const res = await fetch(`${API}/ops/templates/assets`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(await readError(res, 'The artwork could not be uploaded. Use a PNG or an SVG.'));
+      const { url } = await res.json();
+      const side = surfaces.find(s => s.key === key);
+      if (!side || typeof url !== 'string') return;
+      const card = withArtwork(side.canvases[0], artworkOverlayFor(side.def, url));
+      const def = { ...normalized._raw, ...side.def, canvas: side.def.canvas, frames: side.def.frames };
+      const dataUrl = await renderCanvas(card, def, getFileUrl, { thumbnail: true }).catch(() => null);
+      setSurfaces(prev => prev.map(s => (s.key === key ? { ...s, canvases: [{ ...card, dataUrl }] } : s)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The artwork could not be uploaded.');
+    } finally {
+      setArtworkBusy(null);
+    }
+  };
+
   const save = async () => {
     if (!normalized) return;
     const id = (isNew ? templateId : routeId).trim();
@@ -204,9 +349,9 @@ export default function TemplateEditorPage() {
         const urls = new Map<number, string>();
         for (const { index, file } of localImageOverlays(s.canvases[0])) {
           const form = new FormData();
-          form.append('file', file, file.name.toLowerCase().endsWith('.png') ? file.name : `${file.name}.png`);
+          form.append('file', file, /\.(png|svg)$/i.test(file.name) ? file.name : `${file.name}.png`);
           const res = await fetch(`${API}/ops/templates/assets`, { method: 'POST', body: form });
-          if (!res.ok) throw new Error(await readError(res, 'A sticker could not be uploaded. Stickers must be PNG files.'));
+          if (!res.ok) throw new Error(await readError(res, 'A sticker could not be uploaded. Stickers must be PNG or SVG files.'));
           urls.set(index, (await res.json()).url);
         }
         stickerUrls.set(s.key, urls);
@@ -215,7 +360,11 @@ export default function TemplateEditorPage() {
       if (isEmptyDecoration(decoration)) throw new Error('Add a background, text or a sticker before saving.');
 
       const form = new FormData();
-      form.append('template_data', JSON.stringify({ id, layout: layoutName, display_name: name, status, decoration }));
+      form.append('template_data', JSON.stringify({
+        id, layout: layoutName, display_name: name, status, decoration, also_on: alsoOn,
+        // Fixed at creation; an existing template keeps its own.
+        ...(isNew ? { orientation: facing } : {}),
+      }));
       const first = surfaces[0];
       if (first) {
         const firstDef = { ...normalized._raw, ...first.def, canvas: first.def.canvas, frames: first.def.frames };
@@ -285,9 +434,19 @@ export default function TemplateEditorPage() {
         </section>
 
         <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-4">
+          {shownFacing && shownFacing !== 'square' && (
+            <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+              <span className="font-bold uppercase tracking-tight">Faces {shownFacing}.</span>{' '}
+              {turnedHome
+                ? `This layout is drawn ${shownFacing === 'portrait' ? 'landscape' : 'portrait'}, so it is shown turned a quarter turn, the way a customer ordering ${shownFacing} sees it. `
+                : ''}
+              Customers see this template on {shownFacing} orders of its size only; nothing is ever turned to fit the other way.
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-xs text-slate-500 flex-1 min-w-[200px]">
-              Open a side in the canvas editor and add a background, text, icons or your own PNG stickers. Photo frames stay empty for the customer.
+              Upload artwork for a side (a PNG or SVG designed at this size, with transparent holes where the photos go), or open it in the
+              canvas editor to add a background, text, icons and stickers. Photo frames stay empty for the customer.
             </p>
             <input
               ref={sampleInputRef} type="file" accept="image/*" className="hidden"
@@ -315,17 +474,153 @@ export default function TemplateEditorPage() {
                 </div>
                 <div className="p-3 flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-slate-800 truncate">{s.label || s.key}</span>
-                  <button
-                    type="button"
-                    onClick={() => openEditor(s.key)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-tight hover:bg-indigo-700"
-                  >
-                    <PencilRuler className="w-3.5 h-3.5" /> Edit
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <input
+                      ref={el => { artworkInputRefs.current[s.key] = el; }}
+                      type="file"
+                      accept={ARTWORK_ACCEPT_ATTR}
+                      className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) void uploadArtwork(s.key, f); e.target.value = ''; }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => artworkInputRefs.current[s.key]?.click()}
+                      disabled={artworkBusy === s.key}
+                      title="A PNG or SVG designed at this size; it covers what this side prints"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-tight hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {artworkBusy === s.key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Upload artwork
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openEditor(s.key)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-tight hover:bg-indigo-700"
+                    >
+                      <PencilRuler className="w-3.5 h-3.5" /> Edit
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}
           </ul>
+        </section>
+
+        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-4" aria-labelledby="also-show-on">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex-1 min-w-[240px]">
+              <h2 id="also-show-on" className="text-xs font-bold uppercase tracking-tight text-slate-700 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5" /> Also show on
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                This template is keyed on the size of this layout&rsquo;s print areas, bleed included{home ? `: ${sizeLabel(home)}` : ''}
+                {shownFacing && shownFacing !== 'square' ? `, facing ${shownFacing}` : ''}.
+                Any other layout whose print areas and bleed make the same size, as drawn or turned, can offer it. Preview it there before
+                ticking: the artwork keeps its distance from the centre of the print areas, so check nothing lands over a photo.
+              </p>
+              {preTicked && (
+                <p className="text-xs text-indigo-700 mt-1">
+                  Every layout of this size is ticked because the template was created by size. Preview each one and untick any that does not suit.
+                </p>
+              )}
+            </div>
+            <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500">
+              Preview on
+              <select
+                id="template-preview-on"
+                value={previewOn}
+                onChange={e => setPreviewOn(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-900 normal-case tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">{home?.displayName ?? layoutName} (this layout)</option>
+                {sameBox.map(c => <option key={c.name} value={c.name}>{c.displayName}</option>)}
+              </select>
+            </label>
+          </div>
+          {sameBox.length === 0 && ineligible.length === 0 ? (
+            <p className="text-xs text-slate-400">No other layout has print areas of this size yet.</p>
+          ) : (
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2" aria-label="Layouts with print areas of the same size">
+              {sameBox.map(c => (
+                <li key={c.name} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50">
+                  <label className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={alsoOn.includes(c.name)}
+                      onChange={() => toggleAlsoOn(c.name)}
+                      className="w-4 h-4 accent-indigo-600 shrink-0"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-slate-800 truncate">{c.displayName}</span>
+                      <span className="block text-[10px] text-slate-400 font-mono truncate">
+                        {c.name}{c.turned ? ` · drawn ${shownFacing === 'portrait' ? 'landscape' : 'portrait'}, shown turned` : ''}
+                      </span>
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewOn(c.name)}
+                    className="text-[10px] font-bold uppercase text-indigo-600 hover:underline shrink-0"
+                  >
+                    Preview
+                  </button>
+                </li>
+              ))}
+              {ineligible.map(c => (
+                <li key={c.name} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <label className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked
+                      onChange={() => toggleAlsoOn(c.name)}
+                      className="w-4 h-4 accent-indigo-600 shrink-0"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-slate-800 truncate">{c.displayName}</span>
+                      <span className="block text-[10px] text-amber-700 truncate">
+                        {c.reason === 'retired' ? 'Retired layout'
+                          : c.reason === 'sides_changed' ? `Different sides now (${c.size})`
+                            : `No longer the same size (${c.size})`}; untick to save
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+          {nearMisses.length > 0 && (
+            <div className="text-xs text-slate-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              <p className="font-bold uppercase tracking-tight text-amber-700 text-[10px] mb-1">Same print areas, different bleed</p>
+              <p className="mb-1">
+                These layouts have the same print areas but a different bleed, so their size is another. Give them the same bleed on the
+                Layouts page and they will appear above.
+              </p>
+              <ul className="list-disc pl-4">
+                {nearMisses.map(c => <li key={c.name}>{c.displayName} <span className="text-slate-400">({sizeLabel(c)})</span></li>)}
+              </ul>
+            </div>
+          )}
+          {previewOn && (
+            <div className="flex flex-col gap-2" aria-live="polite">
+              <p className="text-[11px] font-bold uppercase tracking-tight text-slate-500">
+                Preview on {previewName}{previewLoading ? ' …' : ''}
+              </p>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Preview sides">
+                {(previewSides ?? []).map(s => (
+                  <li key={s.key} className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="aspect-[4/3] bg-slate-50 flex items-center justify-center">
+                      {s.dataUrl ? (
+                        <img src={s.dataUrl} alt="" className="w-full h-full object-contain" />
+                      ) : (
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{previewLoading ? 'Drawing…' : 'Not drawn'}</span>
+                      )}
+                    </div>
+                    <div className="p-3 text-xs font-bold text-slate-800 truncate">{s.label || s.key}</div>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[10px] text-slate-400">Edits happen on this layout&rsquo;s sides above; the preview follows them.</p>
+            </div>
+          )}
         </section>
 
         <div className="flex items-center gap-3">

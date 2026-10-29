@@ -25,6 +25,22 @@ export function orientationLockedReason(info: OrientationInfo | null | undefined
   return CANNOT_TURN[info.blocked] ?? 'This layout stays as designed.';
 }
 
+/** Published template counts per orientation, as `GET /layouts` carries them
+ *  (`templateCounts`): a template faces one way, so a layout opened turned may
+ *  offer fewer, or none. */
+export type TemplateCounts = Partial<Record<OrientationChoice, number>>;
+
+/** The templates a card promises for the way it will open: the count for the
+ *  chosen (else the drawn) orientation when the server gave one, else the
+ *  total. Until 2026-10-29 the card said "2 Templates" with Landscape chosen
+ *  and the turned layout then offered none. */
+export function templateCountFor(total: number, counts: TemplateCounts | null | undefined, choice: OrientationChoice | null, info: OrientationInfo | null | undefined): number {
+  const drawn = info?.orientation === 'portrait' || info?.orientation === 'landscape' ? info.orientation : null;
+  const facing = orientationLockedReason(info) ? null : choice ?? drawn;
+  const n = facing && counts ? counts[facing] : undefined;
+  return typeof n === 'number' ? n : total;
+}
+
 /** The editor address for a card: the layout's own orientation adds nothing, so
  *  a card left alone opens exactly as before. */
 export function layoutEditorHref(layoutId: string, choice: OrientationChoice | null, info: OrientationInfo | null | undefined): string {

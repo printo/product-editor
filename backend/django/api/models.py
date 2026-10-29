@@ -624,7 +624,10 @@ class LayoutCatalogue(models.Model):
 
 class LayoutTemplate(models.Model):
     """
-    Ops-authored decoration (background, text, stickers) for one layout.
+    Ops-authored decoration (background, text, stickers) for a layout, offered
+    as well on every other layout with the same window box that ops tick
+    (`extra_layouts`; services/print_sheet.py::template_size), and only where
+    the customer's layout faces the way the template does (`orientation`).
 
     The customer picks a template and the editor copies its decoration onto
     every card as the card is created; the decoration then lives on the
@@ -648,6 +651,27 @@ class LayoutTemplate(models.Model):
     layout = models.ForeignKey(
         LayoutCatalogue, to_field='name', on_delete=models.CASCADE, related_name='templates',
         db_column='layout_name',
+    )
+    extra_layouts = models.ManyToManyField(
+        LayoutCatalogue, blank=True, related_name='shared_templates',
+        help_text=(
+            "Other layouts this template is also offered on. Ops tick them; each must have "
+            "the same window box as `layout`, the home layout it was authored on."
+        ),
+    )
+    # Which way it faces: 'portrait' / 'landscape' serve the home layout turned
+    # a quarter turn when it is drawn the other way (services/layout_orientation,
+    # the same turn a customer order with that orientation gets); blank is the
+    # layout as drawn. Fixed at creation, like `layout`: the decoration is
+    # placed for that geometry. A template is offered only where the customer's
+    # layout faces the same way (api/views/templates.py::template_fits).
+    orientation = models.CharField(
+        max_length=16, blank=True, default='',
+        help_text=(
+            "Which way the template faces: 'portrait' or 'landscape' turns the home layout "
+            "a quarter turn when it is drawn the other way (as a customer order with that "
+            "orientation does); blank is the layout as drawn. Fixed at creation."
+        ),
     )
     display_name = models.CharField(max_length=255)
     status = models.CharField(

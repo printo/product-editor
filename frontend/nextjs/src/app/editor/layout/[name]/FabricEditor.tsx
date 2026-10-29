@@ -22,6 +22,7 @@ import {
   type EllipseProps,
 } from 'fabric';
 import type { CanvasItem, FrameState } from './types';
+import { ARTWORK_LABEL } from './template-authoring';
 import { buildFrameFill, buildFrameCaption, rotatedBounds, frameBaseScale } from './frame-fill';
 import { captionOverridesFromMm } from '@/lib/caption-layout';
 import type { LayerSelection } from './LayersPanel';
@@ -986,6 +987,10 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
             originX: 'left', originY: 'top', scaleX: ((overlay.width / 100) * canvasW) / (img.width || 1), scaleY: ((overlay.height / 100) * canvasH) / (img.height || 1),
             angle: overlay.rotation || 0, opacity: overlay.opacity ?? 1,
             cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#10b981',
+            // A template's full-sheet artwork covers the photos with transparent
+            // holes: a click on a hole must reach the photo (or the paper, to
+            // pan), not select the sheet. Its opaque parts still select it.
+            perPixelTargetFind: overlay.label === ARTWORK_LABEL,
           });
           img.__fabricEditor = 'image'; img.__overlayIdx = oIdx;
           fc.add(img); fc.moveObjectTo(img, overlayZStart + oIdx);
@@ -1053,6 +1058,24 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           const photo = findFramePhoto(cap.__frameIdx);
           if (photo) fc.moveObjectTo(cap, fc.getObjects().indexOf(photo) + 1);
         });
+
+      // ── Overlay z-order ────────────────────────────────────────────────────
+      // Overlays were slotted at overlayZStart + index as they were built, but
+      // an image overlay arrives later than the text and shapes, and when its
+      // planned index is past the end of the stack at that moment Fabric
+      // appends it on top: whichever image loaded last sat above everything
+      // and took every click meant for the text drawn over it. Re-stack them
+      // in layer order now that every load has settled, with the masks back
+      // on top of them.
+      fc.getObjects()
+        .filter((o: any) => typeof o.__overlayIdx === 'number')
+        .sort((a: any, b: any) => a.__overlayIdx - b.__overlayIdx)
+        .forEach(o => fc.bringObjectToFront(o));
+      for (const role of ['artwork', 'frame'] as const) {
+        fc.getObjects()
+          .filter(o => o.__fabricEditor === 'mask' && o.__maskRole === role)
+          .forEach(o => fc.bringObjectToFront(o));
+      }
 
       logGroupEnd(); // close 🔨 Full Rebuild group
       const { width: cW, height: cH } = containerSize;

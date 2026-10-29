@@ -13,6 +13,8 @@
  * editor and the layout cards draw. `bleed` is never a default.
  */
 
+import { mmToUnit } from '@/lib/units';
+
 export type PrintSheetMode = 'canvas' | 'bleed';
 
 export interface PrintSheet {
@@ -101,4 +103,91 @@ export function printSheetAreaPx(raw: unknown, canvas: CanvasSize, windows: Wind
   const right = Math.max(...rects.map(r => r.x + r.width));
   const bottom = Math.max(...rects.map(r => r.y + r.height));
   return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+// ── Window box: the size a layout template is keyed on ─────────────────────
+//
+// A template is bound to the box around a layout's photo windows as the
+// layout stores them (each already grown by its bleed): the bleed area when
+// there is a bleed, the print area when there is none. Two layouts share
+// templates when that box is the same size to the millimetre, whatever the
+// canvas around it. Twin of `services/print_sheet.py` (window_box_mm,
+// print_area_box_mm, box_key), pinned by
+// storage/parity-fixtures/template-window-box.json. The keys themselves are
+// computed and compared on the server; the client needs the box to place a
+// template's artwork on another canvas (layout-template.ts).
+
+/** A stored window plus its bleed, as a layout definition carries it. */
+export interface StoredWindow extends WindowFraction {
+  bleedMm?: number | string;
+}
+
+export interface CanvasMm {
+  widthMm?: number | string;
+  heightMm?: number | string;
+}
+
+const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+function frameRectsMm(canvas: CanvasMm, windows: StoredWindow[], insetBleed: boolean): Array<[number, number, number, number]> {
+  const wMm = num(canvas.widthMm);
+  const hMm = num(canvas.heightMm);
+  if (wMm <= 0 || hMm <= 0) return [];
+  const rects: Array<[number, number, number, number]> = [];
+  for (const f of windows) {
+    let left = num(f.x) * wMm;
+    let top = num(f.y) * hMm;
+    let width = num(f.width) * wMm;
+    let height = num(f.height) * hMm;
+    if (insetBleed) {
+      const b = Math.max(0, num(f.bleedMm));
+      if (b > 0 && width - 2 * b > 0 && height - 2 * b > 0) {
+        left += b; top += b; width -= 2 * b; height -= 2 * b;
+      }
+    }
+    // Clamped to the canvas, as the print is.
+    const right = Math.min(wMm, left + width);
+    const bottom = Math.min(hMm, top + height);
+    left = Math.max(0, left);
+    top = Math.max(0, top);
+    if (right - left <= 0 || bottom - top <= 0) continue;
+    rects.push([left, top, right, bottom]);
+  }
+  return rects;
+}
+
+function boxOf(rects: Array<[number, number, number, number]>): MmRect | null {
+  if (!rects.length) return null;
+  const left = Math.min(...rects.map(r => r[0]));
+  const top = Math.min(...rects.map(r => r[1]));
+  const right = Math.max(...rects.map(r => r[2]));
+  const bottom = Math.max(...rects.map(r => r[3]));
+  return { xMm: round2(left), yMm: round2(top), widthMm: round2(right - left), heightMm: round2(bottom - top) };
+}
+
+/** The box around the windows as stored (bleed included), in mm; null without windows or millimetres. */
+export function windowBoxMm(canvas: CanvasMm, windows: StoredWindow[]): MmRect | null {
+  return boxOf(frameRectsMm(canvas, windows, false));
+}
+
+/** The box around the visible windows (each inset by its bleed), in mm. */
+export function printAreaBoxMm(canvas: CanvasMm, windows: StoredWindow[]): MmRect | null {
+  return boxOf(frameRectsMm(canvas, windows, true));
+}
+
+/** `'117x168'`: a box's size rounded to the millimetre. */
+export function boxKey(box: MmRect | null | undefined): string | null {
+  if (!box) return null;
+  return `${Math.round(num(box.widthMm))}x${Math.round(num(box.heightMm))}`;
+}
+
+/** Millimetres as the inches the ops team talks in: two decimals, trailing zeros dropped (`101.6` → `'4'`, `116.84` → `'4.6'`). */
+export function inches(mm: number): string {
+  return String(Math.round(mmToUnit(num(mm), 'in') * 100) / 100);
+}
+
+/** `'4 × 6 in'` for the ops pages, which call the windows "print areas". */
+export function boxLabelIn(box: MmRect | null | undefined): string {
+  if (!box) return 'no print areas';
+  return `${inches(box.widthMm)} × ${inches(box.heightMm)} in`;
 }

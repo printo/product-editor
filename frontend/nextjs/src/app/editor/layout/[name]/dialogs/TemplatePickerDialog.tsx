@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { clsx } from 'clsx';
-import { Check, LayoutTemplate as TemplateIcon, RefreshCw, X } from 'lucide-react';
+import { Check, LayoutTemplate as TemplateIcon, Play, RefreshCw, X } from 'lucide-react';
 import { useModalA11y } from '@/lib/use-modal-a11y';
 import { templateColours, type LayoutTemplate } from '../layout-template';
 
@@ -12,7 +12,21 @@ import { templateColours, type LayoutTemplate } from '../layout-template';
  * since the previous template's decoration on every card is replaced
  * (photos and the customer's own additions stay). With the template already
  * in force the same entry offers "Apply to all cards" for cards edited since.
+ *
+ * The grid is a row of equal cards, the way printo.in's "Choose a Design"
+ * page shows designs (Kannan, 2026-10-29): the thumbnail sits inside a
+ * fixed box, so a portrait and a landscape template make cards of one
+ * height, the name is centred under it, and "Start blank" is the first
+ * card. Customers never see the template id.
  */
+
+/** One card's shell: white, bordered, the whole card a button. */
+const cardClass = (selected: boolean) => clsx(
+  'w-full h-full flex flex-col items-center rounded-xl border bg-white p-3 text-center transition-all hover:border-indigo-300 hover:shadow-md',
+  selected ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-slate-200',
+);
+const thumbClass = 'w-full aspect-[4/3] rounded-lg bg-slate-50 flex items-center justify-center overflow-hidden';
+const nameClass = 'mt-3 w-full text-[12px] font-bold text-slate-800 leading-snug line-clamp-2 min-h-[2.6em] flex items-start justify-center gap-1.5';
 export function TemplatePickerDialog({ templates, activeTemplate, cardCount, firstStep, onPick, onClose }: {
   templates: LayoutTemplate[];
   activeTemplate: LayoutTemplate | null;
@@ -64,7 +78,7 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
         role="dialog"
         aria-modal="true"
         aria-label="Choose a template"
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200"
       >
         <div className="flex items-start justify-between gap-4 p-6 pb-4 border-b border-slate-100">
           <div>
@@ -116,20 +130,15 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
             {templates.length === 0 ? (
               <p className="text-xs text-slate-500">No templates for this product yet.</p>
             ) : (
-              <ul className="grid grid-cols-2 sm:grid-cols-3 gap-4" aria-label="Templates">
+              <ul className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4" aria-label="Templates">
                 <li>
-                  <button
-                    onClick={() => choose(null)}
-                    aria-pressed={!activeTemplate}
-                    className={clsx(
-                      'w-full text-left rounded-xl border-2 p-3 transition-all hover:border-indigo-300',
-                      !activeTemplate ? 'border-indigo-500 bg-indigo-50/40' : 'border-slate-200',
-                    )}
-                  >
-                    <div className="aspect-[4/3] rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                      {firstStep ? 'Skip' : 'None'}
+                  <button onClick={() => choose(null)} aria-pressed={!activeTemplate} className={cardClass(!activeTemplate)}>
+                    <div className={thumbClass}>
+                      <span className="w-12 h-12 rounded-xl border-2 border-indigo-600 text-indigo-600 flex items-center justify-center" aria-hidden="true">
+                        <Play className="w-5 h-5 fill-current" />
+                      </span>
                     </div>
-                    <p className="mt-2 text-[11px] font-black uppercase tracking-tight text-slate-800">Start blank</p>
+                    <p className={nameClass}>Start blank</p>
                   </button>
                 </li>
                 {templates.map(t => {
@@ -137,25 +146,20 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
                   const { bgColor } = templateColours(t, 'default');
                   return (
                     <li key={t.id}>
-                      <button
-                        onClick={() => choose(t)}
-                        aria-pressed={active}
-                        className={clsx(
-                          'w-full text-left rounded-xl border-2 p-3 transition-all hover:border-indigo-300',
-                          active ? 'border-indigo-500 bg-indigo-50/40' : 'border-slate-200',
-                        )}
-                      >
-                        <div className="aspect-[4/3] rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center" style={{ backgroundColor: bgColor }}>
+                      <button onClick={() => choose(t)} aria-pressed={active} className={cardClass(active)}>
+                        <div className={thumbClass}>
                           {t.thumbnailUrl ? (
-                            <img src={t.thumbnailUrl} alt="" className="w-full h-full object-contain" loading="lazy" />
+                            <img src={t.thumbnailUrl} alt="" className="max-w-full max-h-full object-contain p-2" loading="lazy" />
                           ) : (
-                            <TemplateIcon className="w-6 h-6 text-slate-400" />
+                            <span className="w-3/4 h-3/4 rounded-md border border-slate-200 flex items-center justify-center" style={{ backgroundColor: bgColor }}>
+                              <TemplateIcon className="w-6 h-6 text-slate-400" />
+                            </span>
                           )}
                         </div>
-                        <p className="mt-2 text-[11px] font-black uppercase tracking-tight text-slate-800 flex items-center gap-1.5">
-                          {active && <Check className="w-3.5 h-3.5 text-indigo-600" />}
-                          <span className="truncate">{t.displayName}</span>
-                          {active && cardCount > 0 && <RefreshCw className="w-3 h-3 text-slate-400 ml-auto shrink-0" aria-label="Apply to all cards" />}
+                        <p className={nameClass}>
+                          {active && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />}
+                          <span>{t.displayName}</span>
+                          {active && cardCount > 0 && <RefreshCw className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" aria-label="Apply to all cards" />}
                         </p>
                       </button>
                     </li>

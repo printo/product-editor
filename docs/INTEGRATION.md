@@ -611,6 +611,37 @@ with your API key returns the layout's published templates
 `templateCount` per layout. Template ids are lowercase slugs chosen by our ops
 team and never change once created.
 
+**One template, several layouts (as of Oct 28, 2026).** Our ops team can offer
+a template on every layout whose print areas plus their bleed (the bleed area)
+are the same size as on the layout it was designed on, for example one birthday design
+for a 4x6 print inside a one-inch frame and the same print inside a half-inch
+frame. Each template
+carries `layoutName`, the layout it was designed on, and `alsoOn`, the other
+layouts it is offered on; `GET /api/templates?layout=<name>` lists it on every
+one of them and `templateCount` counts it on each. Nothing changes for the
+session call: `template_id` still answers with an `editor_url` for the layout
+the template was designed on. To open it on one of the `alsoOn` layouts
+instead, build the iframe URL from `embed_url_template` with that layout's name
+and append `&template=<template_id>`, exactly as `editor_url` does; a template
+that is not offered on the layout in the URL is ignored with a notice in the
+editor, never an error.
+
+**A template faces one way (as of Oct 29, 2026).** A template is designed for
+the layout in one orientation and carries it as `facing` (`portrait`,
+`landscape`, or `square` when its print areas are square). It is offered only
+on orders facing the same way: when your session's `orientation` turns the
+layout (see "Print orientation" above), `GET /api/templates?layout=<name>`
+served for that session lists the templates facing that way and none of the
+others, and nothing is ever turned to fit. The template catalogue you read with
+your API key (`GET /api/templates?layout=<name>` without a session) is the
+layout as drawn; filter on `facing` to show your customers the ones their
+orientation will offer. `GET /api/layouts` carries `templateCounts`
+(`{"portrait": n, "landscape": n}`) beside `templateCount` for the same
+reason. Sending a `template_id` together with an `orientation` (or none) under
+which that template would not be offered is a **400** at the session call,
+with the facing named, so a customer never lands in the editor without the
+template you promised.
+
 ### The layout identifier in your iframe URL is a permanent, stable key (as of Sep 16, 2026)
 
 The layout identifier in your iframe URL (`circle_48mm` above) used to be

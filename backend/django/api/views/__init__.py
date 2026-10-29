@@ -60,6 +60,7 @@ from .templates import (  # noqa: F401
     TemplatesListView,
     TemplateDetailView,
     TemplateManagementView,
+    TemplateCandidatesView,
     TemplateAssetUploadView,
     TemplateAssetDownloadView,
     serialize_template,

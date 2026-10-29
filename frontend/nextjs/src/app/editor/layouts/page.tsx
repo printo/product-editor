@@ -478,6 +478,17 @@ export default function LayoutCreatorPage() {
               <span className="hidden 2xl:inline">Tags</span>
             </Link>
           )}
+          {canManageHolidays && (
+            <Link
+              href="/editor/layouts/templates"
+              aria-label="Templates"
+              title="Every template, by size and layout"
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-2.5 md:px-3 md:py-2 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 hover:border-slate-300 transition-colors shrink-0"
+            >
+              <TemplateIcon className="w-4 h-4 md:w-3.5 md:h-3.5" />
+              <span className="hidden 2xl:inline">Templates</span>
+            </Link>
+          )}
         </div>
       );
       // The Django admin link lives on the header's role badge (HeaderUserMenu),
@@ -1110,6 +1121,15 @@ export default function LayoutCreatorPage() {
             >
               <TagIcon className="w-4 h-4" />
               Tags
+            </Link>
+          )}
+          {canManageHolidays && (
+            <Link
+              href="/editor/layouts/templates"
+              className="md:hidden flex items-center gap-1.5 px-3 py-2.5 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase rounded-lg border border-slate-200 shrink-0"
+            >
+              <TemplateIcon className="w-4 h-4" />
+              Templates
             </Link>
           )}
         </div>

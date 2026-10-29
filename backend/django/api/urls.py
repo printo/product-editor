@@ -8,7 +8,7 @@ from .views import (
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
     OrientationDetectView, HeicConvertView,
     EditorRenderView, EditorInitView, CSPReportView,
-    TemplatesListView, TemplateDetailView, TemplateManagementView,
+    TemplatesListView, TemplateDetailView, TemplateManagementView, TemplateCandidatesView,
     TemplateAssetUploadView, TemplateAssetDownloadView,
     LayoutTagsView, LayoutTagManagementView,
 )
@@ -59,6 +59,8 @@ urlpatterns = [
     # Ops writes — gated to the Ops tier by the internal proxy (path under ops/).
     path("ops/templates", TemplateManagementView.as_view(), name="ops-templates-list"),
     path("ops/templates/assets", TemplateAssetUploadView.as_view(), name="ops-template-asset-upload"),
+    # Before `<template_id>`, like `assets`: the layouts a template can be offered on.
+    path("ops/templates/candidates", TemplateCandidatesView.as_view(), name="ops-template-candidates"),
     path("ops/templates/<str:template_id>", TemplateManagementView.as_view(), name="ops-templates-detail"),
 
     # Layout management (Ops Team only)

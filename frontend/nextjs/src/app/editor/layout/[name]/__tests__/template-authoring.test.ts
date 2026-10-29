@@ -2,8 +2,11 @@
  * template-authoring.ts — what ops draw on a blank card becomes a template.
  */
 import {
-  blankCard, dataUrlToPngFile, decorationFromCards, isEmptyDecoration, isTemplateId, localImageOverlays, slugFromName, withoutPhotos,
+  ARTWORK_LABEL, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, drawnFacing, groupBySize,
+  ineligibleTicked, isEmptyDecoration, isTemplateId, keyFacing, layoutsInFacing, localImageOverlays, nearMissLayouts, pairKey,
+  sameBoxLayouts, sizeLabel, slugFromName, templateKey, withArtwork, withoutPhotos, type TemplateCandidate,
 } from '../template-authoring';
+import { surfaceGeometry } from '../layout-template';
 import type { SurfaceDefinition } from '@/lib/layout-utils';
 import type { CanvasItem, Overlay } from '../types';
 
@@ -68,6 +71,175 @@ describe('decorationFromCards', () => {
     expect(deco.surfaces.back).toEqual({ overlays: [] });
     expect(isEmptyDecoration(deco)).toBe(true);
     expect(isEmptyDecoration(decorationFromCards([{ key: 'front', card: card({ paperColor: '#eeeeee' }) }]))).toBe(false);
+  });
+});
+
+describe('sharing a template across layouts with the same print areas', () => {
+  // Boxes in mm; keys are the server's (rounded to the mm, bleed included for `window`).
+  const box = (wh: [number, number] | null) => (wh ? { xMm: 0, yMm: 0, widthMm: wh[0], heightMm: wh[1] } : null);
+  const key = (wh: [number, number] | null) => (wh ? `${Math.round(wh[0])}x${Math.round(wh[1])}` : null);
+  const cand = (name: string, displayName: string, win: [number, number] | null, area: [number, number] | null, bleedMm: number, templateCount = 0, surfaceKeys = ['default']): TemplateCandidate => ({
+    name, displayName, bleedMm, templateCount, surfaceKeys,
+    windowBox: box(win), windowKey: key(win), printAreaBox: box(area), printAreaKey: key(area),
+  });
+  const FOUR_BY_SIX: [number, number] = [101.6, 152.4];
+  const candidates = [
+    cand('frame_1in', 'Frame one-inch', [116.84, 167.64], FOUR_BY_SIX, 7.62, 1),
+    cand('frame_half', 'Frame half-inch', [116.84, 167.64], FOUR_BY_SIX, 7.62),
+    cand('thin', 'Thin bleed', [111.6, 162.4], FOUR_BY_SIX, 5),
+    cand('print', 'Print 4x6', FOUR_BY_SIX, FOUR_BY_SIX, 0),
+    cand('bare', 'Bare', null, null, 0),
+    // Same size, but two sides: the decoration is drawn per side, so not a match.
+    cand('card', 'Folded card', [116.84, 167.64], FOUR_BY_SIX, 7.62, 0, ['front', 'back']),
+  ];
+
+  it('labels a size in inches as the print areas plus their bleed, the bleed only when there is one', () => {
+    expect(sizeLabel(candidates[0])).toBe('4 × 6 in, 0.3 in bleed');
+    expect(sizeLabel(candidates[2])).toBe('4 × 6 in, 0.2 in bleed');
+    expect(sizeLabel(candidates[3])).toBe('4 × 6 in');
+    expect(sizeLabel(candidates[4])).toBe('no print areas');
+  });
+
+  it('groups layouts by size for the Create picker, smallest size first, no print areas last', () => {
+    const groups = groupBySize(candidates);
+    expect(groups.map(g => g.key)).toEqual(['102x152', '112x162', '117x168', 'none']);
+    expect(groups[2].layouts.map(c => c.name)).toEqual(['card', 'frame_half', 'frame_1in']);
+    expect(groups[0].label).toBe('4 × 6 in');
+    expect(groups[1].label).toBe('4 × 6 in, 0.2 in bleed');
+    expect(groups[2].label).toBe('4 × 6 in, 0.3 in bleed');
+    expect(groups[3].label).toBe('No print areas');
+  });
+
+  it('offers the other layouts with the same size and sides, and names the near-misses that differ only in bleed', () => {
+    expect(sameBoxLayouts(candidates, 'frame_1in').map(c => c.name)).toEqual(['frame_half']);
+    expect(sameBoxLayouts(candidates, 'card')).toEqual([]);
+    expect(sameBoxLayouts(candidates, 'bare')).toEqual([]);
+    expect(sameBoxLayouts(candidates, 'missing')).toEqual([]);
+    expect(nearMissLayouts(candidates, 'frame_1in').map(c => c.name)).toEqual(['print', 'thin']);
+    expect(nearMissLayouts(candidates, 'bare')).toEqual([]);
+  });
+
+  it('keeps a ticked layout that was retired, resized or re-sided visible so it can be unticked', () => {
+    const out = ineligibleTicked(candidates, 'frame_1in', ['frame_half', 'thin', 'gone', 'card', 'frame_1in']);
+    expect(out).toEqual([
+      { name: 'thin', displayName: 'Thin bleed', reason: 'size_changed', size: '4 × 6 in, 0.2 in bleed' },
+      { name: 'gone', displayName: 'gone', reason: 'retired', size: '' },
+      { name: 'card', displayName: 'Folded card', reason: 'sides_changed', size: '4 × 6 in, 0.3 in bleed' },
+    ]);
+    expect(ineligibleTicked(candidates, 'frame_1in', [])).toEqual([]);
+  });
+
+  it('describes the home layout the way the server stamps it, and places a draft on another layout', () => {
+    const home = { ...DEF, canvas: { width: 1524, height: 2032, widthMm: 152.4, heightMm: 203.2 },
+      frames: [{ x: 0.1166666667, y: 0.0875, width: 0.7666666667, height: 0.825, bleedMm: 7.62 }] as SurfaceDefinition['frames'] };
+    const other = { ...DEF, canvas: { width: 1270, height: 1778, widthMm: 127, heightMm: 177.8 },
+      frames: [{ x: 0.04, y: 0.0285714286, width: 0.92, height: 0.9428571429, bleedMm: 7.62 }] as SurfaceDefinition['frames'] };
+    const stamp = authoredOnFor('frame_1in', [{ key: 'default', def: home }]);
+    expect(stamp).toEqual({ layout: 'frame_1in', surfaces: { default: {
+      canvas: { width: 1524, height: 2032, widthMm: 152.4, heightMm: 203.2 },
+      windowBox: { xMm: 17.78, yMm: 17.78, widthMm: 116.84, heightMm: 167.64 },
+    } } });
+    const decoration = { surfaces: { default: { overlays: [{ ...TEXT, y: 8 }] } }, authoredOn: stamp };
+    // On the home layout the draft is drawn as it is; on the other, placed from the box centre (8% of 203.2 mm → 2% of 177.8 mm).
+    expect(blankCard(home, decoration, null, surfaceGeometry(home)).overlays[0]).toMatchObject({ y: 8 });
+    expect(blankCard(other, decoration, null, surfaceGeometry(other)).overlays[0]).toMatchObject({ y: 2 });
+    expect(blankCard(other, decoration).overlays[0]).toMatchObject({ y: 8 });
+  });
+});
+
+describe('a template faces one way', () => {
+  const box = (wh: [number, number] | null) => (wh ? { xMm: 0, yMm: 0, widthMm: wh[0], heightMm: wh[1] } : null);
+  const key = (wh: [number, number] | null) => (wh ? `${Math.round(wh[0])}x${Math.round(wh[1])}` : null);
+  const swap = (wh: [number, number] | null): [number, number] | null => (wh ? [wh[1], wh[0]] : null);
+  const cand = (name: string, displayName: string, win: [number, number] | null, area: [number, number] | null, bleedMm: number, turnable = true): TemplateCandidate => ({
+    name, displayName, bleedMm, templateCount: 0, surfaceKeys: ['default'],
+    windowBox: box(win), windowKey: key(win), printAreaBox: box(area), printAreaKey: key(area),
+    turnedWindowKey: turnable ? key(swap(win)) : null,
+    turnedPrintAreaKey: turnable ? key(swap(area)) : null,
+    orientationInfo: win ? { orientation: win[1] > win[0] ? 'portrait' : win[0] > win[1] ? 'landscape' : 'square', blocked: turnable ? null : 'has_captions' } : null,
+  });
+  const TALL: [number, number] = [116.84, 167.64];
+  const WIDE: [number, number] = [167.64, 116.84];
+  const candidates = [
+    cand('tall_frame', 'Tall frame', TALL, [101.6, 152.4], 7.62),
+    cand('wide_frame', 'Wide frame', WIDE, [152.4, 101.6], 7.62),
+    cand('fixed_wide', 'Captioned wide', WIDE, [152.4, 101.6], 7.62, false),
+    cand('square', 'Square', [200, 200], [190, 190], 5),
+  ];
+
+  it('reads a facing off a key and pairs the two ways of a size', () => {
+    expect(keyFacing('117x168')).toBe('portrait');
+    expect(keyFacing('168x117')).toBe('landscape');
+    expect(keyFacing('200x200')).toBe('square');
+    expect(keyFacing(null)).toBeNull();
+    expect(pairKey('168x117')).toBe('117x168');
+    expect(pairKey('117x168')).toBe('117x168');
+    expect(pairKey(undefined)).toBeNull();
+    expect(drawnFacing(candidates[1])).toBe('landscape');
+  });
+
+  it('labels a size shorter side first, groups both ways of it together and says which ways it can face', () => {
+    expect(sizeLabel(candidates[1])).toBe('4 × 6 in, 0.3 in bleed');
+    const groups = groupBySize(candidates);
+    expect(groups.map(g => g.key)).toEqual(['117x168', '200x200']);
+    expect(groups[0].layouts.map(c => c.name)).toEqual(['fixed_wide', 'tall_frame', 'wide_frame']);
+    expect(groups[0].facings).toEqual(['portrait', 'landscape']);
+    expect(groups[1].facings).toEqual(['square']);
+    expect(groupBySize([candidates[2]])[0].facings).toEqual(['landscape']);
+  });
+
+  it('lists the layouts of a size that can show a facing, turned when drawn the other way', () => {
+    const g = groupBySize(candidates)[0];
+    expect(layoutsInFacing(g, 'portrait').map(x => [x.layout.name, x.turned])).toEqual([['tall_frame', false], ['wide_frame', true]]);
+    expect(layoutsInFacing(g, 'landscape').map(x => [x.layout.name, x.turned])).toEqual([['fixed_wide', false], ['tall_frame', true], ['wide_frame', false]]);
+  });
+
+  it('keys a template on the home layout turned for the other facing and offers it where that key is carried', () => {
+    expect(templateKey(candidates, 'wide_frame', null)).toBe('168x117');
+    expect(templateKey(candidates, 'wide_frame', 'portrait')).toBe('117x168');
+    expect(templateKey(candidates, 'fixed_wide', 'portrait')).toBeNull();
+    expect(templateKey(candidates, 'square', 'portrait')).toBe('200x200');
+    expect(sameBoxLayouts(candidates, 'wide_frame', 'portrait').map(c => [c.name, c.turned])).toEqual([['tall_frame', false]]);
+    expect(sameBoxLayouts(candidates, 'wide_frame', 'landscape').map(c => [c.name, c.turned])).toEqual([['fixed_wide', false], ['tall_frame', true]]);
+    expect(sameBoxLayouts(candidates, 'wide_frame').map(c => c.name)).toEqual(['fixed_wide', 'tall_frame']);
+    expect(sameBoxLayouts(candidates, 'fixed_wide', 'portrait')).toEqual([]);
+  });
+
+  it('flags a ticked layout that cannot show the facing, and names near-misses for it', () => {
+    expect(ineligibleTicked(candidates, 'wide_frame', ['fixed_wide', 'tall_frame'], 'portrait')).toEqual([
+      { name: 'fixed_wide', displayName: 'Captioned wide', reason: 'size_changed', size: '4 × 6 in, 0.3 in bleed' },
+    ]);
+    expect(ineligibleTicked(candidates, 'wide_frame', ['fixed_wide', 'tall_frame'], 'landscape')).toEqual([]);
+    const thin = cand('thin_tall', 'Thin tall', [111.6, 162.4], [101.6, 152.4], 5);
+    expect(nearMissLayouts([...candidates, thin], 'wide_frame', 'portrait').map(c => c.name)).toEqual(['thin_tall']);
+    expect(nearMissLayouts([...candidates, thin], 'wide_frame', 'landscape').map(c => c.name)).toEqual(['thin_tall']);
+    expect(nearMissLayouts([...candidates, thin], 'wide_frame').map(c => c.name)).toEqual(['thin_tall']);
+  });
+});
+
+describe('a full-sheet artwork upload', () => {
+  const frame = { x: 0.1166666667, y: 0.0875, width: 0.7666666667, height: 0.825, bleedMm: 7.62 };
+  const bleedPrint: Pick<SurfaceDefinition, 'canvas' | 'frames' | 'printSheet'> = {
+    canvas: { width: 1524, height: 2032, widthMm: 152.4, heightMm: 203.2 }, frames: [frame] as SurfaceDefinition['frames'], printSheet: { mode: 'bleed' },
+  };
+
+  it('covers the print areas plus bleed on a Bleed area print, and the whole canvas on a Whole canvas print', () => {
+    const art = artworkOverlayFor(bleedPrint, '/api/templates/assets/sticker_abc.svg');
+    expect(art).toMatchObject({ type: 'image', source: 'clipart', label: ARTWORK_LABEL, x: 11.667, y: 8.75, width: 76.667, height: 82.5, rotation: 0, opacity: 1 });
+    expect(artworkOverlayFor({ ...bleedPrint, printSheet: { mode: 'canvas' } }, 'x.png')).toMatchObject({ x: 0, y: 0, width: 100, height: 100 });
+    // No millimetres on the canvas: nothing to measure, so the whole canvas.
+    expect(artworkOverlayFor({ ...bleedPrint, canvas: { width: 1524, height: 2032 } }, 'x.png')).toMatchObject({ x: 0, y: 0, width: 100, height: 100 });
+  });
+
+  it('replaces the previous artwork and keeps it under the rest of the decoration', () => {
+    const first = artworkOverlayFor(bleedPrint, 'one.png');
+    const second = artworkOverlayFor(bleedPrint, 'two.png');
+    const card = blankCard(DEF, { surfaces: { default: { overlays: [TEXT] } } });
+    const once = withArtwork(card, first);
+    expect(once.overlays.map(o => (o.type === 'image' ? o.src : o.type))).toEqual(['one.png', 'text']);
+    const twice = withArtwork(once, second);
+    expect(twice.overlays.map(o => (o.type === 'image' ? o.src : o.type))).toEqual(['two.png', 'text']);
+    expect(twice.dataUrl).toBeNull();
   });
 });
 

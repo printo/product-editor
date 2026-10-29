@@ -10,7 +10,8 @@
  */
 import {
   applyTemplateToCard, applyTemplateToCards, customerDecoration, isLayoutTemplate, isTemplateOverlay,
-  markEditedTemplateOverlays, seedCard, templateColours, templateOverlays, templateSide, toSavedTemplate, type LayoutTemplate,
+  markEditedTemplateOverlays, placeOverlay, seedCard, surfaceGeometry, templateColours, templateOverlays, templateSide,
+  toSavedTemplate, type LayoutTemplate,
 } from '../layout-template';
 import { canvasHasRealEdits, countCanvasesLosingEdits } from '../canvas-merge';
 import type { CanvasItem, Overlay } from '../types';
@@ -160,5 +161,107 @@ describe('shape guards', () => {
     expect(isLayoutTemplate({ id: 'x', displayName: 'x' })).toBe(false);
     expect(isLayoutTemplate(null)).toBe(false);
     expect(toSavedTemplate(TEMPLATE)).toEqual({ id: 'retro-birthday', displayName: 'Retro Birthday', decoration: TEMPLATE.decoration });
+  });
+});
+
+describe('placing a shared template on another layout with the same window box', () => {
+  // A 4x6 window with 0.3 in bleed (116.84 x 167.64 mm) centred in a 6x8
+  // canvas (a 1-inch frame picture) and in a 5x7 canvas (a half-inch one),
+  // both at 10 px/mm. Same numbers as the parity fixture.
+  const oneInch = {
+    canvas: { width: 1524, height: 2032, widthMm: 152.4, heightMm: 203.2 },
+    frames: [{ x: 0.1166666667, y: 0.0875, width: 0.7666666667, height: 0.825, bleedMm: 7.62 }],
+  };
+  const halfInch = {
+    canvas: { width: 1270, height: 1778, widthMm: 127, heightMm: 177.8 },
+    frames: [{ x: 0.04, y: 0.0285714286, width: 0.92, height: 0.9428571429, bleedMm: 7.62 }],
+  };
+  const home = surfaceGeometry(oneInch)!;
+  const target = surfaceGeometry(halfInch)!;
+  const shared: LayoutTemplate = {
+    ...TEMPLATE, id: 'shared', layoutName: 'frame_1in', alsoOn: ['frame_half'],
+    decoration: { ...TEMPLATE.decoration, authoredOn: { layout: 'frame_1in', surfaces: { default: home } } },
+  };
+
+  it('reads a side\'s geometry the way the server stamps it', () => {
+    expect(home).toEqual({
+      canvas: { width: 1524, height: 2032, widthMm: 152.4, heightMm: 203.2 },
+      windowBox: { xMm: 17.78, yMm: 17.78, widthMm: 116.84, heightMm: 167.64 },
+    });
+    expect(surfaceGeometry({ canvas: { width: 100, height: 100 }, frames: [] })?.windowBox).toBeNull();
+    expect(surfaceGeometry(null)).toBeNull();
+  });
+
+  it('keeps the same millimetres from the window box centre, so the art lands in the same place on both frames', () => {
+    const text = placeOverlay(TEXT, home, target);
+    // 8% of 203.2 mm is 16.256 mm from the top: 85.344 mm above the centre; on the 177.8 mm canvas that is 2%.
+    expect(text).toMatchObject({ x: 50, y: 2, fontSize: 72 });
+    const sticker = placeOverlay(STICKER, home, target);
+    // 15% of 152.4 mm = 22.86 mm wide, which is 18% of 127 mm.
+    expect(sticker).toMatchObject({ width: 18, height: 17.143 });
+    // 5% of 152.4 = 7.62 mm from the left: 68.58 mm left of centre; on 127 mm that is 63.5 - 68.58 = -5.08 mm → -4%.
+    expect(sticker.x).toBe(-4);
+    // Round trip: placing back onto the home geometry restores the original numbers.
+    expect(placeOverlay(sticker, target, home)).toMatchObject({ x: 5, y: 80, width: 15, height: 15 });
+  });
+
+  it('is the identity on the home layout, and leaves an overlay alone without a usable geometry', () => {
+    expect(placeOverlay(STICKER, home, home)).toEqual(STICKER);
+    expect(placeOverlay({ ...TEXT, width: 60 }, home, home)).toEqual({ ...TEXT, width: 60 });
+    expect(placeOverlay(STICKER, home, null)).toBe(STICKER);
+    expect(placeOverlay(STICKER, null, target)).toBe(STICKER);
+    const noMm = { canvas: { width: 1000, height: 1000, widthMm: 0, heightMm: 0 }, windowBox: null };
+    expect(placeOverlay(STICKER, home, noMm)).toBe(STICKER);
+  });
+
+  it('splits a fraction-of-a-millimetre size difference evenly to both edges', () => {
+    // Two boxes that key the same (117x168) but differ by 0.16 mm in width.
+    const wider = { ...target, windowBox: { xMm: 5, yMm: 5, widthMm: 117, heightMm: 168 } };
+    const atLeftEdge: Overlay = { ...STICKER, x: (17.78 / 152.4) * 100, width: 1 };
+    const placed = placeOverlay(atLeftEdge, home, wider);
+    const leftMm = (placed.x / 100) * 127;
+    expect(leftMm).toBeCloseTo(5.08, 2);   // 0.08 mm in from the box edge at 5 mm …
+    const atRightEdge: Overlay = { ...STICKER, x: ((17.78 + 116.84) / 152.4) * 100, width: 1 };
+    const rightMm = (placeOverlay(atRightEdge, home, wider).x / 100) * 127;
+    expect(rightMm).toBeCloseTo(122 - 0.08, 2);   // … and 0.08 mm in from the other edge at 122 mm.
+  });
+
+  it('pins the wrap box of a text that had none, so a headline does not wrap differently on a narrower canvas', () => {
+    // The editor wraps a width-less text at 80% of the canvas (lib/overlay-text.ts):
+    // 121.92 mm on the home canvas, which is 96% of the half-inch frame's 127 mm.
+    const placed = placeOverlay(TEXT, home, target) as Extract<Overlay, { type: 'text' }>;
+    expect(TEXT.width).toBeUndefined();
+    expect(placed.width).toBe(96);
+    // On the home layout the pin is the same box it already had.
+    expect((placeOverlay(TEXT, home, home) as Extract<Overlay, { type: 'text' }>).width).toBe(80);
+  });
+
+  it('falls back to the default side, then the only side, when placing a product template', () => {
+    const twoSided: LayoutTemplate = { ...shared, decoration: { ...shared.decoration, authoredOn: { layout: 'x', surfaces: { front: home, back: home } } } };
+    expect(templateOverlays(twoSided, 'front', target)[0]).toMatchObject({ y: 2 });
+    // No side for the key and more than one side: drawn as stored.
+    expect(templateOverlays(twoSided, 'default', target)[0]).toMatchObject({ y: 8 });
+    const oneSided: LayoutTemplate = { ...shared, decoration: { ...shared.decoration, authoredOn: { layout: 'x', surfaces: { only: home } } } };
+    expect(templateOverlays(oneSided, 'default', target)[0]).toMatchObject({ y: 2 });
+  });
+
+  it('scales print-pixel sizes when the layouts differ in pixels per millimetre', () => {
+    const denser = { ...target, canvas: { ...target.canvas, width: 1500, height: 2100 } }; // ≈11.81 px/mm
+    const text = placeOverlay({ ...TEXT, width: 80 }, home, denser) as Extract<Overlay, { type: 'text' }>;
+    expect(text.fontSize).toBeCloseTo(72 * (1500 / 127) / 10, 2);
+    expect(text.width).toBe(96);   // 80% of 152.4 mm is 121.92 mm: 96% of 127 mm
+    const shape: Overlay = { type: 'shape', id: 'sh', shapeType: 'rect', x: 10, y: 10, width: 20, height: 20, rotation: 0, fill: '#ff0000', stroke: '#000000', strokeWidth: 10, opacity: 1 };
+    expect((placeOverlay(shape, home, denser) as Extract<Overlay, { type: 'shape' }>).strokeWidth).toBeCloseTo(11.811, 2);
+  });
+
+  it('places template overlays and seeds a card for the layout the customer is on', () => {
+    const placed = templateOverlays(shared, 'default', target);
+    expect(placed.map(o => o.y)).toEqual([2, placeOverlay(STICKER, home, target).y]);
+    expect(placed.every(isTemplateOverlay)).toBe(true);
+    expect(seedCard(shared, 'default', target).overlays[0]).toMatchObject({ y: 2 });
+    // Without a target, or on a template saved before sharing (no stamp), the numbers are as stored.
+    expect(templateOverlays(shared, 'default')[0]).toMatchObject({ y: 8 });
+    expect(templateOverlays(TEMPLATE, 'default', target)[0]).toMatchObject({ y: 8 });
+    expect(applyTemplateToCards([card()], shared, 'default', target)[0].overlays[0]).toMatchObject({ y: 2 });
   });
 });

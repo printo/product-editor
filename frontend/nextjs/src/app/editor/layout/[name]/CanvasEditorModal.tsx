@@ -12,7 +12,7 @@ import { type LayerSelection } from './LayersPanel';
 // Type-only import: erased at compile time, zero bundle impact
 import type { FabricEditorHandle } from './FabricEditor';
 import { CanvasEditorSidebar } from './CanvasEditorSidebar';
-import { isLostLocalImage } from './editor-utils';
+import { alignOverlay, isLostLocalImage, type OverlayAlignment } from './editor-utils';
 import { markEditedTemplateOverlays } from './layout-template';
 import type { ServerHeicConverter } from '@/lib/heic-convert';
 
@@ -263,18 +263,10 @@ export function CanvasEditorModal({
     }
   };
 
-  const handleOverlayAlign = (
-    overlayIdx: number,
-    alignment: 'center' | 'middle',
-  ) => {
+  const handleOverlayAlign = (overlayIdx: number, alignment: OverlayAlignment) => {
     if (!editingCanvas) return;
     pushUndo(editingCanvas);
-    const newOverlays = editingCanvas.overlays.map((o, i) => {
-      if (i !== overlayIdx) return o;
-      if (alignment === 'center') return { ...o, x: 50 };
-      if (alignment === 'middle') return { ...o, y: 50 };
-      return o;
-    });
+    const newOverlays = editingCanvas.overlays.map((o, i) => (i !== overlayIdx ? o : alignOverlay(o, alignment)));
     debouncedRender({ ...editingCanvas, overlays: newOverlays });
   };
 

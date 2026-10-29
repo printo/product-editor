@@ -88,7 +88,9 @@ class CustomerReadsTest(_Base):
         ids = [t['id'] for t in res.json()['templates']]
         self.assertEqual(ids, ['pub'])
         self.assertEqual(res.json()['templates'][0]['layoutName'], 'tpl_test_4x6')
-        self.assertEqual(res.json()['templates'][0]['decoration'], DECO)
+        # The stored decoration, plus the home geometry every read derives.
+        self.assertEqual(res.json()['templates'][0]['decoration']['surfaces'], DECO['surfaces'])
+        self.assertEqual(res.json()['templates'][0]['decoration']['authoredOn']['layout'], 'tpl_test_4x6')
 
         self.assertEqual(self.client.get('/api/templates', **self.partner_auth).status_code, 400)
         self.assertEqual(self.client.get('/api/templates?layout=nope', **self.partner_auth).status_code, 404)
@@ -206,6 +208,45 @@ class OpsWritesTest(_Base):
             self.assertEqual(self.client.post('/api/ops/templates/assets', {}, **self.ops_auth).status_code, 400)
             self.assertEqual(self.client.post('/api/ops/templates/assets', {'file': io.BytesIO(png)}, **self.partner_auth).status_code, 403)
 
+    def test_svg_artwork_is_checked_like_a_mask_and_served_as_svg(self):
+        with override_settings(STORAGE_ROOT=self.tmp, STORAGE_BACKEND='local'):
+            svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 150"><rect width="100" height="150" fill="#f17a26"/></svg>'
+            up = io.BytesIO(svg); up.name = 'border.svg'
+            res = self.client.post('/api/ops/templates/assets', {'file': up}, **self.ops_auth)
+            self.assertEqual(res.status_code, 201, res.content)
+            url = res.json()['url']
+            self.assertTrue(url.startswith('/api/templates/assets/sticker_') and url.endswith('.svg'))
+            got = self.client.get(url)
+            self.assertEqual(got.status_code, 200)
+            self.assertEqual(got['Content-Type'], 'image/svg+xml')
+            self.assertIn('sandbox', got['Content-Security-Policy'])
+            body = b''.join(got.streaming_content)
+            self.assertIn(b'width="100" height="150"', body)   # normalised from the viewBox, like a mask
+            # Scripts, outside links and missing sizes are refused with the mask's rules.
+            for bad, fragment in (
+                (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><script>alert(1)</script></svg>', 'scripts'),
+                (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><image href="https://evil.example/x.png"/></svg>', 'outside'),
+                (b'<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>', 'viewBox'),
+            ):
+                up = io.BytesIO(bad); up.name = 'bad.svg'
+                res = self.client.post('/api/ops/templates/assets', {'file': up}, **self.ops_auth)
+                self.assertEqual(res.status_code, 400, fragment)
+                self.assertIn(fragment, res.json()['detail'])
+            # A decoration may point at an SVG sticker.
+            deco = {'surfaces': {'default': {'overlays': [{'type': 'image', 'source': 'clipart', 'src': url, 'label': 'Artwork',
+                                                            'x': 0, 'y': 0, 'width': 100, 'height': 100, 'rotation': 0, 'opacity': 1}]}}}
+            res = self.client.post('/api/ops/templates', {'id': 'svg-art', 'layout': 'tpl_test_4x6', 'display_name': 'SVG art', 'decoration': deco},
+                                   content_type='application/json', **self.ops_auth)
+            self.assertEqual(res.status_code, 201, res.content)
+            # Thumbnails stay PNG: the editor renders them.
+            import json
+            thumb = io.BytesIO(svg); thumb.name = 'thumb.svg'
+            res = self.client.post('/api/ops/templates', {
+                'template_data': json.dumps({'id': 'svg-thumb', 'layout': 'tpl_test_4x6', 'display_name': 'x', 'decoration': DECO}),
+                'thumbnail': thumb,
+            }, **self.ops_auth)
+            self.assertEqual(res.status_code, 400)
+
     def test_thumbnail_is_stored_with_the_template(self):
         with override_settings(STORAGE_ROOT=self.tmp, STORAGE_BACKEND='local'):
             import json
@@ -248,3 +289,435 @@ class EmbedSessionTest(_Base):
             res = self.client.post('/api/embed/session', {'template_id': tid},
                                    content_type='application/json', **self.partner_auth)
             self.assertEqual(res.status_code, 400, tid)
+
+
+# The home layout's window is 121.92 x 81.28 mm (frames 0.1..0.9 of a
+# 152.4 x 101.6 canvas): key 122x81. The same window centred in a wider
+# canvas — a thicker frame picture — keys the same; a narrower window does not.
+HALF_INCH_FRAME = {
+    'name': 'tpl_frame_half', 'productType': 'single_canvas', 'type': 'single',
+    'canvas': {'width': 2100, 'height': 1500, 'widthMm': 177.8, 'heightMm': 127, 'dpi': 300},
+    'frames': [{'x': 0.157142857, 'y': 0.18, 'width': 0.685714286, 'height': 0.64}],
+}
+OTHER_SIZE = {
+    'name': 'tpl_other_size', 'productType': 'single_canvas', 'type': 'single',
+    'canvas': {'width': 1800, 'height': 1200, 'widthMm': 152.4, 'heightMm': 101.6, 'dpi': 300},
+    'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.5, 'height': 0.8}],
+}
+CALENDAR = {
+    'name': 'tpl_cal', 'productType': 'calendar', 'type': 'single',
+    'canvas': {'width': 1800, 'height': 1200, 'widthMm': 152.4, 'heightMm': 101.6, 'dpi': 300},
+    'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.8, 'height': 0.8}],
+}
+
+
+class SharedTemplatesTest(_Base):
+    """A template is offered on every same-box layout ops tick (`also_on`),
+    the customer reads and counts see it there, and the decoration carries
+    the home geometry the editor centres it by."""
+
+    def setUp(self):
+        super().setUp()
+        self.half = LayoutCatalogue.objects.create(name='tpl_frame_half', definition=HALF_INCH_FRAME, product_type='single_canvas')
+        self.other = LayoutCatalogue.objects.create(name='tpl_other_size', definition=OTHER_SIZE, product_type='single_canvas')
+        self.cal = LayoutCatalogue.objects.create(name='tpl_cal', definition=CALENDAR, product_type='calendar')
+
+    def ops_post(self, path, body):
+        return self.client.post(path, body, content_type='application/json', **self.ops_auth)
+
+    def test_shared_template_is_offered_on_ticked_layouts(self):
+        res = self.ops_post('/api/ops/templates', {
+            'id': 'shared', 'layout': 'tpl_test_4x6', 'display_name': 'Shared', 'status': 'published',
+            'decoration': DECO, 'also_on': ['tpl_frame_half', 'tpl_test_4x6', 'tpl_frame_half'],
+        })
+        self.assertEqual(res.status_code, 201, res.content)
+        data = res.json()
+        self.assertEqual(data['layoutName'], 'tpl_test_4x6')
+        self.assertEqual(data['alsoOn'], ['tpl_frame_half'])
+        self.assertEqual(data['windowBox'], {'xMm': 15.24, 'yMm': 10.16, 'widthMm': 121.92, 'heightMm': 81.28})
+        self.assertEqual(data['printAreaBox'], data['windowBox'])   # no bleed on this layout
+        self.assertEqual(data['bleedMm'], 0)
+        stamp = data['decoration']['authoredOn']
+        self.assertEqual(stamp['layout'], 'tpl_test_4x6')
+        self.assertEqual(stamp['surfaces']['default']['canvas'], {'width': 1800, 'height': 1200, 'widthMm': 152.4, 'heightMm': 101.6})
+        self.assertEqual(stamp['surfaces']['default']['windowBox'], data['windowBox'])
+
+        # The customer picker lists it on both layouts, nowhere else.
+        for name, expected in (('tpl_test_4x6', ['shared']), ('tpl_frame_half', ['shared']), ('tpl_other_size', [])):
+            listed = self.client.get(f'/api/templates?layout={name}', **self.partner_auth).json()['templates']
+            self.assertEqual([t['id'] for t in listed], expected, name)
+            if expected:
+                self.assertEqual(listed[0]['layoutName'], 'tpl_test_4x6')
+                self.assertEqual(listed[0]['alsoOn'], ['tpl_frame_half'])
+        # The editor's init accepts it on a ticked layout and refuses it elsewhere.
+        on_half = self.client.get('/api/editor/init?layout=tpl_frame_half&template=shared', **self.partner_auth)
+        self.assertEqual(on_half.status_code, 200, on_half.content)
+        self.assertEqual(on_half.json()['template']['id'], 'shared')
+        self.assertEqual(on_half.json()['layout']['name'], 'tpl_frame_half')
+        self.assertEqual(self.client.get('/api/editor/init?layout=tpl_other_size&template=shared', **self.partner_auth).status_code, 404)
+        # Counts: once per layout it is offered on.
+        from django.core.cache import cache
+        cache.delete_many(['layouts_list_all', 'ops_layouts_list_all'])
+        counts = {l['name']: l['templateCount'] for l in self.client.get('/api/layouts', **self.partner_auth).json()['layouts']}
+        self.assertEqual((counts['tpl_test_4x6'], counts['tpl_frame_half'], counts['tpl_other_size']), (1, 1, 0))
+        # The ops list filters by either layout and never repeats a template.
+        self.assertEqual([t['id'] for t in self.client.get('/api/ops/templates?layout=tpl_frame_half', **self.ops_auth).json()['templates']], ['shared'])
+        self.assertEqual([t['id'] for t in self.client.get('/api/ops/templates', **self.ops_auth).json()['templates']], ['shared'])
+        # The session's ready-made address still opens the home layout.
+        session = self.client.post('/api/embed/session', {'template_id': 'shared'}, content_type='application/json', **self.partner_auth).json()
+        self.assertTrue(session['editor_url'].startswith('/editor/layout/tpl_test_4x6?'))
+
+        # Unticking takes it off the other layout; a save without `also_on` keeps the list.
+        kept = self.ops_post('/api/ops/templates/shared', {'display_name': 'Shared!'})
+        self.assertEqual(kept.json()['alsoOn'], ['tpl_frame_half'])
+        res = self.ops_post('/api/ops/templates/shared', {'also_on': []})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['alsoOn'], [])
+        self.assertEqual(self.client.get('/api/templates?layout=tpl_frame_half', **self.partner_auth).json()['templates'], [])
+
+    def test_also_on_is_refused_for_other_sizes_calendars_and_unknown_layouts(self):
+        base = {'id': 'picky', 'layout': 'tpl_test_4x6', 'display_name': 'Picky', 'decoration': DECO}
+        for also_on, fragment in (
+            (['tpl_other_size'], "tpl_other_size' has 76x81 mm print areas (bleed included), 81x76 mm turned; this template is 122x81 mm"),
+            (['tpl_cal'], 'calendars and books'),
+            (['tpl_missing'], "Layout 'tpl_missing' not found"),
+            (['../escape'], 'invalid layout name'),
+            ('tpl_frame_half', None),           # a bare string is read as a one-item list
+            ({'tpl_frame_half': True}, 'must be a list'),
+        ):
+            res = self.ops_post('/api/ops/templates', {**base, 'also_on': also_on})
+            if fragment is None:
+                self.assertEqual(res.status_code, 201, res.content)
+                self.assertEqual(res.json()['alsoOn'], ['tpl_frame_half'])
+                LayoutTemplate.objects.filter(template_id='picky').delete()
+            else:
+                self.assertEqual(res.status_code, 400, (also_on, res.content))
+                self.assertIn(fragment, res.json()['detail'])
+        self.assertFalse(LayoutTemplate.objects.filter(template_id='picky').exists())
+        # A home layout without windows cannot share at all.
+        bare = LayoutCatalogue.objects.create(name='tpl_bare', definition={**LAYOUT, 'name': 'tpl_bare', 'frames': []})
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'bare', 'layout': bare.name, 'also_on': ['tpl_frame_half']})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('no print areas', res.json()['detail'])
+
+    def test_a_ticked_layout_that_is_retired_or_resized_is_flagged_and_must_be_unticked(self):
+        self.ops_post('/api/ops/templates', {
+            'id': 'shared', 'layout': 'tpl_test_4x6', 'display_name': 'Shared', 'status': 'published',
+            'decoration': DECO, 'also_on': ['tpl_frame_half'],
+        })
+        read = lambda: self.client.get('/api/ops/templates/shared', **self.ops_auth).json()
+        self.assertEqual(read()['alsoOnMismatch'], [])
+        # The customer picker never carries the flag.
+        self.assertNotIn('alsoOnMismatch', self.client.get('/api/templates/shared', **self.partner_auth).json())
+
+        # Ops move the other layout's print areas: it stays ticked, is flagged, and a
+        # save that re-sends it is refused by name until it is unticked.
+        self.half.definition = {**HALF_INCH_FRAME, 'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.5, 'height': 0.5}]}
+        self.half.version += 1
+        self.half.save()
+        self.assertEqual(read()['alsoOn'], ['tpl_frame_half'])
+        self.assertEqual(read()['alsoOnMismatch'], ['tpl_frame_half'])
+        self.assertEqual([t['id'] for t in self.client.get('/api/templates?layout=tpl_frame_half', **self.partner_auth).json()['templates']], ['shared'])
+        refused = self.ops_post('/api/ops/templates/shared', {'display_name': 'Shared!', 'also_on': ['tpl_frame_half']})
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("tpl_frame_half' has 89x64 mm print areas", refused.json()['detail'])
+        # A save that leaves `also_on` out keeps the list and still succeeds.
+        self.assertEqual(self.ops_post('/api/ops/templates/shared', {'display_name': 'Shared!'}).status_code, 200)
+
+        # A retired layout reads the same way.
+        self.half.definition = HALF_INCH_FRAME
+        self.half.is_deprecated = True
+        self.half.save()
+        self.assertEqual(read()['alsoOnMismatch'], ['tpl_frame_half'])
+        refused = self.ops_post('/api/ops/templates/shared', {'also_on': ['tpl_frame_half']})
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn('retired', refused.json()['detail'])
+        ok = self.ops_post('/api/ops/templates/shared', {'also_on': []})
+        self.assertEqual(ok.status_code, 200, ok.content)
+        self.assertEqual(ok.json()['alsoOn'], [])
+        self.assertEqual(ok.json()['alsoOnMismatch'], [])
+
+    def test_every_read_carries_the_home_geometry_as_it_is_now(self):
+        """Nothing is stored: a template saved before sharing reads with the
+        home geometry too, a client's own stamp is dropped, and moving the
+        home layout's print areas moves the geometry on the next read."""
+        t = self.make('old-one')
+        self.assertNotIn('authoredOn', t.decoration)
+        for path, auth in (('/api/templates/old-one', self.partner_auth), ('/api/ops/templates/old-one', self.ops_auth)):
+            stamp = self.client.get(path, **auth).json()['decoration']['authoredOn']
+            self.assertEqual(stamp['layout'], 'tpl_test_4x6')
+            self.assertEqual(stamp['surfaces']['default']['windowBox'], {'xMm': 15.24, 'yMm': 10.16, 'widthMm': 121.92, 'heightMm': 81.28})
+        forged = {**DECO, 'authoredOn': {'layout': 'elsewhere', 'surfaces': {}}}
+        res = self.ops_post('/api/ops/templates/old-one', {'decoration': forged})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertNotIn('authoredOn', LayoutTemplate.objects.get(template_id='old-one').decoration)
+        self.assertEqual(res.json()['decoration']['authoredOn']['layout'], 'tpl_test_4x6')
+        self.layout.definition = {**LAYOUT, 'frames': [{'x': 0.2, 'y': 0.1, 'width': 0.8, 'height': 0.8}]}
+        self.layout.version += 1
+        self.layout.save()
+        moved = self.client.get('/api/templates/old-one', **self.partner_auth).json()['decoration']['authoredOn']
+        self.assertEqual(moved['surfaces']['default']['windowBox']['xMm'], 30.48)
+
+    def test_a_two_sided_home_cannot_share_with_a_one_sided_layout(self):
+        """The decoration is drawn per side, so the sides must match too."""
+        two_sided = {
+            'name': 'tpl_card', 'productType': 'single_canvas', 'type': 'product',
+            'surfaces': [
+                {'key': 'front', 'label': 'Front', 'canvas': LAYOUT['canvas'], 'frames': LAYOUT['frames']},
+                {'key': 'back', 'label': 'Back', 'canvas': LAYOUT['canvas'], 'frames': []},
+            ],
+        }
+        LayoutCatalogue.objects.create(name='tpl_card', definition=two_sided, product_type='single_canvas')
+        by_name = {l['name']: l for l in self.client.get('/api/ops/templates/candidates', **self.ops_auth).json()['layouts']}
+        self.assertEqual(by_name['tpl_card']['windowKey'], '122x81')
+        self.assertEqual(by_name['tpl_card']['surfaceKeys'], ['front', 'back'])
+        self.assertEqual(by_name['tpl_test_4x6']['surfaceKeys'], ['default'])
+        res = self.ops_post('/api/ops/templates', {
+            'id': 'sides', 'layout': 'tpl_test_4x6', 'display_name': 'Sides', 'decoration': DECO, 'also_on': ['tpl_card'],
+        })
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("tpl_card' has sides front, back; 'tpl_test_4x6' has default", res.json()['detail'])
+
+    def test_a_retired_home_hides_the_template_everywhere(self):
+        self.ops_post('/api/ops/templates', {
+            'id': 'shared', 'layout': 'tpl_test_4x6', 'display_name': 'Shared', 'status': 'published',
+            'decoration': DECO, 'also_on': ['tpl_frame_half'],
+        })
+        self.layout.is_deprecated = True
+        self.layout.save()
+        self.assertEqual(self.client.get('/api/templates?layout=tpl_frame_half', **self.partner_auth).json()['templates'], [])
+        self.assertEqual(self.client.get('/api/editor/init?layout=tpl_frame_half&template=shared', **self.partner_auth).status_code, 404)
+        self.assertEqual(self.client.get('/api/templates/shared', **self.partner_auth).status_code, 404)
+        from django.core.cache import cache
+        cache.delete_many(['layouts_list_all', 'ops_layouts_list_all'])
+        counts = {l['name']: l['templateCount'] for l in self.client.get('/api/layouts', **self.partner_auth).json()['layouts']}
+        self.assertEqual(counts['tpl_frame_half'], 0)
+        ops = self.client.get('/api/ops/templates/shared', **self.ops_auth).json()
+        self.assertTrue(ops['homeRetired'])
+
+    def test_a_draft_shared_template_counts_nothing_for_customers(self):
+        self.ops_post('/api/ops/templates', {
+            'id': 'draft-shared', 'layout': 'tpl_test_4x6', 'display_name': 'Draft', 'decoration': DECO, 'also_on': ['tpl_frame_half'],
+        })
+        from django.core.cache import cache
+        cache.delete_many(['layouts_list_all', 'ops_layouts_list_all'])
+        counts = {l['name']: l['templateCount'] for l in self.client.get('/api/layouts', **self.partner_auth).json()['layouts']}
+        self.assertEqual((counts['tpl_test_4x6'], counts['tpl_frame_half']), (0, 0))
+        self.assertEqual(self.client.get('/api/templates?layout=tpl_frame_half', **self.partner_auth).json()['templates'], [])
+        by_name = {l['name']: l for l in self.client.get('/api/ops/templates/candidates', **self.ops_auth).json()['layouts']}
+        self.assertEqual((by_name['tpl_test_4x6']['templateCount'], by_name['tpl_frame_half']['templateCount']), (1, 1))
+
+    def test_candidates_list_generic_layouts_with_their_size(self):
+        self.make('home-draft', status='draft')
+        res = self.client.get('/api/ops/templates/candidates', **self.ops_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        by_name = {l['name']: l for l in res.json()['layouts']}
+        self.assertNotIn('tpl_cal', by_name)
+        self.assertEqual(by_name['tpl_test_4x6']['windowKey'], '122x81')
+        self.assertEqual(by_name['tpl_frame_half']['windowKey'], '122x81')
+        self.assertEqual(by_name['tpl_other_size']['windowKey'], '76x81')
+        self.assertEqual(by_name['tpl_frame_half']['windowBox'], {'xMm': 27.94, 'yMm': 22.86, 'widthMm': 121.92, 'heightMm': 81.28})
+        self.assertEqual(by_name['tpl_test_4x6']['printAreaKey'], '122x81')
+        self.assertEqual(by_name['tpl_test_4x6']['bleedMm'], 0)
+        self.assertEqual(by_name['tpl_test_4x6']['surfaceKeys'], ['default'])
+        self.assertEqual(by_name['tpl_test_4x6']['templateCount'], 1)   # drafts count for ops
+        self.assertEqual(by_name['tpl_frame_half']['templateCount'], 0)
+        self.assertEqual(by_name['tpl_test_4x6']['displayName'], self.layout.display_name or 'tpl_test_4x6')
+        self.assertEqual(self.client.get('/api/ops/templates/candidates', **self.partner_auth).status_code, 403)
+
+
+# Drawn portrait, the same print areas as LAYOUT turned a quarter turn.
+PORTRAIT_SAME = {
+    'name': 'tpl_tall', 'productType': 'single_canvas', 'type': 'single',
+    'canvas': {'width': 1200, 'height': 1800, 'widthMm': 101.6, 'heightMm': 152.4, 'dpi': 300},
+    'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.8, 'height': 0.8}],
+}
+
+
+class TemplateFacingTest(_Base):
+    """A template faces one way (`orientation`): ops design it on the home
+    layout turned when they ask for the way it is not drawn, customers are
+    offered it only where their layout, turned or not, faces the same way,
+    and nothing is ever turned to fit."""
+
+    def setUp(self):
+        super().setUp()
+        self.half = LayoutCatalogue.objects.create(name='tpl_frame_half', definition=HALF_INCH_FRAME, product_type='single_canvas')
+        self.tall = LayoutCatalogue.objects.create(name='tpl_tall', definition=PORTRAIT_SAME, product_type='single_canvas')
+        self.fixed = LayoutCatalogue.objects.create(
+            name='tpl_fixed', definition={**LAYOUT, 'name': 'tpl_fixed', 'frameCaptionsEnabled': True}, product_type='single_canvas',
+        )
+        from django.core.cache import cache
+        cache.clear()
+
+    def ops_post(self, path, body):
+        return self.client.post(path, body, content_type='application/json', **self.ops_auth)
+
+    def listed(self, layout, *, header=None, query=None, auth=None):
+        extra = dict(auth or self.partner_auth)
+        if header:
+            extra['HTTP_X_ORDER_ORIENTATION'] = header
+        res = self.client.get(f'/api/templates?layout={layout}{"&orientation=" + query if query else ""}', **extra)
+        self.assertEqual(res.status_code, 200, res.content)
+        return [t['id'] for t in res.json()['templates']]
+
+    def test_a_portrait_template_is_designed_on_the_turned_layout_and_offered_on_portrait_orders(self):
+        res = self.ops_post('/api/ops/templates', {
+            'id': 'tall-one', 'layout': 'tpl_test_4x6', 'orientation': 'portrait', 'display_name': 'Tall',
+            'status': 'published', 'decoration': DECO, 'also_on': ['tpl_frame_half', 'tpl_tall'],
+        })
+        self.assertEqual(res.status_code, 201, res.content)
+        data = res.json()
+        self.assertEqual((data['orientation'], data['facing']), ('portrait', 'portrait'))
+        # The home layout is landscape as drawn; the template's geometry is the layout turned.
+        self.assertEqual(data['windowBox'], {'xMm': 10.16, 'yMm': 15.24, 'widthMm': 81.28, 'heightMm': 121.92})
+        stamp = data['decoration']['authoredOn']['surfaces']['default']
+        self.assertEqual(stamp['canvas'], {'width': 1200, 'height': 1800, 'widthMm': 101.6, 'heightMm': 152.4})
+        self.assertEqual(stamp['windowBox'], data['windowBox'])
+        wide = self.ops_post('/api/ops/templates', {
+            'id': 'wide-one', 'layout': 'tpl_test_4x6', 'display_name': 'Wide', 'status': 'published', 'decoration': DECO,
+        })
+        self.assertEqual(wide.status_code, 201, wide.content)
+        self.assertEqual((wide.json()['orientation'], wide.json()['facing']), ('', 'landscape'))
+
+        # The customer list follows the way the layout is served: the embed
+        # proxy's header, or ?orientation= for the ops key alone.
+        self.assertEqual(self.listed('tpl_test_4x6'), ['wide-one'])
+        self.assertEqual(self.listed('tpl_test_4x6', header='portrait'), ['tall-one'])
+        self.assertEqual(self.listed('tpl_test_4x6', header='landscape'), ['wide-one'])
+        self.assertEqual(self.listed('tpl_test_4x6', query='portrait', auth=self.ops_auth), ['tall-one'])
+        self.assertEqual(self.listed('tpl_test_4x6', query='portrait'), ['wide-one'])   # a customer URL cannot choose
+        # A layout drawn portrait offers it as drawn and loses it when turned.
+        self.assertEqual(self.listed('tpl_tall'), ['tall-one'])
+        self.assertEqual(self.listed('tpl_tall', header='landscape'), [])
+        # The half-inch frame is drawn landscape: the portrait template only on portrait orders.
+        self.assertEqual(self.listed('tpl_frame_half'), [])
+        self.assertEqual(self.listed('tpl_frame_half', header='portrait'), ['tall-one'])
+
+        # The editor's init: 404 naming the facing where it is not offered.
+        as_drawn = self.client.get('/api/editor/init?layout=tpl_test_4x6&template=tall-one', **self.partner_auth)
+        self.assertEqual(as_drawn.status_code, 404, as_drawn.content)
+        self.assertIn('designed for layout', as_drawn.json()['detail'])
+        turned = self.client.get('/api/editor/init?layout=tpl_test_4x6&template=tall-one',
+                                 HTTP_X_ORDER_ORIENTATION='portrait', **self.partner_auth)
+        self.assertEqual(turned.status_code, 200, turned.content)
+        self.assertEqual(turned.json()['template']['id'], 'tall-one')
+        self.assertTrue(turned.json()['orientation']['applied'])
+        self.assertEqual(turned.json()['layout']['canvas']['width'], 1200)
+        ops = self.client.get('/api/editor/init?layout=tpl_test_4x6&template=tall-one&orientation=portrait', **self.ops_auth)
+        self.assertEqual(ops.status_code, 200, ops.content)
+        self.assertEqual(ops.json()['template']['facing'], 'portrait')
+        # The as-drawn template is gone from a turned layout; it is never turned to fit.
+        self.assertEqual(self.client.get('/api/editor/init?layout=tpl_test_4x6&template=wide-one',
+                                         HTTP_X_ORDER_ORIENTATION='portrait', **self.partner_auth).status_code, 404)
+
+        # A session is refused when its orientation (or none) would hide the template.
+        def session(body):
+            return self.client.post('/api/embed/session', body, content_type='application/json', **self.partner_auth)
+        refused = session({'template_id': 'tall-one', 'orientation': 'landscape'})
+        self.assertEqual(refused.status_code, 400, refused.content)
+        self.assertIn("designed for the layout in portrait", refused.json()['detail'])
+        self.assertIn("with orientation 'landscape'", refused.json()['detail'])
+        refused = session({'template_id': 'tall-one'})
+        self.assertEqual(refused.status_code, 400, refused.content)
+        self.assertIn('as drawn it would not be offered', refused.json()['detail'])
+        ok = session({'template_id': 'tall-one', 'orientation': 'portrait'})
+        self.assertEqual(ok.status_code, 201, ok.content)
+        self.assertTrue(ok.json()['editor_url'].startswith('/editor/layout/tpl_test_4x6?'))
+        self.assertEqual(session({'template_id': 'wide-one'}).status_code, 201)
+        self.assertEqual(session({'template_id': 'wide-one', 'orientation': 'portrait'}).status_code, 400)
+
+        # Counts per orientation for the dashboard card; the total is unchanged.
+        layouts = {l['name']: l for l in self.client.get('/api/layouts', **self.partner_auth).json()['layouts']}
+        self.assertEqual(layouts['tpl_test_4x6']['templateCounts'], {'portrait': 1, 'landscape': 1})
+        self.assertEqual(layouts['tpl_test_4x6']['templateCount'], 2)
+        self.assertEqual(layouts['tpl_tall']['templateCounts'], {'portrait': 1, 'landscape': 0})
+        self.assertEqual(layouts['tpl_frame_half']['templateCounts'], {'portrait': 1, 'landscape': 0})
+        self.assertEqual(layouts['tpl_fixed']['templateCounts'], {'portrait': 0, 'landscape': 0})
+        summary = {l['name']: l for l in self.client.get('/api/layouts?fields=summary', **self.partner_auth).json()['layouts']}
+        self.assertEqual(summary['tpl_test_4x6']['templateCounts'], {'portrait': 1, 'landscape': 1})
+
+        # Candidates say what each layout can carry turned.
+        by_name = {l['name']: l for l in self.client.get('/api/ops/templates/candidates', **self.ops_auth).json()['layouts']}
+        self.assertEqual((by_name['tpl_test_4x6']['windowKey'], by_name['tpl_test_4x6']['turnedWindowKey']), ('122x81', '81x122'))
+        self.assertEqual(by_name['tpl_test_4x6']['orientationInfo'], {'orientation': 'landscape', 'blocked': None})
+        self.assertEqual((by_name['tpl_tall']['windowKey'], by_name['tpl_tall']['turnedWindowKey']), ('81x122', '122x81'))
+        self.assertEqual((by_name['tpl_fixed']['turnedWindowKey'], by_name['tpl_fixed']['turnedPrintAreaKey']), (None, None))
+        self.assertEqual(by_name['tpl_fixed']['orientationInfo'], {'orientation': 'landscape', 'blocked': 'has_captions'})
+        # The ops list and detail carry the facing too.
+        ops_list = {t['id']: t for t in self.client.get('/api/ops/templates', **self.ops_auth).json()['templates']}
+        self.assertEqual((ops_list['tall-one']['facing'], ops_list['wide-one']['facing']), ('portrait', 'landscape'))
+
+    def test_orientation_is_validated_fixed_and_drives_the_ticking(self):
+        base = {'layout': 'tpl_test_4x6', 'display_name': 'T', 'decoration': DECO}
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'bad', 'orientation': 'sideways'})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("orientation must be 'portrait' or 'landscape'", res.json()['detail'])
+        # A layout that cannot turn takes only the way it is drawn.
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'fixed-p', 'layout': 'tpl_fixed', 'orientation': 'portrait'})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("cannot be shown in portrait (has_captions)", res.json()['detail'])
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'fixed-l', 'layout': 'tpl_fixed', 'orientation': 'landscape'})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['orientation'], 'landscape')
+        # A square layout has no facing: the word is dropped.
+        square = {**LAYOUT, 'name': 'tpl_square', 'canvas': {'width': 1200, 'height': 1200, 'widthMm': 101.6, 'heightMm': 101.6, 'dpi': 300}}
+        LayoutCatalogue.objects.create(name='tpl_square', definition=square, product_type='single_canvas')
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'sq', 'layout': 'tpl_square', 'orientation': 'portrait'})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual((res.json()['orientation'], res.json()['facing']), ('', 'square'))
+        self.assertEqual(self.listed('tpl_square', header='landscape'), [])   # a draft; published below
+        self.ops_post('/api/ops/templates/sq', {'status': 'published'})
+        self.assertEqual(self.listed('tpl_square', header='landscape'), ['sq'])
+
+        # Fixed at creation: a differing value is refused, the same value is fine.
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'tall', 'orientation': 'portrait', 'also_on': ['tpl_tall', 'tpl_frame_half']})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(self.ops_post('/api/ops/templates/tall', {'orientation': 'landscape'}).status_code, 400)
+        self.assertIn('cannot change orientation', self.ops_post('/api/ops/templates/tall', {'orientation': 'landscape'}).json()['detail'])
+        self.assertEqual(self.ops_post('/api/ops/templates/tall', {'orientation': 'portrait', 'display_name': 'Tall!'}).status_code, 200)
+        self.assertEqual(LayoutTemplate.objects.get(template_id='tall').orientation, 'portrait')
+
+        # Ticking: a layout must carry the template's box as drawn or turned.
+        res = self.ops_post('/api/ops/templates/tall', {'also_on': ['tpl_fixed']})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("tpl_fixed' has 122x81 mm print areas (bleed included); this template is 81x122 mm (portrait)", res.json()['detail'])
+        # The landscape template on the landscape-drawn home can be ticked on the portrait layout (turned).
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'wide', 'status': 'published', 'also_on': ['tpl_tall']})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(self.listed('tpl_tall', header='landscape'), ['wide'])
+        self.assertEqual(self.listed('tpl_tall'), [])
+
+        # A ticked layout that can no longer turn is flagged and must be unticked.
+        read = lambda: self.client.get('/api/ops/templates/tall', **self.ops_auth).json()
+        self.assertEqual(read()['alsoOnMismatch'], [])
+        self.half.definition = {**HALF_INCH_FRAME, 'frameCaptionsEnabled': True}
+        self.half.version += 1
+        self.half.save()
+        self.assertEqual(read()['alsoOnMismatch'], ['tpl_frame_half'])
+        refused = self.ops_post('/api/ops/templates/tall', {'also_on': ['tpl_tall', 'tpl_frame_half']})
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("tpl_frame_half' has 122x81 mm print areas (bleed included); this template is 81x122 mm (portrait)", refused.json()['detail'])
+        self.assertEqual(self.ops_post('/api/ops/templates/tall', {'also_on': ['tpl_tall']}).status_code, 200)
+
+    def test_the_layout_read_turns_for_the_template_editor_on_the_ops_key_alone(self):
+        from django.core.cache import cache
+        cache.delete('layout_detail:tpl_test_4x6:')
+        turned = self.client.get('/api/layouts/tpl_test_4x6?orientation=portrait', **self.ops_auth)
+        self.assertEqual(turned.status_code, 200, turned.content)
+        self.assertEqual((turned.json()['canvas']['width'], turned.json()['canvas']['height']), (1200, 1800))
+        self.assertAlmostEqual(turned.json()['frames'][0]['x'], 0.1)   # 1 - 0.1 - 0.8, in floating point
+        self.assertTrue(turned.json()['orientationReport']['applied'])
+        # Again (now from the cache), the same; and the cache was not turned.
+        again = self.client.get('/api/layouts/tpl_test_4x6?orientation=portrait', **self.ops_auth).json()
+        self.assertEqual(again['canvas']['width'], 1200)
+        plain = self.client.get('/api/layouts/tpl_test_4x6', **self.ops_auth).json()
+        self.assertEqual(plain['canvas']['width'], 1800)
+        self.assertNotIn('orientationReport', plain)
+        same = self.client.get('/api/layouts/tpl_test_4x6?orientation=landscape', **self.ops_auth).json()
+        self.assertEqual(same['canvas']['width'], 1800)
+        self.assertEqual(same['orientationReport']['reason'], 'already_that_orientation')
+        # A customer key cannot ask for it.
+        customer = self.client.get('/api/layouts/tpl_test_4x6?orientation=portrait', **self.partner_auth).json()
+        self.assertEqual(customer['canvas']['width'], 1800)
+        self.assertNotIn('orientationReport', customer)

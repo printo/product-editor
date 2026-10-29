@@ -24,25 +24,26 @@ _VIEWBOX_RE = re.compile(rb"""viewBox\s*=\s*["']""", re.I)
 _SIZE_RE = re.compile(rb"""\b(width|height)\s*=\s*["']\s*[\d.]""", re.I)
 
 
-def validate_svg_mask(data: bytes) -> None:
+def validate_svg_mask(data: bytes, what: str = "SVG masks") -> None:
     """Raise ValueError unless `data` is a self-contained SVG safe to store.
 
-    Masks are served from the app's own origin and rendered by the print, so
-    anything that runs code or reaches outside the file is refused.
+    Masks (and template stickers, which pass `what`) are served from the
+    app's own origin and drawn by the print, so anything that runs code or
+    reaches outside the file is refused.
     """
     if len(data) > MAX_SVG_BYTES:
-        raise ValueError("SVG masks must be under 5 MB.")
+        raise ValueError(f"{what} must be under 5 MB.")
     if b"\x00" in data:
         raise ValueError("That file is not a valid SVG.")
     root = _ROOT_RE.search(data)
     if not root:
         raise ValueError("That file is not a valid SVG.")
     if _DOCTYPE_RE.search(data):
-        raise ValueError("SVG masks cannot contain a DOCTYPE or entity declarations.")
+        raise ValueError(f"{what} cannot contain a DOCTYPE or entity declarations.")
     if _SCRIPT_RE.search(data) or _EVENT_ATTR_RE.search(data):
-        raise ValueError("SVG masks cannot contain scripts or embedded objects.")
+        raise ValueError(f"{what} cannot contain scripts or embedded objects.")
     if _EXTERNAL_REF_RE.search(data) or _URL_REF_RE.search(data):
-        raise ValueError("SVG masks cannot link to files outside themselves. Embed the artwork or remove the link.")
+        raise ValueError(f"{what} cannot link to files outside themselves. Embed the artwork or remove the link.")
     tag = root.group(0)
     if not _VIEWBOX_RE.search(tag) and not (
         len(_SIZE_RE.findall(tag)) >= 2

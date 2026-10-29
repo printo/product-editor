@@ -2,7 +2,7 @@
  * The dashboard card's Portrait / Landscape choice: when it is locked and the
  * address a card opens. The server's side is services/layout_orientation.py.
  */
-import { layoutEditorHref, orientationLockedReason, type OrientationInfo } from '../layout-orientation';
+import { layoutEditorHref, orientationLockedReason, templateCountFor, type OrientationInfo } from '../layout-orientation';
 
 const portrait: OrientationInfo = { orientation: 'portrait', blocked: null };
 
@@ -16,6 +16,21 @@ describe('orientationLockedReason', () => {
   it('is locked when the server said nothing (an older backend)', () => {
     expect(orientationLockedReason(undefined)).toEqual(expect.any(String));
     expect(orientationLockedReason({ orientation: null, blocked: null })).toEqual(expect.any(String));
+  });
+});
+
+describe('templateCountFor', () => {
+  const counts = { portrait: 2, landscape: 1 };
+  it('shows the count for the chosen way, else the drawn way', () => {
+    expect(templateCountFor(3, counts, null, portrait)).toBe(2);
+    expect(templateCountFor(3, counts, 'portrait', portrait)).toBe(2);
+    expect(templateCountFor(3, counts, 'landscape', portrait)).toBe(1);
+    expect(templateCountFor(3, { portrait: 0 }, 'landscape', portrait)).toBe(3);
+  });
+  it('falls back to the total without per-orientation counts, or on a locked layout', () => {
+    expect(templateCountFor(3, null, 'landscape', portrait)).toBe(3);
+    expect(templateCountFor(3, counts, 'landscape', { orientation: 'portrait', blocked: 'has_captions' })).toBe(3);
+    expect(templateCountFor(3, counts, null, undefined)).toBe(3);
   });
 });
 

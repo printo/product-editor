@@ -4,13 +4,17 @@ import { useEffect, useState } from 'react';
 import { isLayoutTemplate, type LayoutTemplate } from './layout-template';
 
 /** The published templates for this layout, loaded once the layout is known
- *  (GET /api/templates?layout=, through whichever proxy the page uses). Off
+ *  (GET /api/templates?layout=, through whichever proxy the page uses), for
+ *  the way it is served: a template faces one way, so the server lists only
+ *  those facing the way the layout opens. The dashboard's `?orientation=`
+ *  rides along; the embed's comes from the session through the proxy. Off
  *  for calendars and books, which templates don't cover yet. */
-export function useLayoutTemplates({ apiBase, getAuthHeaders, layoutName, enabled }: {
+export function useLayoutTemplates({ apiBase, getAuthHeaders, layoutName, enabled, orientation = null }: {
   apiBase: string;
   getAuthHeaders: () => Record<string, string>;
   layoutName: string | null | undefined;
   enabled: boolean;
+  orientation?: 'portrait' | 'landscape' | null;
 }): { templates: LayoutTemplate[]; templatesLoaded: boolean } {
   const [templates, setTemplates] = useState<LayoutTemplate[]>([]);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
@@ -20,7 +24,7 @@ export function useLayoutTemplates({ apiBase, getAuthHeaders, layoutName, enable
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${apiBase}/templates?layout=${encodeURIComponent(layoutName)}`, {
+        const res = await fetch(`${apiBase}/templates?layout=${encodeURIComponent(layoutName)}${orientation ? `&orientation=${orientation}` : ''}`, {
           headers: { ...getAuthHeaders(), Accept: 'application/json' },
         });
         if (!res.ok) return;
@@ -34,7 +38,7 @@ export function useLayoutTemplates({ apiBase, getAuthHeaders, layoutName, enable
       }
     })();
     return () => { cancelled = true; };
-  }, [apiBase, getAuthHeaders, layoutName, enabled]);
+  }, [apiBase, getAuthHeaders, layoutName, enabled, orientation]);
 
   return { templates, templatesLoaded };
 }

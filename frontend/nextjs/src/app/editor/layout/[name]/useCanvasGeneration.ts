@@ -11,7 +11,7 @@ import { resolveRotation } from './editor-utils';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { planFrameSlots } from './surface-allocation';
 import type { CanvasItem, FitMode, FrameState, SurfaceState } from './types';
-import { seedCard, type SavedTemplate } from './layout-template';
+import { seedCard, surfaceGeometry, type SavedTemplate } from './layout-template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;
@@ -170,8 +170,9 @@ export function useCanvasGeneration({
       }
       const carry = reusePlan.carry[i];
       // A card with no edits to carry starts with the template's decoration
-      // (template.ts); the key is the surface this layout def describes.
-      const seed = carry ? null : seedCard(templateRef?.current ?? null, layoutDef.key || activeSurfaceKey);
+      // (layout-template.ts), placed for this layout's window box; the key
+      // is the surface this layout def describes.
+      const seed = carry ? null : seedCard(templateRef?.current ?? null, layoutDef.key || activeSurfaceKey, surfaceGeometry(layoutDef));
       const item: CanvasItem = {
         id: i,
         frames: canvasFrames,
@@ -287,7 +288,7 @@ export function useCanvasGeneration({
             }
             
             const carry = reusePlan.carry[batchIdx];
-            const seed = carry ? null : seedCard(templateRef?.current ?? null, activeSurfaceKey);
+            const seed = carry ? null : seedCard(templateRef?.current ?? null, activeSurfaceKey, surfaceGeometry(layout));
             const item: CanvasItem = {
               id: batchIdx,
               frames: canvasFrames,

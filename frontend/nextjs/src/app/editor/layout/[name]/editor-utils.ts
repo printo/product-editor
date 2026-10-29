@@ -250,6 +250,33 @@ export function isLostLocalImage(o: Overlay): boolean {
   return o.type === 'image' && o.source === 'local' && !o.originalFile;
 }
 
+export type OverlayAlignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
+
+/**
+ * An overlay snapped to an edge or the centre of the canvas, in the percent
+ * units overlays are stored in. An image is placed by its box (`x`/`y` is
+ * its top-left corner), so centring takes its width and height into
+ * account. Text and shapes keep the editor's historical centre and middle
+ * (their `x`/`y` is a centre or a corner depending on their alignment and
+ * shape); the other keys leave them alone.
+ */
+export function alignOverlay(o: Overlay, key: OverlayAlignment): Overlay {
+  const round1 = (v: number) => Math.round(v * 10) / 10;
+  if (o.type === 'image') {
+    switch (key) {
+      case 'left': return { ...o, x: 0 };
+      case 'center': return { ...o, x: round1(50 - o.width / 2) };
+      case 'right': return { ...o, x: round1(100 - o.width) };
+      case 'top': return { ...o, y: 0 };
+      case 'middle': return { ...o, y: round1(50 - o.height / 2) };
+      case 'bottom': return { ...o, y: round1(100 - o.height) };
+    }
+  }
+  if (key === 'center') return { ...o, x: 50 };
+  if (key === 'middle') return { ...o, y: 50 };
+  return o;
+}
+
 /** Where a card's photo windows sit, as fractions of the canvas. */
 export type PhotoZone = { x: number; y: number; width: number; height: number };
 

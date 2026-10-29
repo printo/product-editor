@@ -145,12 +145,18 @@ def validate_decoration(decoration: Any) -> dict:
     return out
 
 
-def png_filename(data: bytes, stem: str = 'sticker') -> str:
-    """Content-fingerprinted name, so a re-upload of the same PNG shares the
-    file and a changed sticker gets a new, cache-safe address."""
+STICKER_EXTENSIONS = ('png', 'svg')
+
+
+def png_filename(data: bytes, stem: str = 'sticker', ext: str = 'png') -> str:
+    """Content-fingerprinted name, so a re-upload of the same file shares it
+    and a changed sticker gets a new, cache-safe address. Stickers are PNG
+    or SVG (an SVG is checked like an SVG mask before it is stored)."""
     if not re.match(r'^[a-z]{1,16}$', stem):
         raise ValueError("stem must be a short lowercase word")
-    return f"{stem}_{hashlib.sha256(data).hexdigest()[:16]}.png"
+    if ext not in STICKER_EXTENSIONS:
+        raise ValueError(f"ext must be one of {STICKER_EXTENSIONS}")
+    return f"{stem}_{hashlib.sha256(data).hexdigest()[:16]}.{ext}"
 
 
 def sticker_url(filename: str) -> str:
@@ -174,3 +180,54 @@ def parse_template_flow(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+# ── Where a template was authored ────────────────────────────────────────────
+#
+# Since 2026-10-28 a template can be offered on every layout whose window box
+# (services/print_sheet.py) is the same size as its home layout's. Its
+# decoration is still stored in percent of the home canvas, so the editor
+# needs the home geometry to place it on another canvas: every read adds it
+# under `authoredOn`, derived from the home layout as it is NOW (so moving
+# the home layout's print areas moves the art on every layout the same way
+# it moves on the home), and the client (`layout-template.ts`) moves each
+# overlay by its millimetre offset from the window box's centre. Nothing is
+# stored: `validate_decoration` keeps only `surfaces`, so a client cannot
+# plant a stamp of its own.
+
+AUTHORED_ON = 'authoredOn'
+
+
+def _num(value: Any):
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if n != n:
+        return 0
+    return int(n) if n == int(n) else n
+
+
+def authored_on(definition: Any, layout_name: str) -> dict:
+    """The home layout's geometry per surface: canvas (px and mm) and window box."""
+    from services.print_sheet import surface_blocks, window_box_mm
+
+    surfaces = {}
+    for key, block in surface_blocks(definition if isinstance(definition, dict) else {}):
+        canvas = block.get('canvas') if isinstance(block.get('canvas'), dict) else {}
+        surfaces[key] = {
+            'canvas': {
+                'width': _num(canvas.get('width')), 'height': _num(canvas.get('height')),
+                'widthMm': _num(canvas.get('widthMm')), 'heightMm': _num(canvas.get('heightMm')),
+            },
+            'windowBox': window_box_mm(block),
+        }
+    return {'layout': layout_name, 'surfaces': surfaces}
+
+
+def with_authored_on(decoration: Any, definition: Any, layout_name: str) -> dict:
+    """A copy of a stored decoration with the home layout's current geometry
+    under `authoredOn`, for every read."""
+    out = dict(decoration) if isinstance(decoration, dict) else {}
+    out[AUTHORED_ON] = authored_on(definition, layout_name)
+    return out

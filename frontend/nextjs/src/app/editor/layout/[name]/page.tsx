@@ -15,7 +15,7 @@ import type { NormalizedLayout } from '@/lib/layout-utils';
 import { collectDuplicateFills } from '@/lib/submit-guards';
 import { DEFAULT_OVERLAY_FONT } from '@/lib/overlay-fonts';
 import type { FitMode, CanvasItem, SurfaceState } from './types';
-import { applyTemplateToCards, type LayoutTemplate } from './layout-template';
+import { applyTemplateToCards, surfaceGeometry, type LayoutTemplate } from './layout-template';
 import { useLayoutTemplates } from './useLayoutTemplates';
 import { TemplatePickerDialog } from './dialogs/TemplatePickerDialog';
 import { CanvasEditorModal } from './CanvasEditorModal';
@@ -43,7 +43,6 @@ import { useCardActions } from './useCardActions';
 import { useCanvasGeneration, useObjectUrls, useRenderCanvas } from './useCanvasGeneration';
 import { useFileIntake } from './useFileIntake';
 import { useServerRender } from './useServerRender';
-import type { OrientationReport } from './orientation';
 import { useAutosaveAndRestore, usePhotoStore } from './useDesignPersistence';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
@@ -170,7 +169,6 @@ export default function LayoutEditorPage() {
 
   const { setToolbarSentinel, isToolbarStuck, setToolbarEl, toolbarHeight } = useStickyToolbar(headerHeight);
 
-  const [orientationReport, setOrientationReport] = useState<OrientationReport | null>(null);
   useDashboardHeader(embedToken, router);
 
   useLoginRedirect({ status, session, embedToken, router });
@@ -179,7 +177,7 @@ export default function LayoutEditorPage() {
     layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
     selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
     setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
-    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning, urlOrientation, setOrientationReport,
+    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning, urlOrientation,
   });
 
   const { getFileUrl, fileUrlCache, createdObjectURLs } = useObjectUrls();
@@ -320,7 +318,7 @@ export default function LayoutEditorPage() {
       if (s.canvases.length === 0) return s;
       const def = { ...normalizedLayoutState?._raw, ...s.def };
       const canvases = await Promise.all(
-        applyTemplateToCards(s.canvases, template, s.key).map(async c => ({
+        applyTemplateToCards(s.canvases, template, s.key, surfaceGeometry(s.def)).map(async c => ({
           ...c, dataUrl: await renderCanvas(c, { thumbnail: true, layoutOverride: def }),
         })),
       );
@@ -331,13 +329,14 @@ export default function LayoutEditorPage() {
     if (active) setCanvases(active.canvases);
   };
 
-  // The layout's published templates (none for calendars and books yet).
-  // A template's decoration is placed for the layout as drawn, so a layout
-  // turned to the other orientation offers none (editor/init omits it too).
-  const { templates: layoutTemplates, templatesLoaded } = useLayoutTemplates({
+  // The layout's published templates (none for calendars and books yet) for
+  // the way it opens: a template faces one way and is never turned, so the
+  // server lists only those facing the way the layout is served (the
+  // dashboard's ?orientation= here; the embed session's through the proxy).
+  const { templates, templatesLoaded } = useLayoutTemplates({
     apiBase, getAuthHeaders, layoutName: layout?.name, enabled: !!layout && !isCalendarProduct && !isBookProduct,
+    orientation: urlOrientation,
   });
-  const templates = useMemo(() => (orientationReport?.applied ? [] : layoutTemplates), [orientationReport?.applied, layoutTemplates]);
   const totalCardCount = surfaceStates.reduce((n, s) => n + s.canvases.length, 0);
   // Picking a template is the first step: the picker opens by itself, once,
   // on a fresh design. Always on the dashboard; in the embed only when the
