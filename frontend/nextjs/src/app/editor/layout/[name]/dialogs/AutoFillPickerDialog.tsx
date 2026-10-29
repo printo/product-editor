@@ -32,7 +32,7 @@ export function AutoFillPickerDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Choose images to repeat"
-        className="bg-white w-full sm:max-w-lg sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[88vh] sm:max-h-[80vh] flex flex-col animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
+        className="bg-white w-full sm:max-w-lg sm:mx-4 rounded-t-2xl sm:rounded-xl shadow-xl ring-1 ring-slate-900/5 p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[88vh] sm:max-h-[80vh] flex flex-col animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
       >
         <div className="sm:hidden w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4 shrink-0" />
         <div className="flex items-start justify-between gap-3 shrink-0">
@@ -40,7 +40,7 @@ export function AutoFillPickerDialog({
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-2 -mt-1 -mr-1 hover:bg-slate-100 rounded-xl transition-all shrink-0"
+            className="p-2 -mt-1 -mr-1 hover:bg-slate-100 rounded-lg transition-all shrink-0"
           >
             <X className="w-4 h-4 text-slate-400" />
           </button>
@@ -64,7 +64,7 @@ export function AutoFillPickerDialog({
                   if (isSelected) next.delete(i); else next.add(i);
                   return next;
                 })}
-                className={clsx('relative aspect-square rounded-xl overflow-hidden border-2 transition-all active:scale-95', isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300')}
+                className={clsx('relative aspect-square rounded-lg overflow-hidden border-2 transition-all active:scale-95', isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300')}
               >
                 <img src={url} alt={f.name} className="w-full h-full object-cover" />
                 {isSelected && (
@@ -81,7 +81,7 @@ export function AutoFillPickerDialog({
         <button
           onClick={onConfirm}
           disabled={pickerSelected.size === 0}
-          className="w-full min-h-[48px] py-3.5 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
+          className="w-full min-h-[48px] py-3.5 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
         >
           {pickerSelected.size === 0
             ? 'Select at least one image'

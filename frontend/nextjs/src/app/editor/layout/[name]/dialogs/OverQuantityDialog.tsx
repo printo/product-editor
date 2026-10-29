@@ -21,11 +21,11 @@ export function OverQuantityDialog({ orderQty, selectedCount, onDecide }: {
         role="alertdialog"
         aria-modal="true"
         aria-label="More images than ordered"
-        className="bg-white w-full sm:max-w-md sm:mx-4 rounded-t-3xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
+        className="bg-white w-full sm:max-w-md sm:mx-4 rounded-t-2xl sm:rounded-xl shadow-xl ring-1 ring-slate-900/5 p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
       >
         <div className="sm:hidden w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4" />
         <div className="flex items-start gap-3 sm:gap-4">
-          <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
             <AlertTriangle className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
@@ -38,13 +38,13 @@ export function OverQuantityDialog({ orderQty, selectedCount, onDecide }: {
         <div className="mt-5 flex flex-col sm:flex-row items-stretch gap-2">
           <button
             onClick={() => onDecide(true)}
-            className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95"
+            className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95"
           >
             Keep first {orderQty}
           </button>
           <button
             onClick={() => onDecide(false)}
-            className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+            className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95"
           >
             Choose again
           </button>

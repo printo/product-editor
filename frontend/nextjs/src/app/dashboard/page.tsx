@@ -242,7 +242,7 @@ function DashboardContent() {
         <div className="max-w-[1440px] mx-auto">
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl">
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-lg">
               {error}
             </div>
           )}
@@ -255,7 +255,7 @@ function DashboardContent() {
               <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
             </div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-20 text-slate-500 bg-white rounded-2xl border shadow-sm">
+            <div className="text-center py-20 text-slate-500 bg-white rounded-xl border shadow-sm">
               {layouts.length === 0
                 ? 'No layouts found. Create one in the Layout Editor.'
                 : 'No layouts match your search.'}
@@ -267,7 +267,7 @@ function DashboardContent() {
                 return (
                 <div
                   key={layout.id}
-                  className="group bg-white rounded-2xl border border-slate-100/60 overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 active:shadow-xl active:shadow-indigo-500/10 transition-all duration-300 hover:-translate-y-1 active:-translate-y-1"
+                  className="group bg-white rounded-xl border border-slate-100/60 overflow-hidden hover:shadow-lg hover:shadow-indigo-500/10 active:shadow-lg active:shadow-indigo-500/10 transition-all duration-300 hover:-translate-y-1 active:-translate-y-1"
                 >
                   {/* A plain link, not next/link: the editor reads its address
                       (?orientation= among it) while it first renders, and a

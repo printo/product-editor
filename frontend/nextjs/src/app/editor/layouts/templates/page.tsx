@@ -237,13 +237,13 @@ export default function AllTemplatesPage() {
         </p>
 
         {error && (
-          <div role="alert" className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl">{error}</div>
+          <div role="alert" className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-lg">{error}</div>
         )}
 
         {loading ? (
           <div className="flex justify-center py-20"><Loader2 className="w-7 h-7 animate-spin text-indigo-600" /></div>
         ) : visible.length === 0 ? (
-          <div className="text-center py-20 text-slate-500 bg-white rounded-2xl border shadow-sm text-sm">
+          <div className="text-center py-20 text-slate-500 bg-white rounded-xl border shadow-sm text-sm">
             {templates.length === 0 ? 'No templates yet.' : 'No template matches these filters.'}
           </div>
         ) : (
@@ -277,7 +277,7 @@ export default function AllTemplatesPage() {
 
       {creating && (
         <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div ref={createRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Create a template" className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-7 outline-none">
+          <div ref={createRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Create a template" className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-md mx-4 p-7 outline-none">
             <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-1">Create a template</p>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
               Pick the size (the print areas plus their bleed) and which way it faces. The template is designed on one layout of that size
@@ -346,11 +346,11 @@ export default function AllTemplatesPage() {
                 type="button"
                 onClick={startCreate}
                 disabled={!createLayout}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
               >
                 Continue
               </button>
-              <button type="button" onClick={closeCreate} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95">Cancel</button>
+              <button type="button" onClick={closeCreate} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95">Cancel</button>
             </div>
           </div>
         </div>

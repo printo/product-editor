@@ -29,7 +29,7 @@ export function BookPageCount({ isBookProduct, bookPageBounds, bookPageCount, ha
           via the generic multi-surface grid below the moment the count
           is set, same as any other multi-surface product. */}
       {isBookProduct && bookPageBounds && (
-        <div className="flex items-center justify-between gap-4 bg-white rounded-2xl border-2 border-slate-100 px-4 py-3 mx-4">
+        <div className="flex items-center justify-between gap-4 bg-white rounded-xl border-2 border-slate-100 px-4 py-3 mx-4">
           <div>
             <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Pages</p>
             <p className="text-[10px] text-slate-400 font-medium">
@@ -96,7 +96,7 @@ export function BookSpreadPreview({
             <button
               onClick={() => setShowSpreadPreview(false)}
               aria-label="Close spread preview"
-              className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
             >
               <X className="w-5 h-5 text-slate-500" />
             </button>

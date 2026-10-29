@@ -22,7 +22,7 @@ import { templateColours, type LayoutTemplate } from '../layout-template';
 
 /** One card's shell: white, bordered, the whole card a button. */
 const cardClass = (selected: boolean) => clsx(
-  'w-full h-full flex flex-col items-center rounded-xl border bg-white p-3 text-center transition-all hover:border-indigo-300 hover:shadow-md',
+  'w-full h-full flex flex-col items-center rounded-lg border bg-white p-3 text-center transition-all hover:border-indigo-300 hover:shadow-md',
   selected ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-slate-200',
 );
 const thumbClass = 'w-full aspect-[4/3] rounded-lg bg-slate-50 flex items-center justify-center overflow-hidden';
@@ -78,7 +78,7 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
         role="dialog"
         aria-modal="true"
         aria-label="Choose a template"
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200"
+        className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-4xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200"
       >
         <div className="flex items-start justify-between gap-4 p-6 pb-4 border-b border-slate-100">
           <div>
@@ -112,14 +112,14 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
               <button
                 onClick={() => choose(pending.template)}
                 disabled={busy}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
               >
                 {busy ? 'Applying…' : pending.template ? 'Apply to all cards' : 'Remove template'}
               </button>
               <button
                 onClick={() => setPending(null)}
                 disabled={busy}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all active:scale-95"
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95"
               >
                 Go back
               </button>
@@ -134,7 +134,7 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
                 <li>
                   <button onClick={() => choose(null)} aria-pressed={!activeTemplate} className={cardClass(!activeTemplate)}>
                     <div className={thumbClass}>
-                      <span className="w-12 h-12 rounded-xl border-2 border-indigo-600 text-indigo-600 flex items-center justify-center" aria-hidden="true">
+                      <span className="w-12 h-12 rounded-lg border-2 border-indigo-600 text-indigo-600 flex items-center justify-center" aria-hidden="true">
                         <Play className="w-5 h-5 fill-current" />
                       </span>
                     </div>

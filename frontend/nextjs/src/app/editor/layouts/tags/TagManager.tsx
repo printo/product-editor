@@ -137,7 +137,7 @@ export function TagManager() {
       </ToastStack>
 
       {!canEdit && status === 'authenticated' && (
-        <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
           <Lock className="w-4 h-4 mt-0.5 shrink-0" />
           <p>You can view tags here. Creating or changing them needs the Operations Team role — ask an admin if you need it.</p>
         </div>
@@ -152,7 +152,7 @@ export function TagManager() {
       {canEdit && (
         <form
           onSubmit={e => { e.preventDefault(); create(); }}
-          className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3"
+          className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-3"
         >
           <h2 className="text-xs font-bold text-indigo-600 uppercase tracking-wider">New tag</h2>
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
@@ -193,7 +193,7 @@ export function TagManager() {
 
       {loadError && <p className="text-sm text-rose-600">{loadError}</p>}
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
             <tr>

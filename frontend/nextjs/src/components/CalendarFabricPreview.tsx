@@ -562,7 +562,7 @@ export function CalendarFabricPreview({
   return (
     <div
       ref={containerRef}
-      className="relative bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden w-full h-full min-h-[400px] p-6"
+      className="relative bg-slate-100 rounded-xl flex items-center justify-center overflow-hidden w-full h-full min-h-[400px] p-6"
     >
       <div className="shadow-2xl rounded-sm">
         <canvas ref={canvasElRef} />

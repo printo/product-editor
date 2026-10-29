@@ -50,7 +50,7 @@ const CalendarFabricPreview = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="w-full min-h-[400px] rounded-2xl bg-slate-100 animate-pulse" />
+      <div className="w-full min-h-[400px] rounded-xl bg-slate-100 animate-pulse" />
     ),
   },
 );

@@ -27,7 +27,7 @@ export function ProcessingOverlay({
           never-settling pica resize went unnoticed. */}
       {(isProcessing || isDownloading || isImposing) && renderProgress && (
         <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-300">
+          <div className="w-full max-w-sm bg-white p-8 rounded-xl shadow-xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-300">
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-1">
                 <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
@@ -44,7 +44,7 @@ export function ProcessingOverlay({
                     : 'Optimizing images for print'}
                 </span>
               </div>
-              <span className="text-[14px] font-black text-indigo-600 tabular-nums bg-indigo-50 px-3 py-1 rounded-xl">
+              <span className="text-[14px] font-black text-indigo-600 tabular-nums bg-indigo-50 px-3 py-1 rounded-lg">
                 {Math.round((renderProgress.current / renderProgress.total) * 100)}%
               </span>
             </div>
@@ -76,7 +76,7 @@ export function ProcessingOverlay({
           and this step is usually well under a couple of seconds. */}
       {heicConverting && (
         <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-slate-100 space-y-3 animate-in zoom-in-95 duration-300 flex flex-col items-center">
+          <div className="w-full max-w-sm bg-white p-8 rounded-xl shadow-xl border border-slate-100 space-y-3 animate-in zoom-in-95 duration-300 flex flex-col items-center">
             <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
             <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
               Converting iPhone Photo

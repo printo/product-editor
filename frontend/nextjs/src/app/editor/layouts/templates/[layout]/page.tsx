@@ -157,13 +157,13 @@ export default function LayoutTemplatesPage() {
         </div>
 
         {error && (
-          <div role="alert" className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-xl">{error}</div>
+          <div role="alert" className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-lg">{error}</div>
         )}
 
         {loading ? (
           <div className="flex justify-center py-20"><Loader2 className="w-7 h-7 animate-spin text-indigo-600" /></div>
         ) : templates.length === 0 ? (
-          <div className="text-center py-20 text-slate-500 bg-white rounded-2xl border shadow-sm text-sm">
+          <div className="text-center py-20 text-slate-500 bg-white rounded-xl border shadow-sm text-sm">
             No templates for this layout yet.
           </div>
         ) : (
