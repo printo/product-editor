@@ -14,7 +14,7 @@ from drf_spectacular.utils import (
 )
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
-from services.layout_orientation import orientation_info
+from services.layout_orientation import apply_orientation, orientation_info
 from services.print_sheet import with_legacy_mask_fields
 from services.storage import get_storage
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
@@ -65,6 +65,7 @@ def _summarize_layout(data):
         },
         "updatedAt": data.get("updatedAt"),
         "templateCount": data.get("templateCount", 0),
+        "templateCounts": data.get("templateCounts"),
         "orientationInfo": data.get("orientationInfo"),
     }
 
@@ -85,7 +86,7 @@ class ListLayoutsView(APIView):
             "can change it any time).\n\n"
             "Pass `?fields=summary` to get a slim catalog (name, displayName, "
             "productType, hasCalendar, tags, tagKeys, surfaceCount, frameCount, "
-            "dimensions, updatedAt, templateCount, orientationInfo) instead of the "
+            "dimensions, updatedAt, templateCount, templateCounts, orientationInfo) instead of the "
             "full layout defs — intended for external systems that auto-pull the "
             "catalog to render a picker.\n\n"
             "**Tags.** Every entry carries `tagKeys` (fixed keys such as "
@@ -155,11 +156,19 @@ class ListLayoutsView(APIView):
             # Derived from the same cached full list so one cache serves both.
             # Published-template counts are read per request, not cached with
             # the list, so a publish shows at once without clearing anything.
-            from .templates import template_counts
+            from .templates import template_counts, template_counts_by_orientation
             from .layout_tags import with_layout_tag_names
             counts = template_counts(published_only=True)
+            # Per orientation too: a template faces one way, so the dashboard
+            # card's Portrait / Landscape choice shows what that way offers.
+            by_orientation = template_counts_by_orientation()
             layouts_data = [
-                {**d, 'templateCount': counts.get(d.get('name'), 0), 'orientationInfo': orientation_info(d)}
+                {
+                    **d,
+                    'templateCount': counts.get(d.get('name'), 0),
+                    'templateCounts': by_orientation.get(d.get('name'), {'portrait': 0, 'landscape': 0}),
+                    'orientationInfo': orientation_info(d),
+                }
                 for d in with_legacy_mask_fields(with_layout_tag_names(layouts_data))
             ]
             tag_key = (request.query_params.get('tag') or '').strip()
@@ -200,6 +209,13 @@ class GetLayoutView(APIView):
         ),
         parameters=[
             OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.PATH, description="Layout name, e.g. `retro_polaroid_4.2x3.5`"),
+            OpenApiParameter("orientation", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
+                             description=(
+                                 "`portrait` or `landscape`: serve the layout turned a quarter turn when it is drawn "
+                                 "the other way, exactly as `/editor/init` serves it to a customer order with that "
+                                 "orientation, with the report under `orientationReport`. Internal ops key only (the "
+                                 "template editor designs on the turned layout); ignored for every other key."
+                             )),
         ],
         responses={
             200: inline_serializer(
@@ -231,10 +247,21 @@ class GetLayoutView(APIView):
             cached_data = django_cache.get(cache_key)
 
             from .layout_tags import with_layout_tag_names
-            if cached_data is not None:
-                response = Response(with_legacy_mask_fields(with_layout_tag_names(cached_data)))
+
+            def respond(data: dict):
+                # The turn, for the ops key alone, comes after the cache so one
+                # cached layout serves both ways; the report rides beside the
+                # layout and is never stored (nothing saves this response back).
+                requested = request.query_params.get('orientation')
+                if requested and getattr(request.user, 'is_ops_team', False):
+                    data, report = apply_orientation(data, requested)
+                    data = {**data, 'orientationReport': report}
+                response = Response(with_legacy_mask_fields(with_layout_tag_names(data)))
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
+
+            if cached_data is not None:
+                return respond(cached_data)
 
             # Query LayoutCatalogue from Postgres — resolve_active follows a
             # rename alias so a stale name (e.g. a partner's pre-rename embed
@@ -263,9 +290,7 @@ class GetLayoutView(APIView):
             django_cache.set(cache_key, data, 120)  # 2 min TTL
 
             # Tag names are read per request, never cached, so a rename shows at once.
-            response = Response(with_legacy_mask_fields(with_layout_tag_names(data)))
-            response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
-            return response
+            return respond(data)
 
         except Exception as e:
             logger.error(f"Error getting layout: {str(e)}")

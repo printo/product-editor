@@ -7,6 +7,12 @@
  * (template-authoring.ts). Images from the Uploads tab are uploaded as
  * stickers at save; the thumbnail is the first side rendered without photos.
  *
+ * A template faces one way. `?orientation=portrait|landscape` on a new
+ * template (from the Templates page's Create dialog) loads the layout turned
+ * a quarter turn when it is drawn the other way, exactly as a customer order
+ * with that orientation sees it, and the template is saved for that way; an
+ * existing template loads its own. Nothing here turns a design.
+ *
  * Routes:
  *   /editor/layouts/templates/<layout>/new   → a new template
  *   /editor/layouts/templates/<layout>/<id>  → edit that template
@@ -31,12 +37,29 @@ import { useObjectUrls } from '@/app/editor/layout/[name]/useCanvasGeneration';
 import type { CanvasItem, SurfaceState } from '@/app/editor/layout/[name]/types';
 import { isLayoutTemplate, surfaceGeometry, type LayoutTemplate, type TemplateDecoration } from '@/app/editor/layout/[name]/layout-template';
 import {
-  ARTWORK_ACCEPT_ATTR, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, ineligibleTicked,
+  ARTWORK_ACCEPT_ATTR, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, drawnFacing, ineligibleTicked,
   isEmptyDecoration, isTemplateId, localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withArtwork,
-  withoutPhotos, type TemplateCandidate,
+  withoutPhotos, type BoxFacing, type TemplateCandidate,
 } from '@/app/editor/layout/[name]/template-authoring';
+import type { OrientationReport } from '@/app/editor/layout/[name]/orientation';
 
 const API = '/api/internal/proxy';
+
+type Facing = 'portrait' | 'landscape';
+
+/** The way a new template faces, from the Create dialog (`?orientation=`). */
+function facingFromAddress(): Facing | null {
+  if (typeof window === 'undefined') return null;
+  const v = (new URLSearchParams(window.location.search).get('orientation') || '').toLowerCase();
+  return v === 'portrait' || v === 'landscape' ? v : null;
+}
+
+const CANNOT_TURN: Record<string, string> = {
+  not_rotatable: 'it is switched off for rotating',
+  has_captions: 'it has captions',
+  has_overlays: 'it has fixed text or stickers',
+  svg_mask: 'it has an SVG mask',
+};
 
 export default function TemplateEditorPage() {
   const router = useRouter();
@@ -71,6 +94,10 @@ export default function TemplateEditorPage() {
   // Created by size from the Templates page (`?tick=size`): every other layout
   // of the size starts ticked, and the page says so.
   const [preTicked, setPreTicked] = useState(false);
+  // The way the template faces ('' = the home layout as drawn), and whether
+  // the home layout is shown turned for it.
+  const [facing, setFacing] = useState<Facing | ''>('');
+  const [turnedHome, setTurnedHome] = useState(false);
   // "Upload artwork" per side: the side being uploaded, and its hidden file input.
   const [artworkBusy, setArtworkBusy] = useState<string | null>(null);
   const artworkInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -83,7 +110,8 @@ export default function TemplateEditorPage() {
 
   useEffect(() => {
     setTitle('Template Editor');
-    setDescription(isNew ? `New template for ${layoutName}` : `Editing ${routeId} on ${layoutName}`);
+    const way = facing ? `${facing} ` : '';
+    setDescription(isNew ? `New ${way}template for ${layoutName}` : `Editing ${routeId} on ${layoutName}${facing ? ` (${facing})` : ''}`);
     setCenterActions(null);
     setRightActions(
       <Link
@@ -96,7 +124,7 @@ export default function TemplateEditorPage() {
       </Link>,
     );
     return () => { setTitle(''); setDescription(''); setCenterActions(null); setRightActions(null); };
-  }, [isNew, layoutName, routeId, setTitle, setDescription, setCenterActions, setRightActions]);
+  }, [isNew, layoutName, routeId, facing, setTitle, setDescription, setCenterActions, setRightActions]);
 
   useEffect(() => {
     new Set([DEFAULT_OVERLAY_FONT, ...selectedFonts]).forEach(f => loadGoogleFont(f));
@@ -106,7 +134,9 @@ export default function TemplateEditorPage() {
   // fixed top bar covers the form; start at the top (window API in an effect).
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
-  // Load the layout, the fonts list and (when editing) the template.
+  // Load the fonts list, (when editing) the template, the candidates, then
+  // the layout the way the template faces: a new template's from the
+  // address, an existing one's own. The server turns the layout (ops key).
   useEffect(() => {
     if (!layoutName) return;
     let cancelled = false;
@@ -114,17 +144,11 @@ export default function TemplateEditorPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [layoutRes, fontsRes, templateRes, candidatesRes] = await Promise.all([
-          fetch(`${API}/layouts/${encodeURIComponent(layoutName)}`),
+        const [fontsRes, templateRes, candidatesRes] = await Promise.all([
           fetch(`${API}/fonts`),
           isNew ? Promise.resolve(null) : fetch(`${API}/ops/templates/${encodeURIComponent(routeId)}`, { cache: 'no-store' }),
           fetch(`${API}/ops/templates/candidates`, { cache: 'no-store' }),
         ]);
-        if (!layoutRes.ok) throw new Error(await readError(layoutRes, `Layout '${layoutName}' not found (HTTP ${layoutRes.status}).`));
-        const item = await layoutRes.json();
-        if (item.productType === 'calendar' || item.productType === 'book') {
-          throw new Error('Templates are not available for calendars and books yet.');
-        }
         let template: LayoutTemplate | null = null;
         if (templateRes) {
           if (!templateRes.ok) throw new Error(await readError(templateRes, `Template '${routeId}' not found (HTTP ${templateRes.status}).`));
@@ -132,6 +156,22 @@ export default function TemplateEditorPage() {
           if (!isLayoutTemplate(data)) throw new Error('The template could not be read.');
           if (data.layoutName !== layoutName) throw new Error(`Template '${routeId}' belongs to layout '${data.layoutName}'.`);
           template = data;
+        }
+        const way: Facing | '' = isNew ? facingFromAddress() ?? '' : (template?.orientation === 'portrait' || template?.orientation === 'landscape' ? template.orientation : '');
+        const layoutRes = await fetch(`${API}/layouts/${encodeURIComponent(layoutName)}${way ? `?orientation=${way}` : ''}`);
+        if (!layoutRes.ok) throw new Error(await readError(layoutRes, `Layout '${layoutName}' not found (HTTP ${layoutRes.status}).`));
+        const item = await layoutRes.json();
+        if (item.productType === 'calendar' || item.productType === 'book') {
+          throw new Error('Templates are not available for calendars and books yet.');
+        }
+        const report = (item.orientationReport ?? null) as OrientationReport | null;
+        if (way && report && !report.applied && report.reason !== 'already_that_orientation') {
+          const why = CANNOT_TURN[report.reason ?? ''] ?? (report.reason === 'square_layout' ? 'it is square' : `${report.reason}`);
+          throw new Error(`This layout cannot be shown in ${way}: ${why}. Design the template on it as drawn, or on a layout drawn ${way}.`);
+        }
+        if (!cancelled) {
+          setFacing(way);
+          setTurnedHome(Boolean(report?.applied));
         }
         if (fontsRes.ok) {
           const fonts = await fontsRes.json().catch(() => null);
@@ -144,7 +184,7 @@ export default function TemplateEditorPage() {
           if (!cancelled) {
             setCandidates(list);
             if (isNew && new URLSearchParams(window.location.search).get('tick') === 'size') {
-              const others = sameBoxLayouts(list, layoutName).map(c => c.name);
+              const others = sameBoxLayouts(list, layoutName, way || null).map(c => c.name);
               setAlsoOn(others);
               setPreTicked(others.length > 0);
             }
@@ -186,11 +226,14 @@ export default function TemplateEditorPage() {
     : null, [activeSurface, normalized]);
 
   const home = useMemo(() => candidates.find(c => c.name === layoutName) ?? null, [candidates, layoutName]);
-  const sameBox = useMemo(() => sameBoxLayouts(candidates, layoutName), [candidates, layoutName]);
-  const nearMisses = useMemo(() => nearMissLayouts(candidates, layoutName), [candidates, layoutName]);
+  const facingOrDrawn: BoxFacing | null = facing || null;
+  const sameBox = useMemo(() => sameBoxLayouts(candidates, layoutName, facingOrDrawn), [candidates, layoutName, facingOrDrawn]);
+  const nearMisses = useMemo(() => nearMissLayouts(candidates, layoutName, facingOrDrawn), [candidates, layoutName, facingOrDrawn]);
   // Ticked layouts that were retired or resized since: shown ticked so ops
   // can untick them (the server refuses a save that still names one).
-  const ineligible = useMemo(() => ineligibleTicked(candidates, layoutName, alsoOn), [candidates, layoutName, alsoOn]);
+  const ineligible = useMemo(() => ineligibleTicked(candidates, layoutName, alsoOn, facingOrDrawn), [candidates, layoutName, alsoOn, facingOrDrawn]);
+  // The way the template faces, in words: asked for, else as the home is drawn.
+  const shownFacing: BoxFacing | null = facing || (home ? drawnFacing(home) : null);
   const previewName = candidates.find(c => c.name === previewOn)?.displayName ?? previewOn;
   const toggleAlsoOn = (name: string) => setAlsoOn(prev => (prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]));
 
@@ -203,7 +246,8 @@ export default function TemplateEditorPage() {
     (async () => {
       setPreviewLoading(true);
       try {
-        const res = await fetch(`${API}/layouts/${encodeURIComponent(previewOn)}`);
+        // The other layout the way the template faces: turned when it is drawn the other way.
+        const res = await fetch(`${API}/layouts/${encodeURIComponent(previewOn)}${facing ? `?orientation=${facing}` : ''}`);
         if (!res.ok) throw new Error(await readError(res, `Layout '${previewOn}' could not be loaded (HTTP ${res.status}).`));
         const other = normalizeLayout(await res.json());
         const decoration: TemplateDecoration = {
@@ -229,7 +273,7 @@ export default function TemplateEditorPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [previewOn, normalized, surfaces, sample, layoutName, getFileUrl]);
+  }, [previewOn, normalized, surfaces, sample, layoutName, facing, getFileUrl]);
 
   const openEditor = (key: string = activeKey) => {
     const s = surfaces.find(x => x.key === key);
@@ -316,7 +360,11 @@ export default function TemplateEditorPage() {
       if (isEmptyDecoration(decoration)) throw new Error('Add a background, text or a sticker before saving.');
 
       const form = new FormData();
-      form.append('template_data', JSON.stringify({ id, layout: layoutName, display_name: name, status, decoration, also_on: alsoOn }));
+      form.append('template_data', JSON.stringify({
+        id, layout: layoutName, display_name: name, status, decoration, also_on: alsoOn,
+        // Fixed at creation; an existing template keeps its own.
+        ...(isNew ? { orientation: facing } : {}),
+      }));
       const first = surfaces[0];
       if (first) {
         const firstDef = { ...normalized._raw, ...first.def, canvas: first.def.canvas, frames: first.def.frames };
@@ -386,6 +434,15 @@ export default function TemplateEditorPage() {
         </section>
 
         <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-4">
+          {shownFacing && shownFacing !== 'square' && (
+            <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+              <span className="font-bold uppercase tracking-tight">Faces {shownFacing}.</span>{' '}
+              {turnedHome
+                ? `This layout is drawn ${shownFacing === 'portrait' ? 'landscape' : 'portrait'}, so it is shown turned a quarter turn, the way a customer ordering ${shownFacing} sees it. `
+                : ''}
+              Customers see this template on {shownFacing} orders of its size only; nothing is ever turned to fit the other way.
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-xs text-slate-500 flex-1 min-w-[200px]">
               Upload artwork for a side (a PNG or SVG designed at this size, with transparent holes where the photos go), or open it in the
@@ -455,9 +512,10 @@ export default function TemplateEditorPage() {
                 <Layers className="w-3.5 h-3.5" /> Also show on
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                This template is keyed on the size of this layout&rsquo;s print areas, bleed included{home ? `: ${sizeLabel(home)}` : ''}.
-                Any other layout whose print areas and bleed make the same size can offer it. Preview it there before ticking: the artwork
-                keeps its distance from the centre of the print areas, so check nothing lands over a photo.
+                This template is keyed on the size of this layout&rsquo;s print areas, bleed included{home ? `: ${sizeLabel(home)}` : ''}
+                {shownFacing && shownFacing !== 'square' ? `, facing ${shownFacing}` : ''}.
+                Any other layout whose print areas and bleed make the same size, as drawn or turned, can offer it. Preview it there before
+                ticking: the artwork keeps its distance from the centre of the print areas, so check nothing lands over a photo.
               </p>
               {preTicked && (
                 <p className="text-xs text-indigo-700 mt-1">
@@ -493,7 +551,9 @@ export default function TemplateEditorPage() {
                     />
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-slate-800 truncate">{c.displayName}</span>
-                      <span className="block text-[10px] text-slate-400 font-mono truncate">{c.name}</span>
+                      <span className="block text-[10px] text-slate-400 font-mono truncate">
+                        {c.name}{c.turned ? ` · drawn ${shownFacing === 'portrait' ? 'landscape' : 'portrait'}, shown turned` : ''}
+                      </span>
                     </span>
                   </label>
                   <button

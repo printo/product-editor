@@ -16,7 +16,7 @@ import json
 import os
 
 from services.print_sheet import (
-    box_key, print_area_box_mm, surface_blocks, template_size, window_box_mm,
+    box_key, box_orientation, print_area_box_mm, surface_blocks, template_size, window_box_mm,
 )
 
 
@@ -99,6 +99,17 @@ def test_boxes_round_half_up_like_the_twin():
     JavaScript's Math.round gives 8.13; the fixture pins both sides to 8.13."""
     block = {'canvas': {'widthMm': 8.125, 'heightMm': 8.125}, 'frames': [{'x': 0, 'y': 0, 'width': 1, 'height': 1}]}
     assert window_box_mm(block) == {'xMm': 0, 'yMm': 0, 'widthMm': 8.13, 'heightMm': 8.13}
+
+
+def test_box_orientation_is_which_way_the_print_areas_face():
+    """A template is offered only where the customer's print areas face the
+    way the template's did; a square box, or none, faces either way."""
+    assert box_orientation({'xMm': 0, 'yMm': 0, 'widthMm': 101.6, 'heightMm': 152.4}) == 'portrait'
+    assert box_orientation({'xMm': 0, 'yMm': 0, 'widthMm': 152.4, 'heightMm': 101.6}) == 'landscape'
+    assert box_orientation({'xMm': 5, 'yMm': 5, 'widthMm': 100, 'heightMm': 100}) == 'square'
+    assert box_orientation(None) is None
+    assert box_orientation({'widthMm': 0, 'heightMm': 10}) is None
+    assert box_orientation({'widthMm': 'x', 'heightMm': 10}) is None
 
 
 def test_unreadable_numbers_count_as_zero():

@@ -60,11 +60,21 @@ export function TemplateCard({ template: t, busy, notes, extraActions, onSetStat
             <p className="text-sm font-bold text-slate-900 truncate">{t.displayName}</p>
             <p className="text-[10px] text-slate-400 font-mono truncate">{t.id}</p>
           </div>
-          <span className={clsx(
-            'shrink-0 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight',
-            published ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500',
-          )}>
-            {t.status}
+          <span className="shrink-0 flex items-center gap-1">
+            {(t.facing === 'portrait' || t.facing === 'landscape') && (
+              <span
+                className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight bg-indigo-50 text-indigo-700"
+                title={`Designed for ${t.facing}: offered on ${t.facing} orders of its size`}
+              >
+                {t.facing}
+              </span>
+            )}
+            <span className={clsx(
+              'px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tight',
+              published ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500',
+            )}>
+              {t.status}
+            </span>
           </span>
         </div>
         {notes}

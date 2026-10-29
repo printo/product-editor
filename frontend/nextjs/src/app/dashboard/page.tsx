@@ -19,7 +19,8 @@ import { ubuntu } from '@/lib/site-fonts';
 import { TagFilter } from '@/components/ui/TagFilter';
 import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 import { resolveMaskSlots } from '@/lib/mask-slots';
-import { layoutEditorHref, orientationLockedReason, type OrientationChoice, type OrientationInfo } from '@/lib/layout-orientation';
+import { layoutEditorHref, orientationLockedReason, templateCountFor, type OrientationChoice, type OrientationInfo, type TemplateCounts } from '@/lib/layout-orientation';
+import { OrientationToggle } from '@/components/ui/OrientationToggle';
 
 const LayoutPreview = ({ layout }: { layout: any }) => {
   const isMulti = layout.surfaceCount > 1;
@@ -76,30 +77,7 @@ const OrientationChoiceControl = ({ info, value, onChange }: {
 }) => {
   const locked = orientationLockedReason(info);
   const shown = locked ? null : value ?? (info?.orientation === 'portrait' || info?.orientation === 'landscape' ? info.orientation : null);
-  return (
-    <div
-      role="group"
-      aria-label="Print orientation"
-      title={locked ?? 'Open this layout in portrait or landscape'}
-      className={clsx('mt-3 flex items-center rounded-full border border-indigo-100 bg-slate-50 p-0.5', locked && 'opacity-50')}
-    >
-      {(['portrait', 'landscape'] as const).map(choice => (
-        <button
-          key={choice}
-          type="button"
-          disabled={Boolean(locked)}
-          aria-pressed={shown === choice}
-          onClick={() => onChange(choice)}
-          className={clsx(
-            'flex-1 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors disabled:cursor-not-allowed',
-            shown === choice ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50',
-          )}
-        >
-          {choice}
-        </button>
-      ))}
-    </div>
-  );
+  return <OrientationToggle value={shown} onChange={onChange} locked={locked} title="Open this layout in portrait or landscape" className="mt-3" />;
 };
 
 export default function Dashboard() {
@@ -153,6 +131,9 @@ export default function Dashboard() {
       createdBy: item.createdBy || 'System',
       surfaceCount: isProduct ? item.surfaces.length : 0,
       templateCount: typeof item.templateCount === 'number' ? item.templateCount : 0,
+      // Per orientation: a template faces one way, so the card promises only
+      // what the layout offers opened the chosen way.
+      templateCounts: (item.templateCounts && typeof item.templateCounts === 'object' ? item.templateCounts : null) as TemplateCounts | null,
       orientationInfo: (item.orientationInfo ?? null) as OrientationInfo | null,
       _raw: item,
     };
@@ -261,7 +242,9 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-6">
-              {filtered.map((layout) => (
+              {filtered.map((layout) => {
+                const templateCount = templateCountFor(layout.templateCount, layout.templateCounts, orientationChoice[layout.id] ?? null, layout.orientationInfo);
+                return (
                 <div
                   key={layout.id}
                   className="group bg-white rounded-2xl border border-slate-100/60 overflow-hidden hover:shadow-xl hover:shadow-indigo-500/10 active:shadow-xl active:shadow-indigo-500/10 transition-all duration-300 hover:-translate-y-1 active:-translate-y-1"
@@ -287,10 +270,10 @@ export default function Dashboard() {
                             <span className="text-indigo-500 font-medium">Multi-Surface</span>
                           </>
                         )}
-                        {layout.templateCount > 0 && (
+                        {templateCount > 0 && (
                           <>
                             <span>•</span>
-                            <span className="text-indigo-500 font-medium">{layout.templateCount} {layout.templateCount === 1 ? 'Template' : 'Templates'}</span>
+                            <span className="text-indigo-500 font-medium">{templateCount} {templateCount === 1 ? 'Template' : 'Templates'}</span>
                           </>
                         )}
                       </p>
@@ -305,7 +288,8 @@ export default function Dashboard() {
                     />
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

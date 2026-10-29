@@ -128,6 +128,7 @@ export default function LayoutTemplatesPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id, layout: t.layoutName, display_name: `Copy of ${t.displayName}`, status: 'draft',
+          orientation: t.orientation ?? '',
           decoration: t.decoration, also_on: (t.alsoOn ?? []).filter(n => !(t.alsoOnMismatch ?? []).includes(n)),
         }),
       }),

@@ -378,7 +378,7 @@ class SharedTemplatesTest(_Base):
     def test_also_on_is_refused_for_other_sizes_calendars_and_unknown_layouts(self):
         base = {'id': 'picky', 'layout': 'tpl_test_4x6', 'display_name': 'Picky', 'decoration': DECO}
         for also_on, fragment in (
-            (['tpl_other_size'], "tpl_other_size' has 76x81 mm print areas (bleed included); 'tpl_test_4x6' has 122x81 mm"),
+            (['tpl_other_size'], "tpl_other_size' has 76x81 mm print areas (bleed included), 81x76 mm turned; this template is 122x81 mm"),
             (['tpl_cal'], 'calendars and books'),
             (['tpl_missing'], "Layout 'tpl_missing' not found"),
             (['../escape'], 'invalid layout name'),
@@ -524,3 +524,200 @@ class SharedTemplatesTest(_Base):
         self.assertEqual(by_name['tpl_frame_half']['templateCount'], 0)
         self.assertEqual(by_name['tpl_test_4x6']['displayName'], self.layout.display_name or 'tpl_test_4x6')
         self.assertEqual(self.client.get('/api/ops/templates/candidates', **self.partner_auth).status_code, 403)
+
+
+# Drawn portrait, the same print areas as LAYOUT turned a quarter turn.
+PORTRAIT_SAME = {
+    'name': 'tpl_tall', 'productType': 'single_canvas', 'type': 'single',
+    'canvas': {'width': 1200, 'height': 1800, 'widthMm': 101.6, 'heightMm': 152.4, 'dpi': 300},
+    'frames': [{'x': 0.1, 'y': 0.1, 'width': 0.8, 'height': 0.8}],
+}
+
+
+class TemplateFacingTest(_Base):
+    """A template faces one way (`orientation`): ops design it on the home
+    layout turned when they ask for the way it is not drawn, customers are
+    offered it only where their layout, turned or not, faces the same way,
+    and nothing is ever turned to fit."""
+
+    def setUp(self):
+        super().setUp()
+        self.half = LayoutCatalogue.objects.create(name='tpl_frame_half', definition=HALF_INCH_FRAME, product_type='single_canvas')
+        self.tall = LayoutCatalogue.objects.create(name='tpl_tall', definition=PORTRAIT_SAME, product_type='single_canvas')
+        self.fixed = LayoutCatalogue.objects.create(
+            name='tpl_fixed', definition={**LAYOUT, 'name': 'tpl_fixed', 'frameCaptionsEnabled': True}, product_type='single_canvas',
+        )
+        from django.core.cache import cache
+        cache.clear()
+
+    def ops_post(self, path, body):
+        return self.client.post(path, body, content_type='application/json', **self.ops_auth)
+
+    def listed(self, layout, *, header=None, query=None, auth=None):
+        extra = dict(auth or self.partner_auth)
+        if header:
+            extra['HTTP_X_ORDER_ORIENTATION'] = header
+        res = self.client.get(f'/api/templates?layout={layout}{"&orientation=" + query if query else ""}', **extra)
+        self.assertEqual(res.status_code, 200, res.content)
+        return [t['id'] for t in res.json()['templates']]
+
+    def test_a_portrait_template_is_designed_on_the_turned_layout_and_offered_on_portrait_orders(self):
+        res = self.ops_post('/api/ops/templates', {
+            'id': 'tall-one', 'layout': 'tpl_test_4x6', 'orientation': 'portrait', 'display_name': 'Tall',
+            'status': 'published', 'decoration': DECO, 'also_on': ['tpl_frame_half', 'tpl_tall'],
+        })
+        self.assertEqual(res.status_code, 201, res.content)
+        data = res.json()
+        self.assertEqual((data['orientation'], data['facing']), ('portrait', 'portrait'))
+        # The home layout is landscape as drawn; the template's geometry is the layout turned.
+        self.assertEqual(data['windowBox'], {'xMm': 10.16, 'yMm': 15.24, 'widthMm': 81.28, 'heightMm': 121.92})
+        stamp = data['decoration']['authoredOn']['surfaces']['default']
+        self.assertEqual(stamp['canvas'], {'width': 1200, 'height': 1800, 'widthMm': 101.6, 'heightMm': 152.4})
+        self.assertEqual(stamp['windowBox'], data['windowBox'])
+        wide = self.ops_post('/api/ops/templates', {
+            'id': 'wide-one', 'layout': 'tpl_test_4x6', 'display_name': 'Wide', 'status': 'published', 'decoration': DECO,
+        })
+        self.assertEqual(wide.status_code, 201, wide.content)
+        self.assertEqual((wide.json()['orientation'], wide.json()['facing']), ('', 'landscape'))
+
+        # The customer list follows the way the layout is served: the embed
+        # proxy's header, or ?orientation= for the ops key alone.
+        self.assertEqual(self.listed('tpl_test_4x6'), ['wide-one'])
+        self.assertEqual(self.listed('tpl_test_4x6', header='portrait'), ['tall-one'])
+        self.assertEqual(self.listed('tpl_test_4x6', header='landscape'), ['wide-one'])
+        self.assertEqual(self.listed('tpl_test_4x6', query='portrait', auth=self.ops_auth), ['tall-one'])
+        self.assertEqual(self.listed('tpl_test_4x6', query='portrait'), ['wide-one'])   # a customer URL cannot choose
+        # A layout drawn portrait offers it as drawn and loses it when turned.
+        self.assertEqual(self.listed('tpl_tall'), ['tall-one'])
+        self.assertEqual(self.listed('tpl_tall', header='landscape'), [])
+        # The half-inch frame is drawn landscape: the portrait template only on portrait orders.
+        self.assertEqual(self.listed('tpl_frame_half'), [])
+        self.assertEqual(self.listed('tpl_frame_half', header='portrait'), ['tall-one'])
+
+        # The editor's init: 404 naming the facing where it is not offered.
+        as_drawn = self.client.get('/api/editor/init?layout=tpl_test_4x6&template=tall-one', **self.partner_auth)
+        self.assertEqual(as_drawn.status_code, 404, as_drawn.content)
+        self.assertIn('designed for layout', as_drawn.json()['detail'])
+        turned = self.client.get('/api/editor/init?layout=tpl_test_4x6&template=tall-one',
+                                 HTTP_X_ORDER_ORIENTATION='portrait', **self.partner_auth)
+        self.assertEqual(turned.status_code, 200, turned.content)
+        self.assertEqual(turned.json()['template']['id'], 'tall-one')
+        self.assertTrue(turned.json()['orientation']['applied'])
+        self.assertEqual(turned.json()['layout']['canvas']['width'], 1200)
+        ops = self.client.get('/api/editor/init?layout=tpl_test_4x6&template=tall-one&orientation=portrait', **self.ops_auth)
+        self.assertEqual(ops.status_code, 200, ops.content)
+        self.assertEqual(ops.json()['template']['facing'], 'portrait')
+        # The as-drawn template is gone from a turned layout; it is never turned to fit.
+        self.assertEqual(self.client.get('/api/editor/init?layout=tpl_test_4x6&template=wide-one',
+                                         HTTP_X_ORDER_ORIENTATION='portrait', **self.partner_auth).status_code, 404)
+
+        # A session is refused when its orientation (or none) would hide the template.
+        def session(body):
+            return self.client.post('/api/embed/session', body, content_type='application/json', **self.partner_auth)
+        refused = session({'template_id': 'tall-one', 'orientation': 'landscape'})
+        self.assertEqual(refused.status_code, 400, refused.content)
+        self.assertIn("designed for the layout in portrait", refused.json()['detail'])
+        self.assertIn("with orientation 'landscape'", refused.json()['detail'])
+        refused = session({'template_id': 'tall-one'})
+        self.assertEqual(refused.status_code, 400, refused.content)
+        self.assertIn('as drawn it would not be offered', refused.json()['detail'])
+        ok = session({'template_id': 'tall-one', 'orientation': 'portrait'})
+        self.assertEqual(ok.status_code, 201, ok.content)
+        self.assertTrue(ok.json()['editor_url'].startswith('/editor/layout/tpl_test_4x6?'))
+        self.assertEqual(session({'template_id': 'wide-one'}).status_code, 201)
+        self.assertEqual(session({'template_id': 'wide-one', 'orientation': 'portrait'}).status_code, 400)
+
+        # Counts per orientation for the dashboard card; the total is unchanged.
+        layouts = {l['name']: l for l in self.client.get('/api/layouts', **self.partner_auth).json()['layouts']}
+        self.assertEqual(layouts['tpl_test_4x6']['templateCounts'], {'portrait': 1, 'landscape': 1})
+        self.assertEqual(layouts['tpl_test_4x6']['templateCount'], 2)
+        self.assertEqual(layouts['tpl_tall']['templateCounts'], {'portrait': 1, 'landscape': 0})
+        self.assertEqual(layouts['tpl_frame_half']['templateCounts'], {'portrait': 1, 'landscape': 0})
+        self.assertEqual(layouts['tpl_fixed']['templateCounts'], {'portrait': 0, 'landscape': 0})
+        summary = {l['name']: l for l in self.client.get('/api/layouts?fields=summary', **self.partner_auth).json()['layouts']}
+        self.assertEqual(summary['tpl_test_4x6']['templateCounts'], {'portrait': 1, 'landscape': 1})
+
+        # Candidates say what each layout can carry turned.
+        by_name = {l['name']: l for l in self.client.get('/api/ops/templates/candidates', **self.ops_auth).json()['layouts']}
+        self.assertEqual((by_name['tpl_test_4x6']['windowKey'], by_name['tpl_test_4x6']['turnedWindowKey']), ('122x81', '81x122'))
+        self.assertEqual(by_name['tpl_test_4x6']['orientationInfo'], {'orientation': 'landscape', 'blocked': None})
+        self.assertEqual((by_name['tpl_tall']['windowKey'], by_name['tpl_tall']['turnedWindowKey']), ('81x122', '122x81'))
+        self.assertEqual((by_name['tpl_fixed']['turnedWindowKey'], by_name['tpl_fixed']['turnedPrintAreaKey']), (None, None))
+        self.assertEqual(by_name['tpl_fixed']['orientationInfo'], {'orientation': 'landscape', 'blocked': 'has_captions'})
+        # The ops list and detail carry the facing too.
+        ops_list = {t['id']: t for t in self.client.get('/api/ops/templates', **self.ops_auth).json()['templates']}
+        self.assertEqual((ops_list['tall-one']['facing'], ops_list['wide-one']['facing']), ('portrait', 'landscape'))
+
+    def test_orientation_is_validated_fixed_and_drives_the_ticking(self):
+        base = {'layout': 'tpl_test_4x6', 'display_name': 'T', 'decoration': DECO}
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'bad', 'orientation': 'sideways'})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("orientation must be 'portrait' or 'landscape'", res.json()['detail'])
+        # A layout that cannot turn takes only the way it is drawn.
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'fixed-p', 'layout': 'tpl_fixed', 'orientation': 'portrait'})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("cannot be shown in portrait (has_captions)", res.json()['detail'])
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'fixed-l', 'layout': 'tpl_fixed', 'orientation': 'landscape'})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['orientation'], 'landscape')
+        # A square layout has no facing: the word is dropped.
+        square = {**LAYOUT, 'name': 'tpl_square', 'canvas': {'width': 1200, 'height': 1200, 'widthMm': 101.6, 'heightMm': 101.6, 'dpi': 300}}
+        LayoutCatalogue.objects.create(name='tpl_square', definition=square, product_type='single_canvas')
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'sq', 'layout': 'tpl_square', 'orientation': 'portrait'})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual((res.json()['orientation'], res.json()['facing']), ('', 'square'))
+        self.assertEqual(self.listed('tpl_square', header='landscape'), [])   # a draft; published below
+        self.ops_post('/api/ops/templates/sq', {'status': 'published'})
+        self.assertEqual(self.listed('tpl_square', header='landscape'), ['sq'])
+
+        # Fixed at creation: a differing value is refused, the same value is fine.
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'tall', 'orientation': 'portrait', 'also_on': ['tpl_tall', 'tpl_frame_half']})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(self.ops_post('/api/ops/templates/tall', {'orientation': 'landscape'}).status_code, 400)
+        self.assertIn('cannot change orientation', self.ops_post('/api/ops/templates/tall', {'orientation': 'landscape'}).json()['detail'])
+        self.assertEqual(self.ops_post('/api/ops/templates/tall', {'orientation': 'portrait', 'display_name': 'Tall!'}).status_code, 200)
+        self.assertEqual(LayoutTemplate.objects.get(template_id='tall').orientation, 'portrait')
+
+        # Ticking: a layout must carry the template's box as drawn or turned.
+        res = self.ops_post('/api/ops/templates/tall', {'also_on': ['tpl_fixed']})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("tpl_fixed' has 122x81 mm print areas (bleed included); this template is 81x122 mm (portrait)", res.json()['detail'])
+        # The landscape template on the landscape-drawn home can be ticked on the portrait layout (turned).
+        res = self.ops_post('/api/ops/templates', {**base, 'id': 'wide', 'status': 'published', 'also_on': ['tpl_tall']})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(self.listed('tpl_tall', header='landscape'), ['wide'])
+        self.assertEqual(self.listed('tpl_tall'), [])
+
+        # A ticked layout that can no longer turn is flagged and must be unticked.
+        read = lambda: self.client.get('/api/ops/templates/tall', **self.ops_auth).json()
+        self.assertEqual(read()['alsoOnMismatch'], [])
+        self.half.definition = {**HALF_INCH_FRAME, 'frameCaptionsEnabled': True}
+        self.half.version += 1
+        self.half.save()
+        self.assertEqual(read()['alsoOnMismatch'], ['tpl_frame_half'])
+        refused = self.ops_post('/api/ops/templates/tall', {'also_on': ['tpl_tall', 'tpl_frame_half']})
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("tpl_frame_half' has 122x81 mm print areas (bleed included); this template is 81x122 mm (portrait)", refused.json()['detail'])
+        self.assertEqual(self.ops_post('/api/ops/templates/tall', {'also_on': ['tpl_tall']}).status_code, 200)
+
+    def test_the_layout_read_turns_for_the_template_editor_on_the_ops_key_alone(self):
+        from django.core.cache import cache
+        cache.delete('layout_detail:tpl_test_4x6:')
+        turned = self.client.get('/api/layouts/tpl_test_4x6?orientation=portrait', **self.ops_auth)
+        self.assertEqual(turned.status_code, 200, turned.content)
+        self.assertEqual((turned.json()['canvas']['width'], turned.json()['canvas']['height']), (1200, 1800))
+        self.assertAlmostEqual(turned.json()['frames'][0]['x'], 0.1)   # 1 - 0.1 - 0.8, in floating point
+        self.assertTrue(turned.json()['orientationReport']['applied'])
+        # Again (now from the cache), the same; and the cache was not turned.
+        again = self.client.get('/api/layouts/tpl_test_4x6?orientation=portrait', **self.ops_auth).json()
+        self.assertEqual(again['canvas']['width'], 1200)
+        plain = self.client.get('/api/layouts/tpl_test_4x6', **self.ops_auth).json()
+        self.assertEqual(plain['canvas']['width'], 1800)
+        self.assertNotIn('orientationReport', plain)
+        same = self.client.get('/api/layouts/tpl_test_4x6?orientation=landscape', **self.ops_auth).json()
+        self.assertEqual(same['canvas']['width'], 1800)
+        self.assertEqual(same['orientationReport']['reason'], 'already_that_orientation')
+        # A customer key cannot ask for it.
+        customer = self.client.get('/api/layouts/tpl_test_4x6?orientation=portrait', **self.partner_auth).json()
+        self.assertEqual(customer['canvas']['width'], 1800)
+        self.assertNotIn('orientationReport', customer)

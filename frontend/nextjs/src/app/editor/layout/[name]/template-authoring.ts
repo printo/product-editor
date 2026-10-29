@@ -9,7 +9,8 @@
  * uploads it as a sticker first and swaps it for a `clipart` overlay.
  */
 import type { SurfaceDefinition } from '@/lib/layout-utils';
-import { boxLabelIn, inches, printSheetMode, windowBoxMm, type MmRect } from '@/lib/print-sheet';
+import { inches, printSheetMode, windowBoxMm, type MmRect } from '@/lib/print-sheet';
+import type { OrientationInfo } from '@/lib/layout-orientation';
 import type { AuthoredOn, SideGeometry, SideLike, TemplateDecoration, TemplateSide } from './layout-template';
 import { placeSideOverlays, surfaceGeometry, templateSide } from './layout-template';
 import type { CanvasItem, FrameState, Overlay } from './types';
@@ -155,7 +156,9 @@ export function isEmptyDecoration(decoration: TemplateDecoration): boolean {
  *  windows (bleed included) rounded to the millimetre; two layouts with the
  *  same key can share a template. `printAreaKey` is the same box without
  *  the bleed, so layouts that agree on it but not on `windowKey` differ only
- *  in bleed. */
+ *  in bleed. The `turned*` keys are the same for the layout turned a quarter
+ *  turn (null when it cannot be turned): a layout also carries a template
+ *  keyed on its turned size, offered on orders in that orientation. */
 export interface TemplateCandidate {
   name: string;
   displayName: string;
@@ -166,13 +169,64 @@ export interface TemplateCandidate {
   bleedMm: number;
   /** The layout's sides (`default`, or `front`, `back`, …): a template is drawn per side, so they must match too. */
   surfaceKeys: string[];
+  turnedWindowKey?: string | null;
+  turnedPrintAreaKey?: string | null;
+  /** How the layout is drawn and why it can never be turned (null when it can); absent from an older server. */
+  orientationInfo?: OrientationInfo | null;
   templateCount: number;
+}
+
+/** Which way a box faces. A template faces the way its print areas did when
+ *  it was designed and is offered only where the customer's face the same
+ *  way; a square box faces either way. */
+export type BoxFacing = 'portrait' | 'landscape' | 'square';
+
+const KEY_RE = /^(\d+)x(\d+)$/;
+
+/** The facing of a size key: `'117x168'` → portrait. Null for no key. */
+export function keyFacing(key: string | null | undefined): BoxFacing | null {
+  const m = KEY_RE.exec(key ?? '');
+  if (!m) return null;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  return h > w ? 'portrait' : w > h ? 'landscape' : 'square';
+}
+
+/** The size whichever way it faces: the key with the shorter side first
+ *  (`'168x117'` → `'117x168'`), so a portrait and a landscape 4x6 are one size
+ *  in the Create picker and the filter. */
+export function pairKey(key: string | null | undefined): string | null {
+  const m = KEY_RE.exec(key ?? '');
+  if (!m) return null;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  return `${Math.min(a, b)}x${Math.max(a, b)}`;
+}
+
+/** The key a layout shows in a facing: as drawn when it faces that way (or
+ *  is square), turned when it can be, else null. Without a facing, as drawn. */
+function keyIn(drawn: string | null | undefined, turned: string | null | undefined, facing: BoxFacing | null): string | null {
+  if (!facing) return drawn ?? null;
+  const d = keyFacing(drawn);
+  if (d === facing || d === 'square') return drawn ?? null;
+  return keyFacing(turned) === facing ? turned ?? null : null;
+}
+
+export function keyInFacing(c: Pick<TemplateCandidate, 'windowKey' | 'turnedWindowKey'>, facing: BoxFacing | null): string | null {
+  return keyIn(c.windowKey, c.turnedWindowKey, facing);
+}
+
+/** The way a layout's print areas face as drawn. */
+export function drawnFacing(c: Pick<TemplateCandidate, 'windowKey'>): BoxFacing | null {
+  return keyFacing(c.windowKey);
 }
 
 export interface SizeGroup {
   key: string;
   label: string;
   layouts: TemplateCandidate[];
+  /** The facings a template of this size can take: the ways its layouts are drawn, plus the other way for any that can turn. */
+  facings: BoxFacing[];
 }
 
 /** The group key of layouts with no print areas, last in the Create picker. */
@@ -183,18 +237,22 @@ const sameSides = (a: Pick<TemplateCandidate, 'surfaceKeys'>, b: Pick<TemplateCa
   (a.surfaceKeys ?? []).join(',') === (b.surfaceKeys ?? []).join(',');
 
 /** "4 × 6 in, 0.3 in bleed": the size as the team says it, the print areas
- *  in inches plus their bleed. (The key the server matches on is the box
- *  with the bleed included, so two labels that differ only in bleed are
- *  two sizes.) */
+ *  in inches, shorter side first whichever way they face, plus their bleed.
+ *  (The key the server matches on is the box with the bleed included, so two
+ *  labels that differ only in bleed are two sizes.) */
 export function sizeLabel(c: Pick<TemplateCandidate, 'printAreaBox' | 'bleedMm'>): string {
+  const box = c.printAreaBox;
+  if (!box) return 'no print areas';
+  const short = Math.min(box.widthMm, box.heightMm);
+  const long = Math.max(box.widthMm, box.heightMm);
   const bleed = Number(c.bleedMm) > 0 ? `, ${inches(Number(c.bleedMm))} in bleed` : '';
-  return `${boxLabelIn(c.printAreaBox)}${bleed}`;
+  return `${inches(short)} × ${inches(long)} in${bleed}`;
 }
 
 /** A ticked layout the template can no longer be offered on: retired since
  *  (absent from the live candidates), or its print areas moved so its box
- *  is another size. Shown ticked so ops can untick it; the server refuses a
- *  save that still names it. */
+ *  is another size, as drawn and turned. Shown ticked so ops can untick it;
+ *  the server refuses a save that still names it. */
 export interface IneligibleTicked {
   name: string;
   displayName: string;
@@ -202,29 +260,42 @@ export interface IneligibleTicked {
   size: string;
 }
 
-export function ineligibleTicked(candidates: TemplateCandidate[], homeName: string, ticked: string[]): IneligibleTicked[] {
+/** The key a template designed on `homeName` in `facing` is keyed on: the
+ *  home layout's box as drawn, or turned when the facing is the other way. */
+export function templateKey(candidates: TemplateCandidate[], homeName: string, facing: BoxFacing | null): string | null {
   const home = candidates.find(c => c.name === homeName);
+  return home ? keyInFacing(home, facing) : null;
+}
+
+const carries = (c: TemplateCandidate, key: string) => c.windowKey === key || (c.turnedWindowKey ?? null) === key;
+
+export function ineligibleTicked(candidates: TemplateCandidate[], homeName: string, ticked: string[], facing: BoxFacing | null = null): IneligibleTicked[] {
+  const home = candidates.find(c => c.name === homeName);
+  const key = templateKey(candidates, homeName, facing);
   const byName = new Map(candidates.map(c => [c.name, c]));
   return ticked
     .filter(name => name !== homeName)
     .flatMap((name): IneligibleTicked[] => {
       const c = byName.get(name);
       if (!c) return [{ name, displayName: name, reason: 'retired', size: '' }];
-      if (!home?.windowKey || c.windowKey !== home.windowKey) return [{ name, displayName: c.displayName, reason: 'size_changed', size: sizeLabel(c) }];
-      if (!sameSides(c, home)) return [{ name, displayName: c.displayName, reason: 'sides_changed', size: sizeLabel(c) }];
+      if (!key || !carries(c, key)) return [{ name, displayName: c.displayName, reason: 'size_changed', size: sizeLabel(c) }];
+      if (!home || !sameSides(c, home)) return [{ name, displayName: c.displayName, reason: 'sides_changed', size: sizeLabel(c) }];
       return [];
     });
 }
 
-/** Layouts grouped by window box for the Create picker and the Templates
- *  filter: smallest size first, layouts without print areas last, layouts
- *  by name within a group. */
+/** Layouts grouped by size, whichever way they face, for the Create picker
+ *  and the Templates filter: smallest size first, layouts without print
+ *  areas last, layouts by name within a group. */
 export function groupBySize(candidates: TemplateCandidate[]): SizeGroup[] {
   const groups = new Map<string, SizeGroup>();
   for (const c of candidates) {
-    const key = c.windowKey ?? NO_WINDOWS;
-    const g = groups.get(key) ?? { key, label: c.windowKey ? sizeLabel(c) : 'No print areas', layouts: [] };
+    const key = pairKey(c.windowKey) ?? NO_WINDOWS;
+    const g = groups.get(key) ?? { key, label: c.windowKey ? sizeLabel(c) : 'No print areas', layouts: [], facings: [] };
     g.layouts.push(c);
+    for (const f of [keyFacing(c.windowKey), keyFacing(c.turnedWindowKey)]) {
+      if (f && !g.facings.includes(f)) g.facings.push(f);
+    }
     groups.set(key, g);
   }
   const area = (g: SizeGroup) => {
@@ -232,27 +303,47 @@ export function groupBySize(candidates: TemplateCandidate[]): SizeGroup[] {
     return b ? b.widthMm * b.heightMm : Number.POSITIVE_INFINITY;
   };
   return [...groups.values()]
-    .map(g => ({ ...g, layouts: [...g.layouts].sort((a, b) => a.displayName.localeCompare(b.displayName)) }))
+    .map(g => ({
+      ...g,
+      layouts: [...g.layouts].sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      facings: (['portrait', 'landscape', 'square'] as const).filter(f => g.facings.includes(f)),
+    }))
     .sort((a, b) => area(a) - area(b) || a.label.localeCompare(b.label));
 }
 
-/** The other layouts a template authored on `homeName` can be offered on:
- *  the same size (print areas plus bleed) and the same sides. */
-export function sameBoxLayouts(candidates: TemplateCandidate[], homeName: string): TemplateCandidate[] {
+/** The layouts of a size that can show a facing, each saying whether it
+ *  opens turned (drawn the other way) for it. */
+export function layoutsInFacing(group: Pick<SizeGroup, 'layouts'>, facing: BoxFacing): Array<{ layout: TemplateCandidate; turned: boolean }> {
+  return group.layouts.flatMap(layout => {
+    const key = keyInFacing(layout, facing);
+    return key ? [{ layout, turned: key !== layout.windowKey }] : [];
+  });
+}
+
+/** The other layouts a template authored on `homeName` (facing `facing`, or
+ *  as the home is drawn) can be offered on: the same size, as drawn or
+ *  turned, and the same sides. `turned` says the layout shows it turned. */
+export function sameBoxLayouts(candidates: TemplateCandidate[], homeName: string, facing: BoxFacing | null = null): Array<TemplateCandidate & { turned: boolean }> {
   const home = candidates.find(c => c.name === homeName);
-  if (!home?.windowKey) return [];
+  const key = templateKey(candidates, homeName, facing);
+  if (!home || !key) return [];
   return candidates
-    .filter(c => c.name !== homeName && c.windowKey === home.windowKey && sameSides(c, home))
+    .filter(c => c.name !== homeName && carries(c, key) && sameSides(c, home))
+    .map(c => ({ ...c, turned: c.windowKey !== key }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 /** Layouts with the same print areas and sides but a different bleed: not
  *  eligible, shown so a bleed typed differently on one layout is not a mystery. */
-export function nearMissLayouts(candidates: TemplateCandidate[], homeName: string): TemplateCandidate[] {
+export function nearMissLayouts(candidates: TemplateCandidate[], homeName: string, facing: BoxFacing | null = null): TemplateCandidate[] {
   const home = candidates.find(c => c.name === homeName);
-  if (!home?.printAreaKey) return [];
+  if (!home) return [];
+  const key = templateKey(candidates, homeName, facing);
+  const area = keyIn(home.printAreaKey, home.turnedPrintAreaKey, facing);
+  if (!area) return [];
   return candidates
-    .filter(c => c.name !== homeName && c.windowKey !== home.windowKey && c.printAreaKey === home.printAreaKey && sameSides(c, home))
+    .filter(c => c.name !== homeName && !(key && carries(c, key)) && sameSides(c, home)
+      && (c.printAreaKey === area || (c.turnedPrintAreaKey ?? null) === area))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 

@@ -626,6 +626,22 @@ and append `&template=<template_id>`, exactly as `editor_url` does; a template
 that is not offered on the layout in the URL is ignored with a notice in the
 editor, never an error.
 
+**A template faces one way (as of Oct 29, 2026).** A template is designed for
+the layout in one orientation and carries it as `facing` (`portrait`,
+`landscape`, or `square` when its print areas are square). It is offered only
+on orders facing the same way: when your session's `orientation` turns the
+layout (see "Print orientation" above), `GET /api/templates?layout=<name>`
+served for that session lists the templates facing that way and none of the
+others, and nothing is ever turned to fit. The template catalogue you read with
+your API key (`GET /api/templates?layout=<name>` without a session) is the
+layout as drawn; filter on `facing` to show your customers the ones their
+orientation will offer. `GET /api/layouts` carries `templateCounts`
+(`{"portrait": n, "landscape": n}`) beside `templateCount` for the same
+reason. Sending a `template_id` together with an `orientation` (or none) under
+which that template would not be offered is a **400** at the session call,
+with the facing named, so a customer never lands in the editor without the
+template you promised.
+
 ### The layout identifier in your iframe URL is a permanent, stable key (as of Sep 16, 2026)
 
 The layout identifier in your iframe URL (`circle_48mm` above) used to be

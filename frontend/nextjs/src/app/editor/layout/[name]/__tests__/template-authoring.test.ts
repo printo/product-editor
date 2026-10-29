@@ -2,9 +2,9 @@
  * template-authoring.ts — what ops draw on a blank card becomes a template.
  */
 import {
-  ARTWORK_LABEL, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, groupBySize, ineligibleTicked,
-  isEmptyDecoration, isTemplateId, localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withArtwork,
-  withoutPhotos, type TemplateCandidate,
+  ARTWORK_LABEL, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, drawnFacing, groupBySize,
+  ineligibleTicked, isEmptyDecoration, isTemplateId, keyFacing, layoutsInFacing, localImageOverlays, nearMissLayouts, pairKey,
+  sameBoxLayouts, sizeLabel, slugFromName, templateKey, withArtwork, withoutPhotos, type TemplateCandidate,
 } from '../template-authoring';
 import { surfaceGeometry } from '../layout-template';
 import type { SurfaceDefinition } from '@/lib/layout-utils';
@@ -144,6 +144,76 @@ describe('sharing a template across layouts with the same print areas', () => {
     expect(blankCard(home, decoration, null, surfaceGeometry(home)).overlays[0]).toMatchObject({ y: 8 });
     expect(blankCard(other, decoration, null, surfaceGeometry(other)).overlays[0]).toMatchObject({ y: 2 });
     expect(blankCard(other, decoration).overlays[0]).toMatchObject({ y: 8 });
+  });
+});
+
+describe('a template faces one way', () => {
+  const box = (wh: [number, number] | null) => (wh ? { xMm: 0, yMm: 0, widthMm: wh[0], heightMm: wh[1] } : null);
+  const key = (wh: [number, number] | null) => (wh ? `${Math.round(wh[0])}x${Math.round(wh[1])}` : null);
+  const swap = (wh: [number, number] | null): [number, number] | null => (wh ? [wh[1], wh[0]] : null);
+  const cand = (name: string, displayName: string, win: [number, number] | null, area: [number, number] | null, bleedMm: number, turnable = true): TemplateCandidate => ({
+    name, displayName, bleedMm, templateCount: 0, surfaceKeys: ['default'],
+    windowBox: box(win), windowKey: key(win), printAreaBox: box(area), printAreaKey: key(area),
+    turnedWindowKey: turnable ? key(swap(win)) : null,
+    turnedPrintAreaKey: turnable ? key(swap(area)) : null,
+    orientationInfo: win ? { orientation: win[1] > win[0] ? 'portrait' : win[0] > win[1] ? 'landscape' : 'square', blocked: turnable ? null : 'has_captions' } : null,
+  });
+  const TALL: [number, number] = [116.84, 167.64];
+  const WIDE: [number, number] = [167.64, 116.84];
+  const candidates = [
+    cand('tall_frame', 'Tall frame', TALL, [101.6, 152.4], 7.62),
+    cand('wide_frame', 'Wide frame', WIDE, [152.4, 101.6], 7.62),
+    cand('fixed_wide', 'Captioned wide', WIDE, [152.4, 101.6], 7.62, false),
+    cand('square', 'Square', [200, 200], [190, 190], 5),
+  ];
+
+  it('reads a facing off a key and pairs the two ways of a size', () => {
+    expect(keyFacing('117x168')).toBe('portrait');
+    expect(keyFacing('168x117')).toBe('landscape');
+    expect(keyFacing('200x200')).toBe('square');
+    expect(keyFacing(null)).toBeNull();
+    expect(pairKey('168x117')).toBe('117x168');
+    expect(pairKey('117x168')).toBe('117x168');
+    expect(pairKey(undefined)).toBeNull();
+    expect(drawnFacing(candidates[1])).toBe('landscape');
+  });
+
+  it('labels a size shorter side first, groups both ways of it together and says which ways it can face', () => {
+    expect(sizeLabel(candidates[1])).toBe('4 × 6 in, 0.3 in bleed');
+    const groups = groupBySize(candidates);
+    expect(groups.map(g => g.key)).toEqual(['117x168', '200x200']);
+    expect(groups[0].layouts.map(c => c.name)).toEqual(['fixed_wide', 'tall_frame', 'wide_frame']);
+    expect(groups[0].facings).toEqual(['portrait', 'landscape']);
+    expect(groups[1].facings).toEqual(['square']);
+    expect(groupBySize([candidates[2]])[0].facings).toEqual(['landscape']);
+  });
+
+  it('lists the layouts of a size that can show a facing, turned when drawn the other way', () => {
+    const g = groupBySize(candidates)[0];
+    expect(layoutsInFacing(g, 'portrait').map(x => [x.layout.name, x.turned])).toEqual([['tall_frame', false], ['wide_frame', true]]);
+    expect(layoutsInFacing(g, 'landscape').map(x => [x.layout.name, x.turned])).toEqual([['fixed_wide', false], ['tall_frame', true], ['wide_frame', false]]);
+  });
+
+  it('keys a template on the home layout turned for the other facing and offers it where that key is carried', () => {
+    expect(templateKey(candidates, 'wide_frame', null)).toBe('168x117');
+    expect(templateKey(candidates, 'wide_frame', 'portrait')).toBe('117x168');
+    expect(templateKey(candidates, 'fixed_wide', 'portrait')).toBeNull();
+    expect(templateKey(candidates, 'square', 'portrait')).toBe('200x200');
+    expect(sameBoxLayouts(candidates, 'wide_frame', 'portrait').map(c => [c.name, c.turned])).toEqual([['tall_frame', false]]);
+    expect(sameBoxLayouts(candidates, 'wide_frame', 'landscape').map(c => [c.name, c.turned])).toEqual([['fixed_wide', false], ['tall_frame', true]]);
+    expect(sameBoxLayouts(candidates, 'wide_frame').map(c => c.name)).toEqual(['fixed_wide', 'tall_frame']);
+    expect(sameBoxLayouts(candidates, 'fixed_wide', 'portrait')).toEqual([]);
+  });
+
+  it('flags a ticked layout that cannot show the facing, and names near-misses for it', () => {
+    expect(ineligibleTicked(candidates, 'wide_frame', ['fixed_wide', 'tall_frame'], 'portrait')).toEqual([
+      { name: 'fixed_wide', displayName: 'Captioned wide', reason: 'size_changed', size: '4 × 6 in, 0.3 in bleed' },
+    ]);
+    expect(ineligibleTicked(candidates, 'wide_frame', ['fixed_wide', 'tall_frame'], 'landscape')).toEqual([]);
+    const thin = cand('thin_tall', 'Thin tall', [111.6, 162.4], [101.6, 152.4], 5);
+    expect(nearMissLayouts([...candidates, thin], 'wide_frame', 'portrait').map(c => c.name)).toEqual(['thin_tall']);
+    expect(nearMissLayouts([...candidates, thin], 'wide_frame', 'landscape').map(c => c.name)).toEqual(['thin_tall']);
+    expect(nearMissLayouts([...candidates, thin], 'wide_frame').map(c => c.name)).toEqual(['thin_tall']);
   });
 });
 

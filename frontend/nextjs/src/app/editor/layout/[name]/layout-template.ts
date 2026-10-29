@@ -69,6 +69,11 @@ export interface LayoutTemplate {
   alsoOn?: string[];
   /** Ops reads only: ticked layouts that were retired or no longer have the same box. */
   alsoOnMismatch?: string[];
+  /** The orientation it was designed for ('' = the home layout as drawn) and
+   *  which way its print areas face as a result. A template is offered only
+   *  where the customer's layout, turned or not, faces the same way. */
+  orientation?: '' | 'portrait' | 'landscape';
+  facing?: 'portrait' | 'landscape' | 'square' | null;
   /** Ops reads only: the home layout's size, the box the key is made of and the print areas it is shown as. */
   windowBox?: MmRect | null;
   printAreaBox?: MmRect | null;

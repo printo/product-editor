@@ -318,6 +318,22 @@ def box_key(box: Optional[dict]) -> Optional[str]:
     return f"{_round_half_up(_mm(box.get('widthMm')))}x{_round_half_up(_mm(box.get('heightMm')))}"
 
 
+def box_orientation(box: Optional[dict]) -> Optional[str]:
+    """`portrait` / `landscape` / `square` of a box, or None without one. A
+    template is offered only where the customer's print areas face the way
+    the template's did when it was designed; a square box faces both ways."""
+    if not box:
+        return None
+    w, h = _mm(box.get("widthMm")), _mm(box.get("heightMm"))
+    if w <= 0 or h <= 0:
+        return None
+    if h > w:
+        return "portrait"
+    if w > h:
+        return "landscape"
+    return "square"
+
+
 def template_size(definition: dict) -> dict:
     """What a template is keyed on, read from a layout's first surface:
     `{windowBox, windowKey, printAreaBox, printAreaKey, bleedMm, surfaceKeys}`

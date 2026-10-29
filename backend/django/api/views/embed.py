@@ -157,7 +157,9 @@ class EmbedSessionView(APIView):
                         "template's home layout. A template is also offered on the layouts in "
                         "its `alsoOn`; to open it on one of those, build the iframe address from "
                         "`embed_url_template` with that layout's name and add `&template=<id>`. "
-                        "Unknown or unpublished ids are rejected with 400."
+                        "Unknown or unpublished ids are rejected with 400, as is a template that faces "
+                        "the other way from the `orientation` sent (`facing` on `GET /api/templates`): "
+                        "a template is never turned."
                     ),
                 ),
                 "template_flow": drf_serializers.BooleanField(
@@ -308,12 +310,27 @@ class EmbedSessionView(APIView):
             if not is_template_id(template_id):
                 return Response({'detail': 'template_id must be lowercase letters, digits and hyphens'},
                                 status=status.HTTP_400_BAD_REQUEST)
+            from .templates import template_facing, template_fits
             t = LayoutTemplate.objects.filter(
                 template_id=template_id, status='published', is_deleted=False,
             ).select_related('layout').first()
             if t is None or t.layout.is_deprecated or not t.layout.is_public:
                 return Response({'detail': f"template_id '{template_id}' is not a published template"},
                                 status=status.HTTP_400_BAD_REQUEST)
+            # A template faces one way; a session whose orientation (or none)
+            # serves its layout the other way would open the editor without
+            # it, silently. Say so at the call, as an unpublished id is refused.
+            if not template_fits(t, apply_orientation(t.layout.definition, orientation or None)[0]):
+                facing = template_facing(t)
+                return Response(
+                    {'detail': (
+                        f"template_id '{template_id}' is designed for the layout in {facing}; "
+                        f"{'with orientation ' + repr(orientation) if orientation else 'as drawn'} it would "
+                        f"not be offered. Send orientation '{facing}', or a template that faces that way "
+                        "(`facing` on GET /api/templates)."
+                    )},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             template_layout = t.layout.name
 
         session = EmbedSession.objects.create(
@@ -520,7 +537,7 @@ class EditorInitView(APIView):
                     ),
                     "template": drf_serializers.DictField(
                         allow_null=True,
-                        help_text="The published template named by `?template=`, else null (also null when the layout was turned to another orientation).",
+                        help_text="The published template named by `?template=`, else null; 404 when it is not offered on the layout served this way (it faces the other way).",
                     ),
                     "orientation": drf_serializers.DictField(
                         help_text=(
@@ -535,7 +552,7 @@ class EditorInitView(APIView):
                 },
             ),
             400: OpenApiResponse(description="Missing or invalid `layout` query param, or an invalid `template` id"),
-            404: OpenApiResponse(description="Layout not found, or `template` not published on it"),
+            404: OpenApiResponse(description="Layout not found, or `template` not offered on it as served (unpublished there, or facing the other way)"),
         },
     )
     def get(self, request):
@@ -621,9 +638,7 @@ class EditorInitView(APIView):
         template_param = (request.query_params.get('template') or '').strip()
         template_data = None
         if template_param:
-            from ..models import LayoutTemplate
-            from .templates import published_templates
-            from .templates import serialize_template
+            from .templates import published_templates, serialize_template, template_facing, template_fits
             if not is_template_id(template_param):
                 return Response({'detail': 'Invalid template id'}, status=status.HTTP_400_BAD_REQUEST)
             t = published_templates(layout_data.get('name')).filter(template_id=template_param).first()
@@ -632,9 +647,17 @@ class EditorInitView(APIView):
                     {'detail': f"Template '{template_param}' is not published on layout '{layout_data.get('name')}'"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            # A template's decoration is placed for the layout as authored; on a
-            # turned layout it would land in the wrong place.
-            template_data = None if orientation_report['applied'] else serialize_template(t)
+            # A template faces one way and is never turned: on a layout served
+            # the other way it is not offered, and the editor shows its notice.
+            if not template_fits(t, layout_data):
+                return Response(
+                    {'detail': (
+                        f"Template '{template_param}' is designed for layout '{layout_data.get('name')}' in "
+                        f"{template_facing(t)}, which is being served in {orientation_report['orientation']}"
+                    )},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            template_data = serialize_template(t)
 
         response = Response({
             # Both mask slots plus the derived legacy pair, after the turn so
