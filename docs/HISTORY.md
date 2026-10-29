@@ -140,6 +140,8 @@ Verified against a real 24 MP iOS 18 gain-map photo: the server decode matched m
 - **Django admin:** gated by nginx basic auth (`proxy/nginx/.htpasswd`, rotated off the default 2026-08-13) plus Django's own login until September 2026. On 2026-09-04 production had **zero** `auth_user` rows, so the admin was unreachable for everyone. Replaced by the SSO described in `CLAUDE.md`; `.htpasswd` is gone from the repo. `ProxyAuthenticationMiddleware` guarded `/admin/` until 2026-09-04 while the admin had been mounted at `/django-admin/` since the initial commit, so the check had never once run.
 - Deleting an `APIKey` cascades to its orders; rotate with the admin's "Regenerate key" (PR #161) instead. The "Printo.in Storefront" key (minted 2026-08-13) is separate from the generic `EXTERNAL` key.
 
+**2026-10-29 (PR #302).** The proxy's login bounce kept only the path, so a filtered dashboard link lost its filter after sign-in; it now carries path and query (`loginHref`). The same pass found that the login actions returned `callbackUrl` unchecked and the page handed it to `window.location`, a hop NextAuth's `redirect` callback never sees, so `/login?callbackUrl=https://elsewhere` sent a user off-site after sign-in; `safeCallbackPath` now accepts a same-site path only.
+
 ## Three frame renderers
 
 - The blur once appeared in the thumbnail and print but not the live editor; `frame-fill.ts` exists because of it.
@@ -154,6 +156,8 @@ Verified against a real 24 MP iOS 18 gain-map photo: the server decode matched m
 - Until 2026-10-07 none of the editor dialogs had `dialog`/`alertdialog` roles or focus management, and a key pressed on a button inside a canvas card was caught by the card, which cancelled the button's click and opened the canvas editor — keyboard users couldn't use the card's buttons at all.
 - Until 2026-10-13 selecting an icon or sticker in the canvas editor's sidebar hid the Add New Icon / Add Photo controls, so a second one could only be added after selecting another layer. The Django Admin button in the Templates toolbar overlapped the Fonts button on narrower screens; it became the header badge (PR #260).
 - The grid thumbnail "blink" came from `LazyImg` destroying and re-creating each `<img>`; the "modal fixes it" theory was tested and is false.
+
+**2026-10-29 (PR #301).** The dashboard held its tag filter and search in component state, so the browser's Back and the editor's "Back to Layouts" reset them. Both now ride the address (`/dashboard?tag=<key>&q=<text>`, `replaceState` so typing adds no history entries) and are remembered per tab.
 
 ## Export Flag
 
@@ -177,6 +181,8 @@ Shipped in PR #259 on 2026-10-13 (prerequisite PR #258), deployed to prod at `79
 
 **A template faces one way (2026-10-29).** Kannan asked what happens when a customer orders a size in the other orientation. Checked in the branch: two separately drawn layouts were two sizes to the template system (fine), but one layout served turned (printo.in's `orientation`, or the dashboard card set to Landscape) hid every template with no message, the dashboard card still said "2 Templates" with Landscape chosen, and nothing let ops make a landscape version at all, since the template editor loaded the layout as drawn and the orientation feature exists so that nobody draws a landscape twin. Kannan's rule: never turn a design to fit, show no templates rather than a turned one, and ask the facing in the Create pop-up. So a template records the orientation it was designed for (the home layout turned a quarter turn when drawn the other way, exactly what a landscape order sees), is offered only where the customer's print areas face the same way, and the Templates page's Create dialog gained the dashboard's Portrait / Landscape pill after the size; the badge counts per facing; a session naming a template its orientation would hide is refused at the call.
 
+**Shipped and tidied the same day (2026-10-29).** Both grids took printo.in's "Choose a Design" look (equal cards, thumbnail boxed, name centred, Start blank first, id on the ops cards only); the ops card then lost a third of its height (pills and icon actions over the image, name and id on one line, "+ N more" opening the list in place, icons filling with their colour on hover). The PR's two migrations became one at Kannan's request, which meant rolling the dev databases that had applied the pair back to 0024 first; prod was at 0024 and took the combined file. PR #304 was merged and deployed by Kannan on 2026-10-29 (migration confirmed applied on the box). printo.in still does not send `orientation`, so landscape templates reach storefront customers only once it does.
+
 ## Layout tags
 
 Until 2026-10-25 the nine tags were a hard-coded list in `lib/product-tags.ts`, a layout stored the tag *names*, and only the generic editor had a field (one "Primary Tag"). The calendar editor rebuilt the whole definition on save and silently dropped any tag; the book editor had no field. The CMS team asked to create their own tags; keys were introduced so a rename never disconnects a layout, and `tags` kept returning names because printo.in's API key can read the layout list and nobody could confirm whether their storefront uses it.
@@ -192,6 +198,8 @@ Until 2026-10-25 the nine tags were a hard-coded list in `lib/product-tags.ts`, 
 - Calendar frames gained mm fields on 2026-10-13; the fraction "Precise values" fields for frames were removed.
 - **Printed calendars carried no month name (fixed 2026-10-17):** `render_calendar` drew only the weekday row and dates, on the theory that ops would place month labels as overlays — but no UI ever set `calendar.monthTitle`, so every printed page and mock was unlabelled while the customer's tiles said "JAN 2026" around the grid. Each block now prints "January 2026" above its weekday row by default, and the tiles draw it inside the grid as the print does. The grid area shrank by 12% of the block height on every existing calendar layout.
 - **Calendars never asked for 12 photos (2026-10-17).** The "X of Y photos" banner, repeat picker and pre-submit notice ran only off the order `qty`, which calendars were exempt from (it counts calendars bought), so a 4-photo calendar silently repeated photos across the 12 months, and the poster kept up to 12 cards while printing only the first. Calendars now measure against their own photo pages (`calendarPhotoSlots`) on both sides, and the webhook carries a calendar `qty_summary`.
+
+**2026-10-29 (PR #303).** On a one-month-a-page card the hover tint and the Edit photo pill covered the whole card except the date grid, so blank paper read as part of the photo. The hint now sits on the box around the layout's photo windows (`photoZoneOf`) with a purple outline like the grid's own, and the card no longer lights its whole border on hover.
 
 ## Book
 
