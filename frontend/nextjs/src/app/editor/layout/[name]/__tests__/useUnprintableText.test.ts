@@ -146,7 +146,7 @@ describe('useUnprintableText', () => {
     expect(result.current.unprintableTexts).toEqual([{ where: 'Back', chars: [NOTES] }]);
   });
 
-  it('shows nothing when the server is unsure or the request fails, and asks again on the next change', async () => {
+  it('shows nothing while the server is unsure or the request fails, and asks again on the next change', async () => {
     ask.mockResolvedValueOnce([null]).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([[MAN_DANCING]]);
     const first = text(`a ${MAN_DANCING}`);
     const { result, rerender } = renderHook((p: Props) => useUnprintableText(p), { initialProps: { ...base, canvases: [card(first)] } });
@@ -160,5 +160,71 @@ describe('useUnprintableText', () => {
     await settle();
     expect(ask).toHaveBeenCalledTimes(3);
     expect(result.current.unprintableFor(third)).toEqual([MAN_DANCING]);
+  });
+
+  const advance = async (ms: number) => { await act(async () => { jest.advanceTimersByTime(ms); }); };
+
+  it('asks again by itself after a failed request, without the customer typing, and then removes the character', async () => {
+    ask.mockRejectedValueOnce(new Error('502')).mockResolvedValueOnce([[MAN_DANCING]]);
+    const editing = card(text(`Hi ${MAN_DANCING}`));
+    const { result } = renderHook(() => useUnprintableText({ ...base, editingCanvas: editing }));
+    await settle();
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(setEditingCanvas).not.toHaveBeenCalled();
+    await advance(999);
+    expect(ask).toHaveBeenCalledTimes(1);
+    await advance(1);
+    await settle();
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect((setEditingCanvas.mock.calls[0][0] as CanvasItem).overlays[0]).toMatchObject({ text: 'Hi ' });
+    expect(result.current.removals).toBe(1);
+  });
+
+  it('retries an unsure answer too, waiting longer each time, and gives up after three retries', async () => {
+    ask.mockResolvedValue([null]);
+    const stuck = card(text(`Hi ${MAN_DANCING}`));
+    renderHook(() => useUnprintableText({ ...base, canvases: [stuck] }));
+    await settle();
+    expect(ask).toHaveBeenCalledTimes(1);
+    await advance(1000); await settle();
+    expect(ask).toHaveBeenCalledTimes(2);
+    await advance(2999);
+    expect(ask).toHaveBeenCalledTimes(2);
+    await advance(1); await settle();
+    expect(ask).toHaveBeenCalledTimes(3);
+    await advance(8000); await settle();
+    expect(ask).toHaveBeenCalledTimes(4);
+    await advance(60000);
+    expect(ask).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not ask in a loop while the server stays unsure', async () => {
+    ask.mockResolvedValue([null]);
+    const stuck = card(text(`Hi ${MAN_DANCING}`));
+    renderHook(() => useUnprintableText({ ...base, canvases: [stuck] }));
+    await settle();
+    await advance(900);
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries only what went unanswered', async () => {
+    ask.mockResolvedValueOnce([[MAN_DANCING], null]).mockResolvedValueOnce([[]]);
+    const cards = [card(text(`a ${MAN_DANCING}`, 'Pacifico')), card(text(`b ${NOTES}`, 'Lobster'))];
+    const { result } = renderHook(() => useUnprintableText({ ...base, canvases: cards }));
+    await settle();
+    expect(result.current.unprintableByCard.size).toBe(1);
+    await advance(1000); await settle();
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(ask.mock.calls[1][2]).toEqual([{ text: NOTES, fontFamily: 'Lobster' }]);
+  });
+
+  it('stops waiting to retry when the editor goes away', async () => {
+    ask.mockRejectedValue(new Error('offline'));
+    const stuck = card(text(`Hi ${MAN_DANCING}`));
+    const { unmount } = renderHook(() => useUnprintableText({ ...base, canvases: [stuck] }));
+    await settle();
+    unmount();
+    await advance(20000);
+    expect(ask).toHaveBeenCalledTimes(1);
   });
 });

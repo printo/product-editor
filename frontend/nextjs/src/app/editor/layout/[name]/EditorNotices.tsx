@@ -33,20 +33,25 @@ export const UNSUPPORTED_REMOVED =
  * sits in the sidebar below the fold on a small screen and is not there at
  * all when the text was typed on the canvas (found on production the day the
  * removal shipped: the emoji vanished and nothing said why).
+ * It sits in the middle of the screen and stays fifteen seconds, by request:
+ * at the top left for eight it was easy to miss.
  *
  * `removals` is the running count from useUnprintableText. The count at the
  * time the editor opened, and then at each dismissal, is what has been seen;
  * anything above it shows the toast, and each new removal restarts its timer.
  */
+/** How long the toast stays unless dismissed. */
+export const TEXT_REMOVED_TOAST_MS = 15000;
+
 export function TextRemovedToast({ removals }: { removals: number }) {
   const [seen, setSeen] = useState(removals);
   return (
-    <ToastStack placement="top-left">
+    <ToastStack placement="center">
       <Toast
         key={removals}
         message={removals > seen ? UNSUPPORTED_REMOVED : null}
         tone="warning"
-        duration={8000}
+        duration={TEXT_REMOVED_TOAST_MS}
         onDismiss={() => setSeen(removals)}
       />
     </ToastStack>

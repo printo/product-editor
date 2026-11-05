@@ -93,12 +93,12 @@ export const Toast = ({ message, tone, onDismiss, duration = 5000 }: ToastProps)
 
 const PLACEMENT = {
   'bottom-right': 'bottom-4 right-4 items-end',
-  'top-left': 'top-4 left-4 items-start',
+  'center': 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 items-center',
 } as const;
 
 /** Fixed stack, bottom-right unless told otherwise. Sits above the z-[2000]
- *  header. `top-left` is for the canvas editor, whose Save button and
- *  controls fill the bottom and right edges. */
+ *  header. `center` puts a message in the middle of the screen, for the one
+ *  the customer must read (the canvas editor removing their emoji). */
 export const ToastStack = ({ children, placement = 'bottom-right' }: {
   children: React.ReactNode;
   placement?: keyof typeof PLACEMENT;
