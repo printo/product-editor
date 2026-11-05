@@ -162,6 +162,10 @@ export class FakeBackend {
   /** Published layout templates served by GET templates?layout=. */
   templates: Array<Record<string, unknown>> = [];
   genzStyle: { defaultPalette?: string; palettes: Array<Record<string, unknown>> } = { palettes: [] };
+  /** Links POST upload/from-url answers 502 for (a photo our server could not
+   *  fetch); remove one to let a retry through. */
+  failingPhotoLinks = new Set<string>();
+  private fetchedLinks = new Map<string, string>();
   private seq = 0;
   private uploadSeq = 0;
   private uploads = new Map<string, { filename: string; total: number }>();
@@ -224,6 +228,21 @@ export class FakeBackend {
       const u = this.uploads.get(m[1]);
       return fakeResponse(201, { file_path: `/app/storage/uploads/test/${u?.filename}`, filename: u?.filename, file_size: 3, upload_id: m[1] });
     }
+    // Upload by link: our server fetches the original, once per link, and
+    // reports its true size; the editor then reads it back as a preview.
+    if (path === 'upload/from-url' && method === 'POST') {
+      const b = body as { url: string; filename?: string };
+      if (this.failingPhotoLinks.has(b.url)) return fakeResponse(502, { detail: 'The photo could not be fetched.' });
+      const held = this.fetchedLinks.get(b.url);
+      const id = held ?? `ffffffff-0000-4000-8000-${String(this.fetchedLinks.size + 1).padStart(12, '0')}`;
+      this.fetchedLinks.set(b.url, id);
+      return fakeResponse(held ? 200 : 201, { upload_id: id, filename: b.filename ?? 'photo.jpg', file_size: 4_000_000, width: 3000, height: 4000 });
+    }
+    m = path.match(/^photos\/([^/]+)\/preview$/);
+    if (m && method === 'GET') {
+      const full = url.searchParams.get('size') === 'full';
+      return fakeResponse(200, new Blob([full ? 'original-bytes' : 'preview'], { type: 'image/jpeg' }), 'image/jpeg');
+    }
     if (path === 'editor/render' && method === 'POST') {
       return fakeResponse(202, { job_id: '11111111-1111-4111-8111-111111111111', order_id: (body as { order_id?: string })?.order_id, status_url: '/api/render-status/11111111-1111-4111-8111-111111111111/', queue: 'standard' });
     }
@@ -259,10 +278,11 @@ export type Mode = 'embed' | 'dashboard';
  * a ?token= in the URL (that is how the page itself decides); dashboard mode
  * has none and relies on the mocked NextAuth session.
  */
-export function setEditorUrl(mode: Mode, orderId?: string) {
+export function setEditorUrl(mode: Mode, orderId?: string, extra: Record<string, string> = {}) {
   const sp = new URLSearchParams();
   if (mode === 'embed') sp.set('token', 'test-embed-token');
   if (orderId) sp.set('order_id', orderId);
+  for (const [k, v] of Object.entries(extra)) sp.set(k, v);
   window.history.replaceState(null, '', `/editor/layout/${LAYOUT_NAME}${sp.toString() ? `?${sp}` : ''}`);
 }
 

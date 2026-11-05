@@ -19,6 +19,16 @@ function loadImageElement(file: File): Promise<HTMLImageElement> {
 }
 
 /**
+ * Record a file's size in pixels without decoding it. For a preview that
+ * stands in for a larger original (a restored design): the low-resolution
+ * warning and the pan and crop maths then work from the original's size, which
+ * is what prints. The aspect ratio is the same, so drawing is unaffected.
+ */
+export function rememberImageSize(file: File, width: number, height: number): void {
+  if (width > 0 && height > 0) metadataCache.set(file, { width, height, orientation: 1 });
+}
+
+/**
  * Dimensions-only accessor: returns the WeakMap hit WITHOUT decoding the
  * image; on a miss delegates to getImageMetadata once (which populates the
  * cache) and discards the element. Used by the low-res DPI sweep, which may

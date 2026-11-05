@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { MAX_RESTORE_STATE_CHARS, useServerRender } from '../useServerRender';
 import { uploadFiles } from '@/lib/upload-utils';
 import { rasterizeSvgUrl } from '@/lib/icon-raster';
+import { RestoredPhotos } from '../restored-photos';
 import type { CanvasItem, FrameState, Overlay, SurfaceState } from '../types';
 
 jest.mock('@/lib/icon-raster', () => ({
@@ -313,5 +314,81 @@ describe('useServerRender — after submitting', () => {
     expect(result.current.error).toBe('Mask missing');
     jest.useRealTimers();
     jest.restoreAllMocks();
+  });
+});
+
+describe('useServerRender — photos restored from an earlier order', () => {
+  // On screen a restored photo is a preview of an original our server holds.
+  const restored = (name: string, uploadId: string, fileId: string) => {
+    const photos = new RestoredPhotos();
+    const preview = photo(name);
+    photos.addStandIn(preview, { uploadId, width: 3000, height: 4000, fileId });
+    return { photos, preview };
+  };
+
+  it('is sent by the upload our server holds, and its preview is never uploaded', async () => {
+    const { photos, preview } = restored('a.jpg', 'server-upload-1', 'f-1');
+    const own = photo('new.jpg');
+    const fileIds = { current: new WeakMap<File, string>([[preview, 'f-1'], [own, 'f-2']]) };
+    const { result } = setup({
+      canvases: [canvas([frame(preview)]), canvas([frame(own)])],
+      restoredPhotos: photos, fileIdByFileRef: fileIds, buildEditorState: () => ({ surfaces: [] }),
+    });
+    await run(() => result.current.handleSubmitDesign());
+    expect(jest.mocked(uploadFiles).mock.calls[0][0]).toEqual([own]);
+    const body = renderBody();
+    expect(body.canvases[0].frames[0].upload_id).toBe('server-upload-1');
+    expect(body.canvases[1].frames[0].upload_id).toBe('up-0-new.jpg');
+    expect(body.restore.files).toEqual([
+      { file_id: 'f-1', upload_id: 'server-upload-1' },
+      { file_id: 'f-2', upload_id: 'up-0-new.jpg' },
+    ]);
+  });
+
+  it('a design of restored photos alone submits with nothing to upload', async () => {
+    const { photos, preview } = restored('a.jpg', 'server-upload-1', 'f-1');
+    const { result } = setup({ canvases: [canvas([frame(preview)])], restoredPhotos: photos });
+    await run(() => result.current.handleSubmitDesign());
+    expect(jest.mocked(uploadFiles).mock.calls[0][0]).toEqual([]);
+    expect(renderBody().canvases[0].frames[0].upload_id).toBe('server-upload-1');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('a restored added image is sent by its server upload too', async () => {
+    const { photos, preview } = restored('sticker.png', 'server-upload-9', 's-1');
+    const overlay = { type: 'image', id: 1, src: 'blob:x', source: 'local', originalFile: preview, fileId: 's-1', label: '', x: 0, y: 0, width: 10, height: 10, rotation: 0, opacity: 1 } as Overlay;
+    const { result } = setup({ canvases: [canvas([frame(photo('a.jpg'))], { overlays: [overlay] })], restoredPhotos: photos });
+    await run(() => result.current.handleSubmitDesign());
+    expect(renderBody().canvases[0].overlays[0]).toMatchObject({ fileId: 'server-upload-9', src: null });
+  });
+
+  it('a preview with no upload on record stops the submit: it is never uploaded in the photo\'s place', async () => {
+    const photos = new RestoredPhotos();
+    const preview = photo('a.jpg');
+    photos.addStandIn(preview, { uploadId: '', width: 0, height: 0, fileId: 'f-1' });
+    const { result } = setup({ canvases: [canvas([frame(preview)])], restoredPhotos: photos });
+    await run(() => result.current.handleSubmitDesign());
+    expect(uploadFiles).not.toHaveBeenCalled();
+    expect(calls.some(c => c.url.endsWith('/editor/render'))).toBe(false);
+    expect(result.current.error).toMatch(/not ready yet/);
+  });
+
+  it('photos still arriving hold the submit with a plain message, not "lost"', async () => {
+    const { result } = setup({
+      canvases: [canvas([frame(null, { fileId: 'f-1', fileName: 'a.jpg' })])],
+      restoredPhotoStatus: new Map([['f-1', 'arriving']]),
+    });
+    await run(() => result.current.handleSubmitDesign());
+    expect(result.current.error).toBe('Your photos are still loading. Please wait a moment and try again.');
+    expect(calls.some(c => c.url.endsWith('/editor/render'))).toBe(false);
+  });
+
+  it('a restored photo that could not be loaded is named like any missing photo', async () => {
+    const { result } = setup({
+      canvases: [canvas([frame(null, { fileId: 'f-1', fileName: 'a.jpg' })])],
+      restoredPhotoStatus: new Map([['f-1', 'failed']]),
+    });
+    await run(() => result.current.handleSubmitDesign());
+    expect(result.current.error).toMatch(/1 photo could not be loaded/);
   });
 });

@@ -45,6 +45,7 @@ import { useCanvasGeneration, useObjectUrls, useRenderCanvas } from './useCanvas
 import { useFileIntake } from './useFileIntake';
 import { useServerRender } from './useServerRender';
 import { useAutosaveAndRestore, usePhotoStore } from './useDesignPersistence';
+import { useParentRestore } from './useParentRestore';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
 import { DeleteConfirmDialog } from './dialogs/DeleteConfirmDialog';
@@ -238,6 +239,24 @@ export default function LayoutEditorPage() {
 
   const renderCanvas = useRenderCanvas(layout, getFileUrl);
 
+  const canvasesRef = useRef<CanvasItem[]>([]);
+  useEffect(() => {
+    canvasesRef.current = canvases;
+  }, [canvases]);
+
+  // A design restored from the copy the embedding company keeps (embed only,
+  // and only when its page asked for it on the address). Before the autosave
+  // hook because that hook's restore calls into this one.
+  const restoredFileIdsRef = useRef<WeakMap<File, string> | null>(null);
+  const {
+    restoreFromParent, restoredPhotos, photoStatus: restoredPhotoStatus, retryRestoredPhotos,
+    prepareOriginals, openingCard, getEditFileUrl,
+  } = useParentRestore({
+    embedToken, parentOrigin, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
+    surfaceStatesRef, setSurfaceStates, canvasesRef, setCanvases, setFiles, activeSurfaceKeyRef,
+    skipNextGenerateRef, getFileUrl, renderCanvas, fileIdByFileRef: restoredFileIdsRef,
+  });
+
   const {
     restorePending, restoreSettled, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
     buildEditorState,
@@ -247,13 +266,9 @@ export default function LayoutEditorPage() {
     setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
     calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
-    activeTemplateRef, setActiveTemplate, activeTemplateId: activeTemplate?.id ?? null,
+    activeTemplateRef, setActiveTemplate, activeTemplateId: activeTemplate?.id ?? null, restoreFromParent,
   });
-
-  const canvasesRef = useRef<CanvasItem[]>([]);
-  useEffect(() => {
-    canvasesRef.current = canvases;
-  }, [canvases]);
+  useEffect(() => { restoredFileIdsRef.current = fileIdByFileRef.current; }, [fileIdByFileRef]);
 
   usePhotoStore({
     orderId, surfaceStates, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
@@ -371,7 +386,7 @@ export default function LayoutEditorPage() {
     normalizedLayoutState, activeCanvasIdx, setActiveCanvasIdx, setEditingCanvas, renderCanvas, generateCanvasesForLayout,
     repositionMode, swapSource, setSwapSource, deleteConfirm, setDeleteConfirm, orderQty: photoQty, setQtyUnder,
     dragOverIdx, setDragOverIdx, isProcessing, heicConverting, setHeicConverting, expandPdfPages, serverHeicConvert,
-    setUnsupportedWarning,
+    setUnsupportedWarning, beforeOpenEditor: prepareOriginals,
   });
 
   const {
@@ -440,7 +455,7 @@ export default function LayoutEditorPage() {
     layout, layoutName, urlOrientation, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey,
     isCalendarProduct, calendarTheme, calendarType, genzPalette, calendarCells, isBookProduct, bookPageCount,
     qtyNeeded, totalUploadedCount, setIsDownloading, setShowDownloadModal, setRenderProgress, setError,
-    buildEditorState, fileIdByFileRef,
+    buildEditorState, fileIdByFileRef, restoredPhotos, restoredPhotoStatus,
   });
 
   // A one-month-a-page calendar draws each month's grid on its card (tap the
@@ -654,6 +669,7 @@ export default function LayoutEditorPage() {
             requestReplacePhoto={requestReplacePhoto} lowDpiByCard={lowDpiByCard} unprintableByCard={unprintableByCard}
             handleQuickRotate={handleQuickRotate} handleQuickToggleFit={handleQuickToggleFit} handleQuickToggleBlur={handleQuickToggleBlur}
             swapSource={swapSource} setSwapSource={setSwapSource} handleQuickDelete={handleQuickDelete}
+            restoredPhotoStatus={restoredPhotoStatus} retryRestoredPhotos={retryRestoredPhotos} openingCard={openingCard}
             calendar={calendarCardsConfig}
           />
 
@@ -730,7 +746,7 @@ export default function LayoutEditorPage() {
           setError={setError}
           onClose={closeEditor}
           onOpenCanvas={openEditor}
-          getFileUrl={getFileUrl}
+          getFileUrl={getEditFileUrl}
           loadGoogleFont={loadGoogleFont}
           skipNextGenerateRef={skipNextGenerateRef}
           expandPdfPages={expandPdfPages}

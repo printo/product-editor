@@ -22,7 +22,7 @@ export function useCardActions({
   normalizedLayoutState, activeCanvasIdx, setActiveCanvasIdx, setEditingCanvas, renderCanvas, generateCanvasesForLayout,
   repositionMode, swapSource, setSwapSource, deleteConfirm, setDeleteConfirm, orderQty, setQtyUnder,
   dragOverIdx, setDragOverIdx, isProcessing, heicConverting, setHeicConverting, expandPdfPages, serverHeicConvert,
-  setUnsupportedWarning,
+  setUnsupportedWarning, beforeOpenEditor,
 }: {
   layout: any;
   files: File[];
@@ -54,6 +54,9 @@ export function useCardActions({
   expandPdfPages: (files: File[], opts: { maxSelectable: number | null }) => Promise<File[]>;
   serverHeicConvert: Parameters<typeof convertAndPartitionFiles>[1];
   setUnsupportedWarning: Setter<string | null>;
+  /** Runs before the canvas editor opens on a card (useParentRestore loads a
+   *  restored card's full-size photos); `cardKey` is `<surfaceKey>:<idx>`. */
+  beforeOpenEditor?: (card: CanvasItem, cardKey: string) => Promise<void>;
 }) {
   // Keyed by `${surfaceKey ?? ''}:${idx}` — a quick-action toggle (Fit/Cover,
   // Blur, Rotate, BG) commits into `canvases`/`surfaceStates` only after its
@@ -74,6 +77,8 @@ export function useCardActions({
     const pending = pendingCanvasUpdatesRef.current.get(pendingKey);
     const c = (pending ? await pending : undefined) ?? targetCanvases[idx];
     if (!c) return;
+    // A restored card's full-size photos, before the editor shows it.
+    if (beforeOpenEditor) await beforeOpenEditor(c, pendingKey);
     setActiveCanvasIdx(idx);
     const sp = new URLSearchParams(window.location.search);
     sp.set('canvas', idx.toString());
