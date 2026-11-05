@@ -3,11 +3,12 @@
 import type React from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { clsx } from 'clsx';
-import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, Pencil, RotateCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Loader2, Maximize, Pencil, RotateCw, Trash2 } from 'lucide-react';
 import { LazyImg } from '@/components/LazyImg';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
 import { FEW_CARDS, activatesCard, canvasCardWidthClass, canvasCardStyle, isLostLocalImage, photoZoneOf, surfaceCardStyle } from './editor-utils';
 import { UNPRINTABLE_HELP } from './EditorNotices';
+import { restoreNoteForCard, type RestoredPhotoStatus } from './restored-photos';
 import type { CanvasItem, SurfaceState } from './types';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
@@ -50,7 +51,48 @@ export type CardProps = {
   swapSource: CardTarget;
   setSwapSource: Dispatch<SetStateAction<CardTarget>>;
   handleQuickDelete: (idx: number, surfaceKey?: string | null) => void;
+  /** A design restored from the embedding company's copy: which of its photos
+   *  are still on their way or could not be loaded (useParentRestore). */
+  restoredPhotoStatus?: ReadonlyMap<string, RestoredPhotoStatus>;
+  retryRestoredPhotos?: (fileIds: string[]) => void;
+  /** The card (`<surfaceKey>:<idx>`) whose full-size photo is being loaded
+   *  before its editor opens. */
+  openingCard?: string | null;
 };
+
+const RESTORE_FAILED_TEXT = "Couldn't load this photo. Tap to try again.";
+const QUIET_BADGE_CLASS = 'absolute bottom-2 left-2 max-w-[calc(100%-4rem)] z-20 flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold leading-tight text-left shadow-sm bg-white/90 border-slate-200 text-slate-600';
+
+/** A restored card's own note, shown in place of the "not on this device"
+ *  badge: its photos are still arriving, one could not be loaded (tap to try
+ *  again), or its full-size photo is loading before the editor opens. Null
+ *  when the card has nothing of the kind to say. */
+function restoreNote(
+  card: CanvasItem | null | undefined, cardKey: string,
+  { restoredPhotoStatus, retryRestoredPhotos, openingCard }: Pick<CardProps, 'restoredPhotoStatus' | 'retryRestoredPhotos' | 'openingCard'>,
+) {
+  const note = restoreNoteForCard(card, restoredPhotoStatus);
+  if (note?.state === 'failed') {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); retryRestoredPhotos?.(note.fileIds); }}
+        className={LOST_BADGE_CLASS}
+      >
+        <AlertTriangle className="w-3 h-3 shrink-0" />
+        <span>{RESTORE_FAILED_TEXT}</span>
+      </button>
+    );
+  }
+  if (note?.state === 'arriving' || openingCard === cardKey) {
+    return (
+      <div className={QUIET_BADGE_CLASS} role="status">
+        <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
+        <span>{note ? 'Loading photo…' : 'Opening…'}</span>
+      </div>
+    );
+  }
+  return null;
+}
 
 /** One side of a multi-surface product (front/back, or a book page), with its own label and Edit button. */
 /** "Click to edit" affordance over a card's photo: a tint and an Edit pill
@@ -83,7 +125,9 @@ export function SurfaceCard({
   surface, sideCount, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop, openEditor,
   handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard, unprintableByCard,
   handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur, swapSource, setSwapSource, handleQuickDelete,
+  restoredPhotoStatus, retryRestoredPhotos, openingCard,
 }: CardProps & { surface: SurfaceState; sideCount: number }) {
+    const restoreProps = { restoredPhotoStatus, retryRestoredPhotos, openingCard };
     const cw = surface.def.canvas?.width || 1200;
     const ch = surface.def.canvas?.height || 1800;
     const surfaceCanvas = surface.canvases[0] || null;
@@ -129,7 +173,7 @@ export function SurfaceCard({
               {!repositionMode && <EditHint />}
             </div>
 
-            {surfaceCanvas?.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
+            {restoreNote(surfaceCanvas, `${surface.key}:0`, restoreProps) ?? (surfaceCanvas?.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -171,7 +215,7 @@ export function SurfaceCard({
                 <AlertTriangle className="w-3 h-3" />
                 Low res ~{Math.round(lowDpiByCard.get(`${surface.key}:0`)!.dpi)} DPI
               </div>
-            )}
+            ))}
 
             <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm">
               <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
@@ -254,6 +298,7 @@ export function CanvasCard({
   canvas, idx, cardCount, layout, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop,
   openEditor, handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard, unprintableByCard,
   handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur, swapSource, setSwapSource, handleQuickDelete,
+  restoredPhotoStatus, retryRestoredPhotos, openingCard,
   title, subtitle, children,
 }: CardProps & {
   canvas: CanvasItem;
@@ -270,6 +315,7 @@ export function CanvasCard({
   // edit hint covers the photo windows only, as the grid's own hover covers
   // the grid only.
   const photoZone = children ? photoZoneOf(layout.frames, layout.canvas) : null;
+  const restoreProps = { restoredPhotoStatus, retryRestoredPhotos, openingCard };
   return (
     <div className={canvasCardWidthClass(cardCount)} style={canvasCardStyle(layout.canvas?.width || 1200, layout.canvas?.height || 1800)}>
       {/* Deliberately outside the bordered card below — this is a UI
@@ -349,7 +395,7 @@ export function CanvasCard({
           )}
           {children}
 
-        {canvas.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
+        {restoreNote(canvas, `:${idx}`, restoreProps) ?? (canvas.frames.some(f => (f.fileId || f.fileName) && !f.originalFile) ? (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -391,7 +437,7 @@ export function CanvasCard({
             <AlertTriangle className="w-3 h-3" />
             Low res ~{Math.round(lowDpiByCard.get(`:${idx}`)!.dpi)} DPI
           </div>
-        )}
+        ))}
 
         <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm">
           <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">

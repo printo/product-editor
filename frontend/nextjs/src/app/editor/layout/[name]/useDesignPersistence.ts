@@ -12,11 +12,28 @@ import { reconcilePageCount } from './book-pages';
 import { MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, readCardCountHint, writeCardCountHint } from './editor-utils';
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
 import { collectFileIds, unreferencedFileIds } from './file-refs';
+import type { RestoredPhotos } from './restored-photos';
 import type { CanvasItem, FitMode, SurfaceState } from './types';
 import { isLayoutTemplate, toSavedTemplate, type LayoutTemplate, type SavedTemplate } from './layout-template';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;
+/** What our own restore found, handed to the embedding-page restore. */
+export interface OwnRestore {
+  /** A saved design of this order was applied and has at least one card. */
+  hasCards: boolean;
+  /** Photos that design names which this browser does not hold. */
+  missingFileIds: string[];
+  /** The order reference the saved design was restored from, if any. */
+  restoredFrom: string | null;
+  /** Put a design on screen (the embedding page's copy) exactly as our own
+   *  saved one is, with no photos yet. False when it does not fit this layout. */
+  applyDesign: (editorState: Record<string, any>, restoredFrom: string) => boolean;
+  /** Note on the design that it now holds what was restored from that order
+   *  (used when only the photos came back and were placed again). */
+  markRestored: (restoredFrom: string) => void;
+}
+
 /** The id a photo goes by in the saved design, when the caller knows one. */
 export type FileIdOf = (file: File) => string | undefined;
 
@@ -31,7 +48,7 @@ export function useAutosaveAndRestore({
   setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
   isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
   calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
-  activeTemplateRef, setActiveTemplate, activeTemplateId = null,
+  activeTemplateRef, setActiveTemplate, activeTemplateId = null, restoreFromParent,
 }: {
   layout: any;
   layoutLoading: boolean;
@@ -74,6 +91,10 @@ export function useAutosaveAndRestore({
    *  changes nothing else the autosave watches, so it is a trigger of its own. */
   activeTemplateId?: string | null;
   setActiveTemplate?: Setter<LayoutTemplate | null>;
+  /** Runs after our own restore, before autosave is allowed: asks the page
+   *  that embeds the editor for an earlier order's design (useParentRestore).
+   *  Absent outside the embed. */
+  restoreFromParent?: (own: OwnRestore) => Promise<void>;
 }) {
   // ── Restore placeholders ────────────────────────────────────────────────
   // `order_id` is written into the URL on first mount, so its presence at
@@ -83,7 +104,11 @@ export function useAutosaveAndRestore({
   // design is gone for the ~2s the restore takes. Cleared on every exit path of
   // the restore effect, including the 404 "nothing saved" case.
   const [restorePending, setRestorePending] = useState<boolean>(
-    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('order_id')
+    () => {
+      if (typeof window === 'undefined') return false;
+      const sp = new URLSearchParams(window.location.search);
+      return sp.has('order_id') || sp.has('restore_order_id');
+    }
   );
   // The autosave gate — deliberately NOT restorePending. That one only starts
   // true when `order_id` is already in the URL, and the embed iframe URL never
@@ -195,6 +220,11 @@ export function useAutosaveAndRestore({
     };
   }, [isCalendarProduct, isBookProduct, calendarTheme, calendarType, genzPalette, calendarCells, bookPageCount]);
 
+  // The order reference this design was restored from (the embedding page's
+  // copy). Saved with the design so a refresh knows the restore already
+  // happened, even after the customer has deleted every card.
+  const restoredFromRef = useRef<string | null>(null);
+
   /** The design as the editor holds it right now, in the shape the server
    *  stores as `editor_state`. The autosave sends it as it is. The submit
    *  passes `fileIdOf`, so every photo in the snapshot carries the id the
@@ -218,6 +248,7 @@ export function useAutosaveAndRestore({
       activeSurfaceKey: latestActiveKey,
       layoutName,
       template: activeTemplateRef?.current ? toSavedTemplate(activeTemplateRef.current) : null,
+      ...(restoredFromRef.current ? { restoredFrom: restoredFromRef.current } : {}),
     };
     // Calendar products persist the customer's theme/type/palette/cell
     // choices so they survive page refresh (PRD §10.3 / audit fix #1).
@@ -262,8 +293,11 @@ export function useAutosaveAndRestore({
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        // Built when the timer FIRES, from refs: see buildEditorState.
-        const editorState = buildEditorState();
+        // Built when the timer FIRES, from refs: see buildEditorState. A photo
+        // whose id has not been written into its frame yet is saved under the
+        // id it is already known by, so the saved design never names a photo
+        // by its file name alone.
+        const editorState = buildEditorState(file => fileIdByFileRef.current.get(file));
 
         const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
           method: 'PUT',
@@ -377,217 +411,252 @@ export function useAutosaveAndRestore({
     restoredRef.current = true;
 
     (async () => {
-      try {
-        // Only this order's design is asked for. In the embed the server
-        // answers 404 for any other order id (CanvasStateView.get), so the
-        // address's own id is never tried as a second source.
-        const restoreId = orderId;
-        const res = await fetch(`${apiBase}/canvas-state/${restoreId}/`, {
-          headers: { ...getAuthHeaders(), Accept: 'application/json' },
-        });
-        if (!res.ok) return; // 404 = first visit, no state to restore
-
-        const data = await res.json();
-        if (!data?.editor_state?.surfaces?.length) return;
-
-        const savedLayoutName: string | undefined = data.editor_state.layoutName;
+      // Put a saved design on screen: ours (photos from this browser's store)
+      // or the embedding page's copy (no photos yet; useParentRestore brings
+      // them in). False when it belongs to another layout or holds nothing.
+      const applyDesign = (editorState: Record<string, any>, fileMap: Map<string, File>): boolean => {
+        if (!editorState?.surfaces?.length) return false;
+        const savedLayoutName: string | undefined = editorState.layoutName;
         // Don't restore if it belongs to a different layout template.
-        if (savedLayoutName && savedLayoutName !== layoutName) return;
+        if (savedLayoutName && savedLayoutName !== layoutName) return false;
 
         const savedSurfaces: Array<{
           key: string;
           canvases: CanvasItem[];
           globalFitMode: FitMode;
-        }> = data.editor_state.surfaces;
+        }> = editorState.surfaces;
 
-        // NOTE: the auto-save suppression flag is deliberately NOT set here.
-        // It used to be, which meant a payload that restored nothing (an active
-        // surface with zero canvases) still armed it — and the flag then
-        // swallowed the customer's next genuine save. It is set below, only on
-        // the path that actually applies state.
+          // NOTE: the auto-save suppression flag is deliberately NOT set here.
+          // It used to be, which meant a payload that restored nothing (an active
+          // surface with zero canvases) still armed it — and the flag then
+          // swallowed the customer's next genuine save. It is set below, only on
+          // the path that actually applies state.
 
-        // Remove any stale ?canvas= param from a previous session so the modal
-        // doesn't auto-open on top of the freshly-restored state.
-        const sp = new URLSearchParams(window.location.search);
-        if (sp.has('canvas')) {
-          sp.delete('canvas');
-          window.history.replaceState(null, '', sp.toString() ? `?${sp.toString()}` : window.location.pathname);
-        }
-
-        // Bound the store before hydrating (Phase 3): age out other orders'
-        // blobs and evict oldest-first under pressure. Never touches the
-        // current order.
-        void pruneStaleOrders(restoreId);
-
-        // Hydrate Files from IndexedDB (B1 fix). We strip `originalFile` on
-        // serialise but persist the raw blob client-side keyed by `fileId`,
-        // so refreshing the page recovers everything needed to re-render.
-        const fileMap = await getFilesForOrder(restoreId).catch(() => new Map<string, File>());
-        const restoredFile = (fileId: string): File | undefined => {
-          const file = fileMap.get(fileId);
-          if (file) {
-            fileIdByFileRef.current.set(file, fileId);
-            sessionFilesRef.current.set(fileId, file);
+          // Remove any stale ?canvas= param from a previous session so the modal
+          // doesn't auto-open on top of the freshly-restored state.
+          const sp = new URLSearchParams(window.location.search);
+          if (sp.has('canvas')) {
+            sp.delete('canvas');
+            window.history.replaceState(null, '', sp.toString() ? `?${sp.toString()}` : window.location.pathname);
           }
-          return file;
-        };
-        const hydrate = (canvases: CanvasItem[]): CanvasItem[] =>
-          canvases.map(c => ({
-            ...c,
-            frames: c.frames.map(f => {
-              if (!f.fileId) return f;
-              const file = restoredFile(f.fileId);
-              return file ? { ...f, originalFile: file } : f;
-            }),
-            overlays: c.overlays.map(o => {
-              if (o.type !== 'image' || !o.fileId) return o;
-              const file = restoredFile(o.fileId);
-              if (!file) return o;
-              // Re-create the blob URL since the saved one was revoked when
-              // the previous browser session ended. getFileUrl caches by File
-              // reference so revocation hooks elsewhere still work.
-              return { ...o, originalFile: file, src: getFileUrl(file) };
-            }),
+
+          // Hydrate Files from IndexedDB (B1 fix). We strip `originalFile` on
+          // serialise but persist the raw blob client-side keyed by `fileId`,
+          // so refreshing the page recovers everything needed to re-render.
+          const restoredFile = (fileId: string): File | undefined => {
+            const file = fileMap.get(fileId);
+            if (file) {
+              fileIdByFileRef.current.set(file, fileId);
+              sessionFilesRef.current.set(fileId, file);
+            }
+            return file;
+          };
+          const hydrate = (canvases: CanvasItem[]): CanvasItem[] =>
+            canvases.map(c => ({
+              ...c,
+              frames: c.frames.map(f => {
+                if (!f.fileId) return f;
+                const file = restoredFile(f.fileId);
+                return file ? { ...f, originalFile: file } : f;
+              }),
+              overlays: c.overlays.map(o => {
+                if (o.type !== 'image' || !o.fileId) return o;
+                const file = restoredFile(o.fileId);
+                if (!file) return o;
+                // Re-create the blob URL since the saved one was revoked when
+                // the previous browser session ended. getFileUrl caches by File
+                // reference so revocation hooks elsewhere still work.
+                return { ...o, originalFile: file, src: getFileUrl(file) };
+              }),
+            }));
+
+          // Book products: `prev` (surfaceStates) was sized at the TEMPLATE
+          // DEFAULT page count when the layout loaded — the saved count isn't
+          // known until now. Resize it via the same reconciliation a live
+          // page-count change uses, BEFORE the generic per-key hydrate below
+          // runs (which only UPDATES entries already in `prev` — it can't add
+          // ones that aren't there). Skipping this would silently drop every
+          // page beyond the template default on restore (BOOK_LAYOUT_PRD.md
+          // R1). Two sequential `setSurfaceStates` calls in this effect is
+          // safe: React's updater form always sees the previous updater's
+          // committed result even within one batch.
+          if (isBookProduct) {
+            const rawBookLayout = normalizedLayoutState?._raw as BookLayoutLike | undefined;
+            const savedBookState = editorState.bookState;
+            if (rawBookLayout) {
+              const { visible, resolvedCount } = reconcilePageCount(
+                rawBookLayout, savedBookState?.pageCount, [], {},
+              );
+              setSurfaceStates(visible);
+              setBookPageCount(resolvedCount);
+            }
+            if (Array.isArray(savedBookState?.hiddenSurfaces)) {
+              const archive: Record<string, SurfaceState> = {};
+              for (const h of savedBookState.hiddenSurfaces) {
+                if (!h?.key || !Array.isArray(h.canvases) || !h.canvases.length) continue;
+                // A held page carries no real `def` while archived — nothing
+                // reads it there, and reconcilePageCount always recomputes a
+                // fresh `def` the moment the page re-enters `visible`.
+                archive[h.key] = {
+                  key: h.key,
+                  label: h.key,
+                  def: {
+                    key: h.key, label: h.key,
+                    canvas: { width: 0, height: 0 }, frames: [],
+                    maskUrl: null, maskOnExport: false,
+                    frameMaskUrl: null, artworkMaskUrl: null, printSheet: { mode: 'canvas' },
+                  },
+                  files: [],
+                  canvases: hydrate(h.canvases),
+                  globalFitMode: h.globalFitMode ?? 'contain',
+                };
+              }
+              setBookHiddenPages(archive);
+            }
+          }
+
+          // Merge saved canvas data into the surface states that were just
+          // initialised from the layout definition.
+          setSurfaceStates(prev => prev.map(s => {
+            const saved = savedSurfaces.find(ss => ss.key === s.key);
+            if (!saved || !saved.canvases?.length) return s;
+            return {
+              ...s,
+              canvases: hydrate(saved.canvases),
+              globalFitMode: saved.globalFitMode ?? s.globalFitMode,
+            };
           }));
 
-        // Book products: `prev` (surfaceStates) was sized at the TEMPLATE
-        // DEFAULT page count when the layout loaded — the saved count isn't
-        // known until now. Resize it via the same reconciliation a live
-        // page-count change uses, BEFORE the generic per-key hydrate below
-        // runs (which only UPDATES entries already in `prev` — it can't add
-        // ones that aren't there). Skipping this would silently drop every
-        // page beyond the template default on restore (BOOK_LAYOUT_PRD.md
-        // R1). Two sequential `setSurfaceStates` calls in this effect is
-        // safe: React's updater form always sees the previous updater's
-        // committed result even within one batch.
-        if (isBookProduct) {
-          const rawBookLayout = normalizedLayoutState?._raw as BookLayoutLike | undefined;
-          const savedBookState = data.editor_state.bookState;
-          if (rawBookLayout) {
-            const { visible, resolvedCount } = reconcilePageCount(
-              rawBookLayout, savedBookState?.pageCount, [], {},
-            );
-            setSurfaceStates(visible);
-            setBookPageCount(resolvedCount);
-          }
-          if (Array.isArray(savedBookState?.hiddenSurfaces)) {
-            const archive: Record<string, SurfaceState> = {};
-            for (const h of savedBookState.hiddenSurfaces) {
-              if (!h?.key || !Array.isArray(h.canvases) || !h.canvases.length) continue;
-              // A held page carries no real `def` while archived — nothing
-              // reads it there, and reconcilePageCount always recomputes a
-              // fresh `def` the moment the page re-enters `visible`.
-              archive[h.key] = {
-                key: h.key,
-                label: h.key,
-                def: {
-                  key: h.key, label: h.key,
-                  canvas: { width: 0, height: 0 }, frames: [],
-                  maskUrl: null, maskOnExport: false,
-                  frameMaskUrl: null, artworkMaskUrl: null, printSheet: { mode: 'canvas' },
-                },
-                files: [],
-                canvases: hydrate(h.canvases),
-                globalFitMode: h.globalFitMode ?? 'contain',
-              };
+          // Restore calendar state (theme, type, palette, cells) if present.
+          const savedCalendar = editorState.calendarState;
+          if (savedCalendar && isCalendarProduct) {
+            if (savedCalendar.themePreset) setCalendarTheme(savedCalendar.themePreset as CalendarTheme);
+            if (savedCalendar.calendarType) setCalendarType(savedCalendar.calendarType as CalendarType);
+            if (savedCalendar.genzPalette) setGenzPalette(savedCalendar.genzPalette);
+            // Current saves hold a flat ISO-keyed `cells` map; legacy saves hold
+            // the 12-slot `cellsPerCanvas` array — merge it flat (ISO dates are
+            // globally unique, so union is lossless).
+            const flat: Record<string, any[]> = {};
+            if (Array.isArray(savedCalendar.cellsPerCanvas)) {
+              for (const m of savedCalendar.cellsPerCanvas) Object.assign(flat, m || {});
             }
-            setBookHiddenPages(archive);
-          }
-        }
-
-        // Merge saved canvas data into the surface states that were just
-        // initialised from the layout definition.
-        setSurfaceStates(prev => prev.map(s => {
-          const saved = savedSurfaces.find(ss => ss.key === s.key);
-          if (!saved || !saved.canvases?.length) return s;
-          return {
-            ...s,
-            canvases: hydrate(saved.canvases),
-            globalFitMode: saved.globalFitMode ?? s.globalFitMode,
-          };
-        }));
-
-        // Restore calendar state (theme, type, palette, cells) if present.
-        const savedCalendar = data.editor_state.calendarState;
-        if (savedCalendar && isCalendarProduct) {
-          if (savedCalendar.themePreset) setCalendarTheme(savedCalendar.themePreset as CalendarTheme);
-          if (savedCalendar.calendarType) setCalendarType(savedCalendar.calendarType as CalendarType);
-          if (savedCalendar.genzPalette) setGenzPalette(savedCalendar.genzPalette);
-          // Current saves hold a flat ISO-keyed `cells` map; legacy saves hold
-          // the 12-slot `cellsPerCanvas` array — merge it flat (ISO dates are
-          // globally unique, so union is lossless).
-          const flat: Record<string, any[]> = {};
-          if (Array.isArray(savedCalendar.cellsPerCanvas)) {
-            for (const m of savedCalendar.cellsPerCanvas) Object.assign(flat, m || {});
-          }
-          if (savedCalendar.cells && typeof savedCalendar.cells === 'object') {
-            Object.assign(flat, savedCalendar.cells);
-          }
-          if (Object.keys(flat).length) setCalendarCells(flat);
-        }
-
-        // Activate the surface that was open when the user last saved.
-        const savedActiveKey: string | undefined = data.editor_state.activeSurfaceKey;
-        if (savedActiveKey) setActiveSurfaceKey(savedActiveKey);
-
-        // The saved design decides the template: its own, or none. The id
-        // on the address was only ever a starting point for a new design.
-        // Outside the cards guard below: a template picked before the first
-        // photo is a saved design with no cards, and must not be asked again.
-        const savedTemplate = data.editor_state.template;
-        setActiveTemplate?.(isLayoutTemplate(savedTemplate)
-          ? { ...savedTemplate, thumbnailUrl: null, layoutName }
-          : null);
-
-        // Sync the active-surface shortcut state.
-        const activeSaved = savedSurfaces.find(
-          ss => ss.key === (savedActiveKey ?? activeSurfaceKey)
-        );
-        if (activeSaved?.canvases?.length) {
-          // Correct the placeholder count before the cards swap in, in case the
-          // local hint was stale or unavailable.
-          setRestoreCount(Math.min(activeSaved.canvases.length, MAX_SKELETON_CARDS));
-          const hydrated = hydrate(activeSaved.canvases);
-          // Suppress the one auto-save fire these updates trigger — we would
-          // just be writing back what we loaded a moment ago.
-          isRestoringRef.current = true;
-          skipNextGenerateRef.current = true; // suppress generateCanvases trigger
-          setCanvases(hydrated);
-          // Regenerate canvas previews that were stripped from autosave payload
-          // to reduce size. Runs async in the background — previews appear as
-          // they're ready, never blocking UI update.
-          void regenerateCanvasPreviews(hydrated).then(withPreviews => {
-            if (withPreviews.some(c => c.dataUrl !== (hydrated.find(h => h.id === c.id)?.dataUrl || null))) {
-              setCanvases(withPreviews);
+            if (savedCalendar.cells && typeof savedCalendar.cells === 'object') {
+              Object.assign(flat, savedCalendar.cells);
             }
+            if (Object.keys(flat).length) setCalendarCells(flat);
+          }
+
+          // Activate the surface that was open when the user last saved.
+          const savedActiveKey: string | undefined = editorState.activeSurfaceKey;
+          if (savedActiveKey) setActiveSurfaceKey(savedActiveKey);
+
+          // The saved design decides the template: its own, or none. The id
+          // on the address was only ever a starting point for a new design.
+          // Outside the cards guard below: a template picked before the first
+          // photo is a saved design with no cards, and must not be asked again.
+          const savedTemplate = editorState.template;
+          setActiveTemplate?.(isLayoutTemplate(savedTemplate)
+            ? { ...savedTemplate, thumbnailUrl: null, layoutName }
+            : null);
+
+          // Sync the active-surface shortcut state.
+          const activeSaved = savedSurfaces.find(
+            ss => ss.key === (savedActiveKey ?? activeSurfaceKey)
+          );
+          if (activeSaved?.canvases?.length) {
+            // Correct the placeholder count before the cards swap in, in case the
+            // local hint was stale or unavailable.
+            setRestoreCount(Math.min(activeSaved.canvases.length, MAX_SKELETON_CARDS));
+            const hydrated = hydrate(activeSaved.canvases);
+            // Suppress the one auto-save fire these updates trigger — we would
+            // just be writing back what we loaded a moment ago.
+            isRestoringRef.current = true;
+            skipNextGenerateRef.current = true; // suppress generateCanvases trigger
+            setCanvases(hydrated);
+            // Regenerate canvas previews that were stripped from autosave payload
+            // to reduce size. Runs async in the background — previews appear as
+            // they're ready, never blocking UI update.
+            void regenerateCanvasPreviews(hydrated).then(withPreviews => {
+              if (withPreviews.some(c => c.dataUrl !== (hydrated.find(h => h.id === c.id)?.dataUrl || null))) {
+                // Card by card, and only a card untouched since it was restored:
+                // these were drawn from the design as it came back, and a photo
+                // that has arrived or an edit made since must not be undone.
+                setCanvases(prev => prev.map((c, i) => (c === hydrated[i] ? withPreviews[i] : c)));
+              }
+            });
+            // Repopulate `files` from the hydrated frames in the SAME commit
+            // (Phase 3): with files left empty the skip flag went stale and
+            // swallowed the user's NEXT real upload (blank grid), and any
+            // post-restore re-pick lost the identity merge. The flag suppresses
+            // exactly this one legitimate generate fire.
+            const restoredFiles = hydrated
+              .flatMap(c => c.frames.map(f => f.originalFile))
+              .filter((f): f is File => !!f);
+            if (restoredFiles.length) setFiles(restoredFiles);
+            // Restoring the saved fit mode must NOT re-run smartcrop over the
+            // customer's manual pans — the fit-mode effect only recomputes
+            // offsets for USER toggles (fitModeUserToggledRef).
+            setGlobalFitMode(activeSaved.globalFitMode ?? 'contain');
+            // The Blur Effect toggle isn't saved and starts on, so a design saved
+            // with blur off came back with the button lit and the cards plain —
+            // the first click "turned it off" and changed nothing. Match the
+            // button to the photos that came back.
+            const restoredFrames = hydrated.flatMap(c => c.frames);
+            if (restoredFrames.length) setGlobalBlurFill(restoredFrames.some(f => f.fillStyle === 'blur'));
+          }
+
+        return true;
+      };
+
+      const own: OwnRestore = {
+        hasCards: false,
+        missingFileIds: [],
+        restoredFrom: null,
+        applyDesign: (editorState, restoredFrom) => {
+          const applied = applyDesign(editorState, new Map());
+          if (applied) restoredFromRef.current = restoredFrom;
+          return applied;
+        },
+        markRestored: (restoredFrom) => { restoredFromRef.current = restoredFrom; },
+      };
+      try {
+        try {
+          // Only this order's design is asked for. In the embed the server
+          // answers 404 for any other order id (CanvasStateView.get), so the
+          // address's own id is never tried as a second source.
+          const restoreId = orderId;
+          const res = await fetch(`${apiBase}/canvas-state/${restoreId}/`, {
+            headers: { ...getAuthHeaders(), Accept: 'application/json' },
           });
-          // Repopulate `files` from the hydrated frames in the SAME commit
-          // (Phase 3): with files left empty the skip flag went stale and
-          // swallowed the user's NEXT real upload (blank grid), and any
-          // post-restore re-pick lost the identity merge. The flag suppresses
-          // exactly this one legitimate generate fire.
-          const restoredFiles = hydrated
-            .flatMap(c => c.frames.map(f => f.originalFile))
-            .filter((f): f is File => !!f);
-          if (restoredFiles.length) setFiles(restoredFiles);
-          // Restoring the saved fit mode must NOT re-run smartcrop over the
-          // customer's manual pans — the fit-mode effect only recomputes
-          // offsets for USER toggles (fitModeUserToggledRef).
-          setGlobalFitMode(activeSaved.globalFitMode ?? 'contain');
-          // The Blur Effect toggle isn't saved and starts on, so a design saved
-          // with blur off came back with the button lit and the cards plain —
-          // the first click "turned it off" and changed nothing. Match the
-          // button to the photos that came back.
-          const restoredFrames = hydrated.flatMap(c => c.frames);
-          if (restoredFrames.length) setGlobalBlurFill(restoredFrames.some(f => f.fillStyle === 'blur'));
+          // 404 = first visit, no state to restore
+          const data = res.ok ? await res.json() : null;
+          const editorState = data?.editor_state;
+          if (editorState?.surfaces?.length && !(editorState.layoutName && editorState.layoutName !== layoutName)) {
+            // Bound the store before hydrating (Phase 3): age out other orders'
+            // blobs and evict oldest-first under pressure. Never touches the
+            // current order.
+            void pruneStaleOrders(restoreId);
+            const fileMap = await getFilesForOrder(restoreId).catch(() => new Map<string, File>());
+            if (applyDesign(editorState, fileMap)) {
+              restoredFromRef.current = typeof editorState.restoredFrom === 'string' ? editorState.restoredFrom : null;
+              own.restoredFrom = restoredFromRef.current;
+              own.hasCards = editorState.surfaces.some((s: { canvases?: unknown[] }) => (s.canvases?.length ?? 0) > 0);
+              own.missingFileIds = [...collectFileIds(editorState)].filter(id => !fileMap.has(id));
+              // Delete this order's older stored photos the restored design doesn't
+              // use: ones dropped in a session that closed before its next save, and
+              // everything the editor stored before it cleaned up after itself.
+              // Only here, once a saved design was actually applied — never on a
+              // failed or empty restore, where "unused" would mean every photo.
+              void pruneUnreferencedFiles(restoreId, collectFileIds(editorState), ORPHAN_FILE_MIN_AGE_MS);
+            }
+          }
+        } catch {
+          // Restore failures are silent — user just starts fresh.
         }
-
-        // Delete this order's older stored photos the restored design doesn't
-        // use: ones dropped in a session that closed before its next save, and
-        // everything the editor stored before it cleaned up after itself.
-        // Only here, once a saved design was actually applied — never on a
-        // failed or empty restore, where "unused" would mean every photo.
-        void pruneUnreferencedFiles(restoreId, collectFileIds(data.editor_state), ORPHAN_FILE_MIN_AGE_MS);
+        // Still inside the restore: autosave stays off until the embedding
+        // page has answered (or been given up on), so an empty design is never
+        // written over the one about to arrive.
+        if (restoreFromParent) await restoreFromParent(own);
       } catch {
         // Restore failures are silent — user just starts fresh.
       } finally {
@@ -617,7 +686,7 @@ export function useAutosaveAndRestore({
  *  photo back. Reports when storage is full or blocked. */
 export function usePhotoStore({
   orderId, surfaceStates, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
-  setPersistDegraded, setStorageBlocked,
+  setPersistDegraded, setStorageBlocked, restoredPhotos,
 }: {
   orderId: string;
   surfaceStates: SurfaceState[];
@@ -628,6 +697,10 @@ export function usePhotoStore({
   deletedFileIdsRef: Ref<Set<string>>;
   setPersistDegraded: Setter<boolean>;
   setStorageBlocked: Setter<boolean>;
+  /** Previews standing in for originals our server holds (a restored design).
+   *  They are never stored here: a stored preview would come back after a
+   *  refresh as an ordinary photo and be uploaded in the original's place. */
+  restoredPhotos?: RestoredPhotos;
 }) {
   // ── Persist Files to IndexedDB on add (B1: survives page refresh) ────────
   // Watches surfaceStates for any frame/overlay that has an originalFile but
@@ -660,6 +733,10 @@ export function usePhotoStore({
     // already in flight (a re-run of this effect cancels the previous run's
     // patch, not its saves).
     const persistFile = (file: File): Promise<string> => {
+      // A restored preview keeps the id it was restored under and is not stored.
+      const restoredAs = restoredPhotos?.serverPhotoOf(file)?.fileId;
+      if (restoredAs) return Promise.resolve(restoredAs);
+      if (restoredPhotos?.isStandIn(file)) return Promise.reject(new Error('preview without an id'));
       const known = fileIdByFileRef.current.get(file);
       if (known && !deletedFileIdsRef.current.has(known)) return Promise.resolve(known);
       let saving = fileSaveInFlightRef.current.get(file);
@@ -721,5 +798,5 @@ export function usePhotoStore({
     })();
 
     return () => { cancelled = true; };
-  }, [surfaceStates, orderId, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef, setPersistDegraded, setStorageBlocked]);
+  }, [surfaceStates, orderId, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef, setPersistDegraded, setStorageBlocked, restoredPhotos]);
 }

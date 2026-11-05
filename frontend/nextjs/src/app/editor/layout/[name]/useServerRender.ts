@@ -7,6 +7,7 @@ import { getCanvasSpec, type CanvasSpec } from '@/lib/layout-utils';
 import { needsRasterForPrint, overlayRasterSize, rasterFileName, rasterizeSvgUrl } from '@/lib/icon-raster';
 import { formatWait, isLostLocalImage } from './editor-utils';
 import type { CanvasItem, FrameState, ImageOverlay, Overlay, SurfaceState } from './types';
+import type { RestoredPhotos, RestoredPhotoStatus } from './restored-photos';
 import type { FileIdOf } from './useDesignPersistence';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
@@ -27,7 +28,7 @@ export function useServerRender({
   layout, layoutName, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey, urlOrientation,
   isCalendarProduct, calendarTheme, calendarType, genzPalette, calendarCells, isBookProduct, bookPageCount,
   qtyNeeded, totalUploadedCount, setIsDownloading, setShowDownloadModal, setRenderProgress, setError,
-  buildEditorState, fileIdByFileRef,
+  buildEditorState, fileIdByFileRef, restoredPhotos, restoredPhotoStatus,
 }: {
   layout: any;
   layoutName: string;
@@ -59,6 +60,12 @@ export function useServerRender({
   buildEditorState?: (fileIdOf?: FileIdOf) => Record<string, unknown>;
   /** The id each stored photo goes by in the saved design. */
   fileIdByFileRef?: MutableRefObject<WeakMap<File, string>>;
+  /** Photos of a restored design: previews standing in for originals our
+   *  server already holds. They are submitted by that upload's id and never
+   *  uploaded themselves (restored-photos.ts). */
+  restoredPhotos?: RestoredPhotos;
+  /** Restored photos still on their way, or that could not be loaded. */
+  restoredPhotoStatus?: ReadonlyMap<string, RestoredPhotoStatus>;
 }) {
   const [serverRenderLabel, setServerRenderLabel] = useState<string | null>(null);
   // Include the customer's original uploads in the download ZIP — OFF by default
@@ -161,6 +168,16 @@ export function useServerRender({
       // An added image in the same state is worse: it would go out under its
       // browser-only fileId, which the print can't resolve, and be left out
       // with nothing but a worker log line. It is blocked the same way.
+      // A restored design whose photos are still arriving is not a design with
+      // lost photos: say so, and let the customer try again in a moment.
+      const stillArriving = allCanvases.some(c =>
+        c.frames.some(f => f.fileId && !f.originalFile && restoredPhotoStatus?.get(f.fileId) === 'arriving') ||
+        c.overlays.some(o => o.type === 'image' && o.fileId && !o.originalFile && restoredPhotoStatus?.get(o.fileId) === 'arriving'));
+      if (stillArriving) {
+        setError('Your photos are still loading. Please wait a moment and try again.');
+        return;
+      }
+
       const lostFrames: string[] = [];
       const lostImages: string[] = [];
       allCanvases.forEach((c, ci) => {
@@ -232,7 +249,17 @@ export function useServerRender({
       // Block unsupported types before uploading so the failure names the file
       // (e.g. a .svg restored from a prior session) instead of surfacing the
       // backend's cryptic "Upload complete failed for …" mid-batch.
-      const badFiles = allFiles.filter(f => !isAllowedImageFile(f));
+      // A restored photo is on screen as a preview of an original our server
+      // holds; the preview itself must never be what prints. Those go by the
+      // server's upload id and are left out of the upload. One marked as a
+      // preview with no upload on record stops the submit here.
+      if (restoredPhotos && restoredPhotos.standInWithoutUpload(allFiles).length > 0) {
+        setError('Some photos from your earlier order are not ready yet. Please reload the page and try again.');
+        return;
+      }
+      const filesToUpload = allFiles.filter(f => !restoredPhotos?.serverPhotoOf(f));
+
+      const badFiles = filesToUpload.filter(f => !isAllowedImageFile(f));
       if (badFiles.length > 0) {
         setError(unsupportedFilesMessage(badFiles));
         return;
@@ -241,7 +268,7 @@ export function useServerRender({
       // 3. Upload files — progress 0–60%
       setServerRenderLabel(embedToken ? 'Saving your photos…' : 'Uploading files…');
       const uploadResults = await uploadFiles(
-        allFiles,
+        filesToUpload,
         apiBase,
         getAuthHeaders,
         (completed, total) => {
@@ -249,6 +276,9 @@ export function useServerRender({
         },
         orderId,
       );
+
+      const uploadIdOf = (file: File | null | undefined): string | null =>
+        (file ? restoredPhotos?.serverPhotoOf(file)?.uploadId ?? uploadResults.get(file)?.uploadId : null) ?? null;
 
       // 4. Build render payload: canvases → frames → upload_id + per-frame transforms
       setServerRenderLabel(embedToken ? 'Finishing up…' : 'Submitting render job…');
@@ -262,10 +292,9 @@ export function useServerRender({
         bg_color: c.bgColor ?? null,
         paper_color: c.paperColor ?? null,
         frames: c.frames.map((frame, frameIdx) => {
-          const up = frame.originalFile ? uploadResults.get(frame.originalFile) : null;
           return {
             frame_index: frameIdx,
-            upload_id: up?.uploadId ?? null,
+            upload_id: uploadIdOf(frame.originalFile),
             offset_x: frame.offset.x,
             offset_y: frame.offset.y,
             scale: frame.scale,
@@ -290,10 +319,9 @@ export function useServerRender({
         overlays: c.overlays.map((ov) => {
           if (ov.type !== 'image') return ov;
           const file = ov.originalFile ?? iconRasters.get(ov);
-          const up = file ? uploadResults.get(file) : null;
           const rest: Record<string, unknown> = { ...ov };
           delete rest.originalFile;
-          rest.fileId = up?.uploadId ?? ov.fileId ?? null;
+          rest.fileId = uploadIdOf(file) ?? ov.fileId ?? null;
           rest.src = ov.source === 'local' ? null : ov.src;
           return rest;
         }),
@@ -349,10 +377,10 @@ export function useServerRender({
         const files: Array<{ file_id: string; upload_id: string }> = [];
         const listed = new Set<File>();
         const list = (file: File | null | undefined) => {
-          const up = file ? uploadResults.get(file) : null;
-          if (!file || !up || listed.has(file)) return;
+          const uploadId = uploadIdOf(file);
+          if (!file || !uploadId || listed.has(file)) return;
           listed.add(file);
-          files.push({ file_id: idFor(file), upload_id: up.uploadId });
+          files.push({ file_id: idFor(file), upload_id: uploadId });
         };
         for (const c of allCanvases) {
           c.frames.forEach(frame => list(frame.originalFile));

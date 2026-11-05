@@ -536,6 +536,14 @@ class EditorInitView(APIView):
                 name="EditorInitResponse",
                 fields={
                     "layout": drf_serializers.DictField(),
+                    "layout_version": drf_serializers.IntegerField(
+                        allow_null=True,
+                        help_text=(
+                            "The layout's version, which rises each time it is saved. The same "
+                            "number is recorded in an order's `restore.json`, so the editor can "
+                            "tell a customer reopening an earlier order that the product has changed."
+                        ),
+                    ),
                     "fonts": drf_serializers.ListField(child=drf_serializers.CharField()),
                     "order_id": drf_serializers.CharField(
                         allow_null=True,
@@ -672,10 +680,20 @@ class EditorInitView(APIView):
                 )
             template_data = serialize_template(t)
 
+        # The layout's version, outside the layout cache (that entry is shared
+        # with GetLayoutView and holds the definition alone). The editor
+        # compares it with the version an earlier order was made on
+        # (`restore.json`) to tell the customer the product has changed.
+        layout_version = (
+            LayoutCatalogue.objects.filter(name=layout_data.get('name'))
+            .values_list('version', flat=True).first()
+        )
+
         response = Response({
             # Both mask slots plus the derived legacy pair, after the turn so
             # every URL carries `?rotate=90` when the layout was turned.
             'layout': with_legacy_mask_fields(layout_data),
+            'layout_version': layout_version,
             'fonts': _read_fonts(),
             'order_id': (request.headers.get('X-Order-ID') or '').strip() or None,
             'qty': init_qty,

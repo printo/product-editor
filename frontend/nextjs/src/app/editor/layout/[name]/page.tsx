@@ -45,6 +45,8 @@ import { useCanvasGeneration, useObjectUrls, useRenderCanvas } from './useCanvas
 import { useFileIntake } from './useFileIntake';
 import { useServerRender } from './useServerRender';
 import { useAutosaveAndRestore, usePhotoStore } from './useDesignPersistence';
+import { useParentRestore } from './useParentRestore';
+import { RestoreNotice } from './RestoreNotice';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
 import { DeleteConfirmDialog } from './dialogs/DeleteConfirmDialog';
@@ -172,13 +174,18 @@ export default function LayoutEditorPage() {
 
   useDashboardHeader(embedToken, router);
 
+  // For a restored order: the layout's version as served now, and the page's
+  // own "photos were picked" path (filled in below, once it exists).
+  const layoutVersionRef = useRef<number | null>(null);
+  const placePhotosRef = useRef<((files: File[]) => Promise<void>) | null>(null);
+
   useLoginRedirect({ status, session, embedToken, router });
 
   useLayoutLoader({
     layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
     selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
     setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
-    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning, urlOrientation,
+    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning, urlOrientation, layoutVersionRef,
   });
 
   const { getFileUrl, fileUrlCache, createdObjectURLs } = useObjectUrls();
@@ -238,6 +245,25 @@ export default function LayoutEditorPage() {
 
   const renderCanvas = useRenderCanvas(layout, getFileUrl);
 
+  const canvasesRef = useRef<CanvasItem[]>([]);
+  useEffect(() => {
+    canvasesRef.current = canvases;
+  }, [canvases]);
+
+  // A design restored from the copy the embedding company keeps (embed only,
+  // and only when its page asked for it on the address). Before the autosave
+  // hook because that hook's restore calls into this one.
+  const restoredFileIdsRef = useRef<WeakMap<File, string> | null>(null);
+  const {
+    restoreFromParent, restoredPhotos, photoStatus: restoredPhotoStatus, retryRestoredPhotos,
+    prepareOriginals, openingCard, getEditFileUrl, restoreNotice, dismissRestoreNotice, restoreProgress,
+  } = useParentRestore({
+    embedToken, parentOrigin, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
+    surfaceStatesRef, setSurfaceStates, canvasesRef, setCanvases, setFiles, activeSurfaceKeyRef,
+    skipNextGenerateRef, getFileUrl, renderCanvas, fileIdByFileRef: restoredFileIdsRef,
+    layoutVersionRef, placePhotosRef, isBookProduct, isCalendarProduct, calendarCells, setCalendarCells, setCalendarCellImagePreviews,
+  });
+
   const {
     restorePending, restoreSettled, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
     buildEditorState,
@@ -247,17 +273,13 @@ export default function LayoutEditorPage() {
     setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
     calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
-    activeTemplateRef, setActiveTemplate, activeTemplateId: activeTemplate?.id ?? null,
+    activeTemplateRef, setActiveTemplate, activeTemplateId: activeTemplate?.id ?? null, restoreFromParent,
   });
-
-  const canvasesRef = useRef<CanvasItem[]>([]);
-  useEffect(() => {
-    canvasesRef.current = canvases;
-  }, [canvases]);
+  useEffect(() => { restoredFileIdsRef.current = fileIdByFileRef.current; }, [fileIdByFileRef]);
 
   usePhotoStore({
     orderId, surfaceStates, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
-    setPersistDegraded, setStorageBlocked,
+    setPersistDegraded, setStorageBlocked, restoredPhotos,
   });
 
   // Pre-submit guard (Phase 3): photos placed more than once (excluding
@@ -371,14 +393,14 @@ export default function LayoutEditorPage() {
     normalizedLayoutState, activeCanvasIdx, setActiveCanvasIdx, setEditingCanvas, renderCanvas, generateCanvasesForLayout,
     repositionMode, swapSource, setSwapSource, deleteConfirm, setDeleteConfirm, orderQty: photoQty, setQtyUnder,
     dragOverIdx, setDragOverIdx, isProcessing, heicConverting, setHeicConverting, expandPdfPages, serverHeicConvert,
-    setUnsupportedWarning,
+    setUnsupportedWarning, beforeOpenEditor: prepareOriginals,
   });
 
   const {
     pendingOverFiles, setPendingOverFiles, pendingRepick, setPendingRepick, replacePhotoInputRef,
     pendingTruncated, setPendingTruncated, showAutoFillPicker, setShowAutoFillPicker, pickerSelected, setPickerSelected,
     handleFileChange, requestReplacePhoto, handleReplaceFileSelected, handleRepickConfirm, handleFillWithPicked,
-    handleOverConfirm, handleTruncatedDecision, handleBookOverflowDecision,
+    handleOverConfirm, handleTruncatedDecision, handleBookOverflowDecision, processSelectedFiles,
   } = useFileIntake({
     layout, files, setFiles, setCanvases, canvasesRef, surfaceStates, setSurfaceStates, surfaceStatesRef, activeSurfaceKey,
     normalizedLayoutState, isCalendarProduct, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPages, setBookHiddenPages,
@@ -387,6 +409,9 @@ export default function LayoutEditorPage() {
     expandPdfPages, serverHeicConvert, setHeicConverting, setIsProcessing, setError, setColorWarning, setUploadWarning,
     setUnsupportedWarning, templateRef: activeTemplateRef,
   });
+
+  // Restored photos with no design to put them back into go in as a pick does.
+  useEffect(() => { placePhotosRef.current = (picked: File[]) => processSelectedFiles(picked); });
 
   const imposition = useImposition({ layout, surfaceStates, canvases, renderCanvas, setError, setRenderProgress });
   const { showImpositionModal, setShowImpositionModal, isImposing } = imposition;
@@ -440,7 +465,7 @@ export default function LayoutEditorPage() {
     layout, layoutName, urlOrientation, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey,
     isCalendarProduct, calendarTheme, calendarType, genzPalette, calendarCells, isBookProduct, bookPageCount,
     qtyNeeded, totalUploadedCount, setIsDownloading, setShowDownloadModal, setRenderProgress, setError,
-    buildEditorState, fileIdByFileRef,
+    buildEditorState, fileIdByFileRef, restoredPhotos, restoredPhotoStatus,
   });
 
   // A one-month-a-page calendar draws each month's grid on its card (tap the
@@ -645,6 +670,8 @@ export default function LayoutEditorPage() {
             activeTemplateName={activeTemplate?.displayName ?? null}
           />
 
+          <RestoreNotice notice={restoreNotice} progress={restoreProgress} onDismiss={dismissRestoreNotice} />
+
           <CanvasGrid
             canvases={canvases} surfaceStates={surfaceStates} layout={layout}
             dragOverIdx={dragOverIdx} setDragOverIdx={setDragOverIdx} repositionMode={repositionMode}
@@ -654,6 +681,7 @@ export default function LayoutEditorPage() {
             requestReplacePhoto={requestReplacePhoto} lowDpiByCard={lowDpiByCard} unprintableByCard={unprintableByCard}
             handleQuickRotate={handleQuickRotate} handleQuickToggleFit={handleQuickToggleFit} handleQuickToggleBlur={handleQuickToggleBlur}
             swapSource={swapSource} setSwapSource={setSwapSource} handleQuickDelete={handleQuickDelete}
+            restoredPhotoStatus={restoredPhotoStatus} retryRestoredPhotos={retryRestoredPhotos} openingCard={openingCard}
             calendar={calendarCardsConfig}
           />
 
@@ -730,7 +758,7 @@ export default function LayoutEditorPage() {
           setError={setError}
           onClose={closeEditor}
           onOpenCanvas={openEditor}
-          getFileUrl={getFileUrl}
+          getFileUrl={getEditFileUrl}
           loadGoogleFont={loadGoogleFont}
           skipNextGenerateRef={skipNextGenerateRef}
           expandPdfPages={expandPdfPages}

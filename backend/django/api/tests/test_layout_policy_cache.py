@@ -70,6 +70,19 @@ class LayoutPolicyCacheTest(TestCase):
         self.assertEqual(init.status_code, 200, init.content)
         self.assertEqual(init.json()['layout']['displayName'], DISPLAY_NAME)
 
+    def test_editor_init_reports_the_layouts_version_as_it_is_now(self):
+        # Read outside the two-minute layout cache: a restored order is told
+        # the product changed by comparing this with the version it was made on.
+        first = self.client.get(f'/api/editor/init?layout={NAME}', **self.auth)
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(first.json()['layout_version'], 1)
+
+        LayoutCatalogue.objects.filter(name=NAME).update(version=4)   # the cache still holds the layout
+
+        again = self.client.get(f'/api/editor/init?layout={NAME}', **self.auth)
+        self.assertEqual(again.json()['layout_version'], 4)
+        self.assertEqual(again.json()['layout']['displayName'], DISPLAY_NAME)
+
     def test_policy_read_does_not_make_a_non_public_layout_readable(self):
         LayoutCatalogue.objects.create(
             name=PRIVATE_NAME, definition=_definition(PRIVATE_NAME), is_public=False,
