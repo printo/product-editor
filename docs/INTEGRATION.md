@@ -838,9 +838,11 @@ window.addEventListener('message', async (event) => {
       type: 'pe:restore_data',
       orderId: msg.orderId,                 // echo it back unchanged
       schema_version: kept.restoreJson.schema_version,
+      layout_version: kept.restoreJson.layout_version,   // lets the editor say "this product has changed"
       editor_state: kept.restoreJson.editor_state,
       photos: kept.restoreJson.photos.map((p) => ({
         file_id: p.file_id,                 // as in restore.json
+        kind: p.kind,                       // as in restore.json: frame, overlay or calendar
         name: p.original_name,
         url: linkToYourCopyOf(p.zip_entry), // https, on the host we list for your key (4e)
       })),
@@ -859,7 +861,9 @@ window.addEventListener('message', async (event) => {
 - The editor asks once as it opens, and waits **10 seconds**. Always answer, with the data or with `error`; silence reads as `none` / `timeout` and the customer gets an empty editor.
 - The request is sent only when the new order has no design of its own yet. After the customer has edited it, their saved design is what reopens, and you are asked again only so the photos can be shown (same request, same answer).
 - Photos are fetched by our server from your links (section 4e), a few at a time from the first card down; the customer sees each card fill in. Their crop, rotation, text and stickers are as they were.
-- `pe:restore_result` reasons when `status` is `none`: `timeout`, `declined` (you sent `error`), `invalid_reply`, `no_design` (the order has no `editor_state`), `layout_changed` (the design was made for another layout), `design_in_progress` (the customer had already started adding photos).
+- **An order with no `restore.json`** (rendered before this feature, or without `include_uploads`): send `editor_state: null` and the photos in their original order, each with `name` and `url` and no `file_id`. The editor places them again as a fresh selection and tells the customer that cropping may differ and that text and stickers were not saved. The same happens when the saved design no longer fits the product (it was changed, or you opened a different layout).
+- When the design does come back but the layout has been saved since the order (`layout_version` differs), the customer sees a short notice to look the photos over.
+- `pe:restore_result` carries `mode`: `design` when the whole design came back, `photos` when only the photos were placed again. Reasons when `status` is `none`: `timeout`, `declined` (you sent `error`), `invalid_reply`, `no_photos` (nothing usable in the reply), `design_in_progress` (the customer had already started adding photos).
 - Only the page that directly holds the iframe is listened to. A reply from another window is ignored.
 
 ### 5. Firewall
