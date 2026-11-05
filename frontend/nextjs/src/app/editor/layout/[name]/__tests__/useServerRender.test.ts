@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { useState } from 'react';
-import { useServerRender } from '../useServerRender';
+import { MAX_RESTORE_STATE_CHARS, useServerRender } from '../useServerRender';
 import { uploadFiles } from '@/lib/upload-utils';
 import { rasterizeSvgUrl } from '@/lib/icon-raster';
 import type { CanvasItem, FrameState, Overlay, SurfaceState } from '../types';
@@ -178,6 +178,16 @@ describe('useServerRender — the render request', () => {
     // The photo with no id got one, and the snapshot was built with the same ids.
     expect(restore.files[2].file_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(seen).toEqual(['idb-a', restore.files[2].file_id, 'idb-sticker']);
+  });
+
+  it('a design too large to ride the submit is left out, and the photo ids still go', async () => {
+    const buildEditorState = () => ({ blob: 'x'.repeat(MAX_RESTORE_STATE_CHARS + 1) });
+    const { result } = setup({ buildEditorState });
+    await run(() => result.current.executeBatchDownload());
+    const body = renderBody();
+    expect(body.restore).not.toHaveProperty('editor_state');
+    expect(body.restore.files).toHaveLength(1);
+    expect(body.canvases).toHaveLength(1);
   });
 
   it('sends no restore block when the page gave it no design to send', async () => {

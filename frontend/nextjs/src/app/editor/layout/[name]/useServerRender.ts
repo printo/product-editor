@@ -11,6 +11,13 @@ import type { FileIdOf } from './useDesignPersistence';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 
+/** The design rides the submit only for a later restore, so it must never be
+ *  what makes the request too large to accept (the server refuses a body over
+ *  10 MB before any view runs). Past this size the photo ids still go; the
+ *  order then restores as its photos alone. Ordinary designs are a few hundred
+ *  kilobytes at most. */
+export const MAX_RESTORE_STATE_CHARS = 2 * 1024 * 1024;
+
 /** Save & Continue (embed) and Download (dashboard): upload every photo,
  *  submit the render job, then tell the storefront (embed) or poll and
  *  download the ZIP (dashboard). Holds the submit-side state: the progress
@@ -328,7 +335,7 @@ export function useServerRender({
       // snapshot is built with the same ids, so the two always agree. Icon
       // PNGs made for the print are not listed: the design names an icon by
       // its address.
-      let restore: { editor_state: Record<string, unknown>; files: Array<{ file_id: string; upload_id: string }> } | undefined;
+      let restore: { editor_state?: Record<string, unknown>; files: Array<{ file_id: string; upload_id: string }> } | undefined;
       if (buildEditorState) {
         const fileIds = new Map<File, string>();
         const idFor = (file: File): string => {
@@ -351,7 +358,9 @@ export function useServerRender({
           c.frames.forEach(frame => list(frame.originalFile));
           c.overlays.forEach(ov => { if (ov.type === 'image') list(ov.originalFile); });
         }
-        restore = { editor_state: buildEditorState(idFor), files };
+        const editorState = buildEditorState(idFor);
+        const fits = JSON.stringify(editorState).length <= MAX_RESTORE_STATE_CHARS;
+        restore = { ...(fits ? { editor_state: editorState } : {}), files };
       }
 
       const renderRes = await fetch(`${apiBase}/editor/render`, {
