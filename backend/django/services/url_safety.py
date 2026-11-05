@@ -86,20 +86,9 @@ def validate_public_https_url(url: str) -> list[str]:
 _PIN_LOCK = threading.Lock()
 
 
-def post_webhook_safely(url: str, *, data: bytes, headers: dict, timeout: float) -> requests.Response:
-    """
-    POST to a customer webhook with full SSRF protection. Resolve+validate the
-    host to a public IP, then ACTUALLY PIN the connection to that IP for the
-    duration of the request by scoping socket.getaddrinfo — so urllib3's own
-    resolution at connect time cannot rebind to an internal address (the
-    TOCTOU a re-validate-then-delegate approach leaves open). TLS SNI/cert
-    verification still runs against the original hostname (the URL is
-    unchanged), and redirects are disabled so a public host can't 30x into an
-    internal target. Raises ValidationError if the URL is unsafe.
-    """
-    allowed = validate_public_https_url(url)  # ordered list of validated public IPs
-    host = (urlparse(url).hostname or "").lower()
-
+def _pinned_resolver(host: str, allowed: list[str], real_getaddrinfo):
+    """A getaddrinfo that answers for `host` with the validated public IPs only
+    and passes every other name through."""
     def _pinned_getaddrinfo(h, port, *args, **kwargs):
         # Only redirect resolution of OUR target host; everything else resolves
         # normally. Return EVERY validated public IP (each with its own family)
@@ -118,6 +107,22 @@ def post_webhook_safely(url: str, *, data: bytes, headers: dict, timeout: float)
                 for ip in allowed
             ]
         return real_getaddrinfo(h, port, *args, **kwargs)
+    return _pinned_getaddrinfo
+
+
+def post_webhook_safely(url: str, *, data: bytes, headers: dict, timeout: float) -> requests.Response:
+    """
+    POST to a customer webhook with full SSRF protection. Resolve+validate the
+    host to a public IP, then ACTUALLY PIN the connection to that IP for the
+    duration of the request by scoping socket.getaddrinfo — so urllib3's own
+    resolution at connect time cannot rebind to an internal address (the
+    TOCTOU a re-validate-then-delegate approach leaves open). TLS SNI/cert
+    verification still runs against the original hostname (the URL is
+    unchanged), and redirects are disabled so a public host can't 30x into an
+    internal target. Raises ValidationError if the URL is unsafe.
+    """
+    allowed = validate_public_https_url(url)  # ordered list of validated public IPs
+    host = (urlparse(url).hostname or "").lower()
 
     session = requests.Session()
     with _PIN_LOCK:
@@ -125,10 +130,40 @@ def post_webhook_safely(url: str, *, data: bytes, headers: dict, timeout: float)
         # workers are threaded) can never capture another call's pinned shim as
         # its "real" and leave a stale host-pin installed process-wide.
         real_getaddrinfo = socket.getaddrinfo
-        socket.getaddrinfo = _pinned_getaddrinfo
+        socket.getaddrinfo = _pinned_resolver(host, allowed, real_getaddrinfo)
         try:
             return session.post(
                 url, data=data, headers=headers, timeout=timeout, allow_redirects=False,
+            )
+        finally:
+            socket.getaddrinfo = real_getaddrinfo
+
+
+def open_public_get(url: str, *, headers: dict | None = None, timeout) -> requests.Response:
+    """
+    Open a GET to a public https URL with the same protection as
+    post_webhook_safely, and return the response with its body NOT yet read
+    (`stream=True`). The caller reads it in pieces, under its own size cap, and
+    must close it.
+
+    The pin is held only until the response headers arrive. By then the socket
+    is connected to a validated public IP, redirects are off, and nothing
+    resolves a name again for this response, so the body can be read outside
+    the lock. That matters here in a way it does not for a small webhook POST:
+    the web workers are threaded, and holding a process-wide lock for a whole
+    photo download would queue every other fetch in the process behind it.
+    Raises ValidationError if the URL is unsafe.
+    """
+    allowed = validate_public_https_url(url)
+    host = (urlparse(url).hostname or "").lower()
+
+    session = requests.Session()
+    with _PIN_LOCK:
+        real_getaddrinfo = socket.getaddrinfo
+        socket.getaddrinfo = _pinned_resolver(host, allowed, real_getaddrinfo)
+        try:
+            return session.get(
+                url, headers=headers or {}, timeout=timeout, allow_redirects=False, stream=True,
             )
         finally:
             socket.getaddrinfo = real_getaddrinfo

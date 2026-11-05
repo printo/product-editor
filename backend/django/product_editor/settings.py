@@ -350,6 +350,14 @@ API_AUDIT_RETENTION_DAYS = int(os.getenv("API_AUDIT_RETENTION_DAYS", "90"))
 MAX_UPLOAD_FILE_SIZE_MB = int(os.getenv("MAX_UPLOAD_FILE_SIZE_MB", "50"))
 MAX_UPLOAD_FILE_SIZE = MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
 
+# POST /api/upload/from-url (services/photo_fetch.py): fetching a restored
+# design's photos from the embedding company's storage. Off for a key until its
+# allowed_photo_hosts names a host. These bound what one order can make the
+# server download; the per-file ceiling is MAX_UPLOAD_FILE_SIZE above.
+PHOTO_FETCH_MAX_FILES_PER_ORDER = int(os.getenv("PHOTO_FETCH_MAX_FILES_PER_ORDER", "2000"))
+PHOTO_FETCH_MAX_ORDER_MB = int(os.getenv("PHOTO_FETCH_MAX_ORDER_MB", "10240"))
+PHOTO_FETCH_PER_MINUTE = int(os.getenv("PHOTO_FETCH_PER_MINUTE", "120"))
+
 # Max allowed image side (px) at upload validation. This is a print-file
 # generator, so high-res camera/phone photos (48–65 MP routinely exceed the
 # old 8192 cap) are desirable input. Pillow's pixel ceiling (500 MP, set at
