@@ -184,6 +184,10 @@ const ALLOWED_PATH_METHODS: Record<string, readonly ProxyMethod[]> = {
   // Chrome/Firefox have no HEIC codec of their own — without this the
   // customer's photo is unusable inside the iframe. POST-only, stateless.
   'heic': ['POST'],
+  // Which characters of a text box the print can't draw in its font (an
+  // emoji in a script font), so the editor can warn before submit. POST-only,
+  // stateless, reads no customer data.
+  'text/printable': ['POST'],
 };
 
 export const ALLOWED_PATH_PREFIXES = Object.keys(ALLOWED_PATH_METHODS) as readonly string[];

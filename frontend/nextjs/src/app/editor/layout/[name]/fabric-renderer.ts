@@ -4,7 +4,7 @@ import type { CanvasItem } from './types';
 import { createShapeFromOverlay, updateRelativeClipPath, changeDpiDataUrl } from '@/lib/fabric-utils';
 import { buildFrameFill, buildFrameCaption } from './frame-fill';
 import { captionOverridesFromMm } from '@/lib/caption-layout';
-import { overlayFontFamily } from '@/lib/overlay-fonts';
+import { canvasText, loadOverlayFonts, overlayFontStack } from '@/lib/overlay-fonts';
 import { textBoxWidthPx, textOriginX } from '@/lib/overlay-text';
 
 let picaInstance: any = null;
@@ -404,6 +404,10 @@ export async function renderCanvas(
   // ── Overlays (Unified) ─────────────────────────────────────────────────────
   if (canvasItem.overlays && canvasItem.overlays.length > 0) {
     if (typeof document !== 'undefined' && document.fonts) {
+      // Each text's own font and the blank font behind it, before anything is
+      // drawn: a canvas doesn't wait for fonts, and without the blank font
+      // the thumbnail borrows glyphs the print doesn't have (overlayFontStack).
+      await loadOverlayFonts(canvasItem.overlays.filter((o): o is Extract<CanvasItem['overlays'][number], { type: 'text' }> => o.type === 'text'));
       await document.fonts.ready;
     }
 
@@ -415,13 +419,13 @@ export async function renderCanvas(
           const ty = (o.y / 100) * canvasH;
           // Same box as the live editor (canvasW already carries the thumbnail
           // multiplier), so the thumbnail wraps where the editor and the print do.
-          const textObj = new Textbox(o.text, {
+          const textObj = new Textbox(canvasText(o.text), {
             left: tx, top: ty,
             originX: textOriginX(o.textAlign),
             originY: 'center',
             width: textBoxWidthPx(o, canvasW),
             fontSize: o.fontSize * multiplier,
-            fontFamily: overlayFontFamily(o.fontFamily),
+            fontFamily: overlayFontStack(o.fontFamily),
             fill: o.color || '#000000',
             textAlign: (o.textAlign || 'center') as 'left' | 'center' | 'right' | 'justify',
             angle: o.rotation || 0,

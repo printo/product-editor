@@ -27,6 +27,8 @@ from .layout_admin import (  # noqa: F401
 )
 from .calendar_assets import (  # noqa: F401
     FontsView,
+    FontFileView,
+    TextPrintableView,
     CalendarStylesView,
     HolidaysView,
     DEFAULT_FONTS,

@@ -107,6 +107,12 @@ def get_font(size_px: int, weight: int = 400) -> ImageFont.ImageFont:
         return font
 
 
+@functools.lru_cache(maxsize=1)
+def bundled_font_data() -> bytes:
+    """The bundled Inter file as bytes. Raises OSError when it is missing."""
+    return _FONT_PATH.read_bytes()
+
+
 @functools.lru_cache(maxsize=None)
 def _read_axis_records(font_path: str) -> tuple[tuple[str, float, float, float], ...]:
     """axis_records() for a font file on disk; () if it can't be read."""

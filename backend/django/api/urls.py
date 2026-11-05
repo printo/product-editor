@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     GenerateLayoutView, ListLayoutsView, HealthView, ConfigView, GetLayoutView, SecureExportDownloadView,
     LayoutManagementView, OrderDataPurgeView, ExternalLayoutDetailView, MaskDownloadView,
-    EmbedSessionView, EmbedSessionValidateView, FontsView,
+    EmbedSessionView, EmbedSessionValidateView, FontsView, FontFileView, TextPrintableView,
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
     CanvasStateView, CalendarStylesView, HolidaysView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView, UploadFromUrlView, PhotoPreviewView,
@@ -92,6 +92,11 @@ urlpatterns = [
 
     # Fonts management
     path("fonts", FontsView.as_view(), name="fonts"),
+    # The font file the print draws a family with, for the editor to draw from too.
+    path("fonts/file/<str:family>", FontFileView.as_view(), name="font-file"),
+    # Which characters of a text box the print can't draw in its font. Not
+    # under fonts/: the dashboard proxy treats writes there as ops-only.
+    path("text/printable", TextPrintableView.as_view(), name="text-printable"),
 
     # Calendar style presets (PRD §10.3 + §6.3 + Phase 3)
     # Public GETs — customer preview page fetches these through the embed proxy.

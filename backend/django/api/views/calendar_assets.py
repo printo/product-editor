@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse, inline_seriali
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
+from ..permissions import IsAuthenticatedWithAPIKey
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,133 @@ class FontsView(APIView):
             return Response({'detail': 'fonts must be a list of strings'}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({'fonts': _write_fonts(fonts)})
+
+
+class FontFileView(APIView):
+    """
+    GET /api/fonts/file/<family> — the font file the print draws that family
+    with. The editor draws text overlays from this file, not from Google's
+    copy, so it shows exactly the characters the print has.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(
+        tags=["fonts"],
+        summary="Download the font file the print uses",
+        description=(
+            "The TrueType file `services/google_fonts.py` draws a text overlay "
+            "with, byte for byte. A browser's copy of the same family from Google "
+            "is cut into pieces by script and leaves out characters the file has "
+            "(the bundled Inter draws ♥ and →; Google's Inter in a browser does "
+            "not), so an editor that draws from Google's copy disagrees with the "
+            "print. A family that is not on the fonts list answers with Inter, as "
+            "the print would draw it.\n\n"
+            "Cached for a day. **503** when the font can't be read just now."
+        ),
+        responses={
+            (200, "font/ttf"): OpenApiTypes.BINARY,
+            503: OpenApiResponse(description="The font file could not be read; try again."),
+        },
+    )
+    def get(self, request, family):
+        from django.http import HttpResponse
+        from services.google_fonts import FontUnavailable, print_font_data
+
+        try:
+            data = print_font_data(family, 400)
+        except FontUnavailable as exc:
+            logger.warning("Font file: %r unavailable: %s", family, exc)
+            return Response({'detail': 'Font unavailable, try again.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        response = HttpResponse(data, content_type='font/ttf')
+        response['Cache-Control'] = 'private, max-age=86400'
+        return response
+
+
+# One text box per item; a design has a handful, a 200-card order a few hundred.
+MAX_PRINTABLE_ITEMS = 500
+MAX_PRINTABLE_TEXT_CHARS = 5000
+
+
+class TextPrintableView(APIView):
+    """
+    POST /api/text/printable — which characters of a text overlay the print
+    can't draw in its font (services/text_coverage.py). Stateless.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(
+        tags=["fonts"],
+        summary="Find characters a font cannot print",
+        description=(
+            "The print draws a text overlay in one font file and has no fallback: "
+            "a character the font has no glyph for (an emoji in a script font, "
+            "Hindi or Tamil in a Latin font) is left out or printed as an empty "
+            "box, although a browser shows it by borrowing another font. The "
+            "editor calls this to warn the customer before they submit.\n\n"
+            "Answers from the same font file the print uses. A family that is not "
+            "on the fonts list is checked against Inter, as the print would draw "
+            "it. **Stateless: nothing is stored.**\n\n"
+            "Each result lines up with its item. `checked` is `false` when the "
+            "font file could not be read just now; treat that as unknown, not as "
+            "printable."
+        ),
+        request=inline_serializer(
+            name="TextPrintableRequest",
+            fields={"items": drf_serializers.ListField(child=inline_serializer(
+                name="TextPrintableItem",
+                fields={
+                    "text": drf_serializers.CharField(allow_blank=True),
+                    "fontFamily": drf_serializers.CharField(required=False, allow_blank=True, allow_null=True),
+                    "fontWeight": drf_serializers.IntegerField(required=False),
+                },
+            ))},
+        ),
+        responses={
+            200: inline_serializer(
+                name="TextPrintableResponse",
+                fields={"results": drf_serializers.ListField(child=inline_serializer(
+                    name="TextPrintableResult",
+                    fields={
+                        "unprintable": drf_serializers.ListField(child=drf_serializers.CharField()),
+                        "checked": drf_serializers.BooleanField(),
+                    },
+                ))},
+            ),
+            400: OpenApiResponse(description="`items` missing, not a list, too long, or an item without a string `text`."),
+        },
+    )
+    def post(self, request):
+        from services.google_fonts import FontUnavailable
+        from services.text_coverage import unprintable_chars
+
+        items = request.data.get('items') if isinstance(request.data, dict) else None
+        if not isinstance(items, list) or len(items) > MAX_PRINTABLE_ITEMS:
+            return Response(
+                {'detail': f'items must be a list of at most {MAX_PRINTABLE_ITEMS} text boxes'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        results = []
+        for item in items:
+            text = item.get('text') if isinstance(item, dict) else None
+            if not isinstance(text, str) or len(text) > MAX_PRINTABLE_TEXT_CHARS:
+                return Response(
+                    {'detail': f'each item needs a text of at most {MAX_PRINTABLE_TEXT_CHARS} characters'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            family = item.get('fontFamily')
+            try:
+                weight = int(item.get('fontWeight') or 400)
+            except (TypeError, ValueError):
+                weight = 400
+            try:
+                results.append({
+                    'unprintable': unprintable_chars(family if isinstance(family, str) else None, text, weight),
+                    'checked': True,
+                })
+            except FontUnavailable as exc:
+                logger.warning("Printable check: font %r unavailable: %s", family, exc)
+                results.append({'unprintable': [], 'checked': False})
+        return Response({'results': results})
 
 
 # ── Calendar style presets + Gen-Z palettes (PRD §10.3, §6.3) ───────────────

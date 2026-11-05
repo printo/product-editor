@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import {
   EmptySurfaceWarning, DuplicateFillWarning, LowDpiWarning, QtyShortfallWarning,
+  UnprintableTextNote, UnprintableTextWarning, UNPRINTABLE_HELP, UNSUPPORTED_REMOVED,
 } from '../EditorNotices';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
 
@@ -88,5 +89,43 @@ describe('QtyShortfallWarning', () => {
     render(<QtyShortfallWarning uploaded={3} needed={5} />);
     expect(screen.getByText('You have uploaded only 3 out of 5 photos')).toBeInTheDocument();
     expect(screen.getByText('Go back to add more or repeat from uploaded ones.')).toBeInTheDocument();
+  });
+});
+
+describe('UnprintableTextNote', () => {
+  it('renders nothing when the whole text prints', () => {
+    const { container } = render(<UnprintableTextNote chars={[]} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('says they won’t print and what to use instead', () => {
+    render(<UnprintableTextNote chars={['\u{1F57A}', '\u{1F3B6}']} />);
+    const note = screen.getByRole('status');
+    expect(note).toHaveTextContent(UNPRINTABLE_HELP);
+    expect(note).toHaveTextContent('Please use the cliparts, images or icons from the panel instead.');
+  });
+});
+
+describe('UnprintableTextNote after a removal', () => {
+  it('says the characters are not supported and were removed, though the box is clean again', () => {
+    render(<UnprintableTextNote chars={[]} removed />);
+    const note = screen.getByRole('status');
+    expect(note).toHaveTextContent(UNSUPPORTED_REMOVED);
+    expect(note).toHaveTextContent('not supported in text, so they were removed');
+    expect(note).toHaveTextContent('Please use the cliparts, images or icons from the panel instead.');
+  });
+});
+
+describe('UnprintableTextWarning', () => {
+  it('renders nothing when every text prints', () => {
+    const { container } = render(<UnprintableTextWarning texts={[]} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('names the cards; a single-card side needs no card number', () => {
+    render(<UnprintableTextWarning texts={[{ where: 'Canvas 2', chars: ['\u{1F57A}'] }, { where: 'Back', chars: ['\u{1F3B6}'] }]} />);
+    expect(screen.getByText('Some of your text won’t print')).toBeInTheDocument();
+    expect(screen.getByText('Canvas 2, Back')).toBeInTheDocument();
+    expect(screen.getByText(UNPRINTABLE_HELP)).toBeInTheDocument();
   });
 });

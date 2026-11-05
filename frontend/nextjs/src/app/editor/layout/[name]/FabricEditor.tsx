@@ -27,7 +27,7 @@ import { buildFrameFill, buildFrameCaption, rotatedBounds, frameBaseScale } from
 import { captionOverridesFromMm } from '@/lib/caption-layout';
 import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
-import { overlayFontFamily } from '@/lib/overlay-fonts';
+import { canvasText, loadOverlayFonts, overlayFontStack } from '@/lib/overlay-fonts';
 import { textBoxWidthPx, textOriginX } from '@/lib/overlay-text';
 import { shapeBoxFromObject, shapeRepresentation, shapeScaleForBox, textBoxFromObject } from '@/lib/overlay-geometry';
 import {
@@ -114,12 +114,12 @@ function applyOverlayToObject(
     // A corner-handle drag scaled the object; handleModified folded that into
     // fontSize and width, so the object goes back to scale 1 here.
     textObj.set({
-      text: overlay.text,
+      text: canvasText(overlay.text),
       fontSize: overlay.fontSize,
       width: textBoxWidthPx(overlay, canvasW),
       scaleX: 1, scaleY: 1,
       fill: overlay.color || '#000000',
-      fontFamily: overlayFontFamily(overlay.fontFamily),
+      fontFamily: overlayFontStack(overlay.fontFamily),
       textAlign: (overlay.textAlign || 'center') as Textbox['textAlign'],
       originX: textOriginX(overlay.textAlign),
       left: (overlay.x / 100) * canvasW,
@@ -195,6 +195,26 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = React.useState({ width: 0, height: 0 });
   const [isTransforming, setIsTransforming] = React.useState(false);
+
+  // A text is drawn with the blank font behind its own only once both are
+  // loaded (overlayFontStack), since a canvas never waits for a font. Load
+  // them for the text on this card and, when that changes what a text would
+  // be drawn with, run the sync below once more.
+  const [fontsTick, setFontsTick] = React.useState(0);
+  const textFonts = editingCanvas.overlays.map(o => (o.type === 'text' ? o.fontFamily ?? '' : '')).join('\u0001');
+  useEffect(() => {
+    const texts = editingCanvas.overlays.filter((o): o is Extract<CanvasItem['overlays'][number], { type: 'text' }> => o.type === 'text');
+    if (texts.length === 0) return;
+    const drawnWith = () => texts.map(o => overlayFontStack(o.fontFamily)).join('|');
+    const before = drawnWith();
+    let cancelled = false;
+    void loadOverlayFonts(texts).then(() => {
+      if (!cancelled && drawnWith() !== before) setFontsTick(t => t + 1);
+    });
+    return () => { cancelled = true; };
+    // Keyed on the fonts, not on the card object, which is new on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textFonts]);
   const fabricRef = useRef<Canvas | null>(null);
   const editingCanvasRef = useRef(editingCanvas);
   // Refs must be written from an effect, not synchronously during render
@@ -959,11 +979,11 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         // The box the text wraps in is saved on the overlay (80% of the canvas
         // when it has none) and words are never broken inside, so the thumbnail
         // and the print, which follow the same rules, wrap on the same words.
-        fabricObj = new Textbox(overlay.text, {
+        fabricObj = new Textbox(canvasText(overlay.text), {
           left, top,
           originX: textOriginX(overlay.textAlign),
           originY: 'center', fontSize: overlay.fontSize, fill: overlay.color || '#000000',
-          fontFamily: overlayFontFamily(overlay.fontFamily), textAlign: (overlay.textAlign || 'center') as Textbox['textAlign'],
+          fontFamily: overlayFontStack(overlay.fontFamily), textAlign: (overlay.textAlign || 'center') as Textbox['textAlign'],
           width: textBoxWidthPx(overlay, canvasW), editable: true,
           cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#f97316',
           angle: overlay.rotation || 0,
@@ -1100,7 +1120,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     // re-build the canvas, and viewport changes are handled by the
     // dedicated effect below (line ~905).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingCanvas, layout, canvasW, canvasH, getFileUrl, containerSize, isTransforming]);
+  }, [editingCanvas, layout, canvasW, canvasH, getFileUrl, containerSize, isTransforming, fontsTick]);
 
   useEffect(() => {
     const fc = fabricRef.current;

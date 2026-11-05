@@ -44,6 +44,9 @@ import {
 import type { OrientationReport } from '@/app/editor/layout/[name]/orientation';
 
 const API = '/api/internal/proxy';
+// Where the canvas fetches the print's font files; the session cookie is the auth.
+const NO_HEADERS = {};
+const PRINT_FONTS = { apiBase: API, getAuthHeaders: () => NO_HEADERS };
 
 type Facing = 'portrait' | 'landscape';
 
@@ -102,7 +105,7 @@ export default function TemplateEditorPage() {
   const [artworkBusy, setArtworkBusy] = useState<string | null>(null);
   const artworkInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
+  const { fontsLoaded, loadGoogleFont } = useGoogleFonts(PRINT_FONTS);
   const { getFileUrl } = useObjectUrls();
   const { expandPdfPages, pdfPickerElement } = usePdfPageImport();
   const skipNextGenerateRef = useRef(false);

@@ -4,7 +4,7 @@ import { useId, useRef } from 'react';
 import { useModalA11y } from '@/lib/use-modal-a11y';
 import { X, Download, Archive, FileText } from 'lucide-react';
 import {
-  LowDpiWarning, EmptySurfaceWarning, DuplicateFillWarning, QtyShortfallWarning, type PreSubmitNoticeData,
+  LowDpiWarning, EmptySurfaceWarning, DuplicateFillWarning, QtyShortfallWarning, UnprintableTextWarning, type PreSubmitNoticeData,
 } from '../EditorNotices';
 
 type Props = PreSubmitNoticeData & {
@@ -21,7 +21,7 @@ type Props = PreSubmitNoticeData & {
  *  the pre-submit notices. */
 export function DownloadOptionsDialog({
   disclaimerChecked, onDisclaimerChange, includeUploads, onIncludeUploadsChange,
-  lowDpiFrames, emptySurfaces, duplicateFills, totalUploadedCount, qtyNeeded,
+  lowDpiFrames, emptySurfaces, duplicateFills, unprintableTexts, totalUploadedCount, qtyNeeded,
   onClose, onDownloadZip, onImposition,
 }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -88,6 +88,7 @@ export function DownloadOptionsDialog({
           </label>
         </div>
 
+        <UnprintableTextWarning texts={unprintableTexts} />
         <LowDpiWarning frames={lowDpiFrames} />
         <EmptySurfaceWarning surfaces={emptySurfaces} />
         <DuplicateFillWarning duplicates={duplicateFills} />

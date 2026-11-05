@@ -37,6 +37,7 @@ import { calendarCardPages } from '@/lib/calendar';
 import { useEditorEnvironment, useLoginRedirect } from './useEditorEnvironment';
 import { useActiveSurfaceLayout, useLayoutLoader } from './useLayoutLoader';
 import { useSubmitGuards } from './useSubmitGuards';
+import { useUnprintableText } from './useUnprintableText';
 import { useCalendarDefaults, useCalendarEditor } from './useCalendarEditor';
 import { useBookPages } from './useBookPages';
 import { useCardActions } from './useCardActions';
@@ -163,7 +164,7 @@ export default function LayoutEditorPage() {
   });
 
   const [selectedFonts, setSelectedFonts] = useState<string[]>([DEFAULT_OVERLAY_FONT]);
-  const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
+  const { fontsLoaded, loadGoogleFont } = useGoogleFonts({ apiBase, getAuthHeaders });
   const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
   const { headerHeight } = useHeader();
 
@@ -292,6 +293,9 @@ export default function LayoutEditorPage() {
   }, [isDownloading, isSaving]);
 
   const { lowDpiFrames, emptySurfaces, lowDpiByCard } = useSubmitGuards({ layout, surfaceStates, canvases, isBookProduct });
+  const { unprintableFor, unprintableByCard, unprintableTexts, removals: textRemovals } = useUnprintableText({
+    surfaceStates, canvases, editingCanvas, setEditingCanvas, apiBase, getAuthHeaders,
+  });
 
   useCalendarDefaults({
     isCalendarProduct, layout, normalizedLayoutState, apiBase, getAuthHeaders,
@@ -647,7 +651,7 @@ export default function LayoutEditorPage() {
             handleDragStart={handleDragStart} handleDragOver={handleDragOver} handleDrop={handleDrop}
             openEditor={openEditor} handleCardClick={handleCardClick}
             handlePanStart={handlePanStart} handlePanMove={handlePanMove} handlePanEnd={handlePanEnd}
-            requestReplacePhoto={requestReplacePhoto} lowDpiByCard={lowDpiByCard}
+            requestReplacePhoto={requestReplacePhoto} lowDpiByCard={lowDpiByCard} unprintableByCard={unprintableByCard}
             handleQuickRotate={handleQuickRotate} handleQuickToggleFit={handleQuickToggleFit} handleQuickToggleBlur={handleQuickToggleBlur}
             swapSource={swapSource} setSwapSource={setSwapSource} handleQuickDelete={handleQuickDelete}
             calendar={calendarCardsConfig}
@@ -676,6 +680,7 @@ export default function LayoutEditorPage() {
               lowDpiFrames={lowDpiFrames}
               emptySurfaces={emptySurfaces}
               duplicateFills={duplicateFills}
+              unprintableTexts={unprintableTexts}
               totalUploadedCount={totalUploadedCount}
               qtyNeeded={qtyNeeded}
               onClose={() => setShowDownloadModal(false)}
@@ -692,6 +697,7 @@ export default function LayoutEditorPage() {
               lowDpiFrames={lowDpiFrames}
               emptySurfaces={emptySurfaces}
               duplicateFills={duplicateFills}
+              unprintableTexts={unprintableTexts}
               totalUploadedCount={totalUploadedCount}
               qtyNeeded={qtyNeeded}
               onClose={() => setShowEmbedDisclaimer(false)}
@@ -729,6 +735,8 @@ export default function LayoutEditorPage() {
           skipNextGenerateRef={skipNextGenerateRef}
           expandPdfPages={expandPdfPages}
           serverHeicConvert={serverHeicConvert}
+          unprintableFor={unprintableFor}
+          textRemovals={textRemovals}
         />
       )}
       {pdfPickerElement}

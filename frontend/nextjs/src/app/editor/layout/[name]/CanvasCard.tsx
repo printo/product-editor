@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowLeftRight, Droplets, ImagePlus, Layout, Maximize, P
 import { LazyImg } from '@/components/LazyImg';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
 import { FEW_CARDS, activatesCard, canvasCardWidthClass, canvasCardStyle, isLostLocalImage, photoZoneOf, surfaceCardStyle } from './editor-utils';
+import { UNPRINTABLE_HELP } from './EditorNotices';
 import type { CanvasItem, SurfaceState } from './types';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
@@ -18,7 +19,11 @@ type CardTarget = { idx: number; surfaceKey: string | null } | null;
 // stopping short of the quick-action rail.
 const LOST_PHOTO_TEXT = 'Photo not on this device — tap to add';
 const LOST_IMAGE_TEXT = 'Image not on this device — tap to fix';
-const LOST_BADGE_CLASS = 'absolute bottom-2 left-2 max-w-[calc(100%-4rem)] z-20 flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold leading-tight text-left shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors';
+// Text with characters the print can't draw (an emoji in a script font). The
+// thumbnail leaves them out as the print will; the badge says why, in words,
+// for the same phone reason as above.
+const UNPRINTABLE_TEXT = 'Some text won’t print — tap to fix';
+const LOST_BADGE_CLASS ='absolute bottom-2 left-2 max-w-[calc(100%-4rem)] z-20 flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold leading-tight text-left shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors';
 
 /** What every card needs from the page: drag and pan, the quick actions, tap-to-swap. */
 export type CardProps = {
@@ -36,6 +41,9 @@ export type CardProps = {
   handlePanEnd: (e: React.PointerEvent<HTMLDivElement>) => void;
   requestReplacePhoto: (canvasIdx: number, frameIdx: number, surfaceKey?: string | null) => void;
   lowDpiByCard: Map<string, LowDpiFrame>;
+  /** Cards whose text holds characters the print can't draw, keyed like
+   *  lowDpiByCard (useUnprintableText.ts). */
+  unprintableByCard: Map<string, string[]>;
   handleQuickRotate: (idx: number, surfaceKey?: string | null) => void;
   handleQuickToggleFit: (idx: number, surfaceKey?: string | null) => void;
   handleQuickToggleBlur: (idx: number, surfaceKey?: string | null) => void;
@@ -73,7 +81,7 @@ function EditHint({ placement = 'center' }: {
 
 export function SurfaceCard({
   surface, sideCount, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop, openEditor,
-  handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard,
+  handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard, unprintableByCard,
   handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur, swapSource, setSwapSource, handleQuickDelete,
 }: CardProps & { surface: SurfaceState; sideCount: number }) {
     const cw = surface.def.canvas?.width || 1200;
@@ -140,6 +148,15 @@ export function SurfaceCard({
               >
                 <AlertTriangle className="w-3 h-3 shrink-0" />
                 <span>{LOST_IMAGE_TEXT}</span>
+              </button>
+            ) : unprintableByCard.has(`${surface.key}:0`) ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); openEditor(0, surface.key); }}
+                className={LOST_BADGE_CLASS}
+                title={UNPRINTABLE_HELP}
+              >
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                <span>{UNPRINTABLE_TEXT}</span>
               </button>
             ) : lowDpiByCard.has(`${surface.key}:0`) && (
               <div
@@ -235,7 +252,7 @@ export function SurfaceCard({
 /** One card of a single-surface product's grid: the print preview and its quick-action rail. */
 export function CanvasCard({
   canvas, idx, cardCount, layout, dragOverIdx, setDragOverIdx, repositionMode, handleDragStart, handleDragOver, handleDrop,
-  openEditor, handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard,
+  openEditor, handleCardClick, handlePanStart, handlePanMove, handlePanEnd, requestReplacePhoto, lowDpiByCard, unprintableByCard,
   handleQuickRotate, handleQuickToggleFit, handleQuickToggleBlur, swapSource, setSwapSource, handleQuickDelete,
   title, subtitle, children,
 }: CardProps & {
@@ -351,6 +368,15 @@ export function CanvasCard({
           >
             <AlertTriangle className="w-3 h-3 shrink-0" />
             <span>{LOST_IMAGE_TEXT}</span>
+          </button>
+        ) : unprintableByCard.has(`:${idx}`) ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); openEditor(idx); }}
+            className={LOST_BADGE_CLASS}
+            title={UNPRINTABLE_HELP}
+          >
+            <AlertTriangle className="w-3 h-3 shrink-0" />
+            <span>{UNPRINTABLE_TEXT}</span>
           </button>
         ) : lowDpiByCard.has(`:${idx}`) && (
           <div
