@@ -800,7 +800,9 @@ returns an empty list, not an error.
 
 ### 4e. Let Product Editor fetch restored photos from your storage (optional, as of Nov 2026)
 
-When a design is brought back from the copy you keep (see `restore.json` under ZIP fetch), its photos reach the editor as links to your storage. At submit, Product Editor's server fetches each unchanged photo from its link instead of making the customer's device download and re-upload it.
+When a design is brought back from the copy you keep (see `restore.json` under ZIP fetch), its photos reach the editor as links to your storage. Product Editor's server fetches each photo from its link when the design is opened, shows the customer a smaller preview, and prints from the original. The customer's device never loads from your storage, so no CORS setting is needed on it.
+
+Each photo is fetched once per order and kept for our normal retention: reopening or refreshing the same order does not fetch it again. Expect one request per photo as a design opens (about 200 within a minute for a 200-photo order), from our server, with the user agent `ProductEditor-PhotoFetch/1.0`.
 
 This is off until you tell us which host to fetch from. We list it against your API key; a link on any other host is refused.
 

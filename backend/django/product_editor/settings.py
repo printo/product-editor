@@ -356,7 +356,17 @@ MAX_UPLOAD_FILE_SIZE = MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
 # server download; the per-file ceiling is MAX_UPLOAD_FILE_SIZE above.
 PHOTO_FETCH_MAX_FILES_PER_ORDER = int(os.getenv("PHOTO_FETCH_MAX_FILES_PER_ORDER", "2000"))
 PHOTO_FETCH_MAX_ORDER_MB = int(os.getenv("PHOTO_FETCH_MAX_ORDER_MB", "10240"))
-PHOTO_FETCH_PER_MINUTE = int(os.getenv("PHOTO_FETCH_PER_MINUTE", "120"))
+# A restored design fetches every photo when it is opened, a few at a time, so
+# a 200-photo order makes 200 calls well inside a minute.
+PHOTO_FETCH_PER_MINUTE = int(os.getenv("PHOTO_FETCH_PER_MINUTE", "600"))
+# GET /api/photos/<upload_id>/preview: the small picture the editor draws a
+# restored card from, for a photo whose original is held here (`size=full`
+# returns the original when the card is opened). Long edge in pixels, and
+# calls a minute per key and order.
+# 1600 because the editor draws a card at up to 0.75x the layout canvas on a
+# high-resolution phone: about 1350 px tall for a 4x6 print, 1575 for a 5x7.
+PHOTO_PREVIEW_PX = int(os.getenv("PHOTO_PREVIEW_PX", "1600"))
+PHOTO_PREVIEW_PER_MINUTE = int(os.getenv("PHOTO_PREVIEW_PER_MINUTE", "1200"))
 
 # Max allowed image side (px) at upload validation. This is a print-file
 # generator, so high-res camera/phone photos (48–65 MP routinely exceed the

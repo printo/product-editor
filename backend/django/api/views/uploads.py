@@ -513,7 +513,11 @@ class UploadFromUrlView(APIView):
             "Requires an order (the `X-Order-ID` header the embed proxy injects, "
             "or `order_id`). Per order: at most `PHOTO_FETCH_MAX_FILES_PER_ORDER` "
             "stored files and `PHOTO_FETCH_MAX_ORDER_MB` in total, and "
-            "`PHOTO_FETCH_PER_MINUTE` fetches a minute."
+            "`PHOTO_FETCH_PER_MINUTE` fetches a minute.\n\n"
+            "**Asking again for a photo already fetched for the same order returns the "
+            "copy held (200) without downloading it**, matched on the link's host and "
+            "path. Reopening or refreshing a restored design is therefore cheap, and a "
+            "dropped connection resumes where it stopped."
         ),
         request=inline_serializer(
             name="UploadFromUrl",
@@ -536,8 +540,11 @@ class UploadFromUrlView(APIView):
                     "upload_id": drf_serializers.UUIDField(help_text="Reference this in the render payload, like any upload."),
                     "filename": drf_serializers.CharField(),
                     "file_size": drf_serializers.IntegerField(),
+                    "width": drf_serializers.IntegerField(allow_null=True, help_text="Pixels, as a browser shows the photo (EXIF orientation applied)."),
+                    "height": drf_serializers.IntegerField(allow_null=True),
                 },
             ),
+            200: OpenApiResponse(description="This photo was already fetched for this order: the same body, for the copy already held. Nothing was downloaded."),
             400: OpenApiResponse(description="Missing or malformed url or order id, or the fetched bytes are not a usable image."),
             403: OpenApiResponse(description="Fetching by link is not switched on for this API key, or the link's host is not on its list or is not a public address."),
             413: OpenApiResponse(description="The photo is larger than the upload limit."),
@@ -553,7 +560,8 @@ class UploadFromUrlView(APIView):
         from urllib.parse import urlparse
         from django.core.cache import cache
         from django.db.models import Count, Sum
-        from services.photo_fetch import PhotoFetchError, fetch_photo, name_from_url
+        from services.image_loader import displayed_size
+        from services.photo_fetch import PhotoFetchError, check_photo_url, fetch_photo, name_from_url, source_key_for
         from services.restore_manifest import safe_entry_name
         from services.storage import order_upload_dir
 
@@ -578,6 +586,37 @@ class UploadFromUrlView(APIView):
         url = str(request.data.get('url') or '').strip()
         if not url:
             return Response({'detail': 'url is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        def answer(row, code):
+            # The size as a browser shows the photo, so the editor can judge the
+            # print resolution without holding the original.
+            try:
+                width, height = displayed_size(row.file_path)
+            except Exception:
+                width = height = None
+            return Response({
+                'upload_id': row.upload_session_id, 'filename': row.original_filename,
+                'file_size': row.file_size_bytes, 'width': width, 'height': height,
+            }, status=code)
+
+        # ── A photo already fetched for this order is returned, not fetched
+        # again. A restored design asks for every photo each time it is opened,
+        # so without this a refresh would download the whole order again and a
+        # few of them would fill the order's allowance. Checked before the
+        # limits, which exist to bound downloads, not look-ups. ──────────────
+        try:
+            check_photo_url(url, hosts)
+        except PhotoFetchError as exc:
+            return Response({'detail': exc.detail}, status=exc.status)
+        source_key = source_key_for(url)
+        held_copy = (
+            UploadedFile.objects
+            .filter(api_key=api_key, order_id=order_id, source_key=source_key, is_deleted=False)
+            .order_by('-created_at')
+            .first()
+        )
+        if held_copy and os.path.isfile(held_copy.file_path):
+            return answer(held_copy, status.HTTP_200_OK)
 
         # ── Limits on what one order can make this server download ───────────
         # /api/upload/ is exempt from the per-IP rate limit (chunk traffic is
@@ -653,7 +692,7 @@ class UploadFromUrlView(APIView):
         os.replace(staged, final_path)
         shutil.rmtree(staging_dir, ignore_errors=True)
 
-        UploadedFile.objects.create(
+        row = UploadedFile.objects.create(
             api_key=api_key,
             file_path=final_path,
             original_filename=filename,
@@ -661,10 +700,137 @@ class UploadFromUrlView(APIView):
             file_type='image',
             upload_session_id=upload_id,
             order_id=order_id,
+            source_key=source_key,
         )
         logger.info("Photo fetched by link: %s (%d bytes) for order %s", shown, size, order_id)
 
-        return Response(
-            {'upload_id': upload_id, 'filename': filename, 'file_size': size},
-            status=status.HTTP_201_CREATED,
+        return answer(row, status.HTTP_201_CREATED)
+
+
+_UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', re.IGNORECASE)
+
+
+class PhotoPreviewView(APIView):
+    """
+    GET /api/photos/<upload_id>/preview  — a stored photo, for the editor.
+
+    A restored design's photos are held here, not on the customer's device
+    (see UploadFromUrlView). The editor draws each card from a small preview
+    made by this endpoint; when the customer opens a card it asks for
+    `size=full`, the original, and edits that. The print always uses the
+    original.
+
+    An embed session is served only its own order's photos, like its saved
+    design: every customer of one company presents that company's key.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(
+        tags=["upload"],
+        summary="A stored photo, scaled for the screen or in full",
+        description=(
+            "Returns a photo this API key holds, scaled so its longer side is at most "
+            "`size` pixels (default `PHOTO_PREVIEW_PX`, 1600), as a browser would show "
+            "the original: EXIF orientation applied, colours converted to sRGB. JPEG, "
+            "or WebP when the photo has transparency. A photo already within `size` is "
+            "returned as it is. `size=full` returns the original bytes.\n\n"
+            "**In an embed session only the session's own order's photos are served** "
+            "(the `X-Order-ID` header the embed proxy injects); any other answers 404. "
+            "Limited to `PHOTO_PREVIEW_PER_MINUTE` calls a minute per key and order.\n\n" + UUID_GUARD
+        ),
+        parameters=[
+            OpenApiParameter(
+                "size", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                description="Longest side in pixels, 256 to 4096, or `full` for the original. Default 1600.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="The image bytes (image/jpeg, image/webp, or the original's own type)."),
+            400: OpenApiResponse(description="Malformed upload_id or size."),
+            404: OpenApiResponse(description="No such photo for this key, or it belongs to another order than the embed session's."),
+            422: OpenApiResponse(description="The stored file cannot be turned into a preview."),
+            429: OpenApiResponse(description="Too many photos requested for this order in the last minute."),
+        },
+    )
+    def get(self, request, upload_id: str):
+        import io
+        from django.core.cache import cache
+        from django.http import FileResponse, HttpResponse
+        from services.image_loader import displayed_size, open_source_preview, srgb_profile_bytes
+        from services.restore_manifest import content_type_for
+
+        if not _UUID_RE.match(upload_id or ''):
+            return Response({'detail': 'Invalid upload id'}, status=status.HTTP_400_BAD_REQUEST)
+        api_key = request.user.api_key if isinstance(request.user, APIKeyUser) else None
+        if not api_key:
+            return Response({'detail': 'API key required'}, status=status.HTTP_403_FORBIDDEN)
+
+        raw_size = str(request.query_params.get('size') or '').strip().lower()
+        want_full = raw_size == 'full'
+        size = settings.PHOTO_PREVIEW_PX
+        if raw_size and not want_full:
+            if not raw_size.isdigit():
+                return Response({'detail': 'size must be a number of pixels or "full".'}, status=status.HTTP_400_BAD_REQUEST)
+            size = max(256, min(4096, int(raw_size)))
+
+        not_found = Response({'detail': 'Photo not found'}, status=status.HTTP_404_NOT_FOUND)
+        row = (
+            UploadedFile.objects
+            .filter(api_key=api_key, upload_session_id=upload_id, is_deleted=False)
+            .first()
         )
+        if row is None:
+            return not_found
+        # The id comes from the customer's browser. In the embed, serve it only
+        # when it belongs to the session's own order (see CanvasStateView.get).
+        session_order_id = (request.headers.get('X-Order-ID') or '').strip()
+        if session_order_id and row.order_id != session_order_id:
+            logger.warning("Photo read refused: session order %s asked for a photo of another order", session_order_id)
+            return not_found
+
+        uploads_root = os.path.realpath(settings.UPLOADS_DIR)
+        path = os.path.realpath(row.file_path)
+        if not path.startswith(uploads_root + os.sep) or not os.path.isfile(path):
+            return not_found
+
+        # /api/photos/ is exempt from the per-IP limit (a large order asks for
+        # every photo within a minute), so it keeps its own count.
+        try:
+            window = f'photo_preview:{api_key.id}:{row.order_id or "-"}'
+            cache.add(window, 0, 60)
+            if cache.incr(window) > settings.PHOTO_PREVIEW_PER_MINUTE:
+                response = Response(
+                    {'detail': 'Too many photos requested for this order in the last minute. Try again shortly.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+                response['Retry-After'] = '60'
+                return response
+        except Exception:
+            pass
+
+        def original():
+            response = FileResponse(open(path, 'rb'), content_type=content_type_for(row.original_filename))
+            response['Cache-Control'] = 'private, max-age=3600'
+            return response
+
+        try:
+            if want_full or max(displayed_size(path)) <= size:
+                return original()
+            preview = open_source_preview(path, size)
+        except (OSError, ValueError) as exc:
+            logger.warning("Photo preview failed for upload %s: %s", upload_id, exc)
+            return Response({'detail': 'This photo cannot be previewed.'}, status=422)
+
+        out = io.BytesIO()
+        try:
+            if preview.mode == 'RGBA':
+                preview.save(out, format='WEBP', quality=85, icc_profile=srgb_profile_bytes())
+                content_type = 'image/webp'
+            else:
+                preview.save(out, format='JPEG', quality=85, icc_profile=srgb_profile_bytes())
+                content_type = 'image/jpeg'
+        finally:
+            preview.close()
+        response = HttpResponse(out.getvalue(), content_type=content_type)
+        response['Cache-Control'] = 'private, max-age=3600'
+        return response

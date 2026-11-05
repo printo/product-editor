@@ -101,3 +101,53 @@ def open_source_rgba(path: str) -> Image.Image:
         # editor is relative to the displayed-upright pixels).
         ImageOps.exif_transpose(src, in_place=True)
         return _convert_to_srgb(src)
+
+
+#: A source that cannot be decoded at reduced size (anything but JPEG) is not
+#: previewed above this many pixels: decoding it whole would hold several
+#: hundred megabytes in a web worker for one small picture.
+PREVIEW_MAX_DECODE_PIXELS = 120_000_000
+
+# EXIF orientations that turn the picture a quarter turn, so its displayed
+# width and height are the stored ones swapped.
+_QUARTER_TURN_ORIENTATIONS = {5, 6, 7, 8}
+
+
+def displayed_size(path: str) -> tuple[int, int]:
+    """Pixel width and height of a customer photo as a browser shows it: the
+    stored size with the EXIF orientation applied. Reads the header only."""
+    with Image.open(path) as src:
+        width, height = src.size
+        try:
+            orientation = src.getexif().get(0x0112)
+        except Exception:
+            orientation = None
+    return (height, width) if orientation in _QUARTER_TURN_ORIENTATIONS else (width, height)
+
+
+def open_source_preview(path: str, max_side: int) -> Image.Image:
+    """
+    A customer photo scaled to fit `max_side`, looking as the browser would
+    show the original: EXIF orientation applied, colour-managed into sRGB.
+    RGBA when the source has transparency, RGB otherwise. Never larger than
+    the source.
+
+    This is the editor's stand-in for a photo whose original is held on the
+    server, so it goes through the same colour path as the print: a preview
+    that disagreed with the print would mislead the customer who is checking it.
+
+    Raises ValueError for a source too large to preview, OSError like
+    Image.open for one that cannot be read.
+    """
+    with Image.open(path) as src:
+        if src.format == 'JPEG':
+            # Decode at the nearest DCT scale: a 50 MP photo then costs a
+            # fraction of the memory and time of a full decode.
+            src.draft(None, (max_side, max_side))
+        elif src.width * src.height > PREVIEW_MAX_DECODE_PIXELS:
+            raise ValueError('image is too large to preview')
+        has_alpha = src.mode in ('RGBA', 'LA', 'PA') or 'transparency' in src.info
+        ImageOps.exif_transpose(src, in_place=True)
+        src.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+        converted = _convert_to_srgb(src)
+        return converted if has_alpha else converted.convert('RGB')
