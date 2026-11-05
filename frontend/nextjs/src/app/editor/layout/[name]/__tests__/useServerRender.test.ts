@@ -161,21 +161,21 @@ describe('useServerRender — the render request', () => {
 });
 
 describe('useServerRender — what stops a submit', () => {
-  it('a photo that could not be recovered blocks the submit and is named', async () => {
+  it('a photo that could not be loaded blocks the submit and is named', async () => {
     const { result } = setup({ canvases: [canvas([frame(photo('a.jpg'))]), canvas([frame(null, { fileName: 'b.jpg' })])] });
     await run(() => result.current.executeBatchDownload());
-    expect(result.current.error).toBe('1 photo could not be recovered (page 2, photo 1). Please re-upload it before continuing so your print matches your design.');
+    expect(result.current.error).toBe('1 photo could not be loaded (page 2, photo 1). Please add it again here before continuing so your print matches your design.');
     expect(uploadFiles).not.toHaveBeenCalled();
     expect(result.current.isDownloading).toBe(false);
   });
 
-  it('an added image that could not be recovered blocks the submit and is named', async () => {
+  it('an added image that could not be loaded blocks the submit and is named', async () => {
     // Restored on a device whose IndexedDB lacks it: the fileId is the browser's
     // own id, which the print can't resolve, so the image would silently drop.
     const lost = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
     const { result } = setup({ canvases: [canvas([frame(photo('a.jpg'))]), canvas([frame(photo('b.jpg'))], { overlays: [lost] })] });
     await run(() => result.current.executeBatchDownload());
-    expect(result.current.error).toBe('1 added image could not be recovered (page 2, "logo.png"). Please re-upload it before continuing so your print matches your design.');
+    expect(result.current.error).toBe('1 added image could not be loaded (page 2, "logo.png"). Please add it again here before continuing so your print matches your design.');
     expect(uploadFiles).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
   });
@@ -185,7 +185,7 @@ describe('useServerRender — what stops a submit', () => {
     const neverStored = { type: 'image', source: 'local', src: 'blob:dead', label: 'heart.png' } as unknown as Overlay;
     const { result } = setup({ canvases: [canvas([frame(null, { fileId: 'idb-a' })], { overlays: [neverStored] })] });
     await run(() => result.current.executeBatchDownload());
-    expect(result.current.error).toBe('1 photo and 1 added image could not be recovered (photo 1; "heart.png"). Please re-upload them before continuing so your print matches your design.');
+    expect(result.current.error).toBe('1 photo and 1 added image could not be loaded (photo 1; "heart.png"). Please add them again here before continuing so your print matches your design.');
     expect(uploadFiles).not.toHaveBeenCalled();
   });
 

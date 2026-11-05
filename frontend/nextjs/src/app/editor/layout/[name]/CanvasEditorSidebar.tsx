@@ -656,7 +656,7 @@ export function CanvasEditorSidebar({
                       <div className="space-y-3 p-3 rounded-lg border border-amber-300 bg-amber-50">
                         <p className="flex gap-2 text-[11px] text-amber-800">
                           <AlertTriangle className="w-4 h-4 shrink-0" />
-                          This image couldn&apos;t be recovered on this device, so it won&apos;t print. Re-upload it to keep its place, or delete it.
+                          This image couldn&apos;t be loaded on this device, so it won&apos;t print. Re-upload it to keep its place, or delete it.
                         </p>
                         <label className="w-full h-9 flex items-center justify-center gap-2 rounded-lg bg-amber-600 text-white text-[11px] font-medium uppercase hover:bg-amber-700 transition-colors cursor-pointer">
                           <ImagePlus className="w-4 h-4" />

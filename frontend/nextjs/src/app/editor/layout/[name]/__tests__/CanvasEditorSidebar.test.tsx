@@ -26,10 +26,10 @@ function setup(overlays: Overlay[], selectedLayer: LayerSelection = { type: 'ima
   return props;
 }
 
-describe('CanvasEditorSidebar — an added image that could not be recovered', () => {
+describe('CanvasEditorSidebar — an added image that could not be loaded', () => {
   it('opens on its Uploads panel and says it won’t print', () => {
     setup([lost]);
-    expect(screen.getByText(/couldn.t be recovered on this device, so it won.t print/)).toBeInTheDocument();
+    expect(screen.getByText(/couldn.t be loaded on this device, so it won.t print/)).toBeInTheDocument();
     expect(screen.getByText('Image Overlay')).toBeInTheDocument();
   });
 
@@ -54,7 +54,7 @@ describe('CanvasEditorSidebar — an added image that could not be recovered', (
 
   it('a recovered added image shows no notice', () => {
     setup([{ ...lost, originalFile: new File(['x'], 'logo.png') } as Overlay]);
-    expect(screen.queryByText(/couldn.t be recovered/)).toBeNull();
+    expect(screen.queryByText(/couldn.t be loaded/)).toBeNull();
     expect(screen.queryByLabelText(/Re-upload image/)).toBeNull();
   });
 });
