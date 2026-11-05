@@ -58,7 +58,7 @@ beforeEach(() => {
 });
 afterEach(() => jest.useRealTimers());
 
-type Init = { layout?: unknown; legacy?: string | null; surfaceStates?: SurfaceState[]; calendar?: boolean; book?: boolean };
+type Init = { layout?: unknown; surfaceStates?: SurfaceState[]; calendar?: boolean; book?: boolean };
 /** The page's state around the hook, held the way the page holds it. */
 function setup(init: Init = {}) {
   return renderHook(() => {
@@ -77,11 +77,10 @@ function setup(init: Init = {}) {
     const [bookPageCount, setBookPageCount] = useState(8);
     const [bookHiddenPages, setBookHiddenPages] = useState<Record<string, SurfaceState>>({});
     const bookHiddenPagesRef = useRef(bookHiddenPages); bookHiddenPagesRef.current = bookHiddenPages;
-    const legacyOrderIdRef = useRef<string | null>(init.legacy ?? null);
     const skipNextGenerateRef = useRef(false);
     const p = useAutosaveAndRestore({
       layout: init.layout === undefined ? LAYOUT : init.layout, layoutLoading: false, layoutName: 'classic_4x6', orderId: 'EXT-1',
-      apiBase: '/api/embed/proxy', getAuthHeaders: () => ({ 'X-Embed-Token': 't' }), legacyOrderIdRef, normalizedLayoutState: null,
+      apiBase: '/api/embed/proxy', getAuthHeaders: () => ({ 'X-Embed-Token': 't' }), normalizedLayoutState: null,
       canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
       setGlobalFitMode, setGlobalBlurFill, getFileUrl: (f: File) => `blob:${f.name}`, skipNextGenerateRef,
       isCalendarProduct: init.calendar ?? false, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
@@ -261,11 +260,12 @@ describe('useAutosaveAndRestore — the restore', () => {
     expect(on.result.current.globalBlurFill).toBe(true);
   });
 
-  it('falls back once to a design saved under the pre-adoption order id', async () => {
-    getQueue = [{ status: 404 }, { status: 404 }];
-    setup({ legacy: 'PE-OLD' });
-    await waitFor(() => expect(gets).toHaveLength(2));
-    expect(gets).toEqual(['/api/embed/proxy/canvas-state/EXT-1/', '/api/embed/proxy/canvas-state/PE-OLD/']);
+  it('asks for its own order only: nothing saved is not retried under another order id', async () => {
+    getQueue = [{ status: 404 }, { status: 200, body: { editor_state: { layoutName: 'classic_4x6', surfaces: [{ key: 'default', canvases: [canvas([frame()])] }] } } }];
+    const { result } = setup();
+    await waitFor(() => expect(result.current.restoreSettled).toBe(true));
+    expect(gets).toEqual(['/api/embed/proxy/canvas-state/EXT-1/']);
+    expect(result.current.canvases).toEqual([]);
   });
 
   it('ignores a design saved for a different template', async () => {

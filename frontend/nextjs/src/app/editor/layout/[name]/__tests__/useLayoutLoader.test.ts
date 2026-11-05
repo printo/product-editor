@@ -89,20 +89,19 @@ describe('useLayoutLoader', () => {
     expect(p.setOrderId).not.toHaveBeenCalled();
   });
 
-  it('embed: adopts the session order id before the layout is set, remembering the old id', async () => {
+  it('embed: adopts the session order id before the layout is set', async () => {
     serve({ layout: LAYOUT_4X6, order_id: 'EXT-SESSION' });
     const p = props({ embedToken: 'tok' });
-    const { result } = renderHook(() => useLayoutLoader(p));
+    renderHook(() => useLayoutLoader(p));
     await loaded(p);
     expect(p.setOrderId).toHaveBeenCalledWith('EXT-SESSION');
     expect(order).toEqual(['setOrderId', 'setLayout']);
-    expect(result.current.legacyOrderIdRef.current).toBe('PE-LOCAL');
   });
 
   it('keeps its own order id on the dashboard, and when the session id is the same', async () => {
     serve({ layout: LAYOUT_4X6, order_id: 'EXT-SESSION' });
     const p = props();
-    const { result } = renderHook(() => useLayoutLoader(p));
+    renderHook(() => useLayoutLoader(p));
     await loaded(p);
     serve({ layout: LAYOUT_4X6, order_id: 'PE-LOCAL' });
     const q = props({ embedToken: 'tok' });
@@ -110,7 +109,6 @@ describe('useLayoutLoader', () => {
     await loaded(q);
     expect(p.setOrderId).not.toHaveBeenCalled();
     expect(q.setOrderId).not.toHaveBeenCalled();
-    expect(result.current.legacyOrderIdRef.current).toBeNull();
   });
 
   it.each([[12, 12], [0, null], [2.5, null], ['12', null], [null, null]])('session quantity %p → adopted: %p (null = not adopted)', async (qty, adopted) => {

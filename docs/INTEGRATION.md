@@ -467,7 +467,7 @@ urlpatterns = [
 
 ### 3. Tell Product Editor where to call you
 
-When your storefront creates an embed session, include `callback_url`:
+When your storefront creates an embed session, include `callback_url`. **`order_id` is required on every session** (the call answers `400 order_id is required` without it): it ties the session to one order, and the editor reads and saves that order's design and no other.
 
 ```bash
 curl -X POST https://product-editor.printo.in/api/embed/session \

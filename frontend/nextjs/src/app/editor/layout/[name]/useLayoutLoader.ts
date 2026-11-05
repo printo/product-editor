@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
 import { calendarPageCount, calendarPhotoSlots, monthHeadingEnabled, printedHolidayLocale } from '@/lib/calendar';
 import type { BookLayoutLike } from '@/lib/book-layout';
@@ -50,10 +50,6 @@ export function useLayoutLoader({
   /** What the server did with the orientation: see services/layout_orientation.py. */
   setOrientationReport?: Setter<OrientationReport | null>;
 }) {
-  // The client-generated id in play before the embed session id was adopted —
-  // lets the restore effect fall back to a pre-adoption autosave once.
-  const legacyOrderIdRef = useRef<string | null>(null);
-
   // (Fonts are no longer fetched here — they're batched with the layout JSON
   //  in the single /editor/init request below.)
 
@@ -101,7 +97,6 @@ export function useLayoutLoader({
         // setLayout so React batches them and the run-once restore effect
         // fires with the adopted id. Dashboard: payload.order_id is null.
         if (embedToken && typeof payload.order_id === 'string' && payload.order_id && payload.order_id !== orderId) {
-          legacyOrderIdRef.current = orderId;
           setOrderId(payload.order_id);
         }
         // Adopt the SESSION quantity when the caller set one — it outranks the
@@ -201,7 +196,6 @@ export function useLayoutLoader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutName, embedToken, status, apiBase, getAuthHeaders, urlTemplateId, urlOrientation]);
 
-  return { legacyOrderIdRef };
 }
 
 /** Keeps the page's `layout` (canvas, frames, mask, dimensions) on the active

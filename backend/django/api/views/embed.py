@@ -96,18 +96,23 @@ class EmbedSessionView(APIView):
             "- Token is a disposable UUID — never the real API key\n"
             "- All subsequent calls from the embed page go through the Next.js server-side proxy "
             "which resolves the token to the real key without exposing it to the browser\n"
-            "- Token expires after 2 hours; generate a fresh one per customer session\n\n"
+            "- Token expires after 2 hours; generate a fresh one per customer session\n"
+            "- **One session, one order.** `order_id` is required (400 `order_id is required` "
+            "without it). Inside the embed, a saved design is read only for the session's "
+            "order, whatever order id shows in the editor's address; any other order answers "
+            "404. Check that the customer owns the order before you create the session\n\n"
             "**Auth:** `Authorization: Bearer <real-api-key>` (server-to-server only)"
         ),
         request=inline_serializer(
             name="EmbedSession",
             fields={
                 "order_id": drf_serializers.CharField(
-                    required=False,
                     help_text=(
-                        "Your job/order identifier. 1-64 chars, `A-Z a-z 0-9 _ . -` only. "
+                        "**Required.** Your job/order identifier. 1-64 chars, `A-Z a-z 0-9 _ . -` only. "
                         "Stored server-side and injected as the `X-Order-ID` header on every "
-                        "upstream call — it never appears in the iframe URL."
+                        "upstream call, so you never need to put it in the iframe URL. It is what "
+                        "ties the session to one order: the editor reads and saves that order's "
+                        "design and no other."
                     ),
                 ),
                 "callback_url": drf_serializers.CharField(
@@ -208,7 +213,7 @@ class EmbedSessionView(APIView):
             ),
             400: OpenApiResponse(
                 description=(
-                    "`order_id` outside `^[A-Za-z0-9_.\\-]{1,64}$`, `callback_url` over "
+                    "`order_id` missing or outside `^[A-Za-z0-9_.\\-]{1,64}$`, `callback_url` over "
                     "2000 chars, `callback_url` failing the https-only + "
                     "public-address SSRF check, or `qty` that is not a whole number "
                     "between 1 and 10000."
@@ -243,8 +248,16 @@ class EmbedSessionView(APIView):
         expires_at = timezone.now() + timedelta(hours=2)
         # Caller's job/order identifier — stored server-side so the proxy can
         # inject it as X-Order-ID without putting it in the iframe URL.
+        # Required: it is what ties a session to one order. A session without
+        # it sends no X-Order-ID, and CanvasStateView.get then has nothing to
+        # hold the browser's order id against.
         order_id = str(request.data.get('order_id', '') or '').strip()
-        if order_id and not self.ORDER_ID_RE.match(order_id):
+        if not order_id:
+            return Response(
+                {'detail': 'order_id is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not self.ORDER_ID_RE.match(order_id):
             return Response(
                 {'detail': 'order_id must be 1-64 chars; allowed: A-Z a-z 0-9 _ . -'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -699,23 +712,43 @@ class CanvasStateView(APIView):
     @extend_schema(
         tags=["canvas-state"],
         summary="Load saved editor state",
+        description=(
+            "Keyed by `(order_id, api_key)`.\n\n"
+            "**In an embed session the path must name the session's own order.** "
+            "The embed proxy sends the session's order id as `X-Order-ID`; a path "
+            "that names any other order answers 404, the same as an order with "
+            "nothing saved. Every customer of one company shares that company's "
+            "API key, so the key alone does not say whose order it is. Requests "
+            "without the header (the dashboard, a partner backend holding the key) "
+            "read any order of their key by id."
+        ),
         responses={
             200: OpenApiResponse(description="Editor state JSON"),
-            404: OpenApiResponse(description="No saved state for this order_id"),
+            404: OpenApiResponse(
+                description="No saved state for this order_id, or the path names an order other than the embed session's."
+            ),
         },
     )
     def get(self, request, order_id: str):
         from api.models import CanvasData
 
-        # NOTE: GET deliberately respects the PATH param (unlike put(), where
-        # the session header wins). The embed proxy injects X-Order-ID on
-        # every request, so header-precedence here would make pre-adoption
-        # autosaves (keyed by the old client-generated id) unreachable — the
-        # client's legacy-id restore fallback needs the path to be honoured.
-        # Tenant scoping below keeps this safe: a key can only read its own rows.
+        # The path id comes from the customer's browser, and every customer of
+        # one company presents that company's key, so the key does not say
+        # whose order this is. In the embed the proxy stamps the session's
+        # order id on the request: serve that order and no other. Same answer
+        # as "nothing saved", so the reply does not say whether the order exists.
+        session_order_id = (request.headers.get('X-Order-ID') or '').strip()
+        if session_order_id and session_order_id != order_id:
+            logger.warning(
+                "Canvas state read refused: session order %s asked for order %s",
+                session_order_id, order_id,
+            )
+            return Response(
+                {'detail': 'No saved state for this order'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        # Resolve the API key so we can scope the lookup to the requesting
-        # tenant.  Two different keys can legitimately share the same order_id
+        # Two different keys can legitimately share the same order_id
         # (e.g. separate embed customers); scoping prevents cross-tenant reads.
         api_key = getattr(request.user, 'api_key', None)
         if not api_key:
