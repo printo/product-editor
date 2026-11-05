@@ -5,9 +5,9 @@
     "semantic_hash": "68b329da9893e34099c7d8ad5cb9c940"
   },
   "backend/django/api/admin.py": {
-    "mtime": 1791914863.692345,
-    "ast_hash": "d50607c198a5a8a036d04efe18442b96",
-    "semantic_hash": "d50607c198a5a8a036d04efe18442b96"
+    "mtime": 1793884259.8547804,
+    "ast_hash": "d74b7d1d55f0a2eec2de5c84bb1e5d88",
+    "semantic_hash": "d74b7d1d55f0a2eec2de5c84bb1e5d88"
   },
   "backend/django/api/apps.py": {
     "mtime": 1791394515.0619674,
@@ -75,14 +75,14 @@
     "semantic_hash": "97e65927e86a4a6a306adf6fa93486bc"
   },
   "backend/django/api/middleware.py": {
-    "mtime": 1791914863.6932528,
-    "ast_hash": "481e3929c8864b687da136bdb3784b6b",
-    "semantic_hash": "481e3929c8864b687da136bdb3784b6b"
+    "mtime": 1793884259.855398,
+    "ast_hash": "4fe69833fb2483413d5f2848af702f88",
+    "semantic_hash": "4fe69833fb2483413d5f2848af702f88"
   },
   "backend/django/api/models.py": {
-    "mtime": 1793281529.3613732,
-    "ast_hash": "b1e23ee080c6077add54e8dc00fb8b57",
-    "semantic_hash": "b1e23ee080c6077add54e8dc00fb8b57"
+    "mtime": 1793884259.8576708,
+    "ast_hash": "bab49175b502b1f8361841afa03394dc",
+    "semantic_hash": "bab49175b502b1f8361841afa03394dc"
   },
   "backend/django/api/permissions.py": {
     "mtime": 1780143284.539341,
@@ -110,9 +110,9 @@
     "semantic_hash": "41edc153fa7dbd16a54401774e994f30"
   },
   "backend/django/api/tasks.py": {
-    "mtime": 1792935193.5711875,
-    "ast_hash": "f57f20c8bf419f976cb7c888acd1325f",
-    "semantic_hash": "f57f20c8bf419f976cb7c888acd1325f"
+    "mtime": 1793884259.8584957,
+    "ast_hash": "c9bd71fe22c83da3555cf8adf2b3c5f7",
+    "semantic_hash": "c9bd71fe22c83da3555cf8adf2b3c5f7"
   },
   "backend/django/api/tests/__init__.py": {
     "mtime": 1789494229.7274122,
@@ -133,6 +133,11 @@
     "mtime": 1791484707.9337575,
     "ast_hash": "b4ecc1159468ae5121cffa07a743f71c",
     "semantic_hash": "b4ecc1159468ae5121cffa07a743f71c"
+  },
+  "backend/django/api/tests/test_canvas_state_own_order.py": {
+    "mtime": 1793868025.8967667,
+    "ast_hash": "6b2f36e7768e09cf2632296b0e1e8265",
+    "semantic_hash": "6b2f36e7768e09cf2632296b0e1e8265"
   },
   "backend/django/api/tests/test_layout_catalogue.py": {
     "mtime": 1788500090.8016472,
@@ -155,9 +160,9 @@
     "semantic_hash": "ab00415067e753a43ebadc448b927e89"
   },
   "backend/django/api/tests/test_layout_templates.py": {
-    "mtime": 1793281529.362304,
-    "ast_hash": "bf4b0c73c8c48a4ea11148d226c5f725",
-    "semantic_hash": "bf4b0c73c8c48a4ea11148d226c5f725"
+    "mtime": 1793868025.8971257,
+    "ast_hash": "be0e0c026db3fa6851dbbf7b67969541",
+    "semantic_hash": "be0e0c026db3fa6851dbbf7b67969541"
   },
   "backend/django/api/tests/test_order_purge.py": {
     "mtime": 1791874092.0281057,
@@ -174,10 +179,30 @@
     "ast_hash": "63408f64acafb54c42f56fd6bfa32d15",
     "semantic_hash": "63408f64acafb54c42f56fd6bfa32d15"
   },
+  "backend/django/api/tests/test_restore_manifest_api.py": {
+    "mtime": 1793884259.8588872,
+    "ast_hash": "a1fee45e7236bd95890f36da67d1901f",
+    "semantic_hash": "a1fee45e7236bd95890f36da67d1901f"
+  },
+  "backend/django/api/tests/test_rollback_safe_columns.py": {
+    "mtime": 1793884259.859226,
+    "ast_hash": "3d2e04fd0b9acdc01424ded91f511b1d",
+    "semantic_hash": "3d2e04fd0b9acdc01424ded91f511b1d"
+  },
+  "backend/django/api/tests/test_text_printable.py": {
+    "mtime": 1793884259.8596365,
+    "ast_hash": "18273312d4f1f332776f224c4763d22f",
+    "semantic_hash": "18273312d4f1f332776f224c4763d22f"
+  },
+  "backend/django/api/tests/test_upload_from_url.py": {
+    "mtime": 1793884259.8599532,
+    "ast_hash": "b0cd007d869ae7a918441ec707f837ae",
+    "semantic_hash": "b0cd007d869ae7a918441ec707f837ae"
+  },
   "backend/django/api/urls.py": {
-    "mtime": 1793281529.363053,
-    "ast_hash": "81b445811929573fb3b6cb88f6648b6f",
-    "semantic_hash": "81b445811929573fb3b6cb88f6648b6f"
+    "mtime": 1793884259.8604326,
+    "ast_hash": "4e41fe1d91d6cb3657dca1829b663154",
+    "semantic_hash": "4e41fe1d91d6cb3657dca1829b663154"
   },
   "backend/django/api/validators.py": {
     "mtime": 1792763727.2151866,
@@ -185,9 +210,9 @@
     "semantic_hash": "2ea383396d40449706b86f9965be282a"
   },
   "backend/django/api/views/__init__.py": {
-    "mtime": 1793281529.3637297,
-    "ast_hash": "5d220e8fab62774a3bcff30b4cd6ecc8",
-    "semantic_hash": "5d220e8fab62774a3bcff30b4cd6ecc8"
+    "mtime": 1793884259.861191,
+    "ast_hash": "4e020ec3441b92a0d3a761d710bd6a17",
+    "semantic_hash": "4e020ec3441b92a0d3a761d710bd6a17"
   },
   "backend/django/api/views/_common.py": {
     "mtime": 1791484707.9347959,
@@ -195,19 +220,19 @@
     "semantic_hash": "72e191f985c8083a4adce3cd71e086b4"
   },
   "backend/django/api/views/calendar_assets.py": {
-    "mtime": 1791870728.4015112,
-    "ast_hash": "c8552bc1386f39c1d3e37523cf875c2f",
-    "semantic_hash": "c8552bc1386f39c1d3e37523cf875c2f"
+    "mtime": 1793884259.8619025,
+    "ast_hash": "049a55d2ef36bf33414a8c401077c4d7",
+    "semantic_hash": "049a55d2ef36bf33414a8c401077c4d7"
   },
   "backend/django/api/views/downloads.py": {
-    "mtime": 1793169476.2606883,
-    "ast_hash": "b5225147483de77b560fc6fdf478dc2b",
-    "semantic_hash": "b5225147483de77b560fc6fdf478dc2b"
+    "mtime": 1793884259.8625448,
+    "ast_hash": "fa81b9438b814f648bd630222d8853ba",
+    "semantic_hash": "fa81b9438b814f648bd630222d8853ba"
   },
   "backend/django/api/views/embed.py": {
-    "mtime": 1793281529.3647332,
-    "ast_hash": "4d96c15ee183108488fa8310756b59d1",
-    "semantic_hash": "4d96c15ee183108488fa8310756b59d1"
+    "mtime": 1793868025.897795,
+    "ast_hash": "5010eb3cdc63f1b92b5b9238bc4f11ff",
+    "semantic_hash": "5010eb3cdc63f1b92b5b9238bc4f11ff"
   },
   "backend/django/api/views/layout_admin.py": {
     "mtime": 1793169476.262624,
@@ -235,9 +260,9 @@
     "semantic_hash": "9fe2d3fe846f41e3a3c60be9899fcc15"
   },
   "backend/django/api/views/render.py": {
-    "mtime": 1792935193.5743432,
-    "ast_hash": "803efec977402fce764484dd6aa04560",
-    "semantic_hash": "803efec977402fce764484dd6aa04560"
+    "mtime": 1793884259.863302,
+    "ast_hash": "3070f8e79c305a4d14f3b87c2da95535",
+    "semantic_hash": "3070f8e79c305a4d14f3b87c2da95535"
   },
   "backend/django/api/views/system.py": {
     "mtime": 1791311362.8996131,
@@ -250,9 +275,9 @@
     "semantic_hash": "df7963980c1e38d867d621264870a35f"
   },
   "backend/django/api/views/uploads.py": {
-    "mtime": 1791345926.9757416,
-    "ast_hash": "2573c5fb767538723a076f11ec5678c9",
-    "semantic_hash": "2573c5fb767538723a076f11ec5678c9"
+    "mtime": 1793884259.8639781,
+    "ast_hash": "c68166bd90c6af79daad5a1d86da5cd5",
+    "semantic_hash": "c68166bd90c6af79daad5a1d86da5cd5"
   },
   "backend/django/entrypoint.sh": {
     "mtime": 1791914863.6946821,
@@ -305,9 +330,9 @@
     "semantic_hash": "3c2b9bffbe0a717df93c706e9110a5b2"
   },
   "backend/django/product_editor/settings.py": {
-    "mtime": 1791884439.3319156,
-    "ast_hash": "eb45c417a069d8b18ddf602c96a7432b",
-    "semantic_hash": "eb45c417a069d8b18ddf602c96a7432b"
+    "mtime": 1793884259.865167,
+    "ast_hash": "79b981ed8a5c33a84d2a8cb7213dac41",
+    "semantic_hash": "79b981ed8a5c33a84d2a8cb7213dac41"
   },
   "backend/django/product_editor/urls.py": {
     "mtime": 1791307155.6135275,
@@ -355,9 +380,9 @@
     "semantic_hash": "2a1387cb54a2bff739584cbfdaa43532"
   },
   "backend/django/services/fonts.py": {
-    "mtime": 1791870728.403456,
-    "ast_hash": "5bf894f906c24ad9323b9e5b426444a7",
-    "semantic_hash": "5bf894f906c24ad9323b9e5b426444a7"
+    "mtime": 1793884259.8664649,
+    "ast_hash": "78a9eddf544b5df3b12ee056b108bcb1",
+    "semantic_hash": "78a9eddf544b5df3b12ee056b108bcb1"
   },
   "backend/django/services/fs_utils.py": {
     "mtime": 1791914863.6952448,
@@ -370,9 +395,9 @@
     "semantic_hash": "d2d471d972e4ae766fe482855e2182cf"
   },
   "backend/django/services/google_fonts.py": {
-    "mtime": 1791870728.4042358,
-    "ast_hash": "ade80f37cd41189203dc1268b2c97d05",
-    "semantic_hash": "ade80f37cd41189203dc1268b2c97d05"
+    "mtime": 1793884259.8668902,
+    "ast_hash": "bcf8dcaf27a73d4fd38054884bd809ed",
+    "semantic_hash": "bcf8dcaf27a73d4fd38054884bd809ed"
   },
   "backend/django/services/heic.py": {
     "mtime": 1786640482.3010337,
@@ -385,9 +410,9 @@
     "semantic_hash": "96d6e599cac9e6c41fdc1d13e7c9e46a"
   },
   "backend/django/services/image_loader.py": {
-    "mtime": 1791394515.0724483,
-    "ast_hash": "5d3ab53adbe54604eaf63911df872b88",
-    "semantic_hash": "5d3ab53adbe54604eaf63911df872b88"
+    "mtime": 1793884259.867689,
+    "ast_hash": "c8769ac6ea3a3d7f7c0cacd86329bc1b",
+    "semantic_hash": "c8769ac6ea3a3d7f7c0cacd86329bc1b"
   },
   "backend/django/services/jobs_per_day.py": {
     "mtime": 1791305279.4820523,
@@ -425,9 +450,14 @@
     "semantic_hash": "0cd4f2ecdd5328700d6764c48491a4fe"
   },
   "backend/django/services/overlay_renderer.py": {
-    "mtime": 1791881869.8037968,
-    "ast_hash": "7f624f16703f8a9fcbaec63fa90f9d99",
-    "semantic_hash": "7f624f16703f8a9fcbaec63fa90f9d99"
+    "mtime": 1793884259.8681846,
+    "ast_hash": "5db016bc1cf47f30cad6940d07dea480",
+    "semantic_hash": "5db016bc1cf47f30cad6940d07dea480"
+  },
+  "backend/django/services/photo_fetch.py": {
+    "mtime": 1793884259.8685231,
+    "ast_hash": "31324011161330b140d2a882775992f5",
+    "semantic_hash": "31324011161330b140d2a882775992f5"
   },
   "backend/django/services/print_sheet.py": {
     "mtime": 1793281529.3679183,
@@ -443,6 +473,11 @@
     "mtime": 1791914863.6956806,
     "ast_hash": "5609dbe1a54d74139953f9af2d477397",
     "semantic_hash": "5609dbe1a54d74139953f9af2d477397"
+  },
+  "backend/django/services/restore_manifest.py": {
+    "mtime": 1793884259.8690877,
+    "ast_hash": "f3947d23eff95d6c453633eddd3e6e12",
+    "semantic_hash": "f3947d23eff95d6c453633eddd3e6e12"
   },
   "backend/django/services/shape_catalog.py": {
     "mtime": 1791881869.8043985,
@@ -480,9 +515,9 @@
     "semantic_hash": "664b0aefaa58077f6e28a11fe967c9a9"
   },
   "backend/django/services/tests/test_audit_middleware.py": {
-    "mtime": 1791874092.0301497,
-    "ast_hash": "e133edba20a0e24485ae330767644b94",
-    "semantic_hash": "e133edba20a0e24485ae330767644b94"
+    "mtime": 1793884259.8700125,
+    "ast_hash": "fafbbd9aca8431cabbc501b25115dba2",
+    "semantic_hash": "fafbbd9aca8431cabbc501b25115dba2"
   },
   "backend/django/services/tests/test_book_layout.py": {
     "mtime": 1786714653.6039011,
@@ -724,6 +759,11 @@
     "ast_hash": "2257b516412a714fe4cd001511543a9b",
     "semantic_hash": "2257b516412a714fe4cd001511543a9b"
   },
+  "backend/django/services/tests/test_photo_fetch.py": {
+    "mtime": 1793884259.8705347,
+    "ast_hash": "058c93ddde04e9e3b361c89fa7fd8033",
+    "semantic_hash": "058c93ddde04e9e3b361c89fa7fd8033"
+  },
   "backend/django/services/tests/test_print_sheet.py": {
     "mtime": 1793169476.2668624,
     "ast_hash": "e27b3064255ca5094787fbd6b445b7c9",
@@ -753,6 +793,11 @@
     "mtime": 1791914863.6958106,
     "ast_hash": "80e3664d562db31cf217ce9d114e99cf",
     "semantic_hash": "80e3664d562db31cf217ce9d114e99cf"
+  },
+  "backend/django/services/tests/test_restore_manifest.py": {
+    "mtime": 1793884259.870954,
+    "ast_hash": "7decaaa2dd7872a27fef4e2bcbfa0280",
+    "semantic_hash": "7decaaa2dd7872a27fef4e2bcbfa0280"
   },
   "backend/django/services/tests/test_shape_catalog_parity.py": {
     "mtime": 1791881869.8090413,
@@ -789,20 +834,30 @@
     "ast_hash": "b81245244a6fe79a0e4f9961fa62335d",
     "semantic_hash": "b81245244a6fe79a0e4f9961fa62335d"
   },
+  "backend/django/services/tests/test_text_coverage.py": {
+    "mtime": 1793884259.8714135,
+    "ast_hash": "d9ac5e1c69049874a0f61843a3729ad6",
+    "semantic_hash": "d9ac5e1c69049874a0f61843a3729ad6"
+  },
   "backend/django/services/tests/test_url_safety.py": {
-    "mtime": 1784128613.1358373,
-    "ast_hash": "56ec06e10aecb04128346da2fb8444eb",
-    "semantic_hash": "56ec06e10aecb04128346da2fb8444eb"
+    "mtime": 1793884259.8726149,
+    "ast_hash": "29459e8a13cce9a5a1c17fb8bd0f3243",
+    "semantic_hash": "29459e8a13cce9a5a1c17fb8bd0f3243"
   },
   "backend/django/services/tests/test_view_path_guards.py": {
     "mtime": 1791399580.5891304,
     "ast_hash": "17cf2eab79d15707b3e606350c31db9a",
     "semantic_hash": "17cf2eab79d15707b3e606350c31db9a"
   },
+  "backend/django/services/text_coverage.py": {
+    "mtime": 1793884259.8734708,
+    "ast_hash": "4317efadf57384aa7b74d43ec470136d",
+    "semantic_hash": "4317efadf57384aa7b74d43ec470136d"
+  },
   "backend/django/services/url_safety.py": {
-    "mtime": 1784128613.136245,
-    "ast_hash": "480e68782b7c7497673a310a475c01f8",
-    "semantic_hash": "480e68782b7c7497673a310a475c01f8"
+    "mtime": 1793884259.8741333,
+    "ast_hash": "18bfeeadf5b8e4ed114b75680662f42e",
+    "semantic_hash": "18bfeeadf5b8e4ed114b75680662f42e"
   },
   "backend/scripts/export_layout_catalogue.py": {
     "mtime": 1788500090.8037,
@@ -815,9 +870,9 @@
     "semantic_hash": "d797ed1392990bbb8eb9ebb5deeb8565"
   },
   "deploy.sh": {
-    "mtime": 1791915479.9726875,
-    "ast_hash": "dd781c37526149cd6c21b9235925be2a",
-    "semantic_hash": "dd781c37526149cd6c21b9235925be2a"
+    "mtime": 1793884259.8753626,
+    "ast_hash": "e28127fc9d6ddb00923684c63529a391",
+    "semantic_hash": "e28127fc9d6ddb00923684c63529a391"
   },
   "fresh-install.sh": {
     "mtime": 1788796794.6630478,
@@ -845,9 +900,9 @@
     "semantic_hash": "f4e961aedb1d7c419cd1aa37949c5f0f"
   },
   "frontend/nextjs/e2e/embed.spec.ts": {
-    "mtime": 1791394515.0774403,
-    "ast_hash": "b91f706f88962bfe3687d180ba47839f",
-    "semantic_hash": "b91f706f88962bfe3687d180ba47839f"
+    "mtime": 1793868025.901733,
+    "ast_hash": "2bd3b0b9a31271dd703c154208b40f62",
+    "semantic_hash": "2bd3b0b9a31271dd703c154208b40f62"
   },
   "frontend/nextjs/e2e/global-setup.ts": {
     "mtime": 1792763727.22488,
@@ -950,14 +1005,14 @@
     "semantic_hash": "193cba7f34e9b35b74b587a718f79782"
   },
   "frontend/nextjs/src/app/api/embed/proxy/[...path]/route.ts": {
-    "mtime": 1792935193.579209,
-    "ast_hash": "b29896f023fbb6139082f6e7ef4ff049",
-    "semantic_hash": "b29896f023fbb6139082f6e7ef4ff049"
+    "mtime": 1793884259.885233,
+    "ast_hash": "c73a763e43283732eaf40aa81f545b84",
+    "semantic_hash": "c73a763e43283732eaf40aa81f545b84"
   },
   "frontend/nextjs/src/app/api/embed/proxy/__tests__/allowlist.test.ts": {
-    "mtime": 1791881869.8139343,
-    "ast_hash": "821b41713902992affe3d57702024c2b",
-    "semantic_hash": "821b41713902992affe3d57702024c2b"
+    "mtime": 1793884259.886631,
+    "ast_hash": "cad58089c779d36052c70ec99ecfd589",
+    "semantic_hash": "cad58089c779d36052c70ec99ecfd589"
   },
   "frontend/nextjs/src/app/api/embed/proxy/__tests__/order-orientation.test.ts": {
     "mtime": 1792935193.5793276,
@@ -1025,19 +1080,19 @@
     "semantic_hash": "4a8696009c7c5a58aa29c8a6d705cb34"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/CanvasCard.tsx": {
-    "mtime": 1793281529.3782399,
-    "ast_hash": "89f5d6e21ace8e352fbdef0dffb873fb",
-    "semantic_hash": "89f5d6e21ace8e352fbdef0dffb873fb"
+    "mtime": 1793884259.8873687,
+    "ast_hash": "b33dbb905f5487ad46a6fd11d2dbc1d0",
+    "semantic_hash": "b33dbb905f5487ad46a6fd11d2dbc1d0"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/CanvasEditorModal.tsx": {
-    "mtime": 1793281529.3790348,
-    "ast_hash": "e62cfe1ac79c20dccf83455438403324",
-    "semantic_hash": "e62cfe1ac79c20dccf83455438403324"
+    "mtime": 1793884259.8885112,
+    "ast_hash": "e6a172f4c1db2d4d86bea560822d6acc",
+    "semantic_hash": "e6a172f4c1db2d4d86bea560822d6acc"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/CanvasEditorSidebar.tsx": {
-    "mtime": 1793281529.3806622,
-    "ast_hash": "422f517a4378ac82180fe95aaace4391",
-    "semantic_hash": "422f517a4378ac82180fe95aaace4391"
+    "mtime": 1793884259.889811,
+    "ast_hash": "d83377f382920c10dfd5c2b66cbc4ece",
+    "semantic_hash": "d83377f382920c10dfd5c2b66cbc4ece"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/CanvasGrid.tsx": {
     "mtime": 1792935193.5808647,
@@ -1050,9 +1105,9 @@
     "semantic_hash": "9b21803b882b7fab33388efe0b585ffa"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/EditorNotices.tsx": {
-    "mtime": 1791399580.5918548,
-    "ast_hash": "7030637c2004d7669f43025bd26d90ef",
-    "semantic_hash": "7030637c2004d7669f43025bd26d90ef"
+    "mtime": 1793884259.8915489,
+    "ast_hash": "7f40454019b82d716040a14df57895e8",
+    "semantic_hash": "7f40454019b82d716040a14df57895e8"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/EditorToolbar.tsx": {
     "mtime": 1793281529.3815212,
@@ -1070,9 +1125,9 @@
     "semantic_hash": "b4f80136b7119e53ba9065123cdfcde8"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/FabricEditor.tsx": {
-    "mtime": 1793281529.3845289,
-    "ast_hash": "586f098982428d834efd9ac5d980eed3",
-    "semantic_hash": "586f098982428d834efd9ac5d980eed3"
+    "mtime": 1793884259.8929608,
+    "ast_hash": "4eb98668e142b651fef54637dfef4d10",
+    "semantic_hash": "4eb98668e142b651fef54637dfef4d10"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/IconBrowser.tsx": {
     "mtime": 1793281529.385136,
@@ -1085,9 +1140,9 @@
     "semantic_hash": "00767526bcbdd4ccb815d05074c7dc67"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/LayersPanel.tsx": {
-    "mtime": 1791870728.415254,
-    "ast_hash": "5b1ff081b98b7f19ad6dcd3679a28b4a",
-    "semantic_hash": "5b1ff081b98b7f19ad6dcd3679a28b4a"
+    "mtime": 1793868025.9039147,
+    "ast_hash": "60665415d286dcbfda363c88f93abc64",
+    "semantic_hash": "60665415d286dcbfda363c88f93abc64"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/ProcessingOverlay.tsx": {
     "mtime": 1793281529.3863695,
@@ -1105,14 +1160,14 @@
     "semantic_hash": "2025aa16e32d00d0b704a32ae67a3878"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/CanvasEditorSidebar.test.tsx": {
-    "mtime": 1791889143.1284957,
-    "ast_hash": "0ff686f10b97597a12d04dd665b44644",
-    "semantic_hash": "0ff686f10b97597a12d04dd665b44644"
+    "mtime": 1793868025.9047892,
+    "ast_hash": "cc795674cf09c16d04b6c83922ddadff",
+    "semantic_hash": "cc795674cf09c16d04b6c83922ddadff"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/CanvasGrid.test.tsx": {
-    "mtime": 1793281529.3880322,
-    "ast_hash": "26b4903c157033773616b39efdf8da22",
-    "semantic_hash": "26b4903c157033773616b39efdf8da22"
+    "mtime": 1793884259.894347,
+    "ast_hash": "85b2e406dd6f6db56f26917529b3cf1c",
+    "semantic_hash": "85b2e406dd6f6db56f26917529b3cf1c"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/EditorBanners.test.tsx": {
     "mtime": 1791394515.0845594,
@@ -1120,9 +1175,9 @@
     "semantic_hash": "13c5320406a8c924c5e45e8e1f8c86af"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/EditorNotices.test.tsx": {
-    "mtime": 1791394515.0853875,
-    "ast_hash": "ba352efdbd42f66c6665c320a67a92bf",
-    "semantic_hash": "ba352efdbd42f66c6665c320a67a92bf"
+    "mtime": 1793884259.8955107,
+    "ast_hash": "c4b3768bedfca16af403d1abf20dbc0a",
+    "semantic_hash": "c4b3768bedfca16af403d1abf20dbc0a"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/EditorToolbar.test.tsx": {
     "mtime": 1791881869.818115,
@@ -1145,9 +1200,9 @@
     "semantic_hash": "ed0c58ecb60abad1429adc328c5a2a64"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/LayersPanel.test.tsx": {
-    "mtime": 1791870728.418858,
-    "ast_hash": "6e6398641d9c3e55250d2cb15fe42930",
-    "semantic_hash": "6e6398641d9c3e55250d2cb15fe42930"
+    "mtime": 1793868025.9056778,
+    "ast_hash": "b6c58d9a6c2d2c00c17cf15677254c98",
+    "semantic_hash": "b6c58d9a6c2d2c00c17cf15677254c98"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/ProcessingOverlay.test.tsx": {
     "mtime": 1791394515.0871596,
@@ -1175,9 +1230,9 @@
     "semantic_hash": "9ed73f774cbab52dcd45645a8535308d"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/dialogs.test.tsx": {
-    "mtime": 1791394515.0876822,
-    "ast_hash": "7152c61ccf06c0208dfa703984306a64",
-    "semantic_hash": "7152c61ccf06c0208dfa703984306a64"
+    "mtime": 1793884259.8965204,
+    "ast_hash": "4b412c9742f13907b881689b9bc74e6b",
+    "semantic_hash": "4b412c9742f13907b881689b9bc74e6b"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/editor-page-harness.tsx": {
     "mtime": 1791881869.8193939,
@@ -1205,9 +1260,9 @@
     "semantic_hash": "785850d11ebd863e707e44372f457169"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/page.characterization.test.tsx": {
-    "mtime": 1792763727.2307186,
-    "ast_hash": "04c6df272b77e489da97adf25b6967e5",
-    "semantic_hash": "04c6df272b77e489da97adf25b6967e5"
+    "mtime": 1793884259.8980212,
+    "ast_hash": "9c102575fb0c8a8a5d3e3b9037cb8f14",
+    "semantic_hash": "9c102575fb0c8a8a5d3e3b9037cb8f14"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/pinch-utils.test.ts": {
     "mtime": 1784128613.1512957,
@@ -1250,9 +1305,9 @@
     "semantic_hash": "de3efc77d2bfebbcb6b28d9eb4b375cd"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/useDesignPersistence.test.ts": {
-    "mtime": 1791828944.2864106,
-    "ast_hash": "2a3358c64baaf8f3b48ed41397d137ea",
-    "semantic_hash": "2a3358c64baaf8f3b48ed41397d137ea"
+    "mtime": 1793884259.898753,
+    "ast_hash": "d23961538f221739577d469247669e09",
+    "semantic_hash": "d23961538f221739577d469247669e09"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/useEditorEnvironment.test.ts": {
     "mtime": 1791394515.091946,
@@ -1270,9 +1325,9 @@
     "semantic_hash": "3421a5b935d28338bb9c8f67bc477cc5"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/useLayoutLoader.test.ts": {
-    "mtime": 1791394515.092896,
-    "ast_hash": "c7edbf5dad1f6fc0b66990aa49b5b33e",
-    "semantic_hash": "c7edbf5dad1f6fc0b66990aa49b5b33e"
+    "mtime": 1793868025.906549,
+    "ast_hash": "1c9078ddacb9b2fd5b5926a6c4a68365",
+    "semantic_hash": "1c9078ddacb9b2fd5b5926a6c4a68365"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/useLayoutTemplates.test.ts": {
     "mtime": 1793281529.3915236,
@@ -1285,9 +1340,9 @@
     "semantic_hash": "0c44f013c675ebb128788d92fad3b89f"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/useServerRender.test.ts": {
-    "mtime": 1791870728.4201849,
-    "ast_hash": "5d795fc13128327a6d4b84cf307144ac",
-    "semantic_hash": "5d795fc13128327a6d4b84cf307144ac"
+    "mtime": 1793884259.8993614,
+    "ast_hash": "b37544fa9c4983a4020e6fcb3d658017",
+    "semantic_hash": "b37544fa9c4983a4020e6fcb3d658017"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/__tests__/useStickyToolbar.test.ts": {
     "mtime": 1791394515.0935512,
@@ -1298,6 +1353,11 @@
     "mtime": 1791394515.0938804,
     "ast_hash": "bd3ed1d23a0a0d31ab339f9241b46280",
     "semantic_hash": "bd3ed1d23a0a0d31ab339f9241b46280"
+  },
+  "frontend/nextjs/src/app/editor/layout/[name]/__tests__/useUnprintableText.test.ts": {
+    "mtime": 1793884259.899926,
+    "ast_hash": "4e1d6d49a9713502204d5e629786969f",
+    "semantic_hash": "4e1d6d49a9713502204d5e629786969f"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/book-pages.ts": {
     "mtime": 1793169476.2729564,
@@ -1325,14 +1385,14 @@
     "semantic_hash": "2125636a9ce0efa41aaec3307ed3a923"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/dialogs/DownloadOptionsDialog.tsx": {
-    "mtime": 1793281529.3940673,
-    "ast_hash": "6f2dd959744f3a1b363660113e20fb35",
-    "semantic_hash": "6f2dd959744f3a1b363660113e20fb35"
+    "mtime": 1793884259.9008694,
+    "ast_hash": "a76fcccd27a8be1cfdf59505b553f51e",
+    "semantic_hash": "a76fcccd27a8be1cfdf59505b553f51e"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/dialogs/EmbedDisclaimerDialog.tsx": {
-    "mtime": 1793281529.3947082,
-    "ast_hash": "c3d7ccb6d7b1f285613d7492901e612a",
-    "semantic_hash": "c3d7ccb6d7b1f285613d7492901e612a"
+    "mtime": 1793884259.902897,
+    "ast_hash": "aa6d7671e9f5cfd3649d20477ac98a7d",
+    "semantic_hash": "aa6d7671e9f5cfd3649d20477ac98a7d"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/dialogs/OverQuantityDialog.tsx": {
     "mtime": 1793281529.3950226,
@@ -1360,9 +1420,9 @@
     "semantic_hash": "bda5e9e69e7042bacabd6928fafa6fbb"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/fabric-renderer.ts": {
-    "mtime": 1793169476.2735257,
-    "ast_hash": "777df97ef33e804d869d74b05498a118",
-    "semantic_hash": "777df97ef33e804d869d74b05498a118"
+    "mtime": 1793884259.903956,
+    "ast_hash": "b28af7bdeb29a35ee7c1646d69780082",
+    "semantic_hash": "b28af7bdeb29a35ee7c1646d69780082"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/file-refs.ts": {
     "mtime": 1790697734.6812415,
@@ -1395,9 +1455,9 @@
     "semantic_hash": "2680faea6c463c96df5f5205418c2054"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/page.tsx": {
-    "mtime": 1793281529.3981178,
-    "ast_hash": "811e8452ed4fdfd399033a2658bc3f77",
-    "semantic_hash": "811e8452ed4fdfd399033a2658bc3f77"
+    "mtime": 1793884259.9044619,
+    "ast_hash": "2ef80ca5fd4b68df2a1dd17b763bc889",
+    "semantic_hash": "2ef80ca5fd4b68df2a1dd17b763bc889"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/pinch-utils.ts": {
     "mtime": 1784128613.1538317,
@@ -1440,9 +1500,9 @@
     "semantic_hash": "ca4b231f3572267675199b56816ae555"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/useDesignPersistence.ts": {
-    "mtime": 1793169476.2753177,
-    "ast_hash": "14607da39c067d150b27ae6176071752",
-    "semantic_hash": "14607da39c067d150b27ae6176071752"
+    "mtime": 1793884259.906336,
+    "ast_hash": "ec5eb2f0a61fe2a938a6363cb6e9cc3d",
+    "semantic_hash": "ec5eb2f0a61fe2a938a6363cb6e9cc3d"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/useEditorEnvironment.ts": {
     "mtime": 1792935193.5841851,
@@ -1460,9 +1520,9 @@
     "semantic_hash": "d15544a76c02cd4e72a6eba19da9cf79"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/useLayoutLoader.ts": {
-    "mtime": 1793169476.2769268,
-    "ast_hash": "d5c309e85de60d31e98b5b7c13c7ad99",
-    "semantic_hash": "d5c309e85de60d31e98b5b7c13c7ad99"
+    "mtime": 1793868025.909679,
+    "ast_hash": "fb36a66125b96234a647ebf37f30b0f0",
+    "semantic_hash": "fb36a66125b96234a647ebf37f30b0f0"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/useLayoutTemplates.ts": {
     "mtime": 1793281529.4001331,
@@ -1475,9 +1535,9 @@
     "semantic_hash": "e1caee104f09dbd16e82a19e9d30e386"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/useServerRender.ts": {
-    "mtime": 1792935193.5852249,
-    "ast_hash": "84942b2f8a080ffde7326f76a3bf0caa",
-    "semantic_hash": "84942b2f8a080ffde7326f76a3bf0caa"
+    "mtime": 1793884259.9068286,
+    "ast_hash": "a463e491b40267f82bac6b237ad308e7",
+    "semantic_hash": "a463e491b40267f82bac6b237ad308e7"
   },
   "frontend/nextjs/src/app/editor/layout/[name]/useStickyToolbar.ts": {
     "mtime": 1791394515.1025388,
@@ -1488,6 +1548,11 @@
     "mtime": 1791874092.0380676,
     "ast_hash": "6ef7b4819bdc0ab573d93baf3808517a",
     "semantic_hash": "6ef7b4819bdc0ab573d93baf3808517a"
+  },
+  "frontend/nextjs/src/app/editor/layout/[name]/useUnprintableText.ts": {
+    "mtime": 1793884259.907889,
+    "ast_hash": "baa61a402eed74b02867a9f767c5b6cd",
+    "semantic_hash": "baa61a402eed74b02867a9f767c5b6cd"
   },
   "frontend/nextjs/src/app/editor/layouts/LayoutFabricPreview.tsx": {
     "mtime": 1793281529.4006686,
@@ -1560,9 +1625,9 @@
     "semantic_hash": "0c252021419a41afe2620b033e0006bd"
   },
   "frontend/nextjs/src/app/editor/layouts/templates/[layout]/[id]/page.tsx": {
-    "mtime": 1793281529.40383,
-    "ast_hash": "5bf3679f5bd6283b962f8e74ac8b4f03",
-    "semantic_hash": "5bf3679f5bd6283b962f8e74ac8b4f03"
+    "mtime": 1793884259.9085991,
+    "ast_hash": "f78a13600f61dfe2da3eb041a1f7266e",
+    "semantic_hash": "f78a13600f61dfe2da3eb041a1f7266e"
   },
   "frontend/nextjs/src/app/editor/layouts/templates/[layout]/page.tsx": {
     "mtime": 1793281529.4044738,
@@ -1645,9 +1710,9 @@
     "semantic_hash": "dabb8a339dfe8e442effc117257677ab"
   },
   "frontend/nextjs/src/components/GoogleFontLinks.tsx": {
-    "mtime": 1791870728.4254475,
-    "ast_hash": "d9c854e4faac57f65f6497287994137c",
-    "semantic_hash": "d9c854e4faac57f65f6497287994137c"
+    "mtime": 1793884259.9103591,
+    "ast_hash": "40291456b2b218d5c362ea42c43c641e",
+    "semantic_hash": "40291456b2b218d5c362ea42c43c641e"
   },
   "frontend/nextjs/src/components/Header.tsx": {
     "mtime": 1791882944.635683,
@@ -1880,9 +1945,9 @@
     "semantic_hash": "88ec13b4fc271b38587f697f2f7307f4"
   },
   "frontend/nextjs/src/lib/__tests__/overlay-fonts.test.ts": {
-    "mtime": 1791870728.4259014,
-    "ast_hash": "617d0104bbee5ae9761f68798a5c77d6",
-    "semantic_hash": "617d0104bbee5ae9761f68798a5c77d6"
+    "mtime": 1793884259.9123383,
+    "ast_hash": "cfcb99b982de3243163058e84453d57d",
+    "semantic_hash": "cfcb99b982de3243163058e84453d57d"
   },
   "frontend/nextjs/src/lib/__tests__/overlay-geometry.test.ts": {
     "mtime": 1791881869.8342693,
@@ -1908,6 +1973,11 @@
     "mtime": 1786512861.4636352,
     "ast_hash": "46bd5bd45246aa91f77a27181705be55",
     "semantic_hash": "46bd5bd45246aa91f77a27181705be55"
+  },
+  "frontend/nextjs/src/lib/__tests__/print-coverage.test.ts": {
+    "mtime": 1793884259.912797,
+    "ast_hash": "2dae0363d7fed07f2717562120f0d344",
+    "semantic_hash": "2dae0363d7fed07f2717562120f0d344"
   },
   "frontend/nextjs/src/lib/__tests__/print-sheet.test.ts": {
     "mtime": 1793281529.4169557,
@@ -2055,9 +2125,9 @@
     "semantic_hash": "578bb469110b693520be2576baca4cfe"
   },
   "frontend/nextjs/src/lib/overlay-fonts.ts": {
-    "mtime": 1791870728.4263425,
-    "ast_hash": "04f20517fa1a33d245fc1c6d2ce983fa",
-    "semantic_hash": "04f20517fa1a33d245fc1c6d2ce983fa"
+    "mtime": 1793884259.9132073,
+    "ast_hash": "32f99299ed779c5292a927402dea4baa",
+    "semantic_hash": "32f99299ed779c5292a927402dea4baa"
   },
   "frontend/nextjs/src/lib/overlay-geometry.ts": {
     "mtime": 1791881869.836207,
@@ -2083,6 +2153,11 @@
     "mtime": 1786512861.4649432,
     "ast_hash": "1dfcc08103a1979e57e14d5e83ce8a41",
     "semantic_hash": "1dfcc08103a1979e57e14d5e83ce8a41"
+  },
+  "frontend/nextjs/src/lib/print-coverage.ts": {
+    "mtime": 1793884259.9134948,
+    "ast_hash": "63cb7562ff9aac27409d6588531646e7",
+    "semantic_hash": "63cb7562ff9aac27409d6588531646e7"
   },
   "frontend/nextjs/src/lib/print-sheet.ts": {
     "mtime": 1793281529.4191854,
@@ -2214,6 +2289,11 @@
     "ast_hash": "e60f8e203d33bd461f41a4e675a8a87a",
     "semantic_hash": "e60f8e203d33bd461f41a4e675a8a87a"
   },
+  "scripts/make-blank-font.py": {
+    "mtime": 1793884259.9138203,
+    "ast_hash": "5f69fc068f1bc5aa4b329866abb8f198",
+    "semantic_hash": "5f69fc068f1bc5aa4b329866abb8f198"
+  },
   "scripts/prune-env.sh": {
     "mtime": 1788796794.6721497,
     "ast_hash": "49fb406c11455eb073786cb2aaabfa67",
@@ -2325,9 +2405,9 @@
     "semantic_hash": "913c2713a70408abd9f7f892b17a1cc1"
   },
   "CLAUDE.md": {
-    "mtime": 1793281529.3602533,
-    "ast_hash": "b132b8003abd0f78a64ba560f4e905bf",
-    "semantic_hash": "b132b8003abd0f78a64ba560f4e905bf"
+    "mtime": 1793884259.8540697,
+    "ast_hash": "edfb189bd80bb0d2a08ada52b4e3d9b6",
+    "semantic_hash": "edfb189bd80bb0d2a08ada52b4e3d9b6"
   },
   "CSP_MONITORING_PLAN.md": {
     "mtime": 1791484707.92985,
@@ -2370,9 +2450,9 @@
     "semantic_hash": "ef576a19208880e5f330d408fa0749ec"
   },
   "backend/django/requirements.txt": {
-    "mtime": 1792763727.2190478,
-    "ast_hash": "d70e58bdd40720596be847e9fa9e4a72",
-    "semantic_hash": "d70e58bdd40720596be847e9fa9e4a72"
+    "mtime": 1793884259.8659406,
+    "ast_hash": "fec1bfe6520be850939bd1823e314b71",
+    "semantic_hash": "fec1bfe6520be850939bd1823e314b71"
   },
   "backend/django/services/tests/fixtures/README.md": {
     "mtime": 1791870728.4078698,
@@ -2385,9 +2465,9 @@
     "semantic_hash": "c2b35fc90bd499d8dac00a3a3f895bc7"
   },
   "docs/AI_GUARDRAILS.md": {
-    "mtime": 1793169476.2676175,
-    "ast_hash": "03ab5d20c65041f9f747d524a3ba5e75",
-    "semantic_hash": "03ab5d20c65041f9f747d524a3ba5e75"
+    "mtime": 1793884259.878056,
+    "ast_hash": "2b778c9b0259ecf3229b05437ffbf66b",
+    "semantic_hash": "2b778c9b0259ecf3229b05437ffbf66b"
   },
   "docs/API_SURFACE_SEPARATION_PRD.md": {
     "mtime": 1791307155.6189353,
@@ -2415,9 +2495,9 @@
     "semantic_hash": "ae7707ee307cd23aae75a05e8cc009ac"
   },
   "docs/DATA_LIFECYCLE.md": {
-    "mtime": 1791874092.0319774,
-    "ast_hash": "f6575ce060e8252fafa06954817c6a90",
-    "semantic_hash": "f6575ce060e8252fafa06954817c6a90"
+    "mtime": 1793884259.8791907,
+    "ast_hash": "ebe0fcfc0dd07aef8f99039f467a0e92",
+    "semantic_hash": "ebe0fcfc0dd07aef8f99039f467a0e92"
   },
   "docs/DPDP_ERASURE_GAP_PRD.md": {
     "mtime": 1785057410.5033607,
@@ -2425,14 +2505,14 @@
     "semantic_hash": "ea7d8cae6dbfe1685dd72ff086508c44"
   },
   "docs/HISTORY.md": {
-    "mtime": 1793281529.3718812,
-    "ast_hash": "d57d33f9070c6b5275d7442b0d85ee16",
-    "semantic_hash": "d57d33f9070c6b5275d7442b0d85ee16"
+    "mtime": 1793884259.8802586,
+    "ast_hash": "dba45b4510bdf76f219d07f3e6de081e",
+    "semantic_hash": "dba45b4510bdf76f219d07f3e6de081e"
   },
   "docs/INTEGRATION.md": {
-    "mtime": 1793281529.3726315,
-    "ast_hash": "c6f77bbb5786f0925ec3dd0192c62b5b",
-    "semantic_hash": "c6f77bbb5786f0925ec3dd0192c62b5b"
+    "mtime": 1793884259.8814216,
+    "ast_hash": "4ce6ebbef848005263dcc56ffea9503a",
+    "semantic_hash": "4ce6ebbef848005263dcc56ffea9503a"
   },
   "docs/LARGE_FILE_SPLIT_PLAN.md": {
     "mtime": 1791399580.5908182,
