@@ -177,8 +177,9 @@ SPECTACULAR_SETTINGS = {
         "The embed system lets external sites display the full canvas editor inside an iframe "
         "without exposing a real API key in the URL.\n\n"
         "```\n"
-        "1. Your server  → POST /api/embed/session  (with real API key;\n"
-        "                   optionally include callback_url for the completion webhook)\n"
+        "1. Your server  → POST /api/embed/session  (with real API key and your\n"
+        "                   order_id, which is required; optionally callback_url\n"
+        "                   for the completion webhook)\n"
         "                ← { token: '<uuid>', expires_at: '...' }\n\n"
         "2. Your frontend → open iframe:\n"
         "   https://product-editor.printo.in/editor/layout/<name>?token=<uuid>\n\n"
@@ -196,7 +197,12 @@ SPECTACULAR_SETTINGS = {
         "   message hands you the signal instead; no-op until you add a listener\n"
         "   (see docs/INTEGRATION.md).\n"
         "```\n\n"
-        "Token TTL is **2 hours**. Generate a fresh token per customer session."
+        "Token TTL is **2 hours**. Generate a fresh token per customer session.\n\n"
+        "**One session, one order.** Every session is created for one `order_id`, and "
+        "inside the embed the editor reads and saves that order's design and no other. "
+        "The order id that shows in the editor's address is not trusted: your customers "
+        "all share your API key, so only the session says whose order it is. Create the "
+        "session only after you have checked that the customer owns the order."
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,

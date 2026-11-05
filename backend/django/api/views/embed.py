@@ -96,7 +96,11 @@ class EmbedSessionView(APIView):
             "- Token is a disposable UUID — never the real API key\n"
             "- All subsequent calls from the embed page go through the Next.js server-side proxy "
             "which resolves the token to the real key without exposing it to the browser\n"
-            "- Token expires after 2 hours; generate a fresh one per customer session\n\n"
+            "- Token expires after 2 hours; generate a fresh one per customer session\n"
+            "- **One session, one order.** `order_id` is required (400 `order_id is required` "
+            "without it). Inside the embed, a saved design is read only for the session's "
+            "order, whatever order id shows in the editor's address; any other order answers "
+            "404. Check that the customer owns the order before you create the session\n\n"
             "**Auth:** `Authorization: Bearer <real-api-key>` (server-to-server only)"
         ),
         request=inline_serializer(
