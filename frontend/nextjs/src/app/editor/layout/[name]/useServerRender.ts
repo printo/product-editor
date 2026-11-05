@@ -5,6 +5,7 @@ import type { CalendarTheme, CalendarType } from '@/types/calendar';
 import { isAllowedImageFile, unsupportedFilesMessage, uploadFiles } from '@/lib/upload-utils';
 import { getCanvasSpec, type CanvasSpec } from '@/lib/layout-utils';
 import { needsRasterForPrint, overlayRasterSize, rasterFileName, rasterizeSvgUrl } from '@/lib/icon-raster';
+import { ownIconUrl } from '@/lib/icon-source';
 import { formatWait, isLostLocalImage } from './editor-utils';
 import type { CanvasItem, FrameState, ImageOverlay, Overlay, SurfaceState } from './types';
 import type { RestoredPhotos, RestoredPhotoStatus } from './restored-photos';
@@ -86,7 +87,8 @@ export function useServerRender({
     const key = `${ov.src}|${width}x${height}`;
     let raster = iconRastersRef.current.get(key);
     if (!raster) {
-      raster = rasterizeSvgUrl(ov.src, width, height, rasterFileName(ov.label));
+      // From our own copy of the icon, never from Iconify (lib/icon-source.ts).
+      raster = rasterizeSvgUrl(ownIconUrl(ov.src), width, height, rasterFileName(ov.label));
       iconRastersRef.current.set(key, raster);
       raster.catch(() => iconRastersRef.current.delete(key));
     }

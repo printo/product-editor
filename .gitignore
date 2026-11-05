@@ -93,6 +93,8 @@ storage/gc_last_run.json
 storage/purge_ledger.jsonl
 # Text-overlay fonts fetched from Google Fonts (services/google_fonts.py).
 storage/font_cache/
+# Icons fetched once from Iconify and kept (services/icon_store.py; S3 icon-cache/ on prod).
+storage/icon_cache/
 
 # nginx (origin TLS material + basic-auth users — never commit)
 proxy/nginx/certs/*

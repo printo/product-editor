@@ -1,11 +1,16 @@
 'use client';
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Search, Loader2, Sparkles, X } from 'lucide-react';
+import { ImageOff, Search, Loader2, Sparkles, X } from 'lucide-react';
+import { iconifyUrl, ownIconUrl } from '@/lib/icon-source';
 import type { ImageOverlay } from './types';
 
 interface IconBrowserProps {
   onAddImage: (overlay: ImageOverlay) => void;
+  /** The page's API proxy and its auth headers, for the search. Without
+   *  them only the starter icons show. */
+  apiBase?: string;
+  getAuthHeaders?: () => Record<string, string>;
 }
 
 interface IconResult {
@@ -35,46 +40,49 @@ const INITIAL_ICONS = [
   { prefix: 'logos',             name: 'whatsapp' },
 ];
 
-async function searchIcons(query: string): Promise<IconResult[]> {
+type IconSearch = { items: IconResult[]; busy: boolean };
+
+/**
+ * Icons for a search, through our own server (backend services/icon_store.py),
+ * which keeps a copy of every icon it has served. Until 2026-11-05 the browser
+ * asked Iconify itself, for the search and for each of the sixty tiles, and
+ * Iconify blocked the customer's address after about three searches.
+ * `busy` means the server could not ask Iconify just now.
+ */
+async function searchIcons(
+  query: string, apiBase?: string, getAuthHeaders?: () => Record<string, string>,
+): Promise<IconSearch> {
   const q = query.toLowerCase().trim();
-  
+
   if (q.length === 0) {
-    return INITIAL_ICONS.map(item => ({
-      ...item,
-      svgUrl: `https://api.iconify.design/${item.prefix}/${item.name}.svg`,
-    }));
+    return { items: INITIAL_ICONS.map(item => ({ ...item, svgUrl: iconifyUrl(item.prefix, item.name) })), busy: false };
   }
 
-  if (q.length < 2) return [];
+  if (q.length < 2 || !apiBase) return { items: [], busy: false };
 
   try {
-    // We prioritize some color sets by including them in the search or just doing a broad search
-    const res = await fetch(
-      `https://api.iconify.design/search?query=${encodeURIComponent(q)}&limit=60`,
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    const icons: string[] = data.icons || [];
-    return icons.map(fullName => {
-      const [prefix, ...nameParts] = fullName.split(':');
-      const name = nameParts.join(':');
-      return {
-        prefix,
-        name,
-        svgUrl: `https://api.iconify.design/${prefix}/${name}.svg`,
-      };
-    });
+    const res = await fetch(`${apiBase}/icon-search?q=${encodeURIComponent(q)}`, { headers: getAuthHeaders?.() ?? {} });
+    if (!res.ok) return { items: [], busy: res.status === 503 || res.status === 429 };
+    const data = (await res.json()) as { icons?: { prefix: string; name: string }[] };
+    return {
+      items: (data.icons || []).map(({ prefix, name }) => ({ prefix, name, svgUrl: iconifyUrl(prefix, name) })),
+      busy: false,
+    };
   } catch {
-    return [];
+    return { items: [], busy: true };
   }
 }
 
-export function IconBrowser({ onAddImage }: IconBrowserProps) {
+export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowserProps) {
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<IconResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // Tiles whose picture did not load: shown as a plain placeholder, not as
+  // the browser's broken-image mark, and not offered for adding.
+  const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks whether we've already kicked off the default-icon load on expand.
   // Without this, running `doSearch('')` inside the effect would either need
@@ -85,10 +93,12 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
   const doSearch = useCallback(async (q: string) => {
     setLoading(true);
     setSearched(q.trim().length > 0);
-    const items = await searchIcons(q);
+    const { items, busy: serverBusy } = await searchIcons(q, apiBase, getAuthHeaders);
     setResults(items);
+    setBusy(serverBusy);
+    setFailed(new Set());
     setLoading(false);
-  }, []);
+  }, [apiBase, getAuthHeaders]);
 
   // Load default icons the first time the picker expands.
   React.useEffect(() => {
@@ -134,7 +144,7 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
           <p className="text-[11px] font-medium text-slate-900 uppercase">
             {searched ? 'Detected Icons' : 'Premium Library'}
           </p>
-          <span className="text-[10px] text-slate-400 uppercase opacity-60">Iconify API</span>
+          <span className="text-[10px] text-slate-400 uppercase opacity-60">Icon library</span>
         </div>
         <button onClick={() => setExpanded(false)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all">
           <X className="w-4 h-4" />
@@ -159,19 +169,32 @@ export function IconBrowser({ onAddImage }: IconBrowserProps) {
 
       {!loading && results.length === 0 && (
         <div className="py-6 text-center">
-          <p className="text-[10px] text-slate-400 uppercase">No icons found.</p>
+          <p className="text-[10px] text-slate-400 uppercase">
+            {busy ? 'Icon search is busy. Please try again in a minute.' : 'No icons found.'}
+          </p>
         </div>
       )}
 
       {!loading && results.length > 0 && (
         <div className="grid grid-cols-4 gap-2.5 p-3 bg-white border border-slate-100 rounded-xl shadow-sm max-h-72 overflow-y-auto custom-scrollbar">
-          {results.map(item => (
-            <button key={`${item.prefix}:${item.name}`} onClick={() => handleAdd(item)} title={item.name}
-              className="aspect-square bg-slate-50 border border-slate-100 rounded-lg hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all p-2.5 group relative active:scale-90">
-              {item.isLocal && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white shadow-sm z-10" />}
-              <img src={item.svgUrl} alt={item.name} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300" loading="lazy" />
-            </button>
-          ))}
+          {results.map(item => {
+            const key = `${item.prefix}:${item.name}`;
+            const broken = failed.has(key);
+            return (
+              <button key={key} onClick={() => handleAdd(item)} title={broken ? `${item.name} could not be loaded` : item.name}
+                disabled={broken}
+                className="aspect-square bg-slate-50 border border-slate-100 rounded-lg hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all p-2.5 group relative active:scale-90 disabled:opacity-50 disabled:hover:shadow-none disabled:hover:border-slate-100 disabled:hover:bg-slate-50 disabled:active:scale-100">
+                {item.isLocal && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white shadow-sm z-10" />}
+                {broken ? (
+                  <ImageOff className="w-full h-full p-1.5 text-slate-300" aria-label={`${item.name} could not be loaded`} />
+                ) : (
+                  <img src={ownIconUrl(item.svgUrl)} alt={item.name} loading="lazy"
+                    onError={() => setFailed(prev => new Set(prev).add(key))}
+                    className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300" />
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

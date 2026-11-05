@@ -71,6 +71,7 @@ export function CanvasEditorModal({
   activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, selectedFonts,
   setEditingCanvas, setCanvases, onClose, onOpenCanvas,
   getFileUrl, loadGoogleFont, expandPdfPages, serverHeicConvert, unprintableFor, textRemovals = 0,
+  apiBase, getAuthHeaders,
 }: CanvasEditorModalProps) {
 
   // ── Local state (editor-only) ──────────────────────────────────────────────
@@ -462,6 +463,8 @@ export function CanvasEditorModal({
         serverHeicConvert={serverHeicConvert}
         unprintableFor={unprintableFor}
         textRemoved={textRemovals > removalsAtOpen}
+        apiBase={apiBase}
+        getAuthHeaders={getAuthHeaders}
       />
     </div>
   );

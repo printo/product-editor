@@ -12,6 +12,7 @@ from .ops import (  # noqa: F401
     _disk_status,
 )
 from .media import OrientationDetectView, HeicConvertView  # noqa: F401
+from .icons import IconSvgView, IconSearchView  # noqa: F401
 from .layouts import (  # noqa: F401
     ListLayoutsView,
     GetLayoutView,

@@ -223,6 +223,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "generate", "description": "Direct partner render submission and job status polling."},
         {"name": "exports", "description": "Download of rendered print files, as one combined archive or split by part."},
         {"name": "fonts", "description": "Editor font list. Public read, ops write. Unrelated to print rendering, which uses one bundled face."},
+        {"name": "icons", "description": "Icons for the editor's Icons tab, served from this server's permanent cache of the public Iconify library."},
         {"name": "calendar", "description": "Calendar theme presets and holiday data. Public reads for the preview, ops-only writes."},
         {"name": "ops", "description": "Internal tooling: template management, pipeline health, and DPDP erasure. Ops team only."},
     ],
@@ -331,6 +332,13 @@ GC_ORPHAN_SWEEP = os.getenv("GC_ORPHAN_SWEEP", "dry_run")
 # completes in minutes and an embed token lives 2 hours, so a full day cannot
 # catch anything in flight. See services/chunk_staging.py.
 CHUNK_STAGING_MAX_AGE_HOURS = int(os.getenv("CHUNK_STAGING_MAX_AGE_HOURS", "24"))
+
+# How many requests this server may make to api.iconify.design in any five
+# minutes, for icons it has not cached yet (services/icon_store.py). Iconify
+# blocks an address at roughly 180 in a few minutes; staying well under keeps
+# the server's own address from being blocked, which would break uncached
+# icons for every customer at once. Past the cap an uncached icon answers 503.
+ICON_UPSTREAM_BUDGET = int(os.getenv("ICON_UPSTREAM_BUDGET", "100"))
 
 # How long API audit rows are kept, independent of file retention.
 #

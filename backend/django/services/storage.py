@@ -229,6 +229,15 @@ class StorageBackend:
         """Names of every cached font file. FontCacheUnavailable on failure."""
         raise NotImplementedError
 
+    def read_icon_file(self, name: str) -> bytes:
+        """A cached icon's SVG, by name ('<set>/<icon>.svg'). FileNotFoundError
+        if it isn't cached; IconCacheUnavailable if the store couldn't say."""
+        raise NotImplementedError
+
+    def write_icon_file(self, name: str, content: bytes) -> str:
+        """Cache an icon's SVG. Returns the path or key; IOError on failure."""
+        raise NotImplementedError
+
 
 class LocalStorage(StorageBackend):
     """Concrete backend that stores everything on the local filesystem."""
@@ -368,6 +377,25 @@ class LocalStorage(StorageBackend):
 
     def write_font_file(self, name: str, content: bytes) -> str:
         path = _local_font_path(name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, 'wb') as fh:
+            fh.write(content)
+        os.replace(tmp, path)
+        return path
+
+    def read_icon_file(self, name: str) -> bytes:
+        path = _local_icon_path(name)
+        try:
+            with open(path, 'rb') as fh:
+                return fh.read()
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise IconCacheUnavailable(f"Cached icon unreadable: {path}: {exc}") from exc
+
+    def write_icon_file(self, name: str, content: bytes) -> str:
+        path = _local_icon_path(name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = f"{path}.{os.getpid()}.tmp"
         with open(tmp, 'wb') as fh:
@@ -713,6 +741,29 @@ class S3Storage(StorageBackend):
             raise IOError(f"Failed to cache font in S3: {exc}") from exc
         return s3_key
 
+    def icon_key(self, name: str) -> str:
+        """S3 key for a cached icon ('<set>/<icon>.svg')."""
+        return self._s3_key(f"icon-cache/{_check_icon_name(name)}")
+
+    def read_icon_file(self, name: str) -> bytes:
+        s3_key = self.icon_key(name)
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+            return response['Body'].read()
+        except Exception as exc:
+            if _s3_error_code(exc) in _S3_ABSENT_CODES:
+                raise FileNotFoundError(f"Icon not cached in S3: {s3_key}") from exc
+            raise IconCacheUnavailable(f"S3 read failed for {s3_key}: {exc}") from exc
+
+    def write_icon_file(self, name: str, content: bytes) -> str:
+        s3_key = self.icon_key(name)
+        try:
+            self.s3.put_object(Bucket=self.bucket, Key=s3_key, Body=content,
+                               ContentType='image/svg+xml')
+        except Exception as exc:
+            raise IOError(f"Failed to cache icon in S3: {exc}") from exc
+        return s3_key
+
     def list_font_files(self) -> List[str]:
         prefix = self._s3_key("font-cache/")
         names = []
@@ -739,6 +790,11 @@ class MaskUnavailable(Exception):
 
 class FontCacheUnavailable(Exception):
     """The store couldn't say whether a font is cached (outage, credentials).
+    Not FileNotFoundError: the caller would otherwise go and re-fetch it."""
+
+
+class IconCacheUnavailable(Exception):
+    """The store couldn't say whether an icon is cached (outage, credentials).
     Not FileNotFoundError: the caller would otherwise go and re-fetch it."""
 
 
@@ -836,6 +892,21 @@ def _check_font_name(name: str) -> str:
 
 def _local_font_path(name: str) -> str:
     return os.path.join(settings.STORAGE_ROOT, 'font_cache', _check_font_name(name))
+
+
+# '<set>/<icon>.svg' — built by services.icon_store, checked here too because
+# the name becomes a path / key.
+_ICON_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,49}/[a-z0-9][a-z0-9-]{0,99}\.svg$')
+
+
+def _check_icon_name(name: str) -> str:
+    if not _ICON_NAME_RE.match(name or ''):
+        raise ValueError(f"Invalid icon cache name: {name!r}")
+    return name
+
+
+def _local_icon_path(name: str) -> str:
+    return os.path.join(settings.STORAGE_ROOT, 'icon_cache', _check_icon_name(name))
 
 
 _storage_instance: Optional[StorageBackend] = None

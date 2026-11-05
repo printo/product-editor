@@ -6,6 +6,7 @@ import { buildFrameFill, buildFrameCaption } from './frame-fill';
 import { captionOverridesFromMm } from '@/lib/caption-layout';
 import { canvasText, loadOverlayFonts, overlayFontStack } from '@/lib/overlay-fonts';
 import { textBoxWidthPx, textOriginX } from '@/lib/overlay-text';
+import { ownIconUrl } from '@/lib/icon-source';
 
 let picaInstance: any = null;
 
@@ -443,7 +444,7 @@ export async function renderCanvas(
           const iy = (o.y / 100) * canvasH;
           const iw = (o.width / 100) * canvasW;
           const ih = (o.height / 100) * canvasH;
-          const img = await FabricImage.fromURL(o.src, { crossOrigin: 'anonymous' });
+          const img = await FabricImage.fromURL(ownIconUrl(o.src), { crossOrigin: 'anonymous' });
           img.set({
             left: ix, top: iy,
             originX: 'left', originY: 'top',

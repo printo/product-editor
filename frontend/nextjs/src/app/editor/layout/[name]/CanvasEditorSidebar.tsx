@@ -48,6 +48,9 @@ export interface CanvasEditorSidebarProps {
   /** Unsupported characters were taken out of a text box while this editor
    *  was open; say so under the text box. */
   textRemoved?: boolean;
+  /** The page's API proxy and its auth headers, for the icon search. */
+  apiBase?: string;
+  getAuthHeaders?: () => Record<string, string>;
 }
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -151,6 +154,8 @@ export function CanvasEditorSidebar({
   serverHeicConvert,
   unprintableFor,
   textRemoved = false,
+  apiBase,
+  getAuthHeaders,
 }: CanvasEditorSidebarProps) {
 
   const tabForSelection = (sel: LayerSelection): TabKey | null => {
@@ -201,7 +206,7 @@ export function CanvasEditorSidebar({
   // second one could only be added after selecting some other layer.
   const addIconBlock = (
                 <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <IconBrowser onAddImage={imgOverlay => {
+                  <IconBrowser apiBase={apiBase} getAuthHeaders={getAuthHeaders} onAddImage={imgOverlay => {
                     pushUndo(editingCanvas, true);
                     const newOverlay: Overlay = { type: 'image', ...imgOverlay };
                     const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
