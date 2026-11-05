@@ -96,10 +96,15 @@ container_state() {
   docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null || echo missing
 }
 
+# Restarts after which a container that is still not ready is called
+# crash-looping. Docker backs off between restarts, so 3 arrive within about
+# ten seconds of a container that dies on start.
+CRASH_LOOP_RESTARTS="${CRASH_LOOP_RESTARTS:-3}"
+
 wait_for_healthy() {
   local timeout="$1"; shift
   local deadline=$(( SECONDS + timeout ))
-  local svc cid state pending shown=""
+  local svc cid state pending restarts shown=""
 
   while :; do
     pending=""
@@ -112,7 +117,20 @@ wait_for_healthy() {
       state=$(container_state "$cid")
       case "$state" in
         healthy|running) ;;
-        *) pending="${pending} ${svc}(${state})" ;;
+        *)
+          # A container that keeps dying will never become healthy, and every
+          # second spent waiting for it is a second the service is down. Say
+          # so at once, with the container's own last words: on 2026-11-05 the
+          # render worker crash-looped on a library version clash for the whole
+          # 240 s wait before the deploy reported anything.
+          restarts=$(docker inspect -f '{{.RestartCount}}' "$cid" 2>/dev/null || echo 0)
+          if [ "${restarts:-0}" -ge "$CRASH_LOOP_RESTARTS" ]; then
+            print_error "${svc} is crash-looping (${restarts} restarts). Its last output:"
+            docker logs --tail 15 "$cid" 2>&1 | sed 's/^/    /'
+            return 1
+          fi
+          pending="${pending} ${svc}(${state})"
+          ;;
       esac
     done
 
@@ -644,12 +662,49 @@ elif [[ "$MODE" == "both" ]]; then
   fi
 fi
 
+# Prove the freshly built image can reach the queue BEFORE anything changes.
+#
+# The build can succeed and still produce an image whose worker cannot start:
+# on 2026-11-05 a rebuilt image picked up a newer kombu that refuses our pinned
+# redis-py, the worker died on start, and the backend could not dispatch a
+# render either. Three orders failed in the nine minutes it took to ship a pin.
+# The old containers were still healthy at this point in the deploy. Opening
+# the broker connection with the new image raises the same error here, while
+# they are still serving, so the deploy stops and nothing is swapped.
+if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
+  print_header "Queue Check (freshly built image, before anything changes)"
+  docker-compose up -d redis
+  QUEUE_CHECK='
+import sys
+from product_editor.celery import app
+try:
+    with app.connection_for_write() as conn:
+        conn.ensure_connection(max_retries=2, timeout=5)
+        conn.default_channel
+except Exception as exc:
+    print(f"{type(exc).__name__}: {exc}")
+    sys.exit(1)
+print("queue reachable")
+'
+  for svc in backend celery-worker-standard; do
+    if docker-compose run --rm -T --no-deps --entrypoint /opt/venv/bin/python "$svc" -c "$QUEUE_CHECK"; then
+      print_status "The new ${svc} image can reach the queue"
+    else
+      print_error "The new ${svc} image CANNOT reach the queue — aborting before anything is swapped (old code still running)"
+      print_info "Usual cause: a dependency moved under a rebuilt image. Compare 'pip list' in the new image with the backup image."
+      exit 1
+    fi
+  done
+fi
+
 # Run migrations BEFORE recreating app containers. New-code containers
 # started against an unmigrated DB 500 on submits and permanently fail any
 # queued render job (burning its retries in ~14 s, firing a false "failed"
-# webhook at the storefront). Migrations are always backward-compatible
-# (nullable adds / index changes), so old containers keep working while
-# the schema moves first. A migration failure must ABORT the deploy — the
+# webhook at the storefront). Migrations must be backward-compatible
+# (a new column is nullable or carries a database default; index changes), so
+# old containers keep working while the schema moves first, and a rollback
+# can run older code on the newer schema. api/tests/test_rollback_safe_columns.py
+# fails on a new column that is neither. A migration failure must ABORT the deploy — the
 # old code keeps running untouched.
 if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
   print_header "Database Migrations (before container swap)"

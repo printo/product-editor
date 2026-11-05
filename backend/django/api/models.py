@@ -52,7 +52,7 @@ class APIKey(models.Model):
     # customer's browser, so the host must be one this key's owner named here.
     # Blank, the default, keeps POST /api/upload/from-url switched off.
     allowed_photo_hosts = models.TextField(
-        blank=True, default='',
+        blank=True, default='', db_default='',
         help_text="Hosts our server may fetch this key's customer photos from, one per line "
                   "(for example files.example.com). Exact host names only: no https://, no path, "
                   "no wildcard. Blank = fetching photos by link is off for this key.",
@@ -223,7 +223,7 @@ class UploadedFile(models.Model):
     # request for the same photo of the same order returns this row instead of
     # downloading it again, which is what makes a page refresh or a dropped
     # connection cheap. Blank for an ordinary upload.
-    source_key = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    source_key = models.CharField(max_length=64, blank=True, default='', db_default='', db_index=True)
 
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

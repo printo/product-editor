@@ -755,7 +755,9 @@ Smoke: `scripts/smoke-test-calendar.sh`. Benchmark: a 12-surface render was ~1.8
 
 ## Migrations
 
-Run only via the `backend` container. Current latest: `0028_uploadedfile_source_key`.
+Run only via the `backend` container. Current latest: `0029_rollback_safe_defaults`.
+
+**A new column must be nullable or carry a database default (`db_default=`).** `deploy.sh` migrates before it swaps containers, and a rollback runs older code on the newer schema; either way code that predates the column INSERTs without it, and a NOT NULL column whose default lives only in Django makes Postgres refuse the row. `api/tests/test_rollback_safe_columns.py` fails on such a column; don't add to its grandfathered list.
 
 | Migration | Change |
 |---|---|
@@ -785,6 +787,7 @@ Run only via the `backend` container. Current latest: `0028_uploadedfile_source_
 | 0025 | `LayoutTemplate.extra_layouts` (the other same-window-box layouts a template is also offered on; the home layout stays `layout`) and `LayoutTemplate.orientation` (the way a template faces: `''` as drawn, `portrait`, `landscape`; existing rows stay blank). One migration for the whole shared-templates PR, by request |
 | 0026 | `RenderJob.restore_manifest` (nullable JSON, no backfill): the `restore.json` a job's uploads ZIP carries |
 | 0027 | `APIKey.allowed_photo_hosts` (blank on every existing key, which keeps `POST /api/upload/from-url` off until an admin names a host) |
+| 0029 | Database defaults for `APIKey.allowed_photo_hosts` and `UploadedFile.source_key`, which 0027 and 0028 added NOT NULL with a Django-only default: a rollback that day would have failed every photo upload |
 | 0028 | `UploadedFile.source_key` (hash of the link a photo was fetched from; blank on ordinary uploads): a repeat fetch for the same order returns the copy held |
 | 0022 | `APIKey.max_requests_per_day` → `PositiveIntegerField`, default blank (no cap), every existing unchosen value blanked; the field is enforced from here on |
 
@@ -798,6 +801,8 @@ Run only via the `backend` container. Current latest: `0028_uploadedfile_source_
 
 `./deploy.sh [frontend|backend|workers|both]` runs **on the prod server** (`ssh -i … ubuntu@…`, `/home/ubuntu/product-editor`) and **git-pulls `main` first** — push to `main` before deploying. It rebuilds images, migrates *before* swapping containers, force-recreates, health-checks, refreshes fonts, and syncs the nginx config. Prod `.env` is `/home/ubuntu/product-editor/.env`, not the same as local — edit in place (back up as `.env.bak.<ts>`), **never scp local over it**. A `deploy.sh` change takes effect on the deploy *after* the one that pulls it.
 
+- **The freshly built image must reach the queue before anything is swapped.** A build can succeed and still produce a worker that cannot start (2026-11-05: an unpinned `kombu` moved under a rebuilt image and refused the pinned `redis`). "Queue Check" opens the broker connection with the new `backend` and `celery-worker-standard` images right after the build; on failure the deploy exits with the old containers still serving. **`kombu` is pinned in `requirements.txt` next to `redis`; move the two together.**
+- **A crash-looping container fails the deploy at once.** `wait_for_healthy` stops waiting when a not-ready container has restarted `CRASH_LOOP_RESTARTS` (3) times and prints its last log lines, where it used to wait out the whole 240 s. After any deploy, look at `docker ps` for a `Restarting` worker: the backend and `/api/health` stay green while the worker is down, and a submit then answers 202 and fails at dispatch.
 - **A changed `nginx.conf` needs the proxy RECREATED, not reloaded** — it is a single-file bind mount (binds the inode; `git pull` replaces the file). `deploy.sh::sync_proxy_config` does this and verifies; manually: `docker-compose up -d --force-recreate proxy`, then `docker-compose exec proxy nginx -T | grep -c <your change>`.
 - **`entrypoint.sh` (web path) IGNORES its `$@`**: it always runs `migrate` → seeds `DIRECT`/`EXTERNAL`/`TESTING`/`INTERNAL` keys from env → `exec gunicorn`. Use `docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py <cmd>`. The celery paths honour `$1`. The container self-migrates on every boot.
 - **collectstatic runs at image build time** with an inline build-only secret; verify Dockerfile/settings changes with a clean build.
