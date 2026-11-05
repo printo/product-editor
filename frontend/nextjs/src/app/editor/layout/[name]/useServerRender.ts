@@ -172,8 +172,8 @@ export function useServerRender({
         const shown = lost.slice(0, 3).join('; ');
         const more = lost.length > 3 ? `, and ${lost.length - 3} more` : '';
         setError(
-          `${what} could not be recovered (${shown}${more}). Please re-upload ` +
-          `${lost.length > 1 ? 'them' : 'it'} before continuing so your print ` +
+          `${what} could not be loaded (${shown}${more}). Please add ` +
+          `${lost.length > 1 ? 'them' : 'it'} again here before continuing so your print ` +
           `matches your design.`,
         );
         return;

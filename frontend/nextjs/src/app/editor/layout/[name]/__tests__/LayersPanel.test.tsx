@@ -3,7 +3,7 @@ import { LayersPanel } from '../LayersPanel';
 import type { CanvasItem, Overlay } from '../types';
 
 describe('LayersPanel', () => {
-  it('marks an added image that could not be recovered, and only that one', () => {
+  it('marks an added image that could not be loaded, and only that one', () => {
     const overlays = [
       { id: 'a', type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' },
       { id: 'b', type: 'image', source: 'local', originalFile: new File(['x'], 'ok.png'), src: 'blob:ok', label: 'ok.png' },
@@ -15,7 +15,7 @@ describe('LayersPanel', () => {
         onReorderOverlays={jest.fn()} onClearFrame={jest.fn()} onMoveFrameToOverlay={jest.fn()} />,
     );
     expect(screen.getByText('logo.png — missing')).toBeInTheDocument();
-    expect(screen.getByTitle(/Couldn't be recovered on this device/)).toHaveTextContent('logo.png — missing');
+    expect(screen.getByTitle(/Couldn't be loaded on this device/)).toHaveTextContent('logo.png — missing');
     expect(screen.getByText('ok.png')).toBeInTheDocument();
     expect(screen.getByText('Star')).toBeInTheDocument();
     expect(screen.getAllByText(/— missing/)).toHaveLength(1);

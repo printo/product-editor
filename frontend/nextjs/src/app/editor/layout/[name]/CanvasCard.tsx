@@ -11,6 +11,15 @@ import type { CanvasItem, SurfaceState } from './types';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
 
+// A photo this browser does not hold (the design was started on another
+// device or browser, or the browser cleared its store). The badge names the
+// cause in a few words, on the card, because a phone never shows a hover
+// tooltip. It hugs its text and wraps only on a card too narrow for one line,
+// stopping short of the quick-action rail.
+const LOST_PHOTO_TEXT = 'Photo not on this device — tap to add';
+const LOST_IMAGE_TEXT = 'Image not on this device — tap to fix';
+const LOST_BADGE_CLASS = 'absolute bottom-2 left-2 max-w-[calc(100%-4rem)] z-20 flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold leading-tight text-left shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors';
+
 /** What every card needs from the page: drag and pan, the quick actions, tap-to-swap. */
 export type CardProps = {
   layout: { canvas?: { width?: number; height?: number }; frames?: unknown[] };
@@ -119,20 +128,18 @@ export function SurfaceCard({
                   const missingIdx = surfaceCanvas.frames.findIndex(f => (f.fileId || f.fileName) && !f.originalFile);
                   requestReplacePhoto(0, Math.max(0, missingIdx), surface.key);
                 }}
-                className="absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors"
-                title="This photo couldn't be recovered on this device — tap to re-upload it."
+                className={LOST_BADGE_CLASS}
               >
-                <AlertTriangle className="w-3 h-3" />
-                Photo missing — tap to re-upload
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                <span>{LOST_PHOTO_TEXT}</span>
               </button>
             ) : surfaceCanvas?.overlays.some(isLostLocalImage) ? (
               <button
                 onClick={(e) => { e.stopPropagation(); openEditor(0, surface.key); }}
-                className="absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors"
-                title="An image you added couldn't be recovered on this device — tap to re-upload or remove it."
+                className={LOST_BADGE_CLASS}
               >
-                <AlertTriangle className="w-3 h-3" />
-                Added image missing — tap to fix
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                <span>{LOST_IMAGE_TEXT}</span>
               </button>
             ) : lowDpiByCard.has(`${surface.key}:0`) && (
               <div
@@ -332,20 +339,18 @@ export function CanvasCard({
               const missingIdx = canvas.frames.findIndex(f => (f.fileId || f.fileName) && !f.originalFile);
               requestReplacePhoto(idx, Math.max(0, missingIdx));
             }}
-            className="absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors"
-            title="This photo couldn't be recovered on this device — tap to re-upload it."
+            className={LOST_BADGE_CLASS}
           >
-            <AlertTriangle className="w-3 h-3" />
-            Photo missing — tap to re-upload
+            <AlertTriangle className="w-3 h-3 shrink-0" />
+            <span>{LOST_PHOTO_TEXT}</span>
           </button>
         ) : canvas.overlays.some(isLostLocalImage) ? (
           <button
             onClick={(e) => { e.stopPropagation(); openEditor(idx); }}
-            className="absolute bottom-2 left-2 z-20 flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors"
-            title="An image you added couldn't be recovered on this device — tap to re-upload or remove it."
+            className={LOST_BADGE_CLASS}
           >
-            <AlertTriangle className="w-3 h-3" />
-            Added image missing — tap to fix
+            <AlertTriangle className="w-3 h-3 shrink-0" />
+            <span>{LOST_IMAGE_TEXT}</span>
           </button>
         ) : lowDpiByCard.has(`:${idx}`) && (
           <div

@@ -78,7 +78,7 @@ export function LayersPanel({
               <div
                 key={`overlay-${overlay.id}`}
                 onClick={() => onSelect({ type: overlay.type, index: oIdx })}
-                title={lost ? "Couldn't be recovered on this device — re-upload or delete it" : undefined}
+                title={lost ? "Couldn't be loaded on this device — re-upload or delete it" : undefined}
                 className={clsx(
                   'flex items-center gap-1.5 px-2 py-0.5 cursor-pointer transition-all group rounded-lg border',
                   isSelected 

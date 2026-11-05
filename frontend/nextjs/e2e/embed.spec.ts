@@ -25,7 +25,7 @@ test.describe('embed editor (customer iframe)', () => {
 
     await page.reload();
     await expect(cards(page)).toHaveCount(3);
-    await expect(page.getByText('Photo missing — tap to re-upload')).toHaveCount(0);
+    await expect(page.getByText(/not on this device/)).toHaveCount(0);
   });
 
   test('a slow restore is never overwritten by autosave (PR #166)', async ({ page }) => {

@@ -711,7 +711,7 @@ Smoke: `scripts/smoke-test-calendar.sh`. Benchmark: a 12-surface render was ~1.8
 
 ## Hardening surfaces (grep these before touching related code)
 
-- **Never-lose-edits** — `canvas-merge.ts` plans reuse BY FILE IDENTITY; restore repopulates `files` from hydrated frames; "Replace photo" + "Photo missing" badge when `(fileId||fileName) && !originalFile`; lost added images (`isLostLocalImage`) block the submit and open the editor on Re-upload/Delete.
+- **Never-lose-edits** — `canvas-merge.ts` plans reuse BY FILE IDENTITY; restore repopulates `files` from hydrated frames; "Replace photo" + the "Photo not on this device — tap to add" badge (it names the cause on the card, never "missing", and has no hover-only explanation since a phone shows none; `LOST_PHOTO_TEXT` in `CanvasCard.tsx`, 2026-11-05) when `(fileId||fileName) && !originalFile`; lost added images (`isLostLocalImage`) block the submit and open the editor on Re-upload/Delete.
 - **Autosave never writes before the restore lands** — every `canvas-state` PUT goes through `scheduleAutosave`, armed only after `restoreSettled` flips (not `restorePending`, which the embed never sets). Autosave deliberately writes empty state, so an early write wipes the saved design. Don't add another writer.
 - **Embed order id** — `EditorInitView` echoes `X-Order-ID` as `order_id`; the page adopts it before `setLayout`; `CanvasStateView.put` prefers the header.
 - **Mobile** — `pinch-utils.ts` + pointer handlers for two-finger pinch; tap-to-swap (`swapCards`); bottom-sheet sidebar `<md`; per-card Blur toggle and swap button on the quick-action rail.

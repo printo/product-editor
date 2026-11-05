@@ -156,9 +156,9 @@ describe('CanvasCard', () => {
     expect(applied(arg, { idx: 0, surfaceKey: null })).toEqual({ idx: 2, surfaceKey: null });
   });
 
-  it('a photo lost on this device asks to be re-uploaded, at the frame that lost it', () => {
+  it('a photo this device does not hold asks to be added here, at the frame that lost it', () => {
     const { props } = setup({}, canvas({}, [frame(), frame({ originalFile: null, fileName: 'b.jpg' } as Partial<FrameState>)]));
-    fireEvent.click(screen.getByRole('button', { name: /Photo missing/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Photo not on this device — tap to add/ }));
     expect(props.requestReplacePhoto).toHaveBeenCalledWith(2, 1);
   });
 
@@ -166,7 +166,7 @@ describe('CanvasCard', () => {
     const lostImage = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
     const recovered = { type: 'image', source: 'local', originalFile: new File(['x'], 'ok.png'), src: 'blob:ok', label: 'ok.png' } as unknown as Overlay;
     const { props } = setup({}, canvas({ overlays: [recovered, lostImage] }));
-    fireEvent.click(screen.getByRole('button', { name: /Added image missing/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Image not on this device — tap to fix/ }));
     expect(props.openEditor).toHaveBeenCalledWith(2);
     expect(props.handleCardClick).not.toHaveBeenCalled();
   });
@@ -174,15 +174,15 @@ describe('CanvasCard', () => {
   it('a lost photo takes the badge over a lost added image', () => {
     const lostImage = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
     setup({}, canvas({ overlays: [lostImage] }, [frame({ originalFile: null, fileId: 'idb-a' } as Partial<FrameState>)]));
-    expect(screen.getByRole('button', { name: /Photo missing/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Added image missing/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Photo not on this device — tap to add/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Image not on this device — tap to fix/ })).toBeNull();
   });
 
   it('a recovered added image, or clipart, shows no badge', () => {
     const recovered = { type: 'image', source: 'local', originalFile: new File(['x'], 'ok.png'), src: 'blob:ok', label: 'ok.png' } as unknown as Overlay;
     const clipart = { type: 'image', source: 'clipart', src: '/clipart/star.svg', label: 'Star' } as unknown as Overlay;
     setup({}, canvas({ overlays: [recovered, clipart] }));
-    expect(screen.queryByRole('button', { name: /missing/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /not on this device/ })).toBeNull();
   });
 
   it('a low-resolution photo shows its DPI', () => {
@@ -237,7 +237,7 @@ describe('SurfaceCard', () => {
     const props = cardProps();
     const lostImage = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
     render(<SurfaceCard sideCount={2} surface={surface('back', 'Back', canvas({ overlays: [lostImage] }))} {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: /Added image missing/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Image not on this device — tap to fix/ }));
     expect(props.openEditor).toHaveBeenCalledWith(0, 'back');
     expect(props.handleCardClick).not.toHaveBeenCalled();
   });
