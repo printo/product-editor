@@ -7,6 +7,9 @@ import {
 } from '@/lib/print-coverage';
 import type { CanvasItem, Overlay, SurfaceState } from './types';
 
+/** How long to wait before each automatic retry of an unanswered check. */
+const RETRY_DELAYS_MS = [1000, 3000, 8000];
+
 /** A card whose text holds characters the print will leave out. */
 export interface UnprintableText {
   /** "Canvas 3", or the side's label on a multi-sided product. */
@@ -26,7 +29,8 @@ const item = (o: Overlay): PrintableItem | null =>
  * (saved before the answer came, or restored) gets a badge and a notice
  * before submit; that part warns and never blocks. The answer is the
  * server's, cached per font and set of special characters, asked once after
- * typing pauses. A failed or unsure answer changes nothing.
+ * typing pauses. A failed or unsure answer changes nothing, and is asked
+ * again by itself up to three times.
  */
 export function useUnprintableText({ surfaceStates, canvases, editingCanvas, setEditingCanvas, apiBase, getAuthHeaders }: {
   surfaceStates: SurfaceState[];
@@ -38,6 +42,13 @@ export function useUnprintableText({ surfaceStates, canvases, editingCanvas, set
 }) {
   const [known, setKnown] = useState<Map<string, string[]>>(() => new Map());
   const [removals, setRemovals] = useState(0);
+  const [retryTick, setRetryTick] = useState(0);
+  const attemptsRef = useRef(new Map<string, number>());
+  const retryTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = retryTimersRef.current;
+    return () => timers.forEach(clearTimeout);
+  }, []);
   const askedRef = useRef(new Set<string>());
   const requestRef = useRef({ apiBase, getAuthHeaders });
   useEffect(() => { requestRef.current = { apiBase, getAuthHeaders }; }, [apiBase, getAuthHeaders]);
@@ -63,23 +74,56 @@ export function useUnprintableText({ surfaceStates, canvases, editingCanvas, set
     const t = setTimeout(async () => {
       const entries = [...wanted.entries()];
       entries.forEach(([key]) => askedRef.current.add(key));
+      let answers: (string[] | null)[] = entries.map(() => null);
       try {
         const { apiBase: base, getAuthHeaders: headers } = requestRef.current;
-        const results = await fetchUnprintable(base, headers(), entries.map(([, it]) => it));
+        answers = await fetchUnprintable(base, headers(), entries.map(([, it]) => it));
+        // The same map back when nothing was answered: a new one would run
+        // this effect again at once and ask in a loop for as long as the
+        // server stayed unsure.
         setKnown(prev => {
-          const next = new Map(prev);
-          entries.forEach(([key], i) => { const r = results[i]; if (r) next.set(key, r); });
+          let next = prev;
+          entries.forEach(([key], i) => {
+            const r = answers[i];
+            if (!r) return;
+            if (next === prev) next = new Map(prev);
+            next.set(key, r);
+          });
           return next;
         });
       } catch {
         // Best effort: an unanswered check must never disturb the editor.
       } finally {
-        // A key left unanswered is asked again the next time the text changes.
         entries.forEach(([key]) => askedRef.current.delete(key));
+      }
+
+      // Ask again by itself for whatever went unanswered (the request failed,
+      // or the server could not read the font just now): a few tries, further
+      // apart each time. Without this the unsupported character stayed in the
+      // text box, with no toast, until the customer happened to type again.
+      let retryIn: number | null = null;
+      entries.forEach(([key], i) => {
+        if (answers[i]) {
+          attemptsRef.current.delete(key);
+          return;
+        }
+        const tried = attemptsRef.current.get(key) ?? 0;
+        if (tried >= RETRY_DELAYS_MS.length) return;
+        attemptsRef.current.set(key, tried + 1);
+        retryIn = Math.min(retryIn ?? Infinity, RETRY_DELAYS_MS[tried]);
+      });
+      if (retryIn !== null) {
+        const timers = retryTimersRef.current;
+        const retry = setTimeout(() => {
+          timers.delete(retry);
+          setRetryTick(n => n + 1);
+        }, retryIn);
+        timers.add(retry);
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [groups, editingCanvas, known]);
+    // retryTick only re-runs the effect: a key still unanswered is wanted again.
+  }, [groups, editingCanvas, known, retryTick]);
 
   /** The pieces of this overlay's text that won't print; [] when all will, or not yet known. */
   const unprintableFor = useCallback((o: Overlay): string[] => {
