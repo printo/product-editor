@@ -94,6 +94,7 @@ def test_chunk_exemption_does_not_swallow_complete():
     mw = _mw()
     assert not mw._should_audit('/api/upload/abc/chunk')
     assert mw._should_audit('/api/upload/abc/complete')
+    assert mw._should_audit('/api/upload/from-url')        # stores a customer photo
 
 
 def test_exemption_is_prefix_anchored():

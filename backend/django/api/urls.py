@@ -5,7 +5,7 @@ from .views import (
     EmbedSessionView, EmbedSessionValidateView, FontsView,
     RenderStatusView, CeleryMonitoringView, RenderJobDownloadView,
     CanvasStateView, CalendarStylesView, HolidaysView,
-    ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView,
+    ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView, UploadFromUrlView,
     OrientationDetectView, HeicConvertView,
     EditorRenderView, EditorInitView, CSPReportView,
     TemplatesListView, TemplateDetailView, TemplateManagementView, TemplateCandidatesView,
@@ -47,6 +47,7 @@ urlpatterns = [
 
     # Chunked / resumable upload
     path("upload/init", ChunkedUploadInitView.as_view(), name="upload-init"),
+    path("upload/from-url", UploadFromUrlView.as_view(), name="upload-from-url"),
     path("upload/<str:upload_id>/chunk", ChunkedUploadChunkView.as_view(), name="upload-chunk"),
     path("upload/<str:upload_id>/complete", ChunkedUploadCompleteView.as_view(), name="upload-complete"),
 

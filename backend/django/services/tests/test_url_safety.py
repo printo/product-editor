@@ -127,6 +127,58 @@ def test_pin_forces_connection_to_validated_ip():
     assert _socket.getaddrinfo is original
 
 
+def test_streamed_get_is_pinned_only_until_the_headers_arrive():
+    """open_public_get pins like the POST does, refuses redirects, asks for a
+    streamed body, and has released the resolver by the time it returns: the
+    caller reads the body outside the pin."""
+    import socket as _socket
+    from services import url_safety
+
+    original = _socket.getaddrinfo
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+    def _fake_get(self, url, **kw):
+        infos = _socket.getaddrinfo('files.example.com', 443)
+        captured['ips'] = {info[4][0] for info in infos}
+        captured['kw'] = kw
+        return _FakeResp()
+
+    with mock.patch('services.url_safety.socket.getaddrinfo', return_value=_addrinfo('93.184.216.34')):
+        with mock.patch('requests.Session.get', _fake_get):
+            resp = url_safety.open_public_get('https://files.example.com/a.jpg', timeout=(5, 20))
+    assert resp.status_code == 200
+    assert captured['ips'] == {'93.184.216.34'}, captured
+    assert captured['kw']['allow_redirects'] is False and captured['kw']['stream'] is True
+    assert captured['kw']['timeout'] == (5, 20)
+    assert _socket.getaddrinfo is original
+
+
+def test_streamed_get_refuses_an_unsafe_url_before_connecting():
+    from services import url_safety
+    called = {'n': 0}
+
+    def _fake_get(self, url, **kw):
+        called['n'] += 1
+
+    with mock.patch('requests.Session.get', _fake_get):
+        for url in ('http://files.example.com/a.jpg', 'https://127.0.0.1/a.jpg', 'https://169.254.169.254/latest'):
+            try:
+                url_safety.open_public_get(url, timeout=5)
+                raise AssertionError(f'{url} was not refused')
+            except ValidationError:
+                pass
+        with mock.patch('services.url_safety.socket.getaddrinfo', return_value=_addrinfo('10.0.0.7')):
+            try:
+                url_safety.open_public_get('https://files.example.com/a.jpg', timeout=5)
+                raise AssertionError('a host resolving to a private address was not refused')
+            except ValidationError:
+                pass
+    assert called['n'] == 0
+
+
 def test_pin_preserves_all_validated_ips_for_fallback():
     """When a host publishes several public records (e.g. Cloudflare-fronted
     printo.in), the pin must expose ALL of them to urllib3 — each with the

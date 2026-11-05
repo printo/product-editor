@@ -71,6 +71,7 @@ from .uploads import (  # noqa: F401
     ChunkedUploadInitView,
     ChunkedUploadChunkView,
     ChunkedUploadCompleteView,
+    UploadFromUrlView,
     _AnyContentTypeParser,
     UUID_GUARD,
 )
