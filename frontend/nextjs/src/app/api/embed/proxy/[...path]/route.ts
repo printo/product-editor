@@ -160,6 +160,10 @@ const ALLOWED_PATH_METHODS: Record<string, readonly ProxyMethod[]> = {
   'render-status': GET_ONLY,        // poll render status
   'jobs': GET_ONLY,                 // download completed render
   'upload': ['POST', 'PUT'],        // init + complete are POST, chunk is PUT
+  // A restored design's photos are held on the server; the editor shows a
+  // preview of each, and the full photo when the customer zooms in. Read
+  // only, and the upstream serves a photo only to the session's own order.
+  'photos': GET_ONLY,
   'fonts': GET_ONLY,                // list fonts — PUT is ops-only, not via embed
   'embed/session': GET_ONLY,        // self-validate (rare; mostly internal)
   // P7.4 (PRD §5 Phase 7) — calendar customer-facing reads. Required for the

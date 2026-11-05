@@ -218,6 +218,13 @@ class UploadedFile(models.Model):
         help_text="Groups chunks belonging to the same resumable upload session.",
     )
 
+    # Set on a photo fetched by link (POST /api/upload/from-url): a hash of the
+    # link's host and path (services.photo_fetch.source_key_for). A second
+    # request for the same photo of the same order returns this row instead of
+    # downloading it again, which is what makes a page refresh or a dropped
+    # connection cheap. Blank for an ordinary upload.
+    source_key = models.CharField(max_length=64, blank=True, default='', db_index=True)
+
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     expires_at = models.DateTimeField(

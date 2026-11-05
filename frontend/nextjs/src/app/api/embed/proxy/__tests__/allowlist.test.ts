@@ -22,6 +22,7 @@ describe('isPathAllowed — customer flows keep working', () => {
     ['upload/abc/chunk', 'PUT'],
     ['upload/abc/complete', 'POST'],
     ['upload/from-url', 'POST'],
+    ['photos/3f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b90/preview', 'GET'],
     ['render-status/abc/', 'GET'],
     ['jobs/abc/download/', 'GET'],
     ['orientation/detect', 'POST'],
@@ -48,6 +49,8 @@ describe('isPathAllowed — ops writes are not reachable with an embed token', (
     ['templates', 'POST'],
     ['templates/retro-birthday', 'DELETE'],
     ['upload/from-url', 'GET'],
+    ['photos/3f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b90/preview', 'POST'],
+    ['photos/3f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b90/preview', 'DELETE'],
     ['upload/from-url', 'DELETE'],
   ])('rejects %s %s', (path, method) => {
     expect(isPathAllowed(path, method)).toBe(false);

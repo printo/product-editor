@@ -113,6 +113,16 @@ def check_photo_url(url, allowed_hosts) -> str:
     return host
 
 
+def source_key_for(url) -> str:
+    """What a fetched photo is remembered by, so asking for the same photo
+    again for the same order returns the copy already held. The host and path
+    only: a link's query string may be a signature that differs every time."""
+    import hashlib
+    parsed = urlparse(str(url or '').strip())
+    host = (parsed.hostname or '').lower().rstrip('.')
+    return hashlib.sha256(f'{host}{parsed.path}'.encode('utf-8')).hexdigest()
+
+
 def name_from_url(url) -> str:
     """The file name a link ends in, or '' when it has none."""
     try:

@@ -212,6 +212,7 @@ class RateLimitMiddleware(MiddlewareMixin):
     # most-specific first so the prefix check is unambiguous.
     EXEMPT_PREFIXES = (
         '/api/upload/',          # chunked-upload init/chunk/complete
+        '/api/photos/',          # previews of a restored design (per-order limit in the view)
         '/api/render-status/',   # polled every few seconds during render
         '/api/jobs/',            # ZIP download (single hit but large body)
         '/api/health',           # docker healthcheck (every 30 s)
