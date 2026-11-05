@@ -8,7 +8,9 @@
  * that layout's photo windows, never typed, and a layout drawn the other
  * way opens turned a quarter turn, as a customer order in that orientation
  * sees it. Ticking the other same-size layouts happens in the authoring
- * page, where each can be previewed first. Lives under /editor/layouts so proxy.ts keeps it to
+ * page, where each can be previewed first. Import a design reads the JSON of
+ * a design made in the older design tool and opens the authoring page on it
+ * (components/ImportDesignDialog.tsx). Lives under /editor/layouts so proxy.ts keeps it to
  * the Ops tier; every call goes through the internal proxy, whose path gate
  * makes the writes ops-only.
  */
@@ -16,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2, Plus, Search } from 'lucide-react';
+import { ArrowLeft, FileJson, Loader2, Plus, Search } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useHeader } from '@/context/HeaderContext';
 import { readError } from '@/lib/read-error';
@@ -24,6 +26,7 @@ import { useModalA11y } from '@/lib/use-modal-a11y';
 import {
   NO_PRINT_AREAS_KEY, drawnFacing, groupBySize, layoutsInFacing, pairKey, sizeLabel, type BoxFacing, type SizeGroup, type TemplateCandidate,
 } from '@/app/editor/layout/[name]/template-authoring';
+import { ImportDesignDialog } from '@/components/ImportDesignDialog';
 import { DeleteTemplateDialog, OfferedOn, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
 import { OrientationToggle } from '@/components/ui/OrientationToggle';
 
@@ -50,6 +53,11 @@ export default function AllTemplatesPage() {
   const [createSize, setCreateSize] = useState('');
   const [createFacing, setCreateFacing] = useState<BoxFacing | null>(null);
   const [createLayout, setCreateLayout] = useState('');
+  // Importing a design made in the older design tool: its own dialog, mounted while open.
+  const [importing, setImporting] = useState(false);
+  const closeImport = useCallback(() => setImporting(false), []);
+  const layoutNames = useMemo(() => candidates.map(c => c.name), [candidates]);
+  const templateIds = useMemo(() => templates.map(t => t.id), [templates]);
 
   const createRef = useRef<HTMLDivElement | null>(null);
   const closeCreate = useCallback(() => setCreating(false), []);
@@ -229,6 +237,15 @@ export default function AllTemplatesPage() {
           >
             <Plus className="w-3.5 h-3.5" /> Create a template
           </button>
+          <button
+            type="button"
+            onClick={() => setImporting(true)}
+            disabled={loading}
+            title="Bring in a design made in the old design tool by pasting its JSON"
+            className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-700 text-[11px] font-bold uppercase tracking-tight rounded-lg border border-indigo-200 hover:bg-indigo-50 shadow-sm transition-all shrink-0 disabled:opacity-50"
+          >
+            <FileJson className="w-3.5 h-3.5" /> Import a design
+          </button>
         </div>
         <p className="text-xs text-slate-500 mb-5">
           A template is keyed on the size of its home layout&rsquo;s print areas, bleed included, faces one way (portrait or landscape), and can
@@ -274,6 +291,8 @@ export default function AllTemplatesPage() {
       </main>
 
       <DeleteTemplateDialog template={deleteConfirm} onConfirm={remove} onCancel={closeDelete} />
+
+      {importing && <ImportDesignDialog takenNames={layoutNames} takenTemplateIds={templateIds} onClose={closeImport} />}
 
       {creating && (
         <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">

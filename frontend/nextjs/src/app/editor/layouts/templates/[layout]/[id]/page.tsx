@@ -37,9 +37,9 @@ import { useObjectUrls } from '@/app/editor/layout/[name]/useCanvasGeneration';
 import type { CanvasItem, SurfaceState } from '@/app/editor/layout/[name]/types';
 import { isLayoutTemplate, surfaceGeometry, type LayoutTemplate, type TemplateDecoration } from '@/app/editor/layout/[name]/layout-template';
 import {
-  ARTWORK_ACCEPT_ATTR, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, drawnFacing, ineligibleTicked,
-  isEmptyDecoration, isTemplateId, localImageOverlays, nearMissLayouts, sameBoxLayouts, sizeLabel, slugFromName, withArtwork,
-  withoutPhotos, type BoxFacing, type TemplateCandidate,
+  ARTWORK_ACCEPT_ATTR, artworkOverlayFor, authoredOnFor, blankCard, clearImportDraft, dataUrlToPngFile, decorationFromCards, drawnFacing,
+  ineligibleTicked, isEmptyDecoration, isTemplateId, localImageOverlays, nearMissLayouts, readImportDraft, sameBoxLayouts, sizeLabel,
+  slugFromName, withArtwork, withoutPhotos, type BoxFacing, type TemplateCandidate,
 } from '@/app/editor/layout/[name]/template-authoring';
 import type { OrientationReport } from '@/app/editor/layout/[name]/orientation';
 
@@ -103,6 +103,8 @@ export default function TemplateEditorPage() {
   const [turnedHome, setTurnedHome] = useState(false);
   // "Upload artwork" per side: the side being uploaded, and its hidden file input.
   const [artworkBusy, setArtworkBusy] = useState<string | null>(null);
+  // Opened on a design the Templates page's Import dialog read (`?import=1`).
+  const [imported, setImported] = useState(false);
   const artworkInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts(PRINT_FONTS);
@@ -148,7 +150,8 @@ export default function TemplateEditorPage() {
       setLoadError(null);
       try {
         const [fontsRes, templateRes, candidatesRes] = await Promise.all([
-          fetch(`${API}/fonts`),
+          // Fresh, not the browser's five-minute copy: an import may have just added a font.
+          fetch(`${API}/fonts`, { cache: 'no-store' }),
           isNew ? Promise.resolve(null) : fetch(`${API}/ops/templates/${encodeURIComponent(routeId)}`, { cache: 'no-store' }),
           fetch(`${API}/ops/templates/candidates`, { cache: 'no-store' }),
         ]);
@@ -196,7 +199,9 @@ export default function TemplateEditorPage() {
         if (cancelled) return;
         const norm = normalizeLayout(item);
         setNormalized(norm);
-        const decoration: TemplateDecoration | null = template?.decoration ?? null;
+        // A design the Import dialog read waits in this tab for the new template to open on it.
+        const draft = isNew && new URLSearchParams(window.location.search).get('import') ? readImportDraft(layoutName) : null;
+        const decoration: TemplateDecoration | null = template?.decoration ?? draft?.decoration ?? null;
         // Each side's card, drawn so the page shows the decoration at once.
         const sides = await Promise.all(norm.surfaces.map(async def => {
           const card = blankCard(def, decoration);
@@ -213,6 +218,11 @@ export default function TemplateEditorPage() {
           setIdTouched(true);
           setStatus(template.status === 'published' ? 'published' : 'draft');
           setAlsoOn(Array.isArray(template.alsoOn) ? template.alsoOn : []);
+        }
+        if (draft) {
+          setDisplayName(draft.displayName);
+          setTemplateId(slugFromName(draft.displayName));
+          setImported(true);
         }
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : 'Failed to load.');
@@ -377,6 +387,7 @@ export default function TemplateEditorPage() {
       const res = await fetch(`${API}/ops/templates/${encodeURIComponent(id)}`, { method: 'POST', body: form });
       if (!res.ok) throw new Error(await readError(res, `Save failed (HTTP ${res.status}).`));
       setSavedAt(Date.now());
+      if (isNew) clearImportDraft(layoutName);
       if (isNew) router.replace(`/editor/layouts/templates/${encodeURIComponent(layoutName)}/${encodeURIComponent(id)}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.');
@@ -399,6 +410,13 @@ export default function TemplateEditorPage() {
       <GoogleFontLinks fonts={fontsLoaded} />
       <main className="max-w-[1100px] mx-auto px-4 sm:px-8 pt-3 pb-12 flex flex-col gap-6">
         {error && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-lg">{error}</div>}
+        {imported && isNew && (
+          <p role="status" className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-lg px-4 py-3">
+            <span className="font-bold uppercase tracking-tight">Imported design.</span>{' '}
+            This is how the old design reads here. Compare it with the old preview, open it in the canvas editor to change the text or the
+            artwork, then press Create template. Nothing is saved until you do.
+          </p>
+        )}
 
         <section className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 items-end">
           <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500">
