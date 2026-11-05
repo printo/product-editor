@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { X, Minus, Undo2, Redo2, Plus, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
 // FabricImage is used only inside an async callback — imported lazily at call-site below
-import type { CanvasItem, FitMode, SurfaceState } from './types';
+import type { CanvasItem, FitMode, Overlay, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { getImageMetadata } from '@/lib/image-utils';
 import { type LayerSelection } from './LayersPanel';
@@ -56,6 +56,12 @@ export interface CanvasEditorModalProps {
   expandPdfPages: (files: File[], opts: { maxSelectable: number | null }) => Promise<File[]>;
   /** Forwarded to the sidebar's image-overlay picker — see heic-convert.ts. */
   serverHeicConvert?: ServerHeicConverter;
+  /** Forwarded to the sidebar's text box — see useUnprintableText.ts. */
+  unprintableFor?: (overlay: Overlay) => string[];
+  /** How many times unsupported characters have been taken out of a text
+   *  box so far (useUnprintableText.ts); a rise while this editor is open
+   *  shows the explanation. */
+  textRemovals?: number;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -63,7 +69,7 @@ export interface CanvasEditorModalProps {
 export function CanvasEditorModal({
   activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, selectedFonts,
   setEditingCanvas, setCanvases, onClose, onOpenCanvas,
-  getFileUrl, loadGoogleFont, expandPdfPages, serverHeicConvert,
+  getFileUrl, loadGoogleFont, expandPdfPages, serverHeicConvert, unprintableFor, textRemovals = 0,
 }: CanvasEditorModalProps) {
 
   // ── Local state (editor-only) ──────────────────────────────────────────────
@@ -74,6 +80,8 @@ export function CanvasEditorModal({
     const lostIdx = editingCanvas.overlays.findIndex(isLostLocalImage);
     return lostIdx >= 0 ? { type: 'image', index: lostIdx } : { type: 'frame', index: 0 };
   });
+  // The count when this editor opened: anything above it was removed here.
+  const [removalsAtOpen] = useState(textRemovals);
   const [undoCount, setUndoCount] = useState(0);
   const [redoCount, setRedoCount] = useState(0);
 
@@ -450,6 +458,8 @@ export function CanvasEditorModal({
         calculateSmartCropOffsets={calculateSmartCropOffsets}
         expandPdfPages={expandPdfPages}
         serverHeicConvert={serverHeicConvert}
+        unprintableFor={unprintableFor}
+        textRemoved={textRemovals > removalsAtOpen}
       />
     </div>
   );

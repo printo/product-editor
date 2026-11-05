@@ -10,6 +10,7 @@ import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { isLostLocalImage, type OverlayAlignment } from './editor-utils';
 import { ARTWORK_LABEL, artworkOverlayFor } from './template-authoring';
+import { UnprintableTextNote } from './EditorNotices';
 import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import { convertHeicFiles, type ServerHeicConverter } from '@/lib/heic-convert';
 import { DEFAULT_OVERLAY_FONT, overlayFontFamily } from '@/lib/overlay-fonts';
@@ -40,6 +41,13 @@ export interface CanvasEditorSidebarProps {
    *  lib/heic-convert.ts. Optional so the component still renders in
    *  isolation (tests, storybook) without an API base. */
   serverHeicConvert?: ServerHeicConverter;
+  /** The pieces of a text overlay the print can't draw in its font
+   *  (useUnprintableText.ts); shown under the text box. Optional like the
+   *  converter above. */
+  unprintableFor?: (overlay: Overlay) => string[];
+  /** Unsupported characters were taken out of a text box while this editor
+   *  was open; say so under the text box. */
+  textRemoved?: boolean;
 }
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -141,6 +149,8 @@ export function CanvasEditorSidebar({
   calculateSmartCropOffsets,
   expandPdfPages,
   serverHeicConvert,
+  unprintableFor,
+  textRemoved = false,
 }: CanvasEditorSidebarProps) {
 
   const tabForSelection = (sel: LayerSelection): TabKey | null => {
@@ -502,6 +512,7 @@ export function CanvasEditorSidebar({
                         <textarea value={overlay.text} onChange={e => updateOverlay({ text: e.target.value })}
                           className="w-full h-28 text-[12px] font-normal bg-white border border-slate-200 rounded-lg p-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all placeholder-slate-300 text-slate-700 resize-none shadow-sm leading-relaxed"
                           placeholder="Type your message…" />
+                        <UnprintableTextNote chars={unprintableFor?.(overlay) ?? []} removed={textRemoved} />
                       </div>
 
                       <div className="pt-4 border-t border-slate-100 space-y-4">

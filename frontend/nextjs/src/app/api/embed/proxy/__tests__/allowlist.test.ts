@@ -25,8 +25,10 @@ describe('isPathAllowed — customer flows keep working', () => {
     ['jobs/abc/download/', 'GET'],
     ['orientation/detect', 'POST'],
     ['heic/convert', 'POST'],
+    ['text/printable', 'POST'],
     ['config', 'GET'],
     ['fonts', 'GET'],
+    ['fonts/file/Josefin%20Sans', 'GET'],
     ['holidays/en-IN/2026', 'GET'],
     ['calendar-styles/modern-genz', 'GET'],
     ['templates', 'GET'],
@@ -43,9 +45,12 @@ describe('isPathAllowed — ops writes are not reachable with an embed token', (
     ['holidays/en-IN/2026', 'DELETE'],
     ['calendar-styles/modern-genz', 'PUT'],
     ['fonts', 'PUT'],
+    ['fonts/file/Inter', 'PUT'],
     ['layouts/classic_4x6', 'DELETE'],
     ['templates', 'POST'],
     ['templates/retro-birthday', 'DELETE'],
+    ['text/printable', 'GET'],
+    ['text', 'POST'],
   ])('rejects %s %s', (path, method) => {
     expect(isPathAllowed(path, method)).toBe(false);
   });

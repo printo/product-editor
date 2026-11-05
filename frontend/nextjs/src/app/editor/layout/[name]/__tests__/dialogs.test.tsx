@@ -12,7 +12,7 @@ import type { PreSubmitNoticeData } from '../EditorNotices';
 
 const photo = (name: string) => new File(['x'], name, { type: 'image/jpeg' });
 const NO_NOTICES: PreSubmitNoticeData = {
-  lowDpiFrames: [], emptySurfaces: [], duplicateFills: [], totalUploadedCount: 0, qtyNeeded: 0,
+  lowDpiFrames: [], emptySurfaces: [], duplicateFills: [], unprintableTexts: [], totalUploadedCount: 0, qtyNeeded: 0,
 };
 
 describe('AutoFillPickerDialog', () => {
@@ -196,6 +196,17 @@ describe('DownloadOptionsDialog', () => {
     setup({ totalUploadedCount: 3, qtyNeeded: 5 });
     expect(screen.getByText('You have uploaded only 3 out of 5 photos')).toBeInTheDocument();
   });
+
+  it('lists text the print cannot draw, and still lets the download go ahead', () => {
+    const { props } = setup({
+      disclaimerChecked: true,
+      unprintableTexts: [{ where: 'Canvas 3', chars: ['\u{1F57A}', '\u{1F3B6}'] }],
+    });
+    expect(screen.getByText('Some of your text won’t print')).toBeInTheDocument();
+    expect(screen.getByText('Canvas 3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /ZIP Archive/ }));
+    expect(props.onDownloadZip).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('EmbedDisclaimerDialog', () => {
@@ -234,6 +245,21 @@ describe('EmbedDisclaimerDialog', () => {
   it('shows the pre-submit notices', () => {
     setup({ emptySurfaces: [{ key: 'back', label: 'Back' }] });
     expect(screen.getByText('One side has no photo')).toBeInTheDocument();
+  });
+
+  it('lists text the print cannot draw, and still lets the customer continue', () => {
+    const { props } = setup({
+      disclaimerChecked: true,
+      unprintableTexts: [
+        { where: 'Canvas 1', chars: ['\u{1F57A}'] }, { where: 'Canvas 2', chars: ['\u{1F3B6}'] },
+        { where: 'Canvas 3', chars: ['\u2764\uFE0F'] }, { where: 'Canvas 4', chars: ['\u{1F525}'] },
+      ],
+    });
+    expect(screen.getByText('Some of your text won’t print')).toBeInTheDocument();
+    expect(screen.getByText('Canvas 1, Canvas 2, Canvas 3 and 1 more')).toBeInTheDocument();
+    expect(screen.queryByText(/Canvas 4/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, Proceed' }));
+    expect(props.onProceed).toHaveBeenCalledTimes(1);
   });
 });
 

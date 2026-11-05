@@ -52,7 +52,7 @@ from urllib.parse import quote, urlsplit
 
 from PIL import ImageFont
 
-from services.fonts import axis_records, get_font, set_weight
+from services.fonts import axis_records, bundled_font_data, get_font, set_weight
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +81,8 @@ class FontUnavailable(Exception):
 
 def get_overlay_font(family: Optional[str], size_px: int, weight: int = 400) -> ImageFont.ImageFont:
     """The PIL font a text overlay prints in. Raises FontUnavailable."""
-    name = " ".join((family or "").split())
-    if name.lower() in _BUNDLED_FAMILIES:
-        return get_font(size_px, weight=weight)
-
-    if not _FAMILY_RE.match(name) or not _listed_cached(name):
-        _warn_unlisted(name)
+    name = _fetched_family(family)
+    if name is None:
         return get_font(size_px, weight=weight)
     weight = _snap_weight(weight)
     size_px = max(1, int(size_px))
@@ -103,6 +99,32 @@ def get_overlay_font(family: Optional[str], size_px: int, weight: int = 400) -> 
             logger.warning("Could not set weight %d on %s; using its default instance", weight, name)
         _FONT_CACHE[key] = font
     return font
+
+
+def _fetched_family(family: Optional[str]) -> Optional[str]:
+    """The Google family an overlay prints in, or None when it prints in the
+    bundled Inter (no family, a CSS generic, Inter itself, or a name that
+    isn't on the fonts list)."""
+    name = " ".join((family or "").split())
+    if name.lower() in _BUNDLED_FAMILIES:
+        return None
+    if not _FAMILY_RE.match(name) or not _listed_cached(name):
+        _warn_unlisted(name)
+        return None
+    return name
+
+
+def print_font_data(family: Optional[str], weight: int = 400) -> bytes:
+    """The font file get_overlay_font draws `family` with, as bytes. Used to
+    read which characters the print can draw (services.text_coverage).
+    Raises FontUnavailable."""
+    name = _fetched_family(family)
+    if name is None:
+        try:
+            return bundled_font_data()
+        except OSError as exc:
+            raise FontUnavailable(f"bundled {DEFAULT_FONT} is missing: {exc}") from exc
+    return font_bytes(name, weight)
 
 
 def font_bytes(family: str, weight: int) -> bytes:

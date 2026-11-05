@@ -3,15 +3,62 @@
 import { AlertTriangle } from 'lucide-react';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
 import type { DuplicateFill, EmptySurface } from '@/lib/submit-guards';
+import type { UnprintableText } from './useUnprintableText';
 
-/** What the four notices show — both pre-submit dialogs pass it through. */
+/** What the five notices show — both pre-submit dialogs pass it through. */
 export type PreSubmitNoticeData = {
   lowDpiFrames: LowDpiFrame[];
   emptySurfaces: EmptySurface[];
   duplicateFills: DuplicateFill[];
+  unprintableTexts: UnprintableText[];
   totalUploadedCount: number;
   qtyNeeded: number;
 };
+
+/** The one sentence shown wherever text holds characters the print can't draw. */
+export const UNPRINTABLE_HELP =
+  'Emoji and some special characters typed as text won’t print. ' +
+  'Please use the cliparts, images or icons from the panel instead.';
+
+/** Shown once the canvas editor has taken unsupported characters out of a text box. */
+export const UNSUPPORTED_REMOVED =
+  'Emoji and some special characters are not supported in text, so they were removed. ' +
+  'Please use the cliparts, images or icons from the panel instead.';
+
+/** Under the text box in the canvas editor. The editor does not keep a
+ *  character the print can't draw (useUnprintableText.ts): `removed` says one
+ *  was taken out while this editor was open. `chars` covers the moment before
+ *  that, while such a character is still in the box. */
+export function UnprintableTextNote({ chars, removed = false }: { chars: string[]; removed?: boolean }) {
+  if (chars.length === 0 && !removed) return null;
+  return (
+    <div role="status" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-amber-900">
+      <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
+      <p className="text-[11px] leading-relaxed">{removed ? UNSUPPORTED_REMOVED : UNPRINTABLE_HELP}</p>
+    </div>
+  );
+}
+
+/** Amber pre-submit notice for text holding characters the print can't draw.
+ *  Warn-and-proceed like the other guards. */
+export function UnprintableTextWarning({ texts }: { texts: UnprintableText[] }) {
+  if (texts.length === 0) return null;
+  const named = texts.map(t => t.where).filter(Boolean);
+  const shown = named.slice(0, 3).join(', ');
+  const rest = named.length - 3;
+  return (
+    <div className="mx-7 mb-5 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        Some of your text won’t print
+      </div>
+      {named.length > 0 && (
+        <p className="text-xs mt-1.5 font-medium">{shown}{rest > 0 ? ` and ${rest} more` : ''}</p>
+      )}
+      <p className="text-xs mt-1 leading-relaxed">{UNPRINTABLE_HELP}</p>
+    </div>
+  );
+}
 
 /** Amber pre-submit notice for surfaces that will print without a photo
  *  (Phase 3 guard). Warn-and-proceed — never blocks. */

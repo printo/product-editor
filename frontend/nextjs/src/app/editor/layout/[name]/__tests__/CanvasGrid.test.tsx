@@ -17,7 +17,7 @@ function cardProps(over: Partial<CardProps> = {}): CardProps {
     handleDragStart: jest.fn(), handleDragOver: jest.fn(), handleDrop: jest.fn(),
     openEditor: jest.fn(), handleCardClick: jest.fn(),
     handlePanStart: jest.fn(), handlePanMove: jest.fn(), handlePanEnd: jest.fn(),
-    requestReplacePhoto: jest.fn(), lowDpiByCard: new Map(),
+    requestReplacePhoto: jest.fn(), lowDpiByCard: new Map(), unprintableByCard: new Map(),
     handleQuickRotate: jest.fn(), handleQuickToggleFit: jest.fn(), handleQuickToggleBlur: jest.fn(),
     swapSource: null, setSwapSource: jest.fn(), handleQuickDelete: jest.fn(),
     ...over,
@@ -183,6 +183,19 @@ describe('CanvasCard', () => {
     const clipart = { type: 'image', source: 'clipart', src: '/clipart/star.svg', label: 'Star' } as unknown as Overlay;
     setup({}, canvas({ overlays: [recovered, clipart] }));
     expect(screen.queryByRole('button', { name: /not on this device/ })).toBeNull();
+  });
+
+  it('text the print cannot draw shows a badge that opens the editor, ahead of the low-resolution pill', () => {
+    const { props } = setup({
+      unprintableByCard: new Map([[':2', ['\u{1F57A}', '\u{1F3B6}']]]),
+      lowDpiByCard: new Map([[':2', { canvasIdx: 2, frameIdx: 0, surfaceKey: null, dpi: 92.4, severity: 'critical' as const }]]),
+    });
+    const badge = screen.getByRole('button', { name: /Some text won’t print/ });
+    expect(badge).toHaveAttribute('title', expect.stringContaining('icons from the panel'));
+    expect(screen.queryByText(/Low res/)).toBeNull();
+    fireEvent.click(badge);
+    expect(props.openEditor).toHaveBeenCalledWith(2);
+    expect(props.handleCardClick).not.toHaveBeenCalled();
   });
 
   it('a low-resolution photo shows its DPI', () => {
