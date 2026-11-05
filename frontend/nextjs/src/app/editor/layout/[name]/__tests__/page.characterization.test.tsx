@@ -380,6 +380,28 @@ describe('editor page — embed mode', () => {
       expect(c.surface_key).toBe('default');
       expect(uploadIds.has(c.frames[0].upload_id)).toBe(true);
     }
+    // The submit carries what restore.json needs: the design as it stands,
+    // and one id per uploaded photo that the design's own frames use.
+    const { restore } = render.body as {
+      restore: {
+        editor_state: { layoutName: string; surfaces: Array<{ key: string; canvases: Array<{ dataUrl: unknown; frames: Array<{ fileId?: string; fileName?: string; originalFile: unknown }> }> }> };
+        files: Array<{ file_id: string; upload_id: string }>;
+      };
+    };
+    expect(restore.files.map((f) => f.upload_id).sort()).toEqual([...uploadIds].sort());
+    expect(new Set(restore.files.map((f) => f.file_id)).size).toBe(2);
+    expect(restore.editor_state.layoutName).toBe(LAYOUT_NAME);
+    const savedCards = restore.editor_state.surfaces.flatMap((s) => s.canvases);
+    expect(savedCards).toHaveLength(2);
+    expect(savedCards.map((c) => c.frames[0].fileId).sort()).toEqual(restore.files.map((f) => f.file_id).sort());
+    for (const c of savedCards) {
+      expect(c.dataUrl).toBeNull();
+      expect(c.frames[0].originalFile).toBeNull();
+    }
+    // Each card's photo in the design is the upload the print used for that card.
+    const fileIdByUpload = new Map(restore.files.map((f) => [f.upload_id, f.file_id]));
+    expect(savedCards.map((c) => c.frames[0].fileId)).toEqual(body.canvases.map((c) => fileIdByUpload.get(c.frames[0].upload_id)));
+
     // Uploads finish before the render is submitted.
     const lastComplete = Math.max(...backend.callsTo('upload/', 'POST').filter((c) => c.path.endsWith('/complete')).map((c) => c.seq));
     expect(render.seq).toBeGreaterThan(lastComplete);

@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { useState } from 'react';
-import { useServerRender } from '../useServerRender';
+import { MAX_RESTORE_STATE_CHARS, useServerRender } from '../useServerRender';
 import { uploadFiles } from '@/lib/upload-utils';
 import { rasterizeSvgUrl } from '@/lib/icon-raster';
 import type { CanvasItem, FrameState, Overlay, SurfaceState } from '../types';
@@ -151,6 +151,49 @@ describe('useServerRender — the render request', () => {
     const book = setup({ isBookProduct: true, bookPageCount: 12 });
     await run(() => book.result.current.executeBatchDownload());
     expect(renderBody().canvases[0].book).toEqual({ pageCount: 12 });
+  });
+
+  it('sends the design and the id each uploaded photo goes by in it, for restore.json', async () => {
+    const a = photo('a.jpg'), b = photo('b.jpg'), sticker = photo('sticker.png');
+    const overlays = [
+      { type: 'image', source: 'local', originalFile: sticker, src: 'blob:x', fileId: 'idb-sticker' },
+      { type: 'image', id: 'i1', source: 'icon', src: 'https://api.iconify.design/flat-color-icons/like.svg', label: 'like', x: 1, y: 1, width: 5, height: 5, rotation: 0, opacity: 1 },
+    ] as unknown as Overlay[];
+    // a is used twice; b's browser copy has no id yet.
+    const cards = [canvas([frame(a)], { overlays }), canvas([frame(a)]), canvas([frame(b)])];
+    const fileIdByFileRef = { current: new WeakMap<File, string>([[a, 'idb-a'], [sticker, 'idb-sticker']]) };
+    const seen: Array<string | undefined> = [];
+    const buildEditorState = jest.fn((fileIdOf?: (f: File) => string | undefined) => {
+      seen.push(fileIdOf?.(a), fileIdOf?.(b), fileIdOf?.(sticker));
+      return { layoutName: 'classic_4x6', surfaces: [] };
+    });
+    const { result } = setup({ canvases: cards, buildEditorState, fileIdByFileRef });
+    await run(() => result.current.executeBatchDownload());
+    const { restore } = renderBody();
+    expect(restore.editor_state).toEqual({ layoutName: 'classic_4x6', surfaces: [] });
+    // One entry per distinct customer file, in the order it first appears; the icon's PNG is not one.
+    expect(restore.files.map((f: { upload_id: string }) => f.upload_id)).toEqual(['up-0-a.jpg', 'up-1-sticker.png', 'up-2-b.jpg']);
+    expect(restore.files[0].file_id).toBe('idb-a');
+    expect(restore.files[1].file_id).toBe('idb-sticker');
+    // The photo with no id got one, and the snapshot was built with the same ids.
+    expect(restore.files[2].file_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(seen).toEqual(['idb-a', restore.files[2].file_id, 'idb-sticker']);
+  });
+
+  it('a design too large to ride the submit is left out, and the photo ids still go', async () => {
+    const buildEditorState = () => ({ blob: 'x'.repeat(MAX_RESTORE_STATE_CHARS + 1) });
+    const { result } = setup({ buildEditorState });
+    await run(() => result.current.executeBatchDownload());
+    const body = renderBody();
+    expect(body.restore).not.toHaveProperty('editor_state');
+    expect(body.restore.files).toHaveLength(1);
+    expect(body.canvases).toHaveLength(1);
+  });
+
+  it('sends no restore block when the page gave it no design to send', async () => {
+    const { result } = setup();
+    await run(() => result.current.executeBatchDownload());
+    expect(renderBody()).not.toHaveProperty('restore');
   });
 
   it('flags a submitted shortfall', async () => {

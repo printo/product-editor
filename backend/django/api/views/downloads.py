@@ -1,6 +1,7 @@
 """Delivering finished renders: the per-job ZIP download (combined or split by ?content=) and secure export downloads."""
 import os
 import re
+import json
 import logging
 from django.conf import settings
 from rest_framework.views import APIView
@@ -11,6 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from ..permissions import IsAuthenticatedWithAPIKey, CanAccessExports
 from ..authentication import APIKeyUser
 from ..models import UploadedFile
+from services.restore_manifest import MANIFEST_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +165,16 @@ class RenderJobDownloadView(APIView):
             "Streams output files for a completed render job as a ZIP archive. "
             "Use `content` to fetch one part on its own (print / mock / uploads) "
             "instead of the combined archive. Returns 409 if the job has not yet "
-            "completed."
+            "completed.\n\n"
+            "**The uploads part carries `restore.json`** (at the archive root for "
+            "`content=uploads`, inside `1_customer_uploads/` for `all`): the design as "
+            "it was at submit, and one entry per distinct customer photo with the exact "
+            "`zip_entry` name it has in this archive. Photos are named "
+            "`001_<original name>`, `002_…`, each distinct photo once, with the customer's "
+            "own image overlays and calendar date photos beside the frame photos. Keep the "
+            "archive unchanged to bring the design back after our retention has passed; "
+            "see docs/INTEGRATION.md. A job rendered before this existed has no "
+            "`restore.json` and keeps the customer's own file names."
         ),
         parameters=[
             OpenApiParameter(
@@ -265,16 +276,41 @@ class RenderJobDownloadView(APIView):
         ).strip().lower() not in ('0', 'false', 'no', 'off')
         want_uploads = include_uploads and content in ('all', 'uploads')
         safe_upload_entries: list[tuple[str, str]] = []  # (resolved_path, arcname_basename)
+        # The job's restore.json (services/restore_manifest.py), when it has
+        # one: it then decides what the uploads part holds, one numbered entry
+        # per distinct photo, with the customer's own image overlays and
+        # calendar date photos beside the frame photos. A job rendered before
+        # manifests existed has none and is packaged the old way below.
+        manifest_bytes: bytes | None = None
         if want_uploads:
             uploads_root = os.path.realpath(settings.UPLOADS_DIR)
-            upload_records = {
-                uf.file_path: uf.original_filename
-                for uf in UploadedFile.objects.filter(
-                    file_path__in=(canvas.image_paths or []),
-                    is_deleted=False,
+            manifest = job.restore_manifest if isinstance(job.restore_manifest, dict) else None
+            photos = [p for p in ((manifest or {}).get('photos') or []) if isinstance(p, dict)]
+            if photos:
+                paths_by_upload = dict(
+                    UploadedFile.objects.filter(
+                        api_key=canvas.api_key,
+                        upload_session_id__in=[p.get('upload_id') for p in photos],
+                        is_deleted=False,
+                    ).values_list('upload_session_id', 'file_path')
                 )
-            }
-            for raw_path in (canvas.image_paths or []):
+                candidates = [(paths_by_upload.get(p.get('upload_id')), p.get('zip_entry')) for p in photos]
+            else:
+                upload_records = {
+                    uf.file_path: uf.original_filename
+                    for uf in UploadedFile.objects.filter(
+                        file_path__in=(canvas.image_paths or []),
+                        is_deleted=False,
+                    )
+                }
+                candidates = [
+                    (raw_path, upload_records.get(raw_path) or os.path.basename(raw_path))
+                    for raw_path in (canvas.image_paths or [])
+                ]
+            for raw_path, entry_name in candidates:
+                if not raw_path or not entry_name or os.path.basename(str(entry_name)) != entry_name:
+                    logger.info("Upload not available for job %s: %s", job_id, entry_name)
+                    continue
                 resolved = os.path.realpath(raw_path)
                 if not resolved.startswith(uploads_root + os.sep):
                     logger.warning("RenderJobDownloadView: blocked upload path %s for job %s", raw_path, job_id)
@@ -283,8 +319,9 @@ class RenderJobDownloadView(APIView):
                     # File may have been GC'd or deleted; skip gracefully.
                     logger.info("Upload missing on disk for job %s: %s", job_id, raw_path)
                     continue
-                arcname_basename = upload_records.get(raw_path) or os.path.basename(resolved)
-                safe_upload_entries.append((resolved, arcname_basename))
+                safe_upload_entries.append((resolved, entry_name))
+            if photos and safe_upload_entries:
+                manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8')
 
         # ── 2_mock/ — downscaled web-friendly previews of the print files ──
         # Mocks are pre-generated at render time as a JPEG sibling next to
@@ -358,6 +395,12 @@ class RenderJobDownloadView(APIView):
                 # 1_customer_uploads/ — original photos as customer named them
                 for path, original_name in safe_upload_entries:
                     zf.write(path, arcname=arcname('1_customer_uploads', original_name))
+                if manifest_bytes is not None:
+                    zf.writestr(
+                        arcname('1_customer_uploads', MANIFEST_NAME),
+                        manifest_bytes,
+                        compress_type=zipfile.ZIP_DEFLATED,
+                    )
 
                 # 2_mock/ + 3_print/ — paired by index from the print list
                 for print_path in safe_print_paths:

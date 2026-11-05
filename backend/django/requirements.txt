@@ -11,6 +11,12 @@ requests==2.32.3
 django-redis==5.4.0
 redis==4.6.0
 celery[redis]==5.3.4
+# Celery's message transport. Pinned because Celery 5.3.4 only says
+# "kombu>=5.3.4,<6": on 2026-11-05 a rebuilt image picked up kombu 5.7.0,
+# which refuses redis-py below 6.1.0, and the render worker crash-looped on
+# start (VersionMismatch). 5.6.2 is the version that had been running with
+# redis 4.6.0. Move kombu and redis together, never one alone.
+kombu==5.6.2
 django-celery-beat==2.7.0
 django-celery-results==2.5.1
 django-csp==3.8

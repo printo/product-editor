@@ -47,6 +47,16 @@ class APIKey(models.Model):
                   "Once reached, the key gets 429 until midnight IST. Enforced since migration 0022; "
                   "before that the number was recorded and never checked.",
     )
+    # Where this key's customer photos may be fetched from when a restored
+    # design is submitted (services/photo_fetch.py). The link comes from the
+    # customer's browser, so the host must be one this key's owner named here.
+    # Blank, the default, keeps POST /api/upload/from-url switched off.
+    allowed_photo_hosts = models.TextField(
+        blank=True, default='',
+        help_text="Hosts our server may fetch this key's customer photos from, one per line "
+                  "(for example files.example.com). Exact host names only: no https://, no path, "
+                  "no wildcard. Blank = fetching photos by link is off for this key.",
+    )
     
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True)
@@ -62,7 +72,23 @@ class APIKey(models.Model):
             models.Index(fields=['is_active']),
             models.Index(fields=['last_used_at']),
         ]
-    
+
+    def clean(self):
+        super().clean()
+        from django.core.exceptions import ValidationError
+        from services.photo_fetch import invalid_photo_hosts
+        bad = invalid_photo_hosts(self.allowed_photo_hosts)
+        if bad:
+            raise ValidationError({'allowed_photo_hosts': (
+                "Not a plain host name: " + ", ".join(bad[:5]) + ". Write each host as it appears "
+                "in a photo link, for example files.example.com."
+            )})
+
+    def photo_hosts(self) -> list:
+        """The hosts this key's customer photos may be fetched from; empty = off."""
+        from services.photo_fetch import parse_photo_hosts
+        return parse_photo_hosts(self.allowed_photo_hosts)
+
     def __str__(self):
         # Show only the trailing 4 chars — avoids leaking key material in
         # Django error pages, admin search results, or log strings.
@@ -191,6 +217,13 @@ class UploadedFile(models.Model):
         max_length=64, null=True, blank=True, db_index=True,
         help_text="Groups chunks belonging to the same resumable upload session.",
     )
+
+    # Set on a photo fetched by link (POST /api/upload/from-url): a hash of the
+    # link's host and path (services.photo_fetch.source_key_for). A second
+    # request for the same photo of the same order returns this row instead of
+    # downloading it again, which is what makes a page refresh or a dropped
+    # connection cheap. Blank for an ordinary upload.
+    source_key = models.CharField(max_length=64, blank=True, default='', db_index=True)
 
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -416,6 +449,14 @@ class RenderJob(models.Model):
     # Results
     output_paths = models.JSONField(null=True, blank=True, help_text="List of generated file paths")
     error_message = models.TextField(null=True, blank=True)
+    # What an embedding company needs to bring this design back later
+    # (services/restore_manifest.py): the design as at submit and one entry per
+    # distinct customer photo. Built by render_canvas_task and served as
+    # restore.json in the uploads ZIP. It lives on the job, not on CanvasData,
+    # because a second submit for the same order replaces the order's
+    # render_state while this job's files stay what they were. NULL for a job
+    # rendered before this existed, or one with no customer photos to list.
+    restore_manifest = models.JSONField(null=True, blank=True, default=None)
     
     # Timing
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

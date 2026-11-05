@@ -13,6 +13,7 @@ from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
 from services.layout_orientation import apply_orientation
 from services.order_qty import calendar_qty_summary, count_placed_photos, qty_summary, qty_violation
+from services.restore_manifest import normalise_restore_payload
 from ..permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts
 from ..authentication import APIKeyUser
 from ..validators import validate_image_files
@@ -508,6 +509,17 @@ class EditorRenderView(APIView):
                         "Embed orders take theirs from the session and ignore this."
                     ),
                 ),
+                "restore": drf_serializers.DictField(
+                    required=False,
+                    help_text=(
+                        "Sent by the editor: `{editor_state, files: [{file_id, upload_id}]}`. "
+                        "`editor_state` is the design as the editor holds it at submit; "
+                        "`files` says which id the design uses for each upload. Stored with "
+                        "the job and returned as `restore.json` in the uploads ZIP, so a "
+                        "caller that keeps that ZIP can bring the design back later. "
+                        "Optional, and a malformed value is dropped, never rejected."
+                    ),
+                ),
                 "qty_shortfall_acknowledged": drf_serializers.BooleanField(
                     required=False, default=False,
                     help_text=(
@@ -723,6 +735,14 @@ class EditorRenderView(APIView):
             'qty_summary': order_qty_summary,
             'orientation': orientation_report,
         }
+        # What a later restore needs: the design as the editor holds it right
+        # now, and which browser file id each upload goes by in it. It rides
+        # the uploads archive, so it is kept only when that archive is wanted.
+        # Never a reason to refuse the submit.
+        if include_uploads:
+            restore = normalise_restore_payload(request.data.get('restore'))
+            if restore:
+                render_state['restore'] = restore
 
         # ── Submit via shared render submission service ──────────────────────
         from api.render_submission import RenderSubmissionService, RenderSubmissionError

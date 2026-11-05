@@ -350,6 +350,24 @@ API_AUDIT_RETENTION_DAYS = int(os.getenv("API_AUDIT_RETENTION_DAYS", "90"))
 MAX_UPLOAD_FILE_SIZE_MB = int(os.getenv("MAX_UPLOAD_FILE_SIZE_MB", "50"))
 MAX_UPLOAD_FILE_SIZE = MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
 
+# POST /api/upload/from-url (services/photo_fetch.py): fetching a restored
+# design's photos from the embedding company's storage. Off for a key until its
+# allowed_photo_hosts names a host. These bound what one order can make the
+# server download; the per-file ceiling is MAX_UPLOAD_FILE_SIZE above.
+PHOTO_FETCH_MAX_FILES_PER_ORDER = int(os.getenv("PHOTO_FETCH_MAX_FILES_PER_ORDER", "2000"))
+PHOTO_FETCH_MAX_ORDER_MB = int(os.getenv("PHOTO_FETCH_MAX_ORDER_MB", "10240"))
+# A restored design fetches every photo when it is opened, a few at a time, so
+# a 200-photo order makes 200 calls well inside a minute.
+PHOTO_FETCH_PER_MINUTE = int(os.getenv("PHOTO_FETCH_PER_MINUTE", "600"))
+# GET /api/photos/<upload_id>/preview: the small picture the editor draws a
+# restored card from, for a photo whose original is held here (`size=full`
+# returns the original when the card is opened). Long edge in pixels, and
+# calls a minute per key and order.
+# 1600 because the editor draws a card at up to 0.75x the layout canvas on a
+# high-resolution phone: about 1350 px tall for a 4x6 print, 1575 for a 5x7.
+PHOTO_PREVIEW_PX = int(os.getenv("PHOTO_PREVIEW_PX", "1600"))
+PHOTO_PREVIEW_PER_MINUTE = int(os.getenv("PHOTO_PREVIEW_PER_MINUTE", "1200"))
+
 # Max allowed image side (px) at upload validation. This is a print-file
 # generator, so high-res camera/phone photos (48–65 MP routinely exceed the
 # old 8192 cap) are desirable input. Pillow's pixel ceiling (500 MP, set at

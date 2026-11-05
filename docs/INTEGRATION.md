@@ -148,13 +148,15 @@ over the same rendered files.
 **Archive layouts:**
 
 ```
-download_url          →  1_customer_uploads/IMG_1258.jpg
+download_url          →  1_customer_uploads/001_IMG_1258.jpg
+                         1_customer_uploads/restore.json
                          2_mock/classic_4x6_1_preview.jpg
                          3_print/classic_4x6_1.png
 
 print_download_url    →  classic_4x6_1.png          ← flat, no folder
 mock_download_url     →  classic_4x6_1_preview.jpg  ← flat, no folder
-uploads_download_url  →  IMG_1258.jpg               ← flat, no folder
+uploads_download_url  →  001_IMG_1258.jpg           ← flat, no folder
+                         restore.json
 ```
 
 A single-part archive puts its files at the root, since a folder containing only
@@ -170,6 +172,51 @@ file per printed side, however many photo windows that side has. The mock in
 included, at the canvas's own proportions, so it is the right image for a cart
 or order preview. `file_count` counts the same files as before. A layout that
 prints its whole canvas is unchanged, byte for byte.
+
+**The uploads part and `restore.json`** (as of Nov 2026). Product Editor keeps
+nothing past its retention (`expires_at` on the webhook). If you want a customer
+to reopen or reorder a design after that, keep your own copy of the uploads
+archive: it now holds everything needed to bring the design back.
+
+- **Photos are named `001_<original name>`, `002_…`.** Each distinct photo
+  appears once, however many times the design uses it, and the number keeps two
+  different photos with the same name apart. Besides the photos in the photo
+  windows, the archive now carries the customer's own image stickers and the
+  photos they placed on calendar dates. The bytes are the bytes the customer's
+  browser sent: nothing is re-encoded.
+- **`restore.json`** sits beside them:
+
+```jsonc
+{
+  "schema_version": 1,                    // bumped on any breaking change to this file or to editor_state
+  "order_id": "576621",                   // the order_id of your embed session
+  "render_job_id": "<uuid>",              // the job_id of the webhook
+  "layout_name": "classic_4x6",
+  "layout_version": 3,                    // the layout as it was when this was rendered
+  "created_at": "2026-11-05T04:45:00+00:00",   // UTC
+  "editor_state": { },                    // the design exactly as at submit; null from an older editor build
+  "photos": [                             // one entry per distinct photo in this archive
+    {
+      "file_id": "<the id editor_state refers to this photo by>",   // null when the editor sent none
+      "upload_id": "<our upload id>",
+      "kind": "frame",                    // frame | overlay | calendar
+      "zip_entry": "001_IMG_1258.jpg",    // the exact, unique entry name in this archive
+      "original_name": "IMG_1258.jpg",
+      "size_bytes": 4821331,
+      "content_type": "image/jpeg",
+      "width": 4032, "height": 3024       // pixels, as stored
+    }
+  ]
+}
+```
+
+Store `restore.json` unchanged and treat `editor_state` as opaque: only the
+editor reads it, and it will keep reading every `schema_version` it has ever
+written. A job rendered before this existed has no `restore.json` and keeps the
+customer's own file names, one entry per photo window. The file is absent from
+`print_download_url` and `mock_download_url`, and from any archive when the
+session set `include_uploads: false`. Fetch the archive before `expires_at`:
+after that it is gone from our side for good.
 
 **Status codes worth handling:**
 
@@ -750,6 +797,24 @@ switched off shows `"isActive": false`: it is no longer offered to new
 layouts but stays on the layouts that already carry it. Tags are never
 deleted, so a key you stored keeps resolving. An unknown key in `?tag=`
 returns an empty list, not an error.
+
+### 4e. Let Product Editor fetch restored photos from your storage (optional, as of Nov 2026)
+
+When a design is brought back from the copy you keep (see `restore.json` under ZIP fetch), its photos reach the editor as links to your storage. Product Editor's server fetches each photo from its link when the design is opened, shows the customer a smaller preview, and prints from the original. The customer's device never loads from your storage, so no CORS setting is needed on it.
+
+Each photo is fetched once per order and kept for our normal retention: reopening or refreshing the same order does not fetch it again. Expect one request per photo as a design opens (about 200 within a minute for a 200-photo order), from our server, with the user agent `ProductEditor-PhotoFetch/1.0`.
+
+This is off until you tell us which host to fetch from. We list it against your API key; a link on any other host is refused.
+
+What the host must do:
+
+- Serve each photo at a plain `https://` link on the standard port, with no user name or password in it.
+- Answer `200` with the file itself. **Redirects are not followed**, and a login page, cookie wall or bot check will read as a failure.
+- Resolve to a public address.
+- Send the original file, at most `50 MB`, in a format the editor accepts (JPEG, PNG, WebP).
+- Keep the link working for at least the length of an editing session.
+
+Give us the exact host name as it appears in your links (for example `files.example.com`): no wildcard, and a link on a sub-domain you did not name is refused.
 
 ### 5. Firewall
 

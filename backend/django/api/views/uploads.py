@@ -468,3 +468,369 @@ class ChunkedUploadCompleteView(APIView):
             'file_size': assembled_size,
             'upload_id': upload_id,
         }, status=status.HTTP_201_CREATED)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Upload by link  (a restored design's photos, fetched from the caller's storage)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
+
+
+class UploadFromUrlView(APIView):
+    """
+    POST /api/upload/from-url  — fetch one photo from a link and store it as an
+    ordinary upload.
+
+    For a design brought back from an embedding company's own copy: its photos
+    arrive as links to that company's storage, and at submit each unchanged
+    photo is fetched here so the customer's device does not download and
+    re-upload it. The result is the same `UploadedFile` row a chunked upload
+    makes, so the render payload, the quantity check, the GC, the purge and the
+    uploads ZIP all treat it as any other upload.
+
+    Off for an API key until `allowed_photo_hosts` names a host. See
+    services/photo_fetch.py for why and for the limits.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(
+        tags=["upload"],
+        summary="Fetch a photo from a link and store it as an upload",
+        description=(
+            "Fetches one photo from an https link and stores it exactly as a "
+            "chunked upload would, returning an `upload_id` to use in "
+            "`POST /api/editor/render`.\n\n"
+            "**Off by default.** The API key must list the link's host in "
+            "`allowed_photo_hosts` (Django admin, exact host names). Without a "
+            "list every call answers **403**.\n\n"
+            "The link must be plain `https` on the standard port with no user "
+            "name or password, resolve to a public address, and answer **200** "
+            "directly: redirects are not followed. The file is limited to "
+            "`MAX_UPLOAD_FILE_SIZE_MB` while it is read, whatever the host "
+            "declares, must decode as an image, and the whole fetch has a "
+            "60-second deadline.\n\n"
+            "Requires an order (the `X-Order-ID` header the embed proxy injects, "
+            "or `order_id`). Per order: at most `PHOTO_FETCH_MAX_FILES_PER_ORDER` "
+            "stored files and `PHOTO_FETCH_MAX_ORDER_MB` in total, and "
+            "`PHOTO_FETCH_PER_MINUTE` fetches a minute.\n\n"
+            "**Asking again for a photo already fetched for the same order returns the "
+            "copy held (200) without downloading it**, matched on the link's host and "
+            "path. Reopening or refreshing a restored design is therefore cheap, and a "
+            "dropped connection resumes where it stopped."
+        ),
+        request=inline_serializer(
+            name="UploadFromUrl",
+            fields={
+                "url": drf_serializers.CharField(help_text="The photo's https link, on a host listed for this API key."),
+                "filename": drf_serializers.CharField(
+                    required=False,
+                    help_text="The name to store it under, with its image extension. Defaults to the link's own file name.",
+                ),
+                "order_id": drf_serializers.CharField(
+                    required=False,
+                    help_text="Ignored when the `X-Order-ID` header is present.",
+                ),
+            },
+        ),
+        responses={
+            201: inline_serializer(
+                name="UploadFromUrlDone",
+                fields={
+                    "upload_id": drf_serializers.UUIDField(help_text="Reference this in the render payload, like any upload."),
+                    "filename": drf_serializers.CharField(),
+                    "file_size": drf_serializers.IntegerField(),
+                    "width": drf_serializers.IntegerField(allow_null=True, help_text="Pixels, as a browser shows the photo (EXIF orientation applied)."),
+                    "height": drf_serializers.IntegerField(allow_null=True),
+                },
+            ),
+            200: OpenApiResponse(description="This photo was already fetched for this order: the same body, for the copy already held. Nothing was downloaded."),
+            400: OpenApiResponse(description="Missing or malformed url or order id, or the fetched bytes are not a usable image."),
+            403: OpenApiResponse(description="Fetching by link is not switched on for this API key, or the link's host is not on its list or is not a public address."),
+            413: OpenApiResponse(description="The photo is larger than the upload limit."),
+            429: OpenApiResponse(description="Too many fetches for this order in the last minute, or the order already holds the most files or bytes it may."),
+            502: OpenApiResponse(description="The host could not be reached, redirected, or did not answer 200."),
+            504: OpenApiResponse(description="The host took too long to send the photo."),
+            507: OpenApiResponse(description="Not enough disk space to accept this photo."),
+        },
+    )
+    def post(self, request):
+        import shutil
+        import uuid as _uuid
+        from urllib.parse import urlparse
+        from django.core.cache import cache
+        from django.db.models import Count, Sum
+        from services.image_loader import displayed_size
+        from services.photo_fetch import PhotoFetchError, check_photo_url, fetch_photo, name_from_url, source_key_for
+        from services.restore_manifest import safe_entry_name
+        from services.storage import order_upload_dir
+
+        api_key = request.user.api_key if isinstance(request.user, APIKeyUser) else None
+        if not api_key:
+            return Response({'detail': 'API key required'}, status=status.HTTP_403_FORBIDDEN)
+
+        hosts = api_key.photo_hosts()
+        if not hosts:
+            return Response(
+                {'detail': 'Fetching photos by link is not switched on for this API key.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        order_id = (
+            (request.headers.get('X-Order-ID') or '').strip()
+            or str(request.data.get('order_id') or '').strip()
+        )
+        if not _ORDER_ID_RE.match(order_id):
+            return Response({'detail': 'order_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        url = str(request.data.get('url') or '').strip()
+        if not url:
+            return Response({'detail': 'url is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        def answer(row, code):
+            # The size as a browser shows the photo, so the editor can judge the
+            # print resolution without holding the original.
+            try:
+                width, height = displayed_size(row.file_path)
+            except Exception:
+                width = height = None
+            return Response({
+                'upload_id': row.upload_session_id, 'filename': row.original_filename,
+                'file_size': row.file_size_bytes, 'width': width, 'height': height,
+            }, status=code)
+
+        # ── A photo already fetched for this order is returned, not fetched
+        # again. A restored design asks for every photo each time it is opened,
+        # so without this a refresh would download the whole order again and a
+        # few of them would fill the order's allowance. Checked before the
+        # limits, which exist to bound downloads, not look-ups. ──────────────
+        try:
+            check_photo_url(url, hosts)
+        except PhotoFetchError as exc:
+            return Response({'detail': exc.detail}, status=exc.status)
+        source_key = source_key_for(url)
+        held_copy = (
+            UploadedFile.objects
+            .filter(api_key=api_key, order_id=order_id, source_key=source_key, is_deleted=False)
+            .order_by('-created_at')
+            .first()
+        )
+        if held_copy and os.path.isfile(held_copy.file_path):
+            return answer(held_copy, status.HTTP_200_OK)
+
+        # ── Limits on what one order can make this server download ───────────
+        # /api/upload/ is exempt from the per-IP rate limit (chunk traffic is
+        # heavy by nature), so this endpoint keeps its own count. Fails open
+        # when the cache is unavailable, like the daily request cap.
+        try:
+            window = f'photo_fetch:{api_key.id}:{order_id}'
+            cache.add(window, 0, 60)
+            if cache.incr(window) > settings.PHOTO_FETCH_PER_MINUTE:
+                response = Response(
+                    {'detail': 'Too many photos fetched for this order in the last minute. Try again shortly.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+                response['Retry-After'] = '60'
+                return response
+        except Exception:
+            pass
+
+        held = UploadedFile.objects.filter(api_key=api_key, order_id=order_id, is_deleted=False).aggregate(
+            files=Count('id'), size=Sum('file_size_bytes'),
+        )
+        if (held['files'] or 0) >= settings.PHOTO_FETCH_MAX_FILES_PER_ORDER or \
+                (held['size'] or 0) >= settings.PHOTO_FETCH_MAX_ORDER_MB * 1024 * 1024:
+            return Response(
+                {'detail': 'This order already holds as many photos as it may.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        try:
+            free = shutil.disk_usage(settings.UPLOADS_DIR).free
+            if free < settings.MAX_UPLOAD_FILE_SIZE * 2 + 500 * 1024 * 1024:
+                return Response({'detail': 'Server storage is full — please try again later.'}, status=507)
+        except OSError:
+            pass  # can't stat — don't block on it
+
+        # ── Fetch into chunk staging, so an interrupted fetch is reclaimed by
+        # the same sweep that reclaims an abandoned chunked upload ───────────
+        upload_id = str(_uuid.uuid4())
+        staging_dir = os.path.join(settings.UPLOADS_DIR, '.chunks', upload_id)
+        os.makedirs(staging_dir, exist_ok=True)
+        staged = os.path.join(staging_dir, 'fetched.part')
+        # Never log the query string: a link may carry a signature there.
+        where = urlparse(url)
+        shown = f'{where.hostname}{where.path}'
+
+        try:
+            size = fetch_photo(
+                url, allowed_hosts=hosts, dest_path=staged, max_bytes=settings.MAX_UPLOAD_FILE_SIZE,
+            )
+        except PhotoFetchError as exc:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            logger.warning("Photo fetch refused for order %s (%s): %s", order_id, shown, exc.detail)
+            return Response({'detail': exc.detail}, status=exc.status)
+
+        filename = safe_entry_name(request.data.get('filename') or name_from_url(url))
+
+        # The same integrity check a chunked upload gets.
+        try:
+            from api.validators import validate_image_file
+            from django.core.files.uploadedfile import SimpleUploadedFile
+            with open(staged, 'rb') as f:
+                temp = SimpleUploadedFile(filename, f.read())
+            validate_image_file(temp)
+        except ValidationError as e:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            detail = e.messages[0] if getattr(e, 'messages', None) else str(e)
+            logger.warning("Fetched photo rejected for order %s (%s): %s", order_id, shown, detail)
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_dir = order_upload_dir(order_id)
+        os.makedirs(target_dir, exist_ok=True)
+        final_path = os.path.join(target_dir, get_random_string(8) + '_' + filename)
+        os.replace(staged, final_path)
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+        row = UploadedFile.objects.create(
+            api_key=api_key,
+            file_path=final_path,
+            original_filename=filename,
+            file_size_bytes=size,
+            file_type='image',
+            upload_session_id=upload_id,
+            order_id=order_id,
+            source_key=source_key,
+        )
+        logger.info("Photo fetched by link: %s (%d bytes) for order %s", shown, size, order_id)
+
+        return answer(row, status.HTTP_201_CREATED)
+
+
+_UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', re.IGNORECASE)
+
+
+class PhotoPreviewView(APIView):
+    """
+    GET /api/photos/<upload_id>/preview  — a stored photo, for the editor.
+
+    A restored design's photos are held here, not on the customer's device
+    (see UploadFromUrlView). The editor draws each card from a small preview
+    made by this endpoint; when the customer opens a card it asks for
+    `size=full`, the original, and edits that. The print always uses the
+    original.
+
+    An embed session is served only its own order's photos, like its saved
+    design: every customer of one company presents that company's key.
+    """
+    permission_classes = [IsAuthenticatedWithAPIKey]
+
+    @extend_schema(
+        tags=["upload"],
+        summary="A stored photo, scaled for the screen or in full",
+        description=(
+            "Returns a photo this API key holds, scaled so its longer side is at most "
+            "`size` pixels (default `PHOTO_PREVIEW_PX`, 1600), as a browser would show "
+            "the original: EXIF orientation applied, colours converted to sRGB. JPEG, "
+            "or WebP when the photo has transparency. A photo already within `size` is "
+            "returned as it is. `size=full` returns the original bytes.\n\n"
+            "**In an embed session only the session's own order's photos are served** "
+            "(the `X-Order-ID` header the embed proxy injects); any other answers 404. "
+            "Limited to `PHOTO_PREVIEW_PER_MINUTE` calls a minute per key and order.\n\n" + UUID_GUARD
+        ),
+        parameters=[
+            OpenApiParameter(
+                "size", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                description="Longest side in pixels, 256 to 4096, or `full` for the original. Default 1600.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="The image bytes (image/jpeg, image/webp, or the original's own type)."),
+            400: OpenApiResponse(description="Malformed upload_id or size."),
+            404: OpenApiResponse(description="No such photo for this key, or it belongs to another order than the embed session's."),
+            422: OpenApiResponse(description="The stored file cannot be turned into a preview."),
+            429: OpenApiResponse(description="Too many photos requested for this order in the last minute."),
+        },
+    )
+    def get(self, request, upload_id: str):
+        import io
+        from django.core.cache import cache
+        from django.http import FileResponse, HttpResponse
+        from services.image_loader import displayed_size, open_source_preview, srgb_profile_bytes
+        from services.restore_manifest import content_type_for
+
+        if not _UUID_RE.match(upload_id or ''):
+            return Response({'detail': 'Invalid upload id'}, status=status.HTTP_400_BAD_REQUEST)
+        api_key = request.user.api_key if isinstance(request.user, APIKeyUser) else None
+        if not api_key:
+            return Response({'detail': 'API key required'}, status=status.HTTP_403_FORBIDDEN)
+
+        raw_size = str(request.query_params.get('size') or '').strip().lower()
+        want_full = raw_size == 'full'
+        size = settings.PHOTO_PREVIEW_PX
+        if raw_size and not want_full:
+            if not raw_size.isdigit():
+                return Response({'detail': 'size must be a number of pixels or "full".'}, status=status.HTTP_400_BAD_REQUEST)
+            size = max(256, min(4096, int(raw_size)))
+
+        not_found = Response({'detail': 'Photo not found'}, status=status.HTTP_404_NOT_FOUND)
+        row = (
+            UploadedFile.objects
+            .filter(api_key=api_key, upload_session_id=upload_id, is_deleted=False)
+            .first()
+        )
+        if row is None:
+            return not_found
+        # The id comes from the customer's browser. In the embed, serve it only
+        # when it belongs to the session's own order (see CanvasStateView.get).
+        session_order_id = (request.headers.get('X-Order-ID') or '').strip()
+        if session_order_id and row.order_id != session_order_id:
+            logger.warning("Photo read refused: session order %s asked for a photo of another order", session_order_id)
+            return not_found
+
+        uploads_root = os.path.realpath(settings.UPLOADS_DIR)
+        path = os.path.realpath(row.file_path)
+        if not path.startswith(uploads_root + os.sep) or not os.path.isfile(path):
+            return not_found
+
+        # /api/photos/ is exempt from the per-IP limit (a large order asks for
+        # every photo within a minute), so it keeps its own count.
+        try:
+            window = f'photo_preview:{api_key.id}:{row.order_id or "-"}'
+            cache.add(window, 0, 60)
+            if cache.incr(window) > settings.PHOTO_PREVIEW_PER_MINUTE:
+                response = Response(
+                    {'detail': 'Too many photos requested for this order in the last minute. Try again shortly.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+                response['Retry-After'] = '60'
+                return response
+        except Exception:
+            pass
+
+        def original():
+            response = FileResponse(open(path, 'rb'), content_type=content_type_for(row.original_filename))
+            response['Cache-Control'] = 'private, max-age=3600'
+            return response
+
+        try:
+            if want_full or max(displayed_size(path)) <= size:
+                return original()
+            preview = open_source_preview(path, size)
+        except (OSError, ValueError) as exc:
+            logger.warning("Photo preview failed for upload %s: %s", upload_id, exc)
+            return Response({'detail': 'This photo cannot be previewed.'}, status=422)
+
+        out = io.BytesIO()
+        try:
+            if preview.mode == 'RGBA':
+                preview.save(out, format='WEBP', quality=85, icc_profile=srgb_profile_bytes())
+                content_type = 'image/webp'
+            else:
+                preview.save(out, format='JPEG', quality=85, icc_profile=srgb_profile_bytes())
+                content_type = 'image/jpeg'
+        finally:
+            preview.close()
+        response = HttpResponse(out.getvalue(), content_type=content_type)
+        response['Cache-Control'] = 'private, max-age=3600'
+        return response

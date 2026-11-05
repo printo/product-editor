@@ -240,6 +240,7 @@ export default function LayoutEditorPage() {
 
   const {
     restorePending, restoreSettled, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
+    buildEditorState,
   } = useAutosaveAndRestore({
     layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
     canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
@@ -439,6 +440,7 @@ export default function LayoutEditorPage() {
     layout, layoutName, urlOrientation, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey,
     isCalendarProduct, calendarTheme, calendarType, genzPalette, calendarCells, isBookProduct, bookPageCount,
     qtyNeeded, totalUploadedCount, setIsDownloading, setShowDownloadModal, setRenderProgress, setError,
+    buildEditorState, fileIdByFileRef,
   });
 
   // A one-month-a-page calendar draws each month's grid on its card (tap the

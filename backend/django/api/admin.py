@@ -28,7 +28,8 @@ class APIKeyAdmin(admin.ModelAdmin):
                 'can_generate_layouts',
                 'can_list_layouts',
                 'can_access_exports',
-                'max_requests_per_day'
+                'max_requests_per_day',
+                'allowed_photo_hosts',
             )
         }),
         ('Status', {

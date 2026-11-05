@@ -254,7 +254,7 @@ All exports go through one unified server-side pipeline: every Submit/Download t
 2. On Save & Continue (embed) or Download (dashboard), `executeServerRender()` (`useServerRender.ts`) uploads every `File` via the chunked upload API (2 MB chunks, 4 parallel; `src/lib/upload-utils.ts`), then POSTs `/api/editor/render` with `{ layout_name, order_id, canvases[] }`.
 3. Backend creates `CanvasData` + `RenderJob` through `RenderSubmissionService` and dispatches `render_canvas_task`.
 4. Celery: `LayoutEngine` consumes the submit-time `CanvasData.render_state` snapshot — **and only that**; `editor_state` is the autosave's field and is never read by the pipeline — and Pillow renders at 300 DPI (PNG, or PDF when `export_format='pdf'`).
-5. Files land under `EXPORTS_DIR/<job_id>/`, served by `GET /api/jobs/<job_id>/download/`.
+5. Files land under `EXPORTS_DIR/<job_id>/`, served by `GET /api/jobs/<job_id>/download/`. The same task writes the job's **restore manifest** (see Restore manifest below) onto `RenderJob.restore_manifest`.
 6. **Embed delivery:** if `EmbedSession.callback_url` was set, `notify_caller_webhook_task` POSTs the payload below with `X-Signature: sha256=<hmac>` signed with the api_key; the caller fetches the ZIP(s) with Bearer auth. *No internal OMS push exists.*
 7. **Dashboard delivery:** the browser polls `/api/render-status/{job_id}/` with backoff and fetches the ZIP directly.
 8. After submit the embed posts `window.parent.postMessage({ type: 'pe:render_job', jobId, orderID })` for the parent's "preparing your design" UX; files travel by webhook, not postMessage.
@@ -444,7 +444,8 @@ After render, only when canvas.callback_url is set: notify_caller_webhook_task P
 |---|---|
 | `layouts`, `layouts/masks`, `templates`, `templates/assets`, `editor/init`, `render-status`, `jobs`, `fonts`, `holidays`, `calendar-styles`, `config`, `embed/session` | **GET** only |
 | `canvas-state` | GET, PUT |
-| `upload` | POST, PUT |
+| `upload` (init, chunk, complete, `from-url`) | POST, PUT |
+| `photos` (a held photo's preview or original, own order only) | **GET** only |
 | `editor/render`, `orientation`, `heic`, `text/printable` | POST |
 
 Fail-closed: anything else is 403 before token resolution. **The method half is load-bearing**: the proxy injects the session's real api_key, and `fonts`/`holidays`/`calendar-styles` accept ops writes upstream. **A new customer-facing endpoint must be added here AND in `allowlist.test.ts`**; ops/admin paths (`ops/*`, `exports/*`, `celery/monitor`, `django-admin`) must never be.
@@ -492,6 +493,34 @@ Under-upload must never block (a wrong caller-supplied qty would strand a real o
 - Source images open inside `with Image.open(...)`; canvases, intermediates and masks are closed and `gc.collect()`ed per canvas.
 - Per-frame transform order: rotate (`expand=True`) → smart downscale → `extra_scale` → cover/contain → pan (`int(offset)`) at paste.
 - Partial failure on a multi-surface/calendar/book render removes every output so far and raises a tagged error naming the surface; the retry re-renders all.
+
+### Restore manifest (`restore.json`)
+
+We keep nothing past retention, so a company that wants a customer to reopen or reorder a design later keeps its own copy of the **uploads ZIP**, which carries `restore.json`: the design as at submit and one entry per distinct customer photo. `services/restore_manifest.py` is the one place its shape is defined (`SCHEMA_VERSION`, pure, DB-free).
+
+- **The submit sends it.** `executeServerRender` adds `restore: { editor_state, files: [{file_id, upload_id}] }` to `POST /api/editor/render`. `editor_state` comes from `buildEditorState` (`useDesignPersistence.ts`), the same builder the autosave uses, called with the ids the submit lists so the two agree; a photo whose browser id has not reached the design yet gets one there. `EditorRenderView` reduces it with `normalise_restore_payload` into `render_state['restore']`, **only when the caller wants the uploads**, and never refuses a submit over it.
+- **The render builds it, per job.** `_build_restore_manifest` (`api/tasks.py`) runs after the outputs are verified and stores the result on `RenderJob.restore_manifest`. Per job, not on `CanvasData`: a second submit for the same order replaces `render_state` while the first job's files stay what they were. **On the row, not a file in `EXPORTS_DIR/<job_id>/`**: the GC removes only the files it has rows for and then `rmdir`s a folder only if it is empty, so a loose file would outlive the retention clock until the orphan sweep found it. A failure to build it never fails the render.
+- **The photo list is the server's, not the editor's.** `referenced_uploads` reads the render contract: frame photos, then the customer's own image overlays (`source: 'local'`; an icon's or sticker's PNG is not one), then calendar date photos, each once. The editor's `files` only supply `file_id`. A calendar date photo has no browser id (the design names it by `uploadId`), so its `file_id` is its upload id. Uploads are looked up within the job's own api_key.
+- **It also records what a later restore cannot recover:** `layout_version` (`LayoutCatalogue.version`, to tell the customer the product changed) and each photo's pixel `width`/`height`.
+- **The download reads it.** With a manifest, the uploads part of `GET /api/jobs/<job_id>/download/` is one entry per photo named by `zip_entry` (`001_<name>`) plus `restore.json` (root for `content=uploads`, inside `1_customer_uploads/` for the combined archive). Without one (older jobs) it is packaged the old way from `CanvasData.image_paths`. Never in `content=print` or `content=mock`.
+- **Changing the saved design's shape:** bump `SCHEMA_VERSION` only when the restore code must change to read it, and keep reading every older version. `editor_state` copies held by embedding companies are years old by the time they come back.
+- Pinned by `services/tests/test_restore_manifest.py`, `api/tests/test_restore_manifest_api.py`, and the `restore` cases in `__tests__/useServerRender.test.ts` and `useDesignPersistence.test.ts`. Partner-facing description: `docs/INTEGRATION.md` (ZIP fetch).
+
+### Upload by link (`POST /api/upload/from-url`)
+
+For a design brought back from an embedding company's own copy, the photos arrive as links to that company's storage. At submit the editor asks our server to fetch each unchanged photo from its link, so the customer's device does not download and re-upload it. `UploadFromUrlView` (`api/views/uploads.py`) fetches one link and stores it as **the same `UploadedFile` row a chunked upload makes** (`upload_session_id` is the returned `upload_id`), so the render payload, the quantity check, the GC, the purge and the uploads ZIP need to know nothing about it.
+
+The link comes from the customer's browser, so three limits must all hold (`services/photo_fetch.py`):
+
+- **The host is on the API key's own list.** `APIKey.allowed_photo_hosts` (Django admin, one exact host name per line, no scheme, path or wildcard; `clean()` refuses anything else). **Blank, the default, keeps the endpoint off for that key (403).** This is the opt-in, per company, and it is deliberately not a setting or an env var.
+- **Public address, pinned connection, no redirects.** `services.url_safety.open_public_get`: the same check and getaddrinfo pin as the webhook sender, but the pin is released once the response headers arrive, and the body is read outside it. The web workers are threaded (`gthread`), so holding the process-wide pin lock for a whole download would queue every other fetch in that process.
+- **Size counted while reading**, against `MAX_UPLOAD_FILE_SIZE`, whatever `Content-Length` says; a 60 s deadline for the whole fetch; then the same `validate_image_file` a chunked upload gets.
+
+Also: plain `https` on port 443 with no user name or password; an order id is required (`X-Order-ID` or body); per order at most `PHOTO_FETCH_MAX_FILES_PER_ORDER` files and `PHOTO_FETCH_MAX_ORDER_MB`, and `PHOTO_FETCH_PER_MINUTE` fetches a minute (its own counter in the cache, fail-open, because `/api/upload/` is exempt from the per-IP limit). The fetch stages into `UPLOADS_DIR/.chunks/<upload_id>/`, so an interrupted one is reclaimed by the chunk-staging sweep. **The link's query string is never logged or echoed** (it may carry a signature). It is audited, and it is reachable through the embed proxy under the existing `upload` prefix (POST). It runs on the web workers, not Celery, which is no heavier than a customer uploading the same photos; move it only if a 200-photo run says so. Pinned by `services/tests/test_photo_fetch.py`, `test_url_safety.py` (the pinned GET) and `api/tests/test_upload_from_url.py`. Nothing in the editor calls it yet.
+
+**A photo already fetched for the order is returned, not fetched again.** `UploadedFile.source_key` (migration 0028) is a hash of the link's host and path (`photo_fetch.source_key_for`; the query string is left out because it may be a signature that changes). A second call for the same photo and order answers **200** with the copy held and downloads nothing, checked *before* the limits. A restored design asks for every photo each time it is opened, so this is what makes a refresh, a reopened order or a dropped connection cost nothing, to us and to the company whose storage it is. The answer carries `width`/`height` as a browser shows the photo (`image_loader.displayed_size`: EXIF orientation applied), so the editor can judge print resolution without holding the original.
+
+**Reading a held photo back: `GET /api/photos/<upload_id>/preview`** (`PhotoPreviewView`). The editor draws a restored card from a small preview and asks for the original only when the customer opens the card. Default long edge `PHOTO_PREVIEW_PX` (**1600**, because a card is drawn at up to 0.75x the layout canvas on a high-resolution phone: about 1350 px tall for a 4x6, 1575 for a 5x7); `?size=` 256 to 4096; **`size=full` returns the original bytes**. The preview goes through `image_loader.open_source_preview`, the same colour path as the print (EXIF applied, sRGB), JPEG, or WebP when the photo has transparency; a photo already within the size is returned as it is. **An embed session is served only its own order's photos** (`X-Order-ID` must equal the row's `order_id`, 404 otherwise), the same rule as `CanvasStateView.get`. `/api/photos/` is exempt from the per-IP limit and keeps its own counter (`PHOTO_PREVIEW_PER_MINUTE`); on the embed allowlist as `photos`, GET only. Pinned by `PhotoPreviewTest` in `api/tests/test_upload_from_url.py`.
 
 ### Known Limitations
 
@@ -731,13 +760,14 @@ Smoke: `scripts/smoke-test-calendar.sh`. Benchmark: a 12-surface render was ~1.8
 - **Per-surface render grouping** — `surface_key` on every canvas → `_extract_canvases_meta` → `engine.generate(canvases_meta=…)`; an omitted side prints blank.
 - **Submit guards** — `lib/submit-guards.ts`: empty-surface + duplicate-fill warnings (qty auto-fill exempt via `intentionalDupesRef`); `useUnprintableText.ts`: text with characters the print font can't draw. Warn-and-proceed.
 - **SSRF** — `services/url_safety.py`: `validate_public_https_url` at session-create AND `post_webhook_safely` at send time (pins the socket to the validated IP, `allow_redirects=False`). **Never `requests.post` a customer callback_url directly.**
+- **Fetching a customer-supplied link** — only through `services.photo_fetch.fetch_photo` (host on the key's `allowed_photo_hosts`, `open_public_get`, size counted while reading). See Upload by link.
 - **Rate-limit IP** — `_get_client_ip` and `clientIp()` trust nginx's `X-Real-IP` (else the right-most XFF hop), never the left-most.
 - **DPDP purge** — `DELETE /api/ops/orders/<order_id>/purge` (ops-only, not on the embed allowlist): hard-deletes uploads/exports/CanvasData/EmbedSession rows and files; `?api_key=<name>` scopes to one key, `?all_tenants=true` for all; only an all-tenant purge sweeps the upload folder (order ids are unique only per key). Every purge is recorded in `storage/purge_ledger.jsonl` (HMAC of order id, no order id stored) and `restore.sh` re-applies them. **Any test that calls `purge_order_data` must override `STORAGE_ROOT`.**
 - **Deploy fail-fast** — production requires `EMBED_INTERNAL_SECRET`, `AUTH_SECRET`, `DJANGO_SECRET_KEY`, `INTERNAL_API_KEY`; internal ports bind `127.0.0.1`.
 
 ## Migrations
 
-Run only via the `backend` container. Current latest: `0025_layouttemplate_sharing_and_orientation`.
+Run only via the `backend` container. Current latest: `0028_uploadedfile_source_key`.
 
 | Migration | Change |
 |---|---|
@@ -765,6 +795,9 @@ Run only via the `backend` container. Current latest: `0025_layouttemplate_shari
 | 0023 | `EmbedSession.orientation` (blank = as authored) |
 | 0024 | `LayoutTag` (seeded with the nine former hard-coded tags); every layout's `tags` names become `tagKeys`, names matching no seed tag become tags of their own; no version bump |
 | 0025 | `LayoutTemplate.extra_layouts` (the other same-window-box layouts a template is also offered on; the home layout stays `layout`) and `LayoutTemplate.orientation` (the way a template faces: `''` as drawn, `portrait`, `landscape`; existing rows stay blank). One migration for the whole shared-templates PR, by request |
+| 0026 | `RenderJob.restore_manifest` (nullable JSON, no backfill): the `restore.json` a job's uploads ZIP carries |
+| 0027 | `APIKey.allowed_photo_hosts` (blank on every existing key, which keeps `POST /api/upload/from-url` off until an admin names a host) |
+| 0028 | `UploadedFile.source_key` (hash of the link a photo was fetched from; blank on ordinary uploads): a repeat fetch for the same order returns the copy held |
 | 0022 | `APIKey.max_requests_per_day` → `PositiveIntegerField`, default blank (no cap), every existing unchosen value blanked; the field is enforced from here on |
 
 **Ownership contract:** `editor_state` is frontend-owned — written only by `CanvasStateView` (autosave), read by the restore path. `render_state` is pipeline-owned — written only by `EditorRenderView` at submit, read only by `render_canvas_task`. Never cross the streams.
@@ -812,6 +845,11 @@ Run only via the `backend` container. Current latest: `0025_layouttemplate_shari
 |---|---|---|
 | `DEBUG` | `0` | Production-safe default. Don't flip it. |
 | `MAX_UPLOAD_FILE_SIZE_MB` | `50` | Single source for settings, validators, upload init |
+| `PHOTO_FETCH_MAX_FILES_PER_ORDER` | `2000` | Stored files an order may hold before `upload/from-url` answers 429 |
+| `PHOTO_FETCH_MAX_ORDER_MB` | `10240` | Stored bytes an order may hold before `upload/from-url` answers 429 |
+| `PHOTO_FETCH_PER_MINUTE` | `600` | `upload/from-url` calls a minute, per key and order (a 200-photo design asks for all of them as it opens) |
+| `PHOTO_PREVIEW_PX` | `1600` | Long edge of the preview the editor draws a restored card from |
+| `PHOTO_PREVIEW_PER_MINUTE` | `1200` | `photos/<id>/preview` calls a minute, per key and order |
 | `MAX_IMAGE_DIMENSION_PX` | `16384` | Max image side at upload; total pixels capped by the 500 MP ceiling |
 | `DB_CONN_MAX_AGE` | `600` | `0` if PgBouncer is in front |
 | `CSP_REPORT_ONLY` | `True` | Read at runtime by Django but at **image build time** by the frontend — a flip reaches the editor only after `./deploy.sh` rebuilds |
@@ -842,6 +880,7 @@ Run only via the `backend` container. Current latest: `0025_layouttemplate_shari
 - **`order_id` is regex-validated**; don't relax it — it flows into headers, logs, file paths and lookups.
 - **An order id from the browser is never proof of ownership.** In the embed, read customer data by the session's order id (`X-Order-ID`), not by an id in the address or the path. A company's customers all share its API key.
 - **Never `requests.post` a customer URL directly** — `post_webhook_safely`.
+- **Never `requests.get` a link that came from a browser.** `services.photo_fetch.fetch_photo` is the one way, and only for a host the API key's owner listed.
 
 ## Known Issues
 
@@ -867,7 +906,6 @@ The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0**. Printo.in's s
 | **Print a bleed-area sheet before printo.in relies on it.** Set a real photo-frame layout (prod "cPhoto Frame 12x18 Brown Goldline") to Print file = Bleed area with the frame picture in the frame slot, render one order, and have Catalog Ops check the printed sheet under the frame. Until then no production layout should be switched to Bleed area. | Catalog Ops / Kanna |
 | Drop the derived legacy `maskUrl` / `maskOnExport` from layout responses (`with_legacy_mask_fields`) one release after the print sheet ships, once nothing downstream reads them. | Kanna |
 | Multi-print areas / split canvas (several files per surface, one photo shared across windows, blur wrap): deferred from the print-sheet work 2026-10-26; a separate session holds the design. | Kanna |
-| **Long-term photo restore for reorders** (printo's request 2026-11-03; design settled 2026-11-05, nothing built yet). Printo keeps the long-term copy (two years); we keep nothing past retention and every reorder is a new job rendered fresh. Option B: printo adds `restore_order_id=<job>` to the iframe address (our server never reads it); the editor asks the page that embeds it with `pe:restore_request`, the page checks ownership and replies `pe:restore_data` (the design and one link per photo), and the editor answers `pe:restore_result` (restored, partial, none) so the page can show its own message. Restored photos are not stored in the browser: previews load from the links as cards scroll into view. At Save & Continue our server fetches the unchanged photos from those links, limited to an "allowed photo hosts" field on the API key (blank = off). `restore.json` (design as at submit, one entry per distinct photo) is written once per job into the uploads ZIP; an order rendered before it exists restores as photos placed again, with a notice. Build order: `restore.json`, the server fetch, the editor restore, then a 200-photo reorder on alpha on a laptop and a phone. Provider-neutral throughout: nothing printo-specific in code or message names. Waiting on printo's answers (the trigger parameter on both embedding pages, the CDN host and link lifetime, the message names on alpha). | Kanna / Rajeev |
+| **Long-term photo restore for reorders** (printo's request 2026-11-03; design settled 2026-11-05). Built so far: the security fix (PR #309), `restore.json` (see Restore manifest), the server fetch (see Upload by link; `files.printo.in` is entered on printo's key) and reading a held photo back as a preview or in full. **Design as settled 2026-11-05, replacing the description that follows where they differ:** printo sends only the original files, so when a restored design opens, our server fetches each original and the editor draws the cards from 1600 px previews with the earlier crop, text and stickers; tapping a card loads the original; Save & Continue then has nothing left to fetch. The customer's browser never loads from printo's storage, so no CORS setting is needed there. Still to build: the editor restore, older orders, then switching it on. Printo keeps the long-term copy (two years); we keep nothing past retention and every reorder is a new job rendered fresh. Option B: printo adds `restore_order_id=<job>` to the iframe address (our server never reads it); the editor asks the page that embeds it with `pe:restore_request`, the page checks ownership and replies `pe:restore_data` (the design and one link per photo), and the editor answers `pe:restore_result` (restored, partial, none) so the page can show its own message. Restored photos are not stored in the browser: previews load from the links as cards scroll into view. At Save & Continue our server fetches the unchanged photos from those links, limited to an "allowed photo hosts" field on the API key (blank = off). `restore.json` (design as at submit, one entry per distinct photo) is written once per job into the uploads ZIP; an order rendered before it exists restores as photos placed again, with a notice. Build order: `restore.json`, the server fetch, the editor restore, then a 200-photo reorder on alpha on a laptop and a phone. Provider-neutral throughout: nothing printo-specific in code or message names. Waiting on printo's answers (the trigger parameter on both embedding pages, the CDN host and link lifetime, the message names on alpha). | Kanna / Rajeev |
 | **Print emoji and Indian scripts.** The closed font list exists (the family's print file, then the blank font, in `overlayFontStack` and `printable_text`); printing more means adding fonts to it on both sides, between those two: one emoji font, then one font per script. The server needs per-character fallback in `_draw_text`, colour-emoji drawing, and Raqm in the image for Indian scripts (then `shaping_available()` turns true by itself). `services/text_coverage.py` must check the whole list. Proof each script on paper with Catalog Ops before switching it on. | Kanna |
-| **Show the real print before production** (asked 2026-11-05). The preview cards are drawn by the browser; the mock the render job already makes (`2_mock/`) is drawn by the print code. Not built: needs a decision on whether the webhook waits for the customer's confirmation. | Kanna / Rajeev |
 | Print one turned layout and check it, then tell printo.in to send `orientation`. Until then landscape templates (PR #304, live 2026-10-29) reach customers from the dashboard only. | Catalog Ops / Kanna |
