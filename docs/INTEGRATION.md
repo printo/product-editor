@@ -816,6 +816,52 @@ What the host must do:
 
 Give us the exact host name as it appears in your links (for example `files.example.com`): no wildcard, and a link on a sub-domain you did not name is refused.
 
+### 4f. Reopen an earlier order in the editor (optional, as of Nov 2026)
+
+Product Editor keeps a customer's design and photos only for its retention period. If you keep the uploads ZIP of an order (it carries `restore.json`, see ZIP fetch), you can open the editor on a **new** order with that earlier design already in place. Every reorder is a new session, a new order id and a freshly rendered job.
+
+**What you do**
+
+1. Create the session as usual (`POST /api/embed/session` with the new `order_id`, `include_uploads: true` so the new order can be restored later too).
+2. Add `restore_order_id=<your reference for the earlier order>` to the iframe address: `/editor/layout/<layout>?token=<token>&restore_order_id=<reference>`. The reference is yours (letters, digits, `_`, `.`, `-`, at most 64); Product Editor's server never receives it.
+3. Listen for the editor's request and answer it from the page that holds the iframe:
+
+```js
+window.addEventListener('message', async (event) => {
+  if (event.origin !== 'https://product-editor.printo.in') return;
+  const msg = event.data;
+  if (msg?.type === 'pe:restore_request') {
+    // msg = { type, orderId, restoreOrderId }
+    // YOU decide whether this signed-in customer may have restoreOrderId.
+    const kept = await loadKeptOrder(msg.restoreOrderId);      // your storage
+    event.source.postMessage(kept ? {
+      type: 'pe:restore_data',
+      orderId: msg.orderId,                 // echo it back unchanged
+      schema_version: kept.restoreJson.schema_version,
+      editor_state: kept.restoreJson.editor_state,
+      photos: kept.restoreJson.photos.map((p) => ({
+        file_id: p.file_id,                 // as in restore.json
+        name: p.original_name,
+        url: linkToYourCopyOf(p.zip_entry), // https, on the host we list for your key (4e)
+      })),
+    } : { type: 'pe:restore_data', orderId: msg.orderId, error: 'not_found' },
+    event.origin);
+  }
+  if (msg?.type === 'pe:restore_result') {
+    // msg = { type, orderId, restoreOrderId, status, reason?, photos: { total, loaded, failed } }
+    // status: 'restored' | 'partial' | 'none'. Show your own message if you want one.
+  }
+});
+```
+
+**What to expect**
+
+- The editor asks once as it opens, and waits **10 seconds**. Always answer, with the data or with `error`; silence reads as `none` / `timeout` and the customer gets an empty editor.
+- The request is sent only when the new order has no design of its own yet. After the customer has edited it, their saved design is what reopens, and you are asked again only so the photos can be shown (same request, same answer).
+- Photos are fetched by our server from your links (section 4e), a few at a time from the first card down; the customer sees each card fill in. Their crop, rotation, text and stickers are as they were.
+- `pe:restore_result` reasons when `status` is `none`: `timeout`, `declined` (you sent `error`), `invalid_reply`, `no_design` (the order has no `editor_state`), `layout_changed` (the design was made for another layout), `design_in_progress` (the customer had already started adding photos).
+- Only the page that directly holds the iframe is listened to. A reply from another window is ignored.
+
 ### 5. Firewall
 
 Allow inbound HTTPS from Product Editor's egress IP range to your `/api/internal/pe-callback` endpoint. Confirm the IP set with infra; add to allowlist.
