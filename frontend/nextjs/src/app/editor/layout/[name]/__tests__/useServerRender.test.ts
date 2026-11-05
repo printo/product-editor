@@ -130,9 +130,12 @@ describe('useServerRender — the render request', () => {
       canvases: [canvas([frame(a)], { overlays: [icon(), icon({ id: 'i2', x: 60 }), icon({ id: 'i3', width: 30 })] })],
     });
     await run(() => result.current.executeBatchDownload());
+    // Drawn from our own copy of the icon, never from Iconify, whose rate
+    // limit used to block the submit; the design still stores Iconify's address.
+    const own = `${window.location.origin}/api/icons/flat-color-icons/like.svg`;
     expect(jest.mocked(rasterizeSvgUrl).mock.calls).toEqual([
-      [src, 216, 120, 'icon-flat-color-icons-like.png'],
-      [src, 540, 120, 'icon-flat-color-icons-like.png'],
+      [own, 216, 120, 'icon-flat-color-icons-like.png'],
+      [own, 540, 120, 'icon-flat-color-icons-like.png'],
     ]);
     const uploaded = jest.mocked(uploadFiles).mock.calls[0][0];
     expect(uploaded.map(f => f.name)).toEqual(['a.jpg', 'icon-flat-color-icons-like.png', 'icon-flat-color-icons-like.png']);

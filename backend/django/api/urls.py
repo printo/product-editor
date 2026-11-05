@@ -7,6 +7,7 @@ from .views import (
     CanvasStateView, CalendarStylesView, HolidaysView,
     ChunkedUploadInitView, ChunkedUploadChunkView, ChunkedUploadCompleteView, UploadFromUrlView, PhotoPreviewView,
     OrientationDetectView, HeicConvertView,
+    IconSvgView, IconSearchView,
     EditorRenderView, EditorInitView, CSPReportView,
     TemplatesListView, TemplateDetailView, TemplateManagementView, TemplateCandidatesView,
     TemplateAssetUploadView, TemplateAssetDownloadView,
@@ -97,6 +98,11 @@ urlpatterns = [
     # Which characters of a text box the print can't draw in its font. Not
     # under fonts/: the dashboard proxy treats writes there as ops-only.
     path("text/printable", TextPrintableView.as_view(), name="text-printable"),
+
+    # Icons for the Icons tab, from our own cache: no browser talks to Iconify.
+    # The SVG is public (an <img> cannot send a key); the search needs one.
+    path("icons/<str:prefix>/<str:name>.svg", IconSvgView.as_view(), name="icon-svg"),
+    path("icon-search", IconSearchView.as_view(), name="icon-search"),
 
     # Calendar style presets (PRD §10.3 + §6.3 + Phase 3)
     # Public GETs — customer preview page fetches these through the embed proxy.

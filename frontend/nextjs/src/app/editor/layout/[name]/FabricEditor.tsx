@@ -29,6 +29,7 @@ import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
 import { canvasText, loadOverlayFonts, overlayFontStack } from '@/lib/overlay-fonts';
 import { textBoxWidthPx, textOriginX } from '@/lib/overlay-text';
+import { ownIconUrl } from '@/lib/icon-source';
 import { shapeBoxFromObject, shapeRepresentation, shapeScaleForBox, textBoxFromObject } from '@/lib/overlay-geometry';
 import {
   createShapeFromOverlay,
@@ -171,8 +172,9 @@ function applyOverlayToObject(
 
     // Update image source in-place using setSrc if changed
     const imgObj = obj as FabricImage;
-    if ((imgObj.getElement() as HTMLImageElement | undefined)?.src !== overlay.src) {
-      imgObj.setSrc(overlay.src, { crossOrigin: 'anonymous' });
+    const src = ownIconUrl(overlay.src);
+    if ((imgObj.getElement() as HTMLImageElement | undefined)?.src !== src) {
+      imgObj.setSrc(src, { crossOrigin: 'anonymous' });
     }
   }
 }
@@ -997,7 +999,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         }
       } else if (overlay.type === 'image') {
         try {
-          const img = await FabricImage.fromURL(overlay.src, { crossOrigin: 'anonymous' });
+          const img = await FabricImage.fromURL(ownIconUrl(overlay.src), { crossOrigin: 'anonymous' });
           if (buildGenRef.current !== gen) return;
           const left = (overlay.x / 100) * canvasW;
           const top = (overlay.y / 100) * canvasH;

@@ -98,6 +98,14 @@ def test_chunk_exemption_does_not_swallow_complete():
     assert mw._should_audit('/api/photos/abc/preview')     # reads a customer photo
 
 
+def test_icon_tiles_are_noise_but_the_icon_search_is_recorded():
+    """Sixty public tiles a search, the same library for everyone; the search
+    is the customer's and is made with their key."""
+    mw = _mw()
+    assert not mw._should_audit('/api/icons/mdi/heart.svg')
+    assert mw._should_audit('/api/icon-search')
+
+
 def test_exemption_is_prefix_anchored():
     """A path merely CONTAINING an exempt segment must still be recorded."""
     mw = _mw()

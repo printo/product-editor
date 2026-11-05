@@ -95,6 +95,9 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
         '/api/config',
         '/api/render-status/',
         '/api/csp-report',
+        # Icon tiles: public, sixty a search, the same library for everyone,
+        # nothing of a customer's in them. The search itself is recorded.
+        '/api/icons/',
     )
     AUDIT_EXEMPT_RE = re.compile(r'^/api/upload/[^/]+/chunk')
 
@@ -216,6 +219,7 @@ class RateLimitMiddleware(MiddlewareMixin):
         '/api/render-status/',   # polled every few seconds during render
         '/api/jobs/',            # ZIP download (single hit but large body)
         '/api/health',           # docker healthcheck (every 30 s)
+        '/api/icons/',           # icon tiles, sixty a search; what they may fetch is capped in the store
     )
 
     def __init__(self, get_response):

@@ -188,6 +188,10 @@ const ALLOWED_PATH_METHODS: Record<string, readonly ProxyMethod[]> = {
   // emoji in a script font), so the editor can warn before submit. POST-only,
   // stateless, reads no customer data.
   'text/printable': ['POST'],
+  // The Icons tab's search, answered from our own cache of the Iconify
+  // library. The icon pictures themselves are public at /api/icons/ and do
+  // not come through this proxy.
+  'icon-search': GET_ONLY,
 };
 
 export const ALLOWED_PATH_PREFIXES = Object.keys(ALLOWED_PATH_METHODS) as readonly string[];
