@@ -322,6 +322,54 @@ def _build_uploaded_files_map(canvas_data, overlays_per_canvas, calendar_state=N
     return mapping or None
 
 
+def _build_restore_manifest(canvas_data, job_id: str, layout_version) -> dict | None:
+    """The restore.json for this job (services/restore_manifest.py), or None.
+
+    Built from the same submit-time snapshot the print was made from. Only for
+    jobs whose caller wants the uploads archive, which is what carries it.
+    """
+    render_state = canvas_data.render_state or {}
+    if not render_state.get('include_uploads', True):
+        return None
+
+    from PIL import Image
+    from api.models import UploadedFile
+    from services.restore_manifest import build_restore_manifest, referenced_uploads
+
+    upload_ids = [uid for uid, _ in referenced_uploads(render_state.get('canvases'))]
+    if not upload_ids:
+        return None
+
+    uploads = {}
+    rows = UploadedFile.objects.filter(
+        api_key=canvas_data.api_key,
+        upload_session_id__in=upload_ids,
+        is_deleted=False,
+    ).values_list('upload_session_id', 'file_path', 'original_filename', 'file_size_bytes')
+    for upload_id, path, name, size in rows:
+        # Pixel size as stored. Reading the header does not decode the photo,
+        # so this stays cheap for a 200-photo order.
+        width = height = None
+        try:
+            with Image.open(path) as im:
+                width, height = im.size
+        except Exception:
+            pass
+        uploads[str(upload_id)] = {
+            'original_name': name, 'size_bytes': size, 'width': width, 'height': height,
+        }
+
+    return build_restore_manifest(
+        order_id=canvas_data.order_id,
+        render_job_id=job_id,
+        layout_name=canvas_data.layout_name,
+        layout_version=layout_version,
+        created_at=timezone.localtime().isoformat(timespec='seconds'),
+        render_state=render_state,
+        uploads=uploads,
+    )
+
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -596,7 +644,14 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         job.completed_at = timezone.now()
         job.generation_time_ms = generation_time_ms
         job.output_paths = output_paths
-        job.save(update_fields=['status', 'completed_at', 'generation_time_ms', 'output_paths'])
+        # restore.json for the uploads archive. Bookkeeping: a failure here
+        # must never fail a render whose files are already on disk.
+        try:
+            job.restore_manifest = _build_restore_manifest(canvas, job_id, getattr(layout_obj, 'version', None))
+        except Exception as exc:
+            job.restore_manifest = None
+            logger.error("Job %s: could not build the restore manifest: %s", job_id, exc)
+        job.save(update_fields=['status', 'completed_at', 'generation_time_ms', 'output_paths', 'restore_manifest'])
 
         # ── Register outputs for garbage collection ──────────────────────────
         # garbage_collector_task's primary sweep iterates ExportedResult rows.
