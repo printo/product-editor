@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import {
   EmptySurfaceWarning, DuplicateFillWarning, LowDpiWarning, QtyShortfallWarning,
-  UnprintableTextNote, UnprintableTextWarning, UNPRINTABLE_HELP, UNSUPPORTED_REMOVED,
+  TextRemovedToast, UnprintableTextNote, UnprintableTextWarning, UNPRINTABLE_HELP, UNSUPPORTED_REMOVED,
 } from '../EditorNotices';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
 
@@ -102,7 +102,7 @@ describe('UnprintableTextNote', () => {
     render(<UnprintableTextNote chars={['\u{1F57A}', '\u{1F3B6}']} />);
     const note = screen.getByRole('status');
     expect(note).toHaveTextContent(UNPRINTABLE_HELP);
-    expect(note).toHaveTextContent('Please use the cliparts, images or icons from the panel instead.');
+    expect(note).toHaveTextContent('Please use the cliparts, images or icons from the sidebar instead.');
   });
 });
 
@@ -112,7 +112,7 @@ describe('UnprintableTextNote after a removal', () => {
     const note = screen.getByRole('status');
     expect(note).toHaveTextContent(UNSUPPORTED_REMOVED);
     expect(note).toHaveTextContent('not supported in text, so they were removed');
-    expect(note).toHaveTextContent('Please use the cliparts, images or icons from the panel instead.');
+    expect(note).toHaveTextContent('Please use the cliparts, images or icons from the sidebar instead.');
   });
 });
 
@@ -127,5 +127,47 @@ describe('UnprintableTextWarning', () => {
     expect(screen.getByText('Some of your text won’t print')).toBeInTheDocument();
     expect(screen.getByText('Canvas 2, Back')).toBeInTheDocument();
     expect(screen.getByText(UNPRINTABLE_HELP)).toBeInTheDocument();
+  });
+});
+
+describe('TextRemovedToast', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('shows nothing when the editor opens, whatever was removed before', () => {
+    render(<TextRemovedToast removals={3} />);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('appears when characters are removed, pointing to the sidebar, and goes after eight seconds', () => {
+    const { rerender } = render(<TextRemovedToast removals={0} />);
+    rerender(<TextRemovedToast removals={1} />);
+    const toast = screen.getByRole('status');
+    expect(toast).toHaveTextContent(UNSUPPORTED_REMOVED);
+    expect(toast).toHaveTextContent('Please use the cliparts, images or icons from the sidebar instead.');
+    act(() => { jest.advanceTimersByTime(7999); });
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('can be dismissed, and comes back for the next removal', () => {
+    const { rerender } = render(<TextRemovedToast removals={0} />);
+    rerender(<TextRemovedToast removals={1} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+    expect(screen.queryByRole('status')).toBeNull();
+    rerender(<TextRemovedToast removals={2} />);
+    expect(screen.getByRole('status')).toHaveTextContent(UNSUPPORTED_REMOVED);
+  });
+
+  it('starts its eight seconds again when more is removed while it is showing', () => {
+    const { rerender } = render(<TextRemovedToast removals={0} />);
+    rerender(<TextRemovedToast removals={1} />);
+    act(() => { jest.advanceTimersByTime(6000); });
+    rerender(<TextRemovedToast removals={2} />);
+    act(() => { jest.advanceTimersByTime(6000); });
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(2000); });
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });

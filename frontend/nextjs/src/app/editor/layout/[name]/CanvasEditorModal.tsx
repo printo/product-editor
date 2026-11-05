@@ -12,6 +12,7 @@ import { type LayerSelection } from './LayersPanel';
 // Type-only import: erased at compile time, zero bundle impact
 import type { FabricEditorHandle } from './FabricEditor';
 import { CanvasEditorSidebar } from './CanvasEditorSidebar';
+import { TextRemovedToast } from './EditorNotices';
 import { alignOverlay, isLostLocalImage, type OverlayAlignment } from './editor-utils';
 import { markEditedTemplateOverlays } from './layout-template';
 import type { ServerHeicConverter } from '@/lib/heic-convert';
@@ -315,6 +316,7 @@ export function CanvasEditorModal({
       aria-modal="true"
       aria-label="Canvas editor"
     >
+      <TextRemovedToast removals={textRemovals} />
       {/* Workspace — Fabric.js editor */}
       <div className="flex-1 bg-slate-100 flex flex-col overflow-hidden relative">
 

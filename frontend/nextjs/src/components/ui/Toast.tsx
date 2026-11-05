@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, X } from 'lucide-react';
 
-export type ToastTone = 'success' | 'error';
+export type ToastTone = 'success' | 'error' | 'warning';
 
 interface ToastProps {
   /** Null hides the toast. Setting a message (re)starts the dismiss timer. */
@@ -26,6 +26,12 @@ const TONE = {
     shell: 'bg-rose-50 border-rose-200 text-rose-800',
     icon: 'text-rose-600',
     bar: 'bg-rose-500',
+  },
+  warning: {
+    Icon: AlertTriangle,
+    shell: 'bg-amber-50 border-amber-300 text-amber-900',
+    icon: 'text-amber-600',
+    bar: 'bg-amber-500',
   },
 } as const;
 
@@ -85,9 +91,19 @@ export const Toast = ({ message, tone, onDismiss, duration = 5000 }: ToastProps)
   );
 };
 
-/** Fixed bottom-right stack. Sits above the z-[2000] header. */
-export const ToastStack = ({ children }: { children: React.ReactNode }) => (
-  <div className="fixed bottom-4 right-4 z-[3000] flex flex-col gap-2 items-end pointer-events-none">
+const PLACEMENT = {
+  'bottom-right': 'bottom-4 right-4 items-end',
+  'top-left': 'top-4 left-4 items-start',
+} as const;
+
+/** Fixed stack, bottom-right unless told otherwise. Sits above the z-[2000]
+ *  header. `top-left` is for the canvas editor, whose Save button and
+ *  controls fill the bottom and right edges. */
+export const ToastStack = ({ children, placement = 'bottom-right' }: {
+  children: React.ReactNode;
+  placement?: keyof typeof PLACEMENT;
+}) => (
+  <div className={`fixed z-[3000] flex flex-col gap-2 pointer-events-none ${PLACEMENT[placement]}`}>
     {children}
   </div>
 );

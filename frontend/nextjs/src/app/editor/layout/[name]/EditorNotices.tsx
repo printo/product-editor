@@ -1,6 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { Toast, ToastStack } from '@/components/ui/Toast';
 import type { LowDpiFrame } from '@/lib/dpi-utils';
 import type { DuplicateFill, EmptySurface } from '@/lib/submit-guards';
 import type { UnprintableText } from './useUnprintableText';
@@ -18,12 +20,38 @@ export type PreSubmitNoticeData = {
 /** The one sentence shown wherever text holds characters the print can't draw. */
 export const UNPRINTABLE_HELP =
   'Emoji and some special characters typed as text won’t print. ' +
-  'Please use the cliparts, images or icons from the panel instead.';
+  'Please use the cliparts, images or icons from the sidebar instead.';
 
 /** Shown once the canvas editor has taken unsupported characters out of a text box. */
 export const UNSUPPORTED_REMOVED =
   'Emoji and some special characters are not supported in text, so they were removed. ' +
-  'Please use the cliparts, images or icons from the panel instead.';
+  'Please use the cliparts, images or icons from the sidebar instead.';
+
+/**
+ * The toast the canvas editor shows each time unsupported characters are
+ * taken out of a text box. The note under the text box says the same, but it
+ * sits in the sidebar below the fold on a small screen and is not there at
+ * all when the text was typed on the canvas (found on production the day the
+ * removal shipped: the emoji vanished and nothing said why).
+ *
+ * `removals` is the running count from useUnprintableText. The count at the
+ * time the editor opened, and then at each dismissal, is what has been seen;
+ * anything above it shows the toast, and each new removal restarts its timer.
+ */
+export function TextRemovedToast({ removals }: { removals: number }) {
+  const [seen, setSeen] = useState(removals);
+  return (
+    <ToastStack placement="top-left">
+      <Toast
+        key={removals}
+        message={removals > seen ? UNSUPPORTED_REMOVED : null}
+        tone="warning"
+        duration={8000}
+        onDismiss={() => setSeen(removals)}
+      />
+    </ToastStack>
+  );
+}
 
 /** Under the text box in the canvas editor. The editor does not keep a
  *  character the print can't draw (useUnprintableText.ts): `removed` says one
