@@ -7,6 +7,9 @@ session's order id on each request as `X-Order-ID`; `GET /api/canvas-state/<id>/
 serves that order and no other. Requests without the header (the dashboard, a
 partner backend holding the key) are unchanged.
 
+A session with no order id would send no `X-Order-ID` and escape that rule, so
+`POST /api/embed/session` refuses to create one.
+
 Needs Postgres, like the rest of api/tests/.
 """
 from datetime import timedelta
@@ -14,7 +17,7 @@ from datetime import timedelta
 from django.test import Client, TestCase
 from django.utils import timezone
 
-from api.models import APIKey, CanvasData
+from api.models import APIKey, CanvasData, EmbedSession
 
 OWN = 'JOB-1001'
 OTHER = 'JOB-1002'
@@ -84,3 +87,30 @@ class CanvasStateOwnOrderTest(TestCase):
         self.assertIn(res.status_code, (200, 201))
         self.assertEqual(CanvasData.objects.get(order_id=OWN, api_key=self.key).editor_state['surfaces'][0]['note'], 'new')
         self.assertIn(OTHER, CanvasData.objects.get(order_id=OTHER, api_key=self.key).editor_state['surfaces'][0]['note'])
+
+
+class EmbedSessionRequiresOrderIdTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.key = APIKey.objects.create(name='session-order-test', key='test-session-order-key')
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {self.key.key}'}
+
+    def _create(self, body):
+        return self.client.post('/api/embed/session', body, content_type='application/json', **self.auth)
+
+    def test_a_session_without_an_order_id_is_refused(self):
+        for body in ({}, {'order_id': ''}, {'order_id': '   '}, {'order_id': None}, {'qty': 3}):
+            res = self._create(body)
+            self.assertEqual(res.status_code, 400, body)
+            self.assertEqual(res.json()['detail'], 'order_id is required')
+        self.assertEqual(EmbedSession.objects.filter(api_key=self.key).count(), 0)
+
+    def test_a_session_with_an_order_id_is_created_and_carries_it(self):
+        res = self._create({'order_id': OWN})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['order_id'], OWN)
+        self.assertEqual(EmbedSession.objects.get(token=res.json()['token']).order_id, OWN)
+
+    def test_a_malformed_order_id_is_still_refused(self):
+        self.assertEqual(self._create({'order_id': 'bad order!'}).status_code, 400)

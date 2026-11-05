@@ -272,13 +272,13 @@ class EmbedSessionTest(_Base):
         self.assertEqual(data['embed_url_template'], '/editor/layout/{layout_name}?token=' + data['token'])
 
     def test_template_flow_rides_on_the_address(self):
-        res = self.client.post('/api/embed/session', {'template_flow': True},
+        res = self.client.post('/api/embed/session', {'order_id': 'ORD-FLOW', 'template_flow': True},
                                content_type='application/json', **self.partner_auth)
         self.assertEqual(res.status_code, 201)
         self.assertTrue(res.json()['template_flow'])
         self.assertTrue(res.json()['embed_url_template'].endswith('&template_flow=1'))
         self.assertIsNone(res.json()['editor_url'])
-        plain = self.client.post('/api/embed/session', {}, content_type='application/json', **self.partner_auth).json()
+        plain = self.client.post('/api/embed/session', {'order_id': 'ORD-PLAIN'}, content_type='application/json', **self.partner_auth).json()
         self.assertFalse(plain['template_flow'])
         self.assertIsNone(plain['template_id'])
         self.assertIsNone(plain['editor_url'])
@@ -286,7 +286,7 @@ class EmbedSessionTest(_Base):
     def test_unpublished_or_unknown_template_id_is_refused(self):
         self.make('draft-one', status='draft')
         for tid in ('draft-one', 'missing', 'Bad Id'):
-            res = self.client.post('/api/embed/session', {'template_id': tid},
+            res = self.client.post('/api/embed/session', {'order_id': 'ORD-TID', 'template_id': tid},
                                    content_type='application/json', **self.partner_auth)
             self.assertEqual(res.status_code, 400, tid)
 
@@ -364,7 +364,7 @@ class SharedTemplatesTest(_Base):
         self.assertEqual([t['id'] for t in self.client.get('/api/ops/templates?layout=tpl_frame_half', **self.ops_auth).json()['templates']], ['shared'])
         self.assertEqual([t['id'] for t in self.client.get('/api/ops/templates', **self.ops_auth).json()['templates']], ['shared'])
         # The session's ready-made address still opens the home layout.
-        session = self.client.post('/api/embed/session', {'template_id': 'shared'}, content_type='application/json', **self.partner_auth).json()
+        session = self.client.post('/api/embed/session', {'order_id': 'ORD-SHARED', 'template_id': 'shared'}, content_type='application/json', **self.partner_auth).json()
         self.assertTrue(session['editor_url'].startswith('/editor/layout/tpl_test_4x6?'))
 
         # Unticking takes it off the other layout; a save without `also_on` keeps the list.
@@ -613,7 +613,7 @@ class TemplateFacingTest(_Base):
 
         # A session is refused when its orientation (or none) would hide the template.
         def session(body):
-            return self.client.post('/api/embed/session', body, content_type='application/json', **self.partner_auth)
+            return self.client.post('/api/embed/session', {'order_id': 'ORD-FACING', **body}, content_type='application/json', **self.partner_auth)
         refused = session({'template_id': 'tall-one', 'orientation': 'landscape'})
         self.assertEqual(refused.status_code, 400, refused.content)
         self.assertIn("designed for the layout in portrait", refused.json()['detail'])

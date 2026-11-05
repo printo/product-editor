@@ -103,11 +103,12 @@ class EmbedSessionView(APIView):
             name="EmbedSession",
             fields={
                 "order_id": drf_serializers.CharField(
-                    required=False,
                     help_text=(
-                        "Your job/order identifier. 1-64 chars, `A-Z a-z 0-9 _ . -` only. "
+                        "**Required.** Your job/order identifier. 1-64 chars, `A-Z a-z 0-9 _ . -` only. "
                         "Stored server-side and injected as the `X-Order-ID` header on every "
-                        "upstream call — it never appears in the iframe URL."
+                        "upstream call, so you never need to put it in the iframe URL. It is what "
+                        "ties the session to one order: the editor reads and saves that order's "
+                        "design and no other."
                     ),
                 ),
                 "callback_url": drf_serializers.CharField(
@@ -208,7 +209,7 @@ class EmbedSessionView(APIView):
             ),
             400: OpenApiResponse(
                 description=(
-                    "`order_id` outside `^[A-Za-z0-9_.\\-]{1,64}$`, `callback_url` over "
+                    "`order_id` missing or outside `^[A-Za-z0-9_.\\-]{1,64}$`, `callback_url` over "
                     "2000 chars, `callback_url` failing the https-only + "
                     "public-address SSRF check, or `qty` that is not a whole number "
                     "between 1 and 10000."
@@ -243,8 +244,16 @@ class EmbedSessionView(APIView):
         expires_at = timezone.now() + timedelta(hours=2)
         # Caller's job/order identifier — stored server-side so the proxy can
         # inject it as X-Order-ID without putting it in the iframe URL.
+        # Required: it is what ties a session to one order. A session without
+        # it sends no X-Order-ID, and CanvasStateView.get then has nothing to
+        # hold the browser's order id against.
         order_id = str(request.data.get('order_id', '') or '').strip()
-        if order_id and not self.ORDER_ID_RE.match(order_id):
+        if not order_id:
+            return Response(
+                {'detail': 'order_id is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not self.ORDER_ID_RE.match(order_id):
             return Response(
                 {'detail': 'order_id must be 1-64 chars; allowed: A-Z a-z 0-9 _ . -'},
                 status=status.HTTP_400_BAD_REQUEST,
