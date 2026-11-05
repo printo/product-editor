@@ -17,6 +17,8 @@ import { isLayoutTemplate, toSavedTemplate, type LayoutTemplate, type SavedTempl
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Ref<T> = MutableRefObject<T>;
+/** The id a photo goes by in the saved design, when the caller knows one. */
+export type FileIdOf = (file: File) => string | undefined;
 
 /** Saving and bringing back the customer's design: the one debounced
  *  autosave writer and its three triggers, the restore that runs once the
@@ -121,12 +123,20 @@ export function useAutosaveAndRestore({
    * stored as JSON.  The dataUrl is kept so the preview is still visible
    * after restore even though the original File is gone.
    */
-  const serializeCanvasState = useCallback((items: CanvasItem[]) =>
+  const serializeCanvasState = useCallback((items: CanvasItem[], fileIdOf?: FileIdOf) =>
     items.map(c => ({
       ...c,
       dataUrl: null, // strip base64 preview to reduce payload size — regenerate on restore
-      frames: c.frames.map(f => ({ ...f, originalFile: null })),
-      overlays: c.overlays.map(o => ({ ...o, originalFile: undefined })),
+      frames: c.frames.map(f => ({
+        ...f,
+        originalFile: null,
+        ...(fileIdOf && f.originalFile ? { fileId: fileIdOf(f.originalFile) ?? f.fileId } : {}),
+      })),
+      overlays: c.overlays.map(o => ({
+        ...o,
+        originalFile: undefined,
+        ...(fileIdOf && o.type === 'image' && o.originalFile ? { fileId: fileIdOf(o.originalFile) ?? o.fileId } : {}),
+      })),
     }))
     , []);
 
@@ -185,6 +195,59 @@ export function useAutosaveAndRestore({
     };
   }, [isCalendarProduct, isBookProduct, calendarTheme, calendarType, genzPalette, calendarCells, bookPageCount]);
 
+  /** The design as the editor holds it right now, in the shape the server
+   *  stores as `editor_state`. The autosave sends it as it is. The submit
+   *  passes `fileIdOf`, so every photo in the snapshot carries the id the
+   *  restore manifest lists it under, even one whose id had not reached the
+   *  design yet. Values are read from refs, so a caller gets the latest state
+   *  whenever it calls. */
+  const buildEditorState = useCallback((fileIdOf?: FileIdOf): Record<string, any> => {
+    const product = autosaveProductRef.current;
+    // Read from refs so a debounced caller always uses the latest surface
+    // data, even if other surfaces were updated while it waited.
+    const latestSurfaces = surfaceStatesRef.current;
+    const latestActiveKey = activeSurfaceKeyRef.current;
+
+    // The backend stores `editor_state` as an opaque JSON blob.
+    const editorState: Record<string, any> = {
+      surfaces: latestSurfaces.map(s => ({
+        key: s.key,
+        canvases: serializeCanvasState(s.canvases, fileIdOf),
+        globalFitMode: s.globalFitMode,
+      })),
+      activeSurfaceKey: latestActiveKey,
+      layoutName,
+      template: activeTemplateRef?.current ? toSavedTemplate(activeTemplateRef.current) : null,
+    };
+    // Calendar products persist the customer's theme/type/palette/cell
+    // choices so they survive page refresh (PRD §10.3 / audit fix #1).
+    if (product.isCalendarProduct) {
+      editorState.calendarState = {
+        themePreset: product.calendarTheme,
+        calendarType: product.calendarType,
+        genzPalette: product.genzPalette,
+        cells: product.calendarCells,
+      };
+    }
+    // Book products persist the customer's page count AND the pages held
+    // out of range by a shrink (BOOK_LAYOUT_PRD.md R1) — a NEW top-level
+    // key, not appended into `surfaces`, so it can never be mistaken for
+    // an active page by `_extract_canvases_meta`/`_extract_book_state`
+    // (which only look at `canvases`) even though editor_state is never
+    // read by the render path anyway (render_state is submit-time only).
+    if (product.isBookProduct) {
+      editorState.bookState = {
+        pageCount: product.bookPageCount,
+        hiddenSurfaces: Object.entries(bookHiddenPagesRef.current).map(([key, s]) => ({
+          key,
+          canvases: serializeCanvasState(s.canvases, fileIdOf),
+          globalFitMode: s.globalFitMode,
+        })),
+      };
+    }
+    return editorState;
+  }, [layoutName, serializeCanvasState, bookHiddenPagesRef, surfaceStatesRef, activeSurfaceKeyRef, activeTemplateRef]);
+
   const scheduleAutosave = useCallback(() => {
     // Never write while a restore is still in flight. State is empty on mount
     // and an empty save is deliberately allowed (see "delete all" below), so a
@@ -199,49 +262,8 @@ export function useAutosaveAndRestore({
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        const product = autosaveProductRef.current;
-        // Read from refs so the timeout always uses the latest surface data,
-        // even if other surfaces were updated during the 2 s debounce window.
-        const latestSurfaces = surfaceStatesRef.current;
-        const latestActiveKey = activeSurfaceKeyRef.current;
-
-        // The backend stores `editor_state` as an opaque JSON blob.
-        const editorState: Record<string, any> = {
-          surfaces: latestSurfaces.map(s => ({
-            key: s.key,
-            canvases: serializeCanvasState(s.canvases),
-            globalFitMode: s.globalFitMode,
-          })),
-          activeSurfaceKey: latestActiveKey,
-          layoutName,
-          template: activeTemplateRef?.current ? toSavedTemplate(activeTemplateRef.current) : null,
-        };
-        // Calendar products persist the customer's theme/type/palette/cell
-        // choices so they survive page refresh (PRD §10.3 / audit fix #1).
-        if (product.isCalendarProduct) {
-          editorState.calendarState = {
-            themePreset: product.calendarTheme,
-            calendarType: product.calendarType,
-            genzPalette: product.genzPalette,
-            cells: product.calendarCells,
-          };
-        }
-        // Book products persist the customer's page count AND the pages held
-        // out of range by a shrink (BOOK_LAYOUT_PRD.md R1) — a NEW top-level
-        // key, not appended into `surfaces`, so it can never be mistaken for
-        // an active page by `_extract_canvases_meta`/`_extract_book_state`
-        // (which only look at `canvases`) even though editor_state is never
-        // read by the render path anyway (render_state is submit-time only).
-        if (product.isBookProduct) {
-          editorState.bookState = {
-            pageCount: product.bookPageCount,
-            hiddenSurfaces: Object.entries(bookHiddenPagesRef.current).map(([key, s]) => ({
-              key,
-              canvases: serializeCanvasState(s.canvases),
-              globalFitMode: s.globalFitMode,
-            })),
-          };
-        }
+        // Built when the timer FIRES, from refs: see buildEditorState.
+        const editorState = buildEditorState();
 
         const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
           method: 'PUT',
@@ -265,7 +287,7 @@ export function useAutosaveAndRestore({
         setIsSaving('idle');
       }
     }, 2000);
-  }, [apiBase, orderId, layoutName, getAuthHeaders, serializeCanvasState, reclaimUnusedFiles, bookHiddenPagesRef, surfaceStatesRef, activeSurfaceKeyRef, activeTemplateRef]);
+  }, [apiBase, orderId, layoutName, getAuthHeaders, buildEditorState, reclaimUnusedFiles]);
 
   const cancelAutosave = useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -587,7 +609,7 @@ export function useAutosaveAndRestore({
     if (orderId) writeCardCountHint(orderId, canvases.length);
   }, [canvases.length, orderId]);
 
-  return { restorePending, restoreSettled, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef };
+  return { restorePending, restoreSettled, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef, buildEditorState };
 }
 
 /** Stores each photo the design uses in the browser's IndexedDB once, and

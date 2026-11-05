@@ -111,6 +111,7 @@ Before the migration, production had diverged badly from git: 20 tracked layouts
 
 ## Server-side render and embed
 
+- **`restore.json` (2026-11-05):** printo asked for the uploads ZIP to carry what a reorder needs, because our copies expire in 3 days and reorders come later. Three things in the old archive made that impossible and are why the format changed: it listed one entry per photo *window* (a photo used twice appeared twice), named entries by the customer's file name (two `IMG_0001.jpg` collided), and held frame photos only (image stickers and calendar date photos were resolved separately and left out). The manifest was first planned as a file in the job's export folder; reading the GC showed it deletes only the files it has rows for and removes a folder only when empty, so a loose file holding the customer's typed text would have outlived the retention clock. It is a column on `RenderJob` instead. The container's Python had no MIME type for `.webp`, which a unit test caught; the manifest carries its own table.
 - v1.8 removed the client-side "≤ 20 canvases render in browser" shortcut; small jobs pay ~10–20 s extra, in exchange for one contract for webhooks, large batches and resumable uploads.
 - The old `soft_proof` / `tiff_cmyk` / `callback_url` body params on `/api/layout/generate` were removed in v1.8. The legacy `/embed/layout/*` SVG-preview route was removed because it read `?apiKey=` from the URL.
 - `docs/INTEGRATION.md` claimed numeric-string `qty` values were rejected until 2026-09-04; they are accepted on purpose.

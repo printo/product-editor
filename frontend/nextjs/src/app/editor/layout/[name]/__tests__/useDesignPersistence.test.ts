@@ -165,6 +165,31 @@ describe('useAutosaveAndRestore — the save', () => {
     expect(result.current.isSaving).toBe('idle');
   });
 
+  it('the submit gets the same design, with every photo carrying the id the caller gives it', async () => {
+    jest.useFakeTimers();
+    const kept = new File(['x'], 'kept.jpg'), fresh = new File(['y'], 'fresh.jpg'), sticker = new File(['z'], 's.png');
+    const card: CanvasItem = {
+      ...canvas([frame({ originalFile: kept, fileId: 'idb-kept' }), frame({ originalFile: fresh })]),
+      overlays: [{ type: 'image', source: 'local', originalFile: sticker, src: 'blob:s' }, { type: 'text', text: 'Hi' }] as unknown as CanvasItem['overlays'],
+    };
+    const { result } = setup({ surfaceStates: [side('default', [card])] });
+    await tick(0);
+    act(() => result.current.setCanvases([card]));
+    await tick(2000);
+    const saved = puts.at(-1)!.body.editor_state;
+    // Without a caller's ids it is exactly what the autosave wrote.
+    expect(JSON.parse(JSON.stringify(result.current.buildEditorState()))).toEqual(saved);
+    const ids = new Map<File, string>([[kept, 'idb-kept'], [fresh, 'new-id'], [sticker, 'sticker-id']]);
+    const snap = result.current.buildEditorState(f => ids.get(f));
+    const [f0, f1] = snap.surfaces[0].canvases[0].frames;
+    expect([f0.fileId, f0.originalFile, f1.fileId, f1.originalFile]).toEqual(['idb-kept', null, 'new-id', null]);
+    const [img, text] = snap.surfaces[0].canvases[0].overlays;
+    expect(img.fileId).toBe('sticker-id');
+    expect(img.originalFile).toBeUndefined();
+    expect(text).toEqual({ type: 'text', text: 'Hi', originalFile: undefined });
+    expect(snap.surfaces[0].canvases[0].dataUrl).toBeNull();
+  });
+
   it('a calendar saves its choices and day entries; a book its page count and held pages', async () => {
     jest.useFakeTimers();
     const cal = setup({ calendar: true });

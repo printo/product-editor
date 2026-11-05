@@ -416,6 +416,14 @@ class RenderJob(models.Model):
     # Results
     output_paths = models.JSONField(null=True, blank=True, help_text="List of generated file paths")
     error_message = models.TextField(null=True, blank=True)
+    # What an embedding company needs to bring this design back later
+    # (services/restore_manifest.py): the design as at submit and one entry per
+    # distinct customer photo. Built by render_canvas_task and served as
+    # restore.json in the uploads ZIP. It lives on the job, not on CanvasData,
+    # because a second submit for the same order replaces the order's
+    # render_state while this job's files stay what they were. NULL for a job
+    # rendered before this existed, or one with no customer photos to list.
+    restore_manifest = models.JSONField(null=True, blank=True, default=None)
     
     # Timing
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

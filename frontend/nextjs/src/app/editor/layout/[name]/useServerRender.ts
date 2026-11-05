@@ -1,14 +1,22 @@
 'use client';
 
-import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { CalendarTheme, CalendarType } from '@/types/calendar';
 import { isAllowedImageFile, unsupportedFilesMessage, uploadFiles } from '@/lib/upload-utils';
 import { getCanvasSpec, type CanvasSpec } from '@/lib/layout-utils';
 import { needsRasterForPrint, overlayRasterSize, rasterFileName, rasterizeSvgUrl } from '@/lib/icon-raster';
 import { formatWait, isLostLocalImage } from './editor-utils';
 import type { CanvasItem, FrameState, ImageOverlay, Overlay, SurfaceState } from './types';
+import type { FileIdOf } from './useDesignPersistence';
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
+
+/** The design rides the submit only for a later restore, so it must never be
+ *  what makes the request too large to accept (the server refuses a body over
+ *  10 MB before any view runs). Past this size the photo ids still go; the
+ *  order then restores as its photos alone. Ordinary designs are a few hundred
+ *  kilobytes at most. */
+export const MAX_RESTORE_STATE_CHARS = 2 * 1024 * 1024;
 
 /** Save & Continue (embed) and Download (dashboard): upload every photo,
  *  submit the render job, then tell the storefront (embed) or poll and
@@ -19,6 +27,7 @@ export function useServerRender({
   layout, layoutName, embedToken, parentOrigin, apiBase, getAuthHeaders, orderId, surfaceStates, canvases, activeSurfaceKey, urlOrientation,
   isCalendarProduct, calendarTheme, calendarType, genzPalette, calendarCells, isBookProduct, bookPageCount,
   qtyNeeded, totalUploadedCount, setIsDownloading, setShowDownloadModal, setRenderProgress, setError,
+  buildEditorState, fileIdByFileRef,
 }: {
   layout: any;
   layoutName: string;
@@ -45,6 +54,11 @@ export function useServerRender({
   setShowDownloadModal: Setter<boolean>;
   setRenderProgress: Setter<{ current: number; total: number } | null>;
   setError: Setter<string | null>;
+  /** The design as the editor holds it now (useAutosaveAndRestore). Sent with
+   *  the submit so the uploads ZIP can carry `restore.json`. */
+  buildEditorState?: (fileIdOf?: FileIdOf) => Record<string, unknown>;
+  /** The id each stored photo goes by in the saved design. */
+  fileIdByFileRef?: MutableRefObject<WeakMap<File, string>>;
 }) {
   const [serverRenderLabel, setServerRenderLabel] = useState<string | null>(null);
   // Include the customer's original uploads in the download ZIP — OFF by default
@@ -314,6 +328,41 @@ export function useServerRender({
         });
       }
 
+      // What a later restore needs (restore.json in the uploads ZIP): the
+      // design as it stands, and the id each uploaded photo goes by in it. A
+      // photo whose id has not reached the design yet (its browser copy is
+      // still being stored, or storage is blocked) gets one here, and the
+      // snapshot is built with the same ids, so the two always agree. Icon
+      // PNGs made for the print are not listed: the design names an icon by
+      // its address.
+      let restore: { editor_state?: Record<string, unknown>; files: Array<{ file_id: string; upload_id: string }> } | undefined;
+      if (buildEditorState) {
+        const fileIds = new Map<File, string>();
+        const idFor = (file: File): string => {
+          let id = fileIds.get(file);
+          if (!id) {
+            id = fileIdByFileRef?.current.get(file) ?? crypto.randomUUID();
+            fileIds.set(file, id);
+          }
+          return id;
+        };
+        const files: Array<{ file_id: string; upload_id: string }> = [];
+        const listed = new Set<File>();
+        const list = (file: File | null | undefined) => {
+          const up = file ? uploadResults.get(file) : null;
+          if (!file || !up || listed.has(file)) return;
+          listed.add(file);
+          files.push({ file_id: idFor(file), upload_id: up.uploadId });
+        };
+        for (const c of allCanvases) {
+          c.frames.forEach(frame => list(frame.originalFile));
+          c.overlays.forEach(ov => { if (ov.type === 'image') list(ov.originalFile); });
+        }
+        const editorState = buildEditorState(idFor);
+        const fits = JSON.stringify(editorState).length <= MAX_RESTORE_STATE_CHARS;
+        restore = { ...(fits ? { editor_state: editorState } : {}), files };
+      }
+
       const renderRes = await fetch(`${apiBase}/editor/render`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -327,6 +376,7 @@ export function useServerRender({
           // customer submitted anyway. The server recounts the photos itself
           // and only forwards this flag in the webhook's qty_summary.
           qty_shortfall_acknowledged: qtyNeeded > 0 && totalUploadedCount < qtyNeeded,
+          ...(restore ? { restore } : {}),
         }),
       });
 
