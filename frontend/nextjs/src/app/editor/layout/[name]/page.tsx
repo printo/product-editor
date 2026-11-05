@@ -173,7 +173,7 @@ export default function LayoutEditorPage() {
 
   useLoginRedirect({ status, session, embedToken, router });
 
-  const { legacyOrderIdRef } = useLayoutLoader({
+  useLayoutLoader({
     layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
     selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
     setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
@@ -240,7 +240,7 @@ export default function LayoutEditorPage() {
   const {
     restorePending, restoreSettled, restoreCount, isSaving, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
   } = useAutosaveAndRestore({
-    layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, legacyOrderIdRef, normalizedLayoutState,
+    layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
     canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
     setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,

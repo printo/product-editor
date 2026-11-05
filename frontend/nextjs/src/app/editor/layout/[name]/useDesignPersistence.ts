@@ -24,7 +24,7 @@ type Ref<T> = MutableRefObject<T>;
  *  restore placeholders, and the bookkeeping of which stored photos this tab
  *  may delete. Autosave never writes before the restore has landed. */
 export function useAutosaveAndRestore({
-  layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, legacyOrderIdRef, normalizedLayoutState,
+  layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
   canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
   setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
   isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
@@ -37,7 +37,6 @@ export function useAutosaveAndRestore({
   orderId: string;
   apiBase: string;
   getAuthHeaders: () => Record<string, string>;
-  legacyOrderIdRef: Ref<string | null>;
   normalizedLayoutState: NormalizedLayout | null;
   canvases: CanvasItem[];
   setCanvases: Setter<CanvasItem[]>;
@@ -357,20 +356,13 @@ export function useAutosaveAndRestore({
 
     (async () => {
       try {
-        let restoreId = orderId;
-        let res = await fetch(`${apiBase}/canvas-state/${restoreId}/`, {
+        // Only this order's design is asked for. In the embed the server
+        // answers 404 for any other order id (CanvasStateView.get), so the
+        // address's own id is never tried as a second source.
+        const restoreId = orderId;
+        const res = await fetch(`${apiBase}/canvas-state/${restoreId}/`, {
           headers: { ...getAuthHeaders(), Accept: 'application/json' },
         });
-        // Pre-adoption fallback (Phase 3): an autosave made before this
-        // deploy may live under the old client-generated PE- id. One guarded
-        // extra GET recovers it; the next autosave re-keys it to the session
-        // id, so this self-migrates.
-        if (!res.ok && legacyOrderIdRef.current && legacyOrderIdRef.current !== restoreId) {
-          restoreId = legacyOrderIdRef.current;
-          res = await fetch(`${apiBase}/canvas-state/${restoreId}/`, {
-            headers: { ...getAuthHeaders(), Accept: 'application/json' },
-          });
-        }
         if (!res.ok) return; // 404 = first visit, no state to restore
 
         const data = await res.json();

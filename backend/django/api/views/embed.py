@@ -699,23 +699,43 @@ class CanvasStateView(APIView):
     @extend_schema(
         tags=["canvas-state"],
         summary="Load saved editor state",
+        description=(
+            "Keyed by `(order_id, api_key)`.\n\n"
+            "**In an embed session the path must name the session's own order.** "
+            "The embed proxy sends the session's order id as `X-Order-ID`; a path "
+            "that names any other order answers 404, the same as an order with "
+            "nothing saved. Every customer of one company shares that company's "
+            "API key, so the key alone does not say whose order it is. Requests "
+            "without the header (the dashboard, a partner backend holding the key) "
+            "read any order of their key by id."
+        ),
         responses={
             200: OpenApiResponse(description="Editor state JSON"),
-            404: OpenApiResponse(description="No saved state for this order_id"),
+            404: OpenApiResponse(
+                description="No saved state for this order_id, or the path names an order other than the embed session's."
+            ),
         },
     )
     def get(self, request, order_id: str):
         from api.models import CanvasData
 
-        # NOTE: GET deliberately respects the PATH param (unlike put(), where
-        # the session header wins). The embed proxy injects X-Order-ID on
-        # every request, so header-precedence here would make pre-adoption
-        # autosaves (keyed by the old client-generated id) unreachable — the
-        # client's legacy-id restore fallback needs the path to be honoured.
-        # Tenant scoping below keeps this safe: a key can only read its own rows.
+        # The path id comes from the customer's browser, and every customer of
+        # one company presents that company's key, so the key does not say
+        # whose order this is. In the embed the proxy stamps the session's
+        # order id on the request: serve that order and no other. Same answer
+        # as "nothing saved", so the reply does not say whether the order exists.
+        session_order_id = (request.headers.get('X-Order-ID') or '').strip()
+        if session_order_id and session_order_id != order_id:
+            logger.warning(
+                "Canvas state read refused: session order %s asked for order %s",
+                session_order_id, order_id,
+            )
+            return Response(
+                {'detail': 'No saved state for this order'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        # Resolve the API key so we can scope the lookup to the requesting
-        # tenant.  Two different keys can legitimately share the same order_id
+        # Two different keys can legitimately share the same order_id
         # (e.g. separate embed customers); scoping prevents cross-tenant reads.
         api_key = getattr(request.user, 'api_key', None)
         if not api_key:
