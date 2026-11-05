@@ -492,6 +492,27 @@ def test_render_overlays_and_engine_do_not_swallow_font_unavailable():
         shutil.rmtree(work, ignore_errors=True)
 
 
+def test_font_available_says_whether_a_name_could_be_printed_before_it_is_listed():
+    """The design import offers to list a font only when the print could load
+    it: a listed font that cannot be loaded fails every render that uses it."""
+    from unittest import mock
+
+    with mock.patch.object(gf, "font_bytes", return_value=b"ttf") as fetch:
+        assert gf.font_available("Marck   Script") is True
+        fetch.assert_called_once_with("Marck Script", 400)
+    with mock.patch.object(gf, "font_bytes", side_effect=gf.FontUnavailable("not on Google")):
+        assert gf.font_available("Not A Real Font") is False
+    with mock.patch.object(gf, "font_bytes") as fetch:
+        # The bundled font (which no family at all also prints in) needs no
+        # fetch; a name Google could never serve is not asked for.
+        assert gf.font_available("Inter") is True
+        assert gf.font_available("") is True
+        assert gf.font_available(None) is True
+        assert gf.font_available("../../etc/passwd") is False
+        assert gf.font_available("x" * 80) is False
+        fetch.assert_not_called()
+
+
 if __name__ == "__main__":
     import sys
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

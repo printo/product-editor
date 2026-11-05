@@ -208,7 +208,9 @@ class LayoutManagementView(APIView):
             "to the same `name` updates that row in place. Sending `old_name` (or "
             "`originalName`) that differs from `name` — the old rename mechanism — "
             "is rejected with 400; edit `display_name` for anything customer-facing "
-            "that needs to change, or create a new layout under a new name. Layouts "
+            "that needs to change, or create a new layout under a new name. A caller "
+            "that must never replace a live layout (an import) sends `create_only`: a "
+            "`name` that already exists, retired ones included, is then a 409. Layouts "
             "renamed before 2026-09-16 still resolve under their old identifier via "
             "`LayoutCatalogue.resolve_active()` (a `renamed_to` pointer set at the "
             "time) — that mechanism stays as a historical safety net even though "
@@ -244,6 +246,10 @@ class LayoutManagementView(APIView):
                         "existing value untouched — it is never silently blanked."
                     ),
                 ),
+                "create_only": drf_serializers.BooleanField(
+                    required=False,
+                    help_text="When true, refuse with 409 if a layout with this `name` already exists instead of updating it.",
+                ),
                 "layout_data": drf_serializers.JSONField(
                     help_text=(
                         "The layout definition. Also accepted under the key `layout`. A JSON string is parsed. "
@@ -259,6 +265,7 @@ class LayoutManagementView(APIView):
             200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The layout as stored."),
             400: OpenApiResponse(description="Missing name/layout_data, invalid name, malformed JSON, failed product validation, an unknown or switched-off tag, or an `old_name` that differs from `name` (renaming the identifier is retired — see docs above)."),
             403: OpenApiResponse(description="Caller is not on the ops team, or the path resolved outside the layouts directory."),
+            409: OpenApiResponse(description="`create_only` was sent and a layout with this `name` already exists."),
         },
     )
     def post(self, request, name=None):
@@ -294,6 +301,16 @@ class LayoutManagementView(APIView):
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # A caller that must never replace a live layout (the Templates page's
+        # design import, whose names are suggested, not typed) says so. Checked
+        # before anything is written, masks included.
+        create_only = str(request.data.get("create_only") or "").strip().lower() in ("1", "true", "yes", "on")
+        if create_only and LayoutCatalogue.objects.filter(name=layout_name).exists():
+            return Response(
+                {"detail": f"A layout named '{layout_name}' already exists. Choose another name."},
+                status=status.HTTP_409_CONFLICT,
             )
 
         display_name_input = str(request.data.get("display_name") or "").strip()

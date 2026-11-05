@@ -127,6 +127,25 @@ def print_font_data(family: Optional[str], weight: int = 400) -> bytes:
     return font_bytes(name, weight)
 
 
+def font_available(family: Optional[str]) -> bool:
+    """True when the print could load `family` if it were on the fonts list:
+    Google serves it as a TrueType or OpenType file at the regular weight (or
+    it is the bundled font). For checking a name BEFORE it is listed: a listed
+    font that cannot be loaded fails every render that uses it, where an
+    unlisted one only prints in the bundled Inter. A font that passes is left
+    in the cache, ready for when it is listed."""
+    name = " ".join((family or "").split())
+    if name.lower() in _BUNDLED_FAMILIES:
+        return True
+    if not _FAMILY_RE.match(name):
+        return False
+    try:
+        font_bytes(name, 400)
+    except FontUnavailable:
+        return False
+    return True
+
+
 def font_bytes(family: str, weight: int) -> bytes:
     """The TTF for family + weight: memory, then storage, then Google."""
     weight = _snap_weight(weight)
