@@ -7,8 +7,9 @@
  * the iframe address, the editor asks that page for the design:
  *
  *   editor → page   pe:restore_request { orderId, restoreOrderId }
- *   page → editor   pe:restore_data    { orderId, schema_version, editor_state,
- *                                        photos: [{ file_id, name, url }], error? }
+ *   page → editor   pe:restore_data    { orderId, schema_version, layout_version?,
+ *                                        editor_state, photos: [{ file_id?, name,
+ *                                        url, kind? }], error? }
  *   editor → page   pe:restore_result  { orderId, restoreOrderId, status, … }
  *
  * The page decides whether this customer may have that order. Nothing here
@@ -38,10 +39,20 @@ export interface RestorePhoto {
   fileId: string;
   name: string;
   url: string;
+  /** restore.json's `kind` when the page passed it on: `frame`, `overlay`
+   *  (an image the customer added on top) or `calendar` (a date's photo). */
+  kind: string | null;
 }
 
 export type RestoreReply =
-  | { ok: true; editorState: Record<string, unknown> | null; photos: RestorePhoto[]; schemaVersion: number | null }
+  | {
+      ok: true;
+      editorState: Record<string, unknown> | null;
+      photos: RestorePhoto[];
+      schemaVersion: number | null;
+      /** The layout's version when the order was made (restore.json), if sent. */
+      layoutVersion: number | null;
+    }
   | { ok: false; reason: RestoreFailure };
 
 export type RestoreFailure =
@@ -59,6 +70,22 @@ export function readRestoreOrderId(search: string): string | null {
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** An id for a photo the page sent without one (an order from before
+ *  `restore.json`): made from the link's host and path, so the same photo gets
+ *  the same id every time the page answers, whatever signature its link
+ *  carries. That is what lets a refresh match the photos to the cards again. */
+export function fileIdFromLink(url: URL): string {
+  const text = `${url.host}${url.pathname}`;
+  let a = 0x811c9dc5;
+  let b = 5381;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = (Math.imul(b, 33) + c) >>> 0;
+  }
+  return `u-${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}`;
+}
 
 /** Read a `pe:restore_data` message. Fails closed: anything not in the agreed
  *  shape is `invalid_reply`, and a single bad photo entry is dropped rather
@@ -85,22 +112,28 @@ export function parseRestoreData(raw: unknown, expected: { orderId: string }): R
   const seen = new Set<string>();
   for (const entry of raw.photos) {
     if (!isRecord(entry)) continue;
-    const fileId = entry.file_id;
     const url = entry.url;
-    if (typeof fileId !== 'string' || !FILE_ID_RE.test(fileId) || seen.has(fileId)) continue;
     if (typeof url !== 'string' || url.length > MAX_URL_CHARS) continue;
     let parsed: URL;
     try { parsed = new URL(url); } catch { continue; }
     if (parsed.protocol !== 'https:') continue;
+    // An id that is present must be a plain one; an absent id is made from
+    // the link. The same photo listed twice is one photo.
+    let fileId: string;
+    if (entry.file_id == null || entry.file_id === '') fileId = fileIdFromLink(parsed);
+    else if (typeof entry.file_id === 'string' && FILE_ID_RE.test(entry.file_id)) fileId = entry.file_id;
+    else continue;
+    if (seen.has(fileId)) continue;
     const rawName = typeof entry.name === 'string' ? entry.name
       : typeof entry.original_name === 'string' ? entry.original_name : '';
     seen.add(fileId);
-    photos.push({ fileId, url, name: rawName.slice(0, MAX_NAME_CHARS) });
+    photos.push({ fileId, url, name: rawName.slice(0, MAX_NAME_CHARS), kind: typeof entry.kind === 'string' ? entry.kind : null });
   }
   if (!editorState && photos.length === 0) return { ok: false, reason: 'invalid_reply' };
 
   const schemaVersion = typeof raw.schema_version === 'number' ? raw.schema_version : null;
-  return { ok: true, editorState, photos, schemaVersion };
+  const layoutVersion = typeof raw.layout_version === 'number' ? raw.layout_version : null;
+  return { ok: true, editorState, photos, schemaVersion, layoutVersion };
 }
 
 /** The parts of a window this module touches (a real window in the editor,
@@ -166,8 +199,11 @@ export type RestoreStatus = 'restored' | 'partial' | 'none';
 
 export interface RestoreResult {
   status: RestoreStatus;
+  /** What came back: the whole `design`, or only the `photos`, placed again
+   *  (an order with no saved design, or a product that changed since). */
+  mode?: 'design' | 'photos';
   /** Why nothing was restored, when status is 'none'. */
-  reason?: RestoreFailure | 'layout_changed' | 'design_in_progress' | 'no_design';
+  reason?: RestoreFailure | 'design_in_progress' | 'no_photos';
   photosTotal: number;
   photosLoaded: number;
 }
@@ -188,6 +224,7 @@ export function sendRestoreResult(
       orderId: ids.orderId,
       restoreOrderId: ids.restoreOrderId,
       status: result.status,
+      ...(result.mode ? { mode: result.mode } : {}),
       ...(result.reason ? { reason: result.reason } : {}),
       photos: { total: result.photosTotal, loaded: result.photosLoaded, failed: result.photosTotal - result.photosLoaded },
     }, targetOrigin);

@@ -46,6 +46,7 @@ import { useFileIntake } from './useFileIntake';
 import { useServerRender } from './useServerRender';
 import { useAutosaveAndRestore, usePhotoStore } from './useDesignPersistence';
 import { useParentRestore } from './useParentRestore';
+import { RestoreNotice } from './RestoreNotice';
 import { AutoFillPickerDialog } from './dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from './dialogs/BookOverflowDialog';
 import { DeleteConfirmDialog } from './dialogs/DeleteConfirmDialog';
@@ -173,13 +174,18 @@ export default function LayoutEditorPage() {
 
   useDashboardHeader(embedToken, router);
 
+  // For a restored order: the layout's version as served now, and the page's
+  // own "photos were picked" path (filled in below, once it exists).
+  const layoutVersionRef = useRef<number | null>(null);
+  const placePhotosRef = useRef<((files: File[]) => Promise<void>) | null>(null);
+
   useLoginRedirect({ status, session, embedToken, router });
 
   useLayoutLoader({
     layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
     selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
     setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
-    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning, urlOrientation,
+    urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning, urlOrientation, layoutVersionRef,
   });
 
   const { getFileUrl, fileUrlCache, createdObjectURLs } = useObjectUrls();
@@ -250,11 +256,12 @@ export default function LayoutEditorPage() {
   const restoredFileIdsRef = useRef<WeakMap<File, string> | null>(null);
   const {
     restoreFromParent, restoredPhotos, photoStatus: restoredPhotoStatus, retryRestoredPhotos,
-    prepareOriginals, openingCard, getEditFileUrl,
+    prepareOriginals, openingCard, getEditFileUrl, restoreNotice, dismissRestoreNotice, restoreProgress,
   } = useParentRestore({
     embedToken, parentOrigin, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
     surfaceStatesRef, setSurfaceStates, canvasesRef, setCanvases, setFiles, activeSurfaceKeyRef,
     skipNextGenerateRef, getFileUrl, renderCanvas, fileIdByFileRef: restoredFileIdsRef,
+    layoutVersionRef, placePhotosRef, isBookProduct, isCalendarProduct, calendarCells, setCalendarCells, setCalendarCellImagePreviews,
   });
 
   const {
@@ -272,7 +279,7 @@ export default function LayoutEditorPage() {
 
   usePhotoStore({
     orderId, surfaceStates, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
-    setPersistDegraded, setStorageBlocked,
+    setPersistDegraded, setStorageBlocked, restoredPhotos,
   });
 
   // Pre-submit guard (Phase 3): photos placed more than once (excluding
@@ -393,7 +400,7 @@ export default function LayoutEditorPage() {
     pendingOverFiles, setPendingOverFiles, pendingRepick, setPendingRepick, replacePhotoInputRef,
     pendingTruncated, setPendingTruncated, showAutoFillPicker, setShowAutoFillPicker, pickerSelected, setPickerSelected,
     handleFileChange, requestReplacePhoto, handleReplaceFileSelected, handleRepickConfirm, handleFillWithPicked,
-    handleOverConfirm, handleTruncatedDecision, handleBookOverflowDecision,
+    handleOverConfirm, handleTruncatedDecision, handleBookOverflowDecision, processSelectedFiles,
   } = useFileIntake({
     layout, files, setFiles, setCanvases, canvasesRef, surfaceStates, setSurfaceStates, surfaceStatesRef, activeSurfaceKey,
     normalizedLayoutState, isCalendarProduct, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPages, setBookHiddenPages,
@@ -402,6 +409,9 @@ export default function LayoutEditorPage() {
     expandPdfPages, serverHeicConvert, setHeicConverting, setIsProcessing, setError, setColorWarning, setUploadWarning,
     setUnsupportedWarning, templateRef: activeTemplateRef,
   });
+
+  // Restored photos with no design to put them back into go in as a pick does.
+  useEffect(() => { placePhotosRef.current = (picked: File[]) => processSelectedFiles(picked); });
 
   const imposition = useImposition({ layout, surfaceStates, canvases, renderCanvas, setError, setRenderProgress });
   const { showImpositionModal, setShowImpositionModal, isImposing } = imposition;
@@ -659,6 +669,8 @@ export default function LayoutEditorPage() {
             uploadInputRef={uploadInputRef} handleFileChange={handleFileChange}
             activeTemplateName={activeTemplate?.displayName ?? null}
           />
+
+          <RestoreNotice notice={restoreNotice} progress={restoreProgress} onDismiss={dismissRestoreNotice} />
 
           <CanvasGrid
             canvases={canvases} surfaceStates={surfaceStates} layout={layout}

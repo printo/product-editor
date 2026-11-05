@@ -1,6 +1,6 @@
 import {
   MAX_RESTORE_PHOTOS, RESTORE_DATA, RESTORE_REQUEST, RESTORE_RESULT,
-  parseRestoreData, readRestoreOrderId, requestRestore, restoreStatusFor, sendRestoreResult,
+  fileIdFromLink, parseRestoreData, readRestoreOrderId, requestRestore, restoreStatusFor, sendRestoreResult,
   type RestoreWindow,
 } from '../restore-messages';
 
@@ -23,9 +23,30 @@ describe('parseRestoreData', () => {
 
   it('accepts the agreed shape', () => {
     expect(parse(reply())).toEqual({
-      ok: true, editorState: DESIGN, schemaVersion: 1,
-      photos: [{ fileId: 'f-1', name: 'a.jpg', url: 'https://files.example.com/a.jpg' }],
+      ok: true, editorState: DESIGN, schemaVersion: 1, layoutVersion: null,
+      photos: [{ fileId: 'f-1', name: 'a.jpg', url: 'https://files.example.com/a.jpg', kind: null }],
     });
+  });
+  it('carries the layout version and each photo\'s kind when the page passes them on', () => {
+    const r = parse(reply({ layout_version: 7, photos: [{ ...PHOTO, kind: 'overlay' }] }));
+    expect(r).toEqual(expect.objectContaining({ ok: true, layoutVersion: 7 }));
+    expect(r.ok && r.photos[0].kind).toBe('overlay');
+  });
+  it('gives a photo sent without an id one made from its link, the same every time', () => {
+    const photos = [
+      { name: 'a.jpg', url: 'https://files.example.com/user/a.jpg?sig=ONE' },
+      { name: 'b.jpg', url: 'https://files.example.com/user/b.jpg' },
+      { name: 'a-again.jpg', url: 'https://files.example.com/user/a.jpg?sig=TWO' },
+    ];
+    const first = parse(reply({ editor_state: null, photos }));
+    const second = parse(reply({ editor_state: null, photos: [{ ...photos[0], url: 'https://files.example.com/user/a.jpg?sig=THREE' }, photos[1]] }));
+    if (!first.ok || !second.ok) throw new Error('expected both to parse');
+    // The same photo listed twice is one photo; a changed signature is the same photo.
+    expect(first.photos.map(p => p.name)).toEqual(['a.jpg', 'b.jpg']);
+    expect(second.photos.map(p => p.fileId)).toEqual(first.photos.map(p => p.fileId));
+    expect(first.photos[0].fileId).toMatch(/^u-[0-9a-f]{16}$/);
+    expect(first.photos[0].fileId).not.toBe(first.photos[1].fileId);
+    expect(fileIdFromLink(new URL(photos[1].url))).toBe(first.photos[1].fileId);
   });
   it('takes the name restore.json uses as well', () => {
     const r = parse(reply({ photos: [{ file_id: 'f-1', original_name: 'b.png', url: PHOTO.url }] }));
@@ -60,6 +81,7 @@ describe('parseRestoreData', () => {
       { file_id: '../f-4', url: 'https://files.example.com/x.jpg' },
       { file_id: 'f-1', url: 'https://files.example.com/duplicate-id.jpg' },
       { file_id: 'f-5' },
+      { file_id: 42, url: 'https://files.example.com/number-id.jpg' },
       'nonsense',
       { file_id: 'f-6', url: 'https://files.example.com/ok.jpg', name: 42 },
     ] }));
@@ -156,6 +178,12 @@ describe('sendRestoreResult', () => {
       targetOrigin: 'https://shop.example.com',
       message: { type: RESTORE_RESULT, orderId: 'NEW-1', restoreOrderId: 'OLD-9', status: 'partial', photos: { total: 5, loaded: 3, failed: 2 } },
     }]);
+  });
+  it('says whether the whole design came back or only the photos', () => {
+    const w = fakeWindow();
+    sendRestoreResult(w.win, 'https://shop.example.com', { orderId: 'NEW-1', restoreOrderId: 'OLD-9' },
+      { status: 'restored', mode: 'photos', photosTotal: 2, photosLoaded: 2 });
+    expect(w.posted[0].message).toEqual(expect.objectContaining({ status: 'restored', mode: 'photos' }));
   });
   it('carries the reason when nothing was restored', () => {
     const w = fakeWindow();

@@ -12,6 +12,7 @@ import { reconcilePageCount } from './book-pages';
 import { MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, readCardCountHint, writeCardCountHint } from './editor-utils';
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
 import { collectFileIds, unreferencedFileIds } from './file-refs';
+import type { RestoredPhotos } from './restored-photos';
 import type { CanvasItem, FitMode, SurfaceState } from './types';
 import { isLayoutTemplate, toSavedTemplate, type LayoutTemplate, type SavedTemplate } from './layout-template';
 
@@ -28,6 +29,9 @@ export interface OwnRestore {
   /** Put a design on screen (the embedding page's copy) exactly as our own
    *  saved one is, with no photos yet. False when it does not fit this layout. */
   applyDesign: (editorState: Record<string, any>, restoredFrom: string) => boolean;
+  /** Note on the design that it now holds what was restored from that order
+   *  (used when only the photos came back and were placed again). */
+  markRestored: (restoredFrom: string) => void;
 }
 
 /** The id a photo goes by in the saved design, when the caller knows one. */
@@ -289,8 +293,11 @@ export function useAutosaveAndRestore({
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        // Built when the timer FIRES, from refs: see buildEditorState.
-        const editorState = buildEditorState();
+        // Built when the timer FIRES, from refs: see buildEditorState. A photo
+        // whose id has not been written into its frame yet is saved under the
+        // id it is already known by, so the saved design never names a photo
+        // by its file name alone.
+        const editorState = buildEditorState(file => fileIdByFileRef.current.get(file));
 
         const res = await fetch(`${apiBase}/canvas-state/${orderId}/`, {
           method: 'PUT',
@@ -610,6 +617,7 @@ export function useAutosaveAndRestore({
           if (applied) restoredFromRef.current = restoredFrom;
           return applied;
         },
+        markRestored: (restoredFrom) => { restoredFromRef.current = restoredFrom; },
       };
       try {
         try {
@@ -678,7 +686,7 @@ export function useAutosaveAndRestore({
  *  photo back. Reports when storage is full or blocked. */
 export function usePhotoStore({
   orderId, surfaceStates, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef,
-  setPersistDegraded, setStorageBlocked,
+  setPersistDegraded, setStorageBlocked, restoredPhotos,
 }: {
   orderId: string;
   surfaceStates: SurfaceState[];
@@ -689,6 +697,10 @@ export function usePhotoStore({
   deletedFileIdsRef: Ref<Set<string>>;
   setPersistDegraded: Setter<boolean>;
   setStorageBlocked: Setter<boolean>;
+  /** Previews standing in for originals our server holds (a restored design).
+   *  They are never stored here: a stored preview would come back after a
+   *  refresh as an ordinary photo and be uploaded in the original's place. */
+  restoredPhotos?: RestoredPhotos;
 }) {
   // ── Persist Files to IndexedDB on add (B1: survives page refresh) ────────
   // Watches surfaceStates for any frame/overlay that has an originalFile but
@@ -721,6 +733,10 @@ export function usePhotoStore({
     // already in flight (a re-run of this effect cancels the previous run's
     // patch, not its saves).
     const persistFile = (file: File): Promise<string> => {
+      // A restored preview keeps the id it was restored under and is not stored.
+      const restoredAs = restoredPhotos?.serverPhotoOf(file)?.fileId;
+      if (restoredAs) return Promise.resolve(restoredAs);
+      if (restoredPhotos?.isStandIn(file)) return Promise.reject(new Error('preview without an id'));
       const known = fileIdByFileRef.current.get(file);
       if (known && !deletedFileIdsRef.current.has(known)) return Promise.resolve(known);
       let saving = fileSaveInFlightRef.current.get(file);
@@ -782,5 +798,5 @@ export function usePhotoStore({
     })();
 
     return () => { cancelled = true; };
-  }, [surfaceStates, orderId, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef, setPersistDegraded, setStorageBlocked]);
+  }, [surfaceStates, orderId, setSurfaceStates, fileIdByFileRef, fileSaveInFlightRef, sessionFilesRef, deletedFileIdsRef, setPersistDegraded, setStorageBlocked, restoredPhotos]);
 }

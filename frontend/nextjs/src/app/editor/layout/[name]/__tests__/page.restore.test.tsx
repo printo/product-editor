@@ -7,12 +7,12 @@
  */
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { FakeBackend, LAYOUT_NAME, makePhoto, renderEditor, setEditorUrl } from './editor-page-harness';
+import { CALENDAR_NO_HOLIDAYS, FakeBackend, LAYOUT_NAME, makePhoto, renderEditor, setEditorUrl } from './editor-page-harness';
 
 jest.setTimeout(30000);
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), prefetch: jest.fn() };
-const mockParams = { name: 'test_4x6' };
+let mockParams = { name: 'test_4x6' };
 jest.mock('next/navigation', () => ({
   useParams: () => mockParams,
   useRouter: () => mockRouter,
@@ -111,7 +111,7 @@ function embedInPage(answer: (request: Record<string, any>) => Record<string, un
 
 const cards = () => screen.queryAllByRole('button', { name: /^Edit canvas \d+/ });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-type SavedDesign = { restoredFrom?: string; surfaces: Array<{ canvases: Array<{ frames: Array<{ fileId?: string; rotation?: number; scale?: number; originalFile: unknown }> }> }> };
+type SavedDesign = { restoredFrom?: string; calendarState?: { cells?: Record<string, Array<{ type: string; uploadId?: string; text?: string }>> }; surfaces: Array<{ canvases: Array<{ frames: Array<{ fileId?: string; rotation?: number; scale?: number; originalFile: unknown }> }> }> };
 
 let backend: FakeBackend;
 let page: ReturnType<typeof embedInPage> | null = null;
@@ -122,6 +122,7 @@ beforeEach(() => {
   backend.editorInit = { order_id: ORDER_ID };
   global.fetch = jest.fn(backend.fetch) as unknown as typeof fetch;
   mockSession = { data: null, status: 'unauthenticated' };
+  mockParams = { name: LAYOUT_NAME };
   mockRememberImageSize.mockClear();
   localStorage.clear();
 });
@@ -188,7 +189,7 @@ describe('editor page — restoring an earlier order from the embedding page', (
     await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1));
     expect(page.ofType('pe:restore_result')[0]).toEqual({
       targetOrigin: 'https://printo.in',
-      message: { type: 'pe:restore_result', orderId: ORDER_ID, restoreOrderId: OLD_ORDER, status: 'restored', photos: { total: 2, loaded: 2, failed: 0 } },
+      message: { type: 'pe:restore_result', orderId: ORDER_ID, restoreOrderId: OLD_ORDER, status: 'restored', mode: 'design', photos: { total: 2, loaded: 2, failed: 0 } },
     });
 
     // The design is now this order's own: saved with the earlier crop and
@@ -307,14 +308,117 @@ describe('editor page — restoring an earlier order from the embedding page', (
     expect(lastPut()!.restoredFrom).toBeUndefined();
   });
 
-  it('a design made for another layout is not put on this one', async () => {
+  it('an order from before designs were kept: its photos are placed again, in order, with a notice', async () => {
+    setEditorUrl('embed', undefined, { restore_order_id: OLD_ORDER });
+    // No design and no photo ids: all the page has is the files.
+    page = embedInPage(restoreReply({ editor_state: null, photos: [{ name: 'a.jpg', url: LINK(1) }, { name: 'b.jpg', url: `${LINK(2)}?sig=abc` }] }));
+    renderEditor();
+
+    await waitFor(() => expect(cards()).toHaveLength(2), { timeout: 8000 });
+    await screen.findByText(/We brought back your photos from last time\. Cropping may look different, and text or stickers were not saved\./);
+    expect(backend.callsTo('upload/from-url', 'POST').map(c => (c.body as { filename: string }).filename)).toEqual(['a.jpg', 'b.jpg']);
+    await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1));
+    expect(page.ofType('pe:restore_result')[0].message).toEqual(expect.objectContaining({
+      status: 'restored', mode: 'photos', photos: { total: 2, loaded: 2, failed: 0 },
+    }));
+
+    // Saved as this order's design, each photo under an id made from its
+    // link, so a refresh can match them again. Not stored in the browser:
+    // a stored copy would have been given a new random id.
+    await waitFor(() => expect(lastPut()?.surfaces[0].canvases).toHaveLength(2), { timeout: 6000 });
+    await waitFor(() => expect(lastPut()!.surfaces[0].canvases.every(c => /^u-[0-9a-f]{16}$/.test(c.frames[0].fileId ?? ''))).toBe(true), { timeout: 6000 });
+    expect(lastPut()!.restoredFrom).toBe(OLD_ORDER);
+
+    await submit();
+    await waitFor(() => expect(backend.callsTo('editor/render', 'POST')).toHaveLength(1), { timeout: 10000 });
+    expect(backend.callsTo('upload/init', 'POST')).toHaveLength(0);
+    const body = backend.callsTo('editor/render', 'POST')[0].body as { canvases: Array<{ frames: Array<{ upload_id: string }> }> };
+    expect(body.canvases.map(c => c.frames[0].upload_id)).toEqual([
+      'ffffffff-0000-4000-8000-000000000001', 'ffffffff-0000-4000-8000-000000000002',
+    ]);
+    expect(backend.unexpected).toEqual([]);
+  });
+
+  it('a refresh after that asks again and matches the photos by the same link-made ids', async () => {
+    setEditorUrl('embed', undefined, { restore_order_id: OLD_ORDER });
+    const idFor = (await import('../restore-messages')).fileIdFromLink;
+    backend.savedEditorState = {
+      ...earlierDesign([savedCard(0, idFor(new URL(LINK(1))), 'a.jpg'), savedCard(1, idFor(new URL(LINK(2))), 'b.jpg')]),
+      restoredFrom: OLD_ORDER,
+    };
+    page = embedInPage(restoreReply({ editor_state: null, photos: [{ name: 'a.jpg', url: `${LINK(1)}?sig=new` }, { name: 'b.jpg', url: LINK(2) }] }));
+    renderEditor();
+    await waitFor(() => expect(backend.callsTo('photos/', 'GET')).toHaveLength(2));
+    await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1));
+    expect(page.ofType('pe:restore_result')[0].message).toEqual(expect.objectContaining({ status: 'restored', mode: 'design' }));
+    expect(screen.queryByText(/not on this device/)).toBeNull();
+    // The notice belongs to the first opening, not to every refresh.
+    expect(screen.queryByText(/We brought back your photos/)).toBeNull();
+  });
+
+  it('a product saved since the order: the design comes back, with a notice to look it over', async () => {
+    setEditorUrl('embed', undefined, { restore_order_id: OLD_ORDER });
+    backend.editorInit = { order_id: ORDER_ID, layout_version: 5 };
+    page = embedInPage(restoreReply({ layout_version: 3 }));
+    renderEditor();
+    await waitFor(() => expect(cards()).toHaveLength(2));
+    await screen.findByText('This product has changed a little since your last order. Your photos may sit differently. Please look at each one before you continue.');
+    await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1));
+    expect(page.ofType('pe:restore_result')[0].message).toEqual(expect.objectContaining({ status: 'restored', mode: 'design' }));
+    // Dismissible.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText(/This product has changed a little/)).toBeNull();
+  });
+
+  it('the same version says nothing', async () => {
+    setEditorUrl('embed', undefined, { restore_order_id: OLD_ORDER });
+    backend.editorInit = { order_id: ORDER_ID, layout_version: 3 };
+    page = embedInPage(restoreReply({ layout_version: 3 }));
+    renderEditor();
+    await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1));
+    expect(cards()).toHaveLength(2);
+    expect(screen.queryByText(/This product has changed a little/)).toBeNull();
+  });
+
+  it('a design the product no longer fits: the photos are placed again, with the changed-product notice', async () => {
+    setEditorUrl('embed', undefined, { restore_order_id: OLD_ORDER });
+    // Made when each card held two photos; the product now has one window.
+    const twoPerCard = earlierDesign([{
+      ...savedCard(0, 'f-1', 'a.jpg'),
+      frames: [savedFrame('f-1', 'a.jpg'), { ...savedFrame('f-2', 'b.jpg'), id: 1 }],
+    }]);
+    page = embedInPage(restoreReply({ editor_state: twoPerCard }));
+    renderEditor();
+    await waitFor(() => expect(cards()).toHaveLength(2), { timeout: 8000 });
+    await screen.findByText(/This product has changed a little since your last order/);
+    await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1));
+    expect(page.ofType('pe:restore_result')[0].message).toEqual(expect.objectContaining({ status: 'restored', mode: 'photos' }));
+    // Placed afresh: the earlier turn and zoom are not carried onto a different window.
+    await waitFor(() => expect(lastPut()?.surfaces[0].canvases).toHaveLength(2), { timeout: 6000 });
+    expect(lastPut()!.surfaces[0].canvases.map(c => c.frames[0].scale)).toEqual([1, 1]);
+  });
+
+  it('a design made for another layout: the photos are placed on this one, with the notice', async () => {
     setEditorUrl('embed', undefined, { restore_order_id: OLD_ORDER });
     page = embedInPage(restoreReply({ editor_state: { ...earlierDesign(), layoutName: 'some_other_layout' } }));
     renderEditor();
+    await waitFor(() => expect(cards()).toHaveLength(2), { timeout: 8000 });
+    await screen.findByText(/This product has changed a little since your last order/);
     await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1));
-    expect(page.ofType('pe:restore_result')[0].message).toEqual(expect.objectContaining({ status: 'none', reason: 'layout_changed' }));
+    expect(page.ofType('pe:restore_result')[0].message).toEqual(expect.objectContaining({ status: 'restored', mode: 'photos' }));
+  });
+
+  it('when none of the photos can be fetched, the editor opens empty and says so to the page', async () => {
+    setEditorUrl('embed', undefined, { restore_order_id: OLD_ORDER });
+    backend.failingPhotoLinks.add(LINK(1));
+    backend.failingPhotoLinks.add(LINK(2));
+    page = embedInPage(restoreReply({ editor_state: null }));
+    renderEditor();
+    await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1), { timeout: 8000 });
+    expect(page.ofType('pe:restore_result')[0].message).toEqual(expect.objectContaining({ status: 'none', mode: 'photos', photos: { total: 2, loaded: 0, failed: 2 } }));
     expect(cards()).toHaveLength(0);
-    expect(backend.callsTo('upload/from-url', 'POST')).toHaveLength(0);
+    expect(screen.queryByText(/We brought back your photos/)).toBeNull();
+    expect(screen.queryByText(/Bringing back your photos/)).toBeNull();
   });
 
   it('without restore_order_id on the address the page is never asked', async () => {
@@ -335,5 +439,50 @@ describe('editor page — restoring an earlier order from the embedding page', (
     await waitFor(() => expect(backend.callsTo('canvas-state/', 'GET')).toHaveLength(1));
     await sleep(300);
     expect(page.posted).toEqual([]);
+  });
+
+  it('a calendar: a photo placed on a date is fetched again and the date is pointed at the new copy', async () => {
+    mockParams = { name: 'test_calendar' };
+    backend.layout = CALENDAR_NO_HOLIDAYS as unknown as Record<string, unknown>;
+    window.history.replaceState(null, '', `/editor/layout/test_calendar?token=test-embed-token&restore_order_id=${OLD_ORDER}`);
+    // The earlier design names the date's photo by an upload of the earlier
+    // order, which our server no longer holds.
+    const design = {
+      ...earlierDesign([savedCard(0, 'f-1', 'a.jpg')]),
+      layoutName: 'test_calendar',
+      calendarState: {
+        themePreset: 'modern-minimalist', calendarType: 'english',
+        cells: { '2026-01-05': [{ type: 'event', text: 'Party' }, { type: 'image', uploadId: 'old-upload-1' }] },
+      },
+    };
+    page = embedInPage(restoreReply({
+      editor_state: design,
+      photos: [
+        { file_id: 'f-1', name: 'a.jpg', url: LINK(1), kind: 'frame' },
+        { file_id: 'old-upload-1', name: 'date.jpg', url: LINK(3), kind: 'calendar' },
+      ],
+    }));
+    renderEditor();
+
+    await waitFor(() => expect(page!.ofType('pe:restore_result')).toHaveLength(1), { timeout: 8000 });
+    expect(page.ofType('pe:restore_result')[0].message).toEqual(expect.objectContaining({
+      status: 'restored', mode: 'design', photos: { total: 2, loaded: 2, failed: 0 },
+    }));
+    const fetched = backend.callsTo('upload/from-url', 'POST').map(c => (c.body as { url: string }).url).sort();
+    expect(fetched).toEqual([LINK(1), LINK(3)]);
+    const dateFetch = backend.callsTo('upload/from-url', 'POST').find(c => (c.body as { url: string }).url === LINK(3))!;
+    expect(dateFetch).toBeDefined();
+    // The date's small preview is read back from our server.
+    const small = backend.callsTo('photos/', 'GET').filter(c => c.query.get('size') === '512');
+    expect(small).toHaveLength(1);
+    const newUpload = small[0].path.split('/')[1];
+    expect(newUpload).toMatch(/^ffffffff-0000-4000-8000-/);
+
+    // Saved (and so printed) under the new upload; the event on that date is untouched.
+    await waitFor(() => expect(lastPut()?.calendarState?.cells?.['2026-01-05']?.some(e => e.uploadId === newUpload)).toBe(true), { timeout: 6000 });
+    expect(lastPut()!.calendarState!.cells!['2026-01-05']).toEqual([
+      { type: 'event', text: 'Party' }, { type: 'image', uploadId: newUpload },
+    ]);
+    expect(JSON.stringify(lastPut())).not.toContain('old-upload-1');
   });
 });

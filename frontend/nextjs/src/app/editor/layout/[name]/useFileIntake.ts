@@ -432,6 +432,6 @@ export function useFileIntake({
     pendingOverFiles, setPendingOverFiles, pendingRepick, setPendingRepick, replacePhotoInputRef,
     pendingTruncated, setPendingTruncated, showAutoFillPicker, setShowAutoFillPicker, pickerSelected, setPickerSelected,
     handleFileChange, requestReplacePhoto, handleReplaceFileSelected, handleRepickConfirm, handleFillWithPicked,
-    handleOverConfirm, handleTruncatedDecision, handleBookOverflowDecision,
+    handleOverConfirm, handleTruncatedDecision, handleBookOverflowDecision, processSelectedFiles,
   };
 }

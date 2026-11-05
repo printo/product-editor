@@ -1,5 +1,5 @@
 import { RestoredPhotos, restoreNoteForCard, type RestoredPhotoStatus } from '../restored-photos';
-import { fileIdsInCardOrder, fillRestoredPhotos } from '../useParentRestore';
+import { calendarCellPhotos, designFitsLayout, fileIdsInCardOrder, fillRestoredPhotos, photosToPlaceAgain } from '../useParentRestore';
 import type { CanvasItem, FrameState, Overlay } from '../types';
 
 const file = (name: string) => new File(['x'], name, { type: 'image/jpeg' });
@@ -80,5 +80,46 @@ describe('fillRestoredPhotos', () => {
     const s = file('sticker.png');
     const { canvases } = fillRestoredPhotos([card([], [sticker('s-1')])], new Map([['s-1', s]]), url);
     expect(canvases[0].overlays[0]).toEqual(expect.objectContaining({ originalFile: s, src: 'blob:sticker.png' }));
+  });
+});
+
+describe('designFitsLayout', () => {
+  const layout = (windows: number, key = 'default') => [{ key, def: { frames: Array.from({ length: windows }, () => ({})) } }];
+  const design = (cards: CanvasItem[], key = 'default') => ({ surfaces: [{ key, canvases: cards }] });
+  it('fits when each card has as many photos as the product has windows', () => {
+    expect(designFitsLayout(design([card([frame('f-1')])]), layout(1), false)).toBe(true);
+    expect(designFitsLayout(design([card([frame('f-1'), frame('f-2')])]), layout(2), false)).toBe(true);
+  });
+  it('does not fit a product whose windows changed, or a side that is gone', () => {
+    expect(designFitsLayout(design([card([frame('f-1')])]), layout(2), false)).toBe(false);
+    expect(designFitsLayout(design([card([frame('f-1')])], 'back'), layout(1, 'front'), false)).toBe(false);
+    expect(designFitsLayout({ surfaces: [] }, layout(1), false)).toBe(false);
+  });
+  it('a side with no cards is not judged, and a book is never judged', () => {
+    expect(designFitsLayout({ surfaces: [{ key: 'gone', canvases: [] }, { key: 'default', canvases: [card([frame('f-1')])] }] }, layout(1), false)).toBe(true);
+    expect(designFitsLayout(design([card([frame('f-1')])], 'page_07'), layout(1, 'cover'), true)).toBe(true);
+  });
+});
+
+describe('photosToPlaceAgain', () => {
+  const p = (fileId: string, kind: string | null = null) => ({ fileId, name: `${fileId}.jpg`, url: `https://files.example.com/${fileId}.jpg`, kind });
+  it('with a design: the photos in its windows, in card order, without added images', () => {
+    const design = { surfaces: [{ canvases: [card([frame('f-2')], [sticker('s-1')]), card([frame('f-1')]), card([frame('f-2')])] }] };
+    expect(photosToPlaceAgain(design, [p('f-1'), p('s-1'), p('f-2')]).map(x => x.fileId)).toEqual(['f-2', 'f-1']);
+  });
+  it('without a design: everything the page listed, in its order, minus what it marked as not a card photo', () => {
+    expect(photosToPlaceAgain(null, [p('a'), p('b', 'overlay'), p('c', 'frame'), p('d', 'calendar')]).map(x => x.fileId)).toEqual(['a', 'c']);
+  });
+});
+
+describe('calendarCellPhotos', () => {
+  it('lists the dates that carry a photo', () => {
+    expect(calendarCellPhotos({
+      '2026-01-05': [{ type: 'event', text: 'Party' }, { type: 'image', uploadId: 'up-1' }],
+      '2026-02-14': [{ type: 'image', uploadId: 'up-2' }],
+      '2026-03-01': [{ type: 'image' }],
+      '2026-04-01': 'nonsense',
+    })).toEqual([{ iso: '2026-01-05', uploadId: 'up-1' }, { iso: '2026-02-14', uploadId: 'up-2' }]);
+    expect(calendarCellPhotos(undefined)).toEqual([]);
   });
 });

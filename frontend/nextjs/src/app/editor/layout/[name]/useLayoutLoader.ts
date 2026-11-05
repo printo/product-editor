@@ -19,8 +19,11 @@ export function useLayoutLoader({
   layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
   selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
   setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
-  urlTemplateId, setActiveTemplate, setTemplateNotice, urlOrientation, setOrientationReport,
+  urlTemplateId, setActiveTemplate, setTemplateNotice, urlOrientation, setOrientationReport, layoutVersionRef,
 }: {
+  /** Receives the layout's version as served (`layout_version`), for telling
+   *  a restored order that the product has changed since. */
+  layoutVersionRef?: { current: number | null };
   layoutName: string;
   embedToken: string | null;
   status: string;
@@ -86,6 +89,7 @@ export function useLayoutLoader({
         }
         const payload = await res.json();
         const item = payload.layout;
+        if (layoutVersionRef) layoutVersionRef.current = typeof payload.layout_version === 'number' ? payload.layout_version : null;
         setOrientationReport?.(payload.orientation ?? null);
         if (isLayoutTemplate(payload.template)) {
           setActiveTemplate?.(payload.template);

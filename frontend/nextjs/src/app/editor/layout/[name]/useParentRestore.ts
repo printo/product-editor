@@ -69,6 +69,68 @@ export function fillRestoredPhotos(
   return changed.length ? { canvases: next, changed } : { canvases, changed };
 }
 
+/** Whether a saved design can go onto the layout as it is served now: every
+ *  side it has cards on still exists and still has as many photo windows a
+ *  card. A book's pages are made to match the design, so they are not judged. */
+export function designFitsLayout(
+  editorState: Record<string, unknown>,
+  surfaces: ReadonlyArray<{ key: string; def: { frames?: unknown[] } }>,
+  isBook: boolean,
+): boolean {
+  const saved = Array.isArray(editorState.surfaces) ? editorState.surfaces as Array<{ key?: string; canvases?: CanvasItem[] }> : [];
+  if (!saved.length) return false;
+  if (isBook) return true;
+  return saved.every(s => {
+    const cards = Array.isArray(s.canvases) ? s.canvases : [];
+    if (!cards.length) return true;
+    const now = surfaces.find(x => x.key === s.key);
+    if (!now) return false;
+    const windows = now.def.frames?.length || 1;
+    return cards.every(c => Array.isArray(c.frames) && c.frames.length === windows);
+  });
+}
+
+/** The photos to place again when only photos come back: the ones in the
+ *  design's photo windows, in card order, when there is a design to read;
+ *  else everything the page listed, in its order, leaving out what it marked
+ *  as an added image or a calendar date's photo. */
+export function photosToPlaceAgain(editorState: Record<string, unknown> | null, photos: RestorePhoto[]): RestorePhoto[] {
+  if (editorState && Array.isArray(editorState.surfaces)) {
+    const byId = new Map(photos.map(p => [p.fileId, p]));
+    const out: RestorePhoto[] = [];
+    const seen = new Set<string>();
+    for (const s of editorState.surfaces as Array<{ canvases?: CanvasItem[] }>) {
+      for (const c of s.canvases ?? []) {
+        for (const f of c.frames ?? []) {
+          const photo = f.fileId ? byId.get(f.fileId) : undefined;
+          if (photo && !seen.has(photo.fileId)) { seen.add(photo.fileId); out.push(photo); }
+        }
+      }
+    }
+    if (out.length) return out;
+  }
+  return photos.filter(p => !p.kind || p.kind === 'frame');
+}
+
+type CellEntry = { type?: string; uploadId?: string };
+/** The dates of a calendar design that carry a photo, with the upload each names. */
+export function calendarCellPhotos(cells: Record<string, unknown> | null | undefined): Array<{ iso: string; uploadId: string }> {
+  const out: Array<{ iso: string; uploadId: string }> = [];
+  for (const [iso, entries] of Object.entries(cells ?? {})) {
+    for (const e of (Array.isArray(entries) ? entries : []) as CellEntry[]) {
+      if (e?.type === 'image' && typeof e.uploadId === 'string' && e.uploadId) out.push({ iso, uploadId: e.uploadId });
+    }
+  }
+  return out;
+}
+
+/** What the customer is told above the cards after a restore. */
+export type RestoreNotice = 'photos_only' | 'layout_changed';
+export const RESTORE_NOTICE_TEXT: Record<RestoreNotice, string> = {
+  photos_only: 'We brought back your photos from last time. Cropping may look different, and text or stickers were not saved. Please look through them before you continue.',
+  layout_changed: 'This product has changed a little since your last order. Your photos may sit differently. Please look at each one before you continue.',
+};
+
 const framesFiles = (canvases: CanvasItem[]): File[] =>
   canvases.flatMap(c => c.frames.map(f => f.originalFile)).filter((f): f is File => !!f);
 
@@ -86,6 +148,8 @@ export function useParentRestore({
   embedToken, parentOrigin, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
   surfaceStatesRef, setSurfaceStates, canvasesRef, setCanvases, setFiles, activeSurfaceKeyRef,
   skipNextGenerateRef, getFileUrl, renderCanvas, fileIdByFileRef,
+  layoutVersionRef, placePhotosRef, isBookProduct = false, isCalendarProduct = false, calendarCells,
+  setCalendarCells, setCalendarCellImagePreviews,
 }: {
   embedToken: string | null;
   parentOrigin: string;
@@ -104,6 +168,17 @@ export function useParentRestore({
   renderCanvas: (c: CanvasItem, options?: { thumbnail?: boolean; layoutOverride?: unknown }) => Promise<string | null>;
   /** Filled in by the page once useAutosaveAndRestore has made it. */
   fileIdByFileRef: Ref<WeakMap<File, string> | null>;
+  /** The layout's version as served now (`/editor/init`), when known. */
+  layoutVersionRef?: Ref<number | null>;
+  /** Adds photos exactly as a pick from the device does (useFileIntake), so
+   *  the quantity rules, page limits and prompts are the usual ones. Filled in
+   *  by the page. */
+  placePhotosRef?: Ref<((files: File[]) => Promise<void>) | null>;
+  isBookProduct?: boolean;
+  isCalendarProduct?: boolean;
+  calendarCells?: Record<string, any[]>;
+  setCalendarCells?: Setter<Record<string, any[]>>;
+  setCalendarCellImagePreviews?: Setter<Record<string, string>>;
 }) {
   const restoreOrderId = useMemo<string | null>(
     () => (typeof window === 'undefined' || !embedToken ? null : readRestoreOrderId(window.location.search)),
@@ -120,10 +195,15 @@ export function useParentRestore({
 
   // Read at call time so a callback made on the first render still sees the
   // layout and order id that arrived later.
-  const latest = useRef({ orderId, apiBase, getAuthHeaders, normalizedLayoutState, parentOrigin, renderCanvas });
+  const latest = useRef({ orderId, apiBase, getAuthHeaders, normalizedLayoutState, parentOrigin, renderCanvas, calendarCells, isBookProduct, isCalendarProduct });
   useEffect(() => {
-    latest.current = { orderId, apiBase, getAuthHeaders, normalizedLayoutState, parentOrigin, renderCanvas };
-  }, [orderId, apiBase, getAuthHeaders, normalizedLayoutState, parentOrigin, renderCanvas]);
+    latest.current = { orderId, apiBase, getAuthHeaders, normalizedLayoutState, parentOrigin, renderCanvas, calendarCells, isBookProduct, isCalendarProduct };
+  }, [orderId, apiBase, getAuthHeaders, normalizedLayoutState, parentOrigin, renderCanvas, calendarCells, isBookProduct, isCalendarProduct]);
+
+  // What the customer is told above the cards, and how far a photos-only
+  // restore has got while there are no cards to show yet.
+  const [restoreNotice, setRestoreNotice] = useState<RestoreNotice | null>(null);
+  const [restoreProgress, setRestoreProgress] = useState<{ done: number; total: number } | null>(null);
 
   const setStatus = useCallback((changes: Array<[string, RestoredPhotoStatus | null]>) => {
     const next = new Map(photoStatusRef.current);
@@ -289,6 +369,88 @@ export function useParentRestore({
     if (again.length) void loadPhotos(again);
   }, [loadPhotos]);
 
+  // ── Photos only: an order with no saved design, or one this product no
+  // longer fits. Every photo is fetched first, then placed as one pick.
+  const placePhotosAgain = useCallback(async (photos: RestorePhoto[], markRestored: () => void): Promise<number> => {
+    setRestoreProgress({ done: 0, total: photos.length });
+    const files: Array<File | null> = photos.map(() => null);
+    let next = 0;
+    let done = 0;
+    const worker = async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= photos.length || !aliveRef.current) return;
+        for (let attempt = 0; attempt < TRIES_PER_PHOTO && !files[i] && aliveRef.current; attempt++) {
+          try { files[i] = await fetchStandIn(photos[i]); } catch { /* try again, then leave it out */ }
+        }
+        done += 1;
+        if (aliveRef.current) setRestoreProgress({ done, total: photos.length });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PHOTOS_AT_ONCE, photos.length) }, worker));
+    const arrived = files.filter((f): f is File => !!f);
+    if (!aliveRef.current) return 0;
+    setRestoreProgress(null);
+    // Not over work the customer began while the photos were on their way.
+    const started = surfaceStatesRef.current.some(s => s.canvases.length > 0) || canvasesRef.current.length > 0;
+    if (!arrived.length || started || !placePhotosRef?.current) return 0;
+    markRestored();
+    await placePhotosRef.current(arrived);
+    return arrived.length;
+  }, [fetchStandIn, surfaceStatesRef, canvasesRef, placePhotosRef]);
+
+  // ── A calendar's date photos. The design names each by an upload of the
+  // earlier order, long gone from our server; each is fetched again from the
+  // page's link and the date is pointed at the new upload.
+  const showCellPhoto = useCallback(async (iso: string, uploadId: string): Promise<boolean> => {
+    const { apiBase: base, getAuthHeaders: auth } = latest.current;
+    const res = await fetch(`${base}/photos/${uploadId}/preview?size=512`, { headers: auth() });
+    if (!res.ok) return false;
+    const url = URL.createObjectURL(await res.blob());
+    if (!aliveRef.current) { URL.revokeObjectURL(url); return false; }
+    setCalendarCellImagePreviews?.(prev => {
+      if (prev[iso]) URL.revokeObjectURL(prev[iso]);
+      return { ...prev, [iso]: url };
+    });
+    return true;
+  }, [setCalendarCellImagePreviews]);
+
+  const restoreCellPhotos = useCallback(async (cells: Array<{ iso: string; uploadId: string }>): Promise<number> => {
+    let loaded = 0;
+    const queue = [...cells];
+    const worker = async () => {
+      for (;;) {
+        const cell = queue.shift();
+        if (!cell || !aliveRef.current) return;
+        const link = linksRef.current.get(cell.uploadId);
+        try {
+          let uploadId = cell.uploadId;
+          if (link) {
+            const { apiBase: base, getAuthHeaders: auth, orderId: order } = latest.current;
+            const made = await fetch(`${base}/upload/from-url`, {
+              method: 'POST',
+              headers: { ...auth(), 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: link.url, order_id: order, ...(link.name ? { filename: link.name } : {}) }),
+            });
+            if (!made.ok) continue;
+            const info = await made.json() as { upload_id?: string };
+            if (!info.upload_id) continue;
+            uploadId = info.upload_id;
+            const from = cell.uploadId;
+            setCalendarCells?.(prev => {
+              const entries = prev[cell.iso];
+              if (!Array.isArray(entries) || !entries.some(e => e?.type === 'image' && e.uploadId === from)) return prev;
+              return { ...prev, [cell.iso]: entries.map(e => (e?.type === 'image' && e.uploadId === from ? { ...e, uploadId } : e)) };
+            });
+          }
+          if (await showCellPhoto(cell.iso, uploadId)) loaded += 1;
+        } catch { /* the date keeps its "image expired" prompt */ }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PHOTOS_AT_ONCE, queue.length) }, worker));
+    return loaded;
+  }, [setCalendarCells, showCellPhoto]);
+
   // ── The restore itself: called from inside useAutosaveAndRestore's restore,
   // so autosave stays off until it returns. Photos keep arriving afterwards.
   const restoreFromParent = useCallback(async (own: OwnRestore) => {
@@ -297,6 +459,12 @@ export function useParentRestore({
     // to show yet and this order was not already restored once (the customer
     // may have cleared it since), or when photos it names are not here.
     const needsDesign = !own.hasCards && own.restoredFrom !== restoreOrderId;
+    // A calendar this order already holds: its date photos are uploads of
+    // this order, so they are read straight back from our server.
+    if (!needsDesign && latest.current.isCalendarProduct) {
+      void whenCommitted(() => Object.keys(latest.current.calendarCells ?? {}).length > 0, 1500)
+        .then(() => restoreCellPhotos(calendarCellPhotos(latest.current.calendarCells)));
+    }
     if (!needsDesign && own.missingFileIds.length === 0) return;
 
     const win = window as unknown as RestoreWindow;
@@ -310,42 +478,70 @@ export function useParentRestore({
       tellParent({ status: 'none', reason: reply.reason, photosTotal: 0, photosLoaded: 0 });
       return;
     }
+    for (const photo of reply.photos) linksRef.current.set(photo.fileId, photo);
 
-    let wanted: string[];
-    if (needsDesign) {
-      if (!reply.editorState) {
-        tellParent({ status: 'none', reason: 'no_design', photosTotal: reply.photos.length, photosLoaded: 0 });
-        return;
-      }
-      // The customer may have started adding photos while the page was
-      // answering; their work is never replaced.
-      if (surfaceStatesRef.current.some(s => s.canvases.length > 0) || canvasesRef.current.length > 0) {
-        tellParent({ status: 'none', reason: 'design_in_progress', photosTotal: reply.photos.length, photosLoaded: 0 });
-        return;
-      }
-      if (!own.applyDesign(reply.editorState, restoreOrderId)) {
-        tellParent({ status: 'none', reason: 'layout_changed', photosTotal: reply.photos.length, photosLoaded: 0 });
-        return;
-      }
-      const surfaces = Array.isArray(reply.editorState.surfaces) ? reply.editorState.surfaces as Array<{ canvases: CanvasItem[] }> : [];
-      const hidden = (reply.editorState.bookState as { hiddenSurfaces?: Array<{ canvases: CanvasItem[] }> } | undefined)?.hiddenSurfaces ?? [];
-      wanted = fileIdsInCardOrder([...surfaces, ...hidden].filter(s => Array.isArray(s?.canvases)));
-    } else {
-      wanted = own.missingFileIds;
+    if (!needsDesign) {
+      // Our own design is on screen; only its photos are wanted.
+      const wanted = own.missingFileIds;
+      const withLinks = wanted.filter(id => linksRef.current.has(id));
+      const onScreen = () => surfaceStatesRef.current.some(s => s.canvases.length > 0) || canvasesRef.current.length > 0;
+      void whenCommitted(() => withLinks.length === 0 || onScreen())
+        .then(() => loadPhotos(withLinks))
+        .then(loaded => {
+          tellParent({ status: restoreStatusFor(wanted.length, loaded), mode: 'design', photosTotal: wanted.length, photosLoaded: loaded });
+        });
+      return;
     }
 
-    for (const photo of reply.photos) linksRef.current.set(photo.fileId, photo);
-    const withLinks = wanted.filter(id => linksRef.current.has(id));
-    // Not awaited: autosave may start, and the photos fill in behind the
-    // design. They start once the design is on screen, so the first arrivals
-    // find their cards.
-    const onScreen = () => surfaceStatesRef.current.some(s => s.canvases.length > 0) || canvasesRef.current.length > 0;
-    void whenCommitted(() => withLinks.length === 0 || onScreen())
-      .then(() => loadPhotos(withLinks))
-      .then(loaded => {
-        tellParent({ status: restoreStatusFor(wanted.length, loaded), photosTotal: wanted.length, photosLoaded: loaded });
-      });
-  }, [restoreOrderId, tellParent, loadPhotos, surfaceStatesRef, canvasesRef, whenCommitted]);
+    // The customer may have started adding photos while the page was
+    // answering; their work is never replaced.
+    if (surfaceStatesRef.current.some(s => s.canvases.length > 0) || canvasesRef.current.length > 0) {
+      tellParent({ status: 'none', reason: 'design_in_progress', photosTotal: reply.photos.length, photosLoaded: 0 });
+      return;
+    }
+
+    const design = reply.editorState;
+    const fits = !!design && designFitsLayout(design, surfaceStatesRef.current, latest.current.isBookProduct);
+    if (design && fits && own.applyDesign(design, restoreOrderId)) {
+      // The whole design is back. Say so if the product was changed since.
+      const servedVersion = layoutVersionRef?.current ?? null;
+      if (reply.layoutVersion != null && servedVersion != null && reply.layoutVersion !== servedVersion) {
+        setRestoreNotice('layout_changed');
+      }
+      const surfaces = Array.isArray(design.surfaces) ? design.surfaces as Array<{ canvases: CanvasItem[] }> : [];
+      const hidden = (design.bookState as { hiddenSurfaces?: Array<{ canvases: CanvasItem[] }> } | undefined)?.hiddenSurfaces ?? [];
+      const wanted = fileIdsInCardOrder([...surfaces, ...hidden].filter(s => Array.isArray(s?.canvases)));
+      const withLinks = wanted.filter(id => linksRef.current.has(id));
+      const cal = design.calendarState as { cells?: Record<string, unknown> } | undefined;
+      const cellPhotos = latest.current.isCalendarProduct
+        ? calendarCellPhotos(cal?.cells).filter(c => linksRef.current.has(c.uploadId))
+        : [];
+      const total = wanted.length + cellPhotos.length;
+      // Not awaited: autosave may start, and the photos fill in behind the
+      // design. They start once the design is on screen, so the first
+      // arrivals find their cards.
+      const onScreen = () => surfaceStatesRef.current.some(s => s.canvases.length > 0) || canvasesRef.current.length > 0;
+      void whenCommitted(() => withLinks.length === 0 || onScreen())
+        .then(() => Promise.all([loadPhotos(withLinks), restoreCellPhotos(cellPhotos)]))
+        .then(([cards, cells]) => {
+          tellParent({ status: restoreStatusFor(total, cards + cells), mode: 'design', photosTotal: total, photosLoaded: cards + cells });
+        });
+      return;
+    }
+
+    // No design to put back (an order from before designs were kept), or one
+    // this product no longer fits: the photos are placed again, in order.
+    const photos = photosToPlaceAgain(design, reply.photos);
+    if (!photos.length) {
+      tellParent({ status: 'none', reason: 'no_photos', photosTotal: 0, photosLoaded: 0 });
+      return;
+    }
+    const notice: RestoreNotice = design ? 'layout_changed' : 'photos_only';
+    void placePhotosAgain(photos, () => own.markRestored(restoreOrderId)).then(loaded => {
+      if (loaded > 0 && aliveRef.current) setRestoreNotice(notice);
+      tellParent({ status: restoreStatusFor(photos.length, loaded), mode: 'photos', photosTotal: photos.length, photosLoaded: loaded });
+    });
+  }, [restoreOrderId, tellParent, loadPhotos, surfaceStatesRef, canvasesRef, whenCommitted, layoutVersionRef, placePhotosAgain, restoreCellPhotos]);
 
   // ── Opening a card: its originals, at full size ──────────────────────────
   const originalUrlsRef = useRef(new Map<File, string>());
@@ -403,5 +599,6 @@ export function useParentRestore({
     restoreOrderId, restoreFromParent: restoreOrderId ? restoreFromParent : undefined,
     restoredPhotos, photoStatus, retryRestoredPhotos,
     prepareOriginals, openingCard, getEditFileUrl,
+    restoreNotice, dismissRestoreNotice: () => setRestoreNotice(null), restoreProgress,
   };
 }
