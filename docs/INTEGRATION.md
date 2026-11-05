@@ -798,6 +798,22 @@ layouts but stays on the layouts that already carry it. Tags are never
 deleted, so a key you stored keeps resolving. An unknown key in `?tag=`
 returns an empty list, not an error.
 
+### 4e. Let Product Editor fetch restored photos from your storage (optional, as of Nov 2026)
+
+When a design is brought back from the copy you keep (see `restore.json` under ZIP fetch), its photos reach the editor as links to your storage. At submit, Product Editor's server fetches each unchanged photo from its link instead of making the customer's device download and re-upload it.
+
+This is off until you tell us which host to fetch from. We list it against your API key; a link on any other host is refused.
+
+What the host must do:
+
+- Serve each photo at a plain `https://` link on the standard port, with no user name or password in it.
+- Answer `200` with the file itself. **Redirects are not followed**, and a login page, cookie wall or bot check will read as a failure.
+- Resolve to a public address.
+- Send the original file, at most `50 MB`, in a format the editor accepts (JPEG, PNG, WebP).
+- Keep the link working for at least the length of an editing session.
+
+Give us the exact host name as it appears in your links (for example `files.example.com`): no wildcard, and a link on a sub-domain you did not name is refused.
+
 ### 5. Firewall
 
 Allow inbound HTTPS from Product Editor's egress IP range to your `/api/internal/pe-callback` endpoint. Confirm the IP set with infra; add to allowlist.
