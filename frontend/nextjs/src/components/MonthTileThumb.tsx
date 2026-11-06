@@ -72,9 +72,12 @@ export interface MonthTileThumbProps {
   ariaLabel?: string;
   /** Print the month name above the grid, as the print does. Default true. */
   showMonthName?: boolean;
-  /** Stretch the rows to fill the box and scale the type with its width —
-   *  for drawing the grid inside a card's date block, whose shape is the
-   *  layout's rather than square. Default false (the square tile). */
+  /** Fill the box the way the print fills its block — for drawing the grid
+   *  inside a card's date block, whose shape is the layout's rather than
+   *  square. The heading and the weekday row take the print's share of the
+   *  height and the type follows the smaller of the box's width and the
+   *  height of the row it sits in, so a wide, short block gets smaller
+   *  numbers, never rows on top of each other. Default false (the square tile). */
   fill?: boolean;
 }
 
@@ -115,6 +118,32 @@ function dotsForDate(
   return { dotColors, hasImage: false, hasHide: false };
 }
 
+// ─── Sizes in fill mode ─────────────────────────────────────────────────────
+
+/** The share of the block's height the month heading and the weekday row
+ *  take, in percent: MONTH_HEADING_FRACTION and the header row of
+ *  services/calendar_renderer.py. */
+const HEADING_SHARE = 12;
+const WEEKDAY_SHARE = 10;
+/** How much of its row's height a line of text may take. */
+const ROW_FILL = 0.62;
+
+/**
+ * Font sizes for a grid that fills its box, as CSS lengths in container
+ * units: each is the size the width asks for (never under the square tile's),
+ * capped by the height of the row the text sits in. The cap is last, so it
+ * always wins over the floor.
+ */
+export function fillSizes(rows: number, showMonthName: boolean): { heading: string; weekday: string; date: string } {
+  const dateRow = (100 - (showMonthName ? HEADING_SHARE : 0) - WEEKDAY_SHARE) / Math.max(1, rows);
+  const cap = (share: number) => `${Math.round(share * ROW_FILL * 100) / 100}cqh`;
+  return {
+    heading: `min(max(9px, 6cqw), ${cap(HEADING_SHARE)})`,
+    weekday: `min(max(6px, 4.2cqw), ${cap(WEEKDAY_SHARE)})`,
+    date: `min(max(6px, 4.2cqw), ${cap(dateRow)})`,
+  };
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function MonthTileThumb({
@@ -132,10 +161,15 @@ export function MonthTileThumb({
 }: MonthTileThumbProps) {
   const grid = buildMonthGrid(year, month, weekStart);
   const weekdayLabels = weekdayHeaderLabels(weekStart, 'narrow');
-  // In fill mode the type follows the box width (container query units),
-  // never smaller than the square tile's sizes.
-  const headingSize = fill ? 'max(9px, 6cqw)' : '9px';
-  const smallSize = fill ? 'max(6px, 4.2cqw)' : '6px';
+  // In fill mode the box is cut up as calendar_renderer.py cuts the print's
+  // block (heading 12% of the height, weekday row 10%, the rest shared by the
+  // date rows) and each text is capped by the height of its own row. Until
+  // 2026-11-06 the type followed the width alone, and the rows of a wide,
+  // short block overlapped.
+  const fit = fillSizes(grid.length / 7, showMonthName);
+  const headingSize = fill ? fit.heading : '9px';
+  const weekdaySize = fill ? fit.weekday : '6px';
+  const dateSize = fill ? fit.date : '6px';
 
   // Bucket holidays to this month upfront so the dot helper is O(daysInMonth).
   const holidaysThisMonth = holidays.filter(h =>
@@ -147,13 +181,13 @@ export function MonthTileThumb({
       role="img"
       aria-label={ariaLabel ?? `Mini preview of month`}
       className={clsx('w-full h-full rounded-sm overflow-hidden', fill && 'flex flex-col')}
-      style={fill ? { background: colors.bg, containerType: 'inline-size' } : { background: colors.bg }}
+      style={fill ? { background: colors.bg, containerType: 'size' } : { background: colors.bg }}
       data-testid="month-tile-thumb"
     >
       {showMonthName && (
         <div
-          className="text-center font-bold leading-none truncate px-1 pt-1.5 pb-0.5"
-          style={{ fontSize: headingSize, color: colors.monthText ?? colors.dateText }}
+          className={clsx('text-center font-bold leading-none truncate px-1', fill ? 'flex items-center justify-center shrink-0' : 'pt-1.5 pb-0.5')}
+          style={{ fontSize: headingSize, color: colors.monthText ?? colors.dateText, ...(fill ? { height: `${HEADING_SHARE}cqh` } : null) }}
           data-testid="month-heading"
         >
           {monthHeadingText(year, month)}
@@ -162,8 +196,8 @@ export function MonthTileThumb({
 
       {/* Weekday header row */}
       <div
-        className="grid grid-cols-7 gap-0 px-1 pt-1 pb-0.5"
-        style={{ borderBottom: `0.5px solid ${colors.grid}` }}
+        className={clsx('grid grid-cols-7 gap-0 px-1', fill ? 'items-center shrink-0' : 'pt-1 pb-0.5')}
+        style={{ borderBottom: `0.5px solid ${colors.grid}`, ...(fill ? { height: `${WEEKDAY_SHARE}cqh` } : null) }}
         data-testid="weekday-header"
       >
         {weekdayLabels.map((label, col) => {
@@ -175,7 +209,7 @@ export function MonthTileThumb({
               key={`wd-${col}`}
               className="text-center font-medium leading-none"
               style={{
-                fontSize: smallSize,
+                fontSize: weekdaySize,
                 color: isSun ? (colors.sundayText ?? colors.weekdayText) : colors.weekdayText,
               }}
             >
@@ -216,7 +250,7 @@ export function MonthTileThumb({
               {showNumber && (
                 <span
                   className="leading-none font-medium"
-                  style={{ fontSize: smallSize, color: numColor }}
+                  style={{ fontSize: dateSize, color: numColor }}
                 >
                   {gc.day}
                 </span>
