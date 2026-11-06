@@ -210,7 +210,10 @@ def _load_font(size_px: int, weight: int) -> ImageFont.ImageFont:
         return ImageFont.load_default()
 
     try:
-        font = ImageFont.truetype(str(_FONT_PATH), size=size_px)
+        # BASIC by name: with Raqm present Pillow would default to it, and its
+        # kerning moves every existing line of text. Only an overlay in an
+        # Indian script asks for Raqm (google_fonts.get_overlay_font).
+        font = ImageFont.truetype(str(_FONT_PATH), size=size_px, layout_engine=ImageFont.Layout.BASIC)
         # Set the variable-axis weight if Pillow's build supports it.
         # set_variation_by_axes was added in Pillow 9.4, and raises
         # NotImplementedError when FreeType is older than 2.9.1. Either

@@ -29,10 +29,13 @@ ENV PORT=8000
 # libgl1 + libglib2.0-0 are required by opencv-python (vendored inside mediapipe);
 # without them `import mediapipe` fails with "libGL.so.1: cannot open shared
 # object file" and the orientation service silently disables itself.
+# libfribidi0 switches on the Raqm shaping library Pillow's wheel carries, which
+# Hindi, Tamil and the other Indian scripts need to print correctly spelt.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         libgl1 \
         libglib2.0-0 \
+        libfribidi0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv

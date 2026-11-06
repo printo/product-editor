@@ -68,7 +68,43 @@ def _write_fonts(fonts):
         logger.error(f"Failed to write fonts: {exc}")
         raise
     cache.delete(_FONTS_CACHE_KEY)
+    read_font_languages(saved)  # so no customer waits for a new font's file
     return saved
+
+
+_FONT_LANGUAGES_TTL = 7 * 24 * 60 * 60
+
+
+def read_font_languages(fonts):
+    """{family: [language, ...]} for the fonts that set an Indian language, for
+    the picker's labels. Cached per family: reading the answer means reading
+    the font's file. Only ever a label, so any failure leaves a font unlabelled
+    and never fails the editor."""
+    from django.core.cache import cache
+    from services.google_fonts import FontUnavailable
+    from services.text_coverage import font_languages, shaping_available
+
+    out = {}
+    try:
+        # Not cached when the print can't shape: the answer would outlive it.
+        if not shaping_available():
+            return out
+        keys = {f"font-languages:{'_'.join(f.lower().split())}": f for f in fonts}
+        known = cache.get_many(list(keys))
+        for key, family in keys.items():
+            languages = known.get(key)
+            if languages is None:
+                try:
+                    languages = font_languages(family)
+                except FontUnavailable as exc:
+                    logger.warning("No language label for %s: %s", family, exc)
+                    continue
+                cache.set(key, languages, _FONT_LANGUAGES_TTL)
+            if languages:
+                out[family] = languages
+    except Exception as exc:
+        logger.warning("Font language labels unavailable: %s", exc)
+    return out
 
 
 # These three views are declared AllowAny because their GET is public, then gate
@@ -121,12 +157,19 @@ class FontsView(APIView):
         ),
         responses={200: inline_serializer(
             name="FontList",
-            fields={"fonts": drf_serializers.ListField(child=drf_serializers.CharField())},
+            fields={
+                "fonts": drf_serializers.ListField(child=drf_serializers.CharField()),
+                "font_languages": drf_serializers.DictField(
+                    child=drf_serializers.ListField(child=drf_serializers.CharField()),
+                    help_text="The Indian languages each listed font can print, by family. A font with none is absent.",
+                ),
+            },
         )},
         auth=[],
     )
     def get(self, request):
-        response = Response({'fonts': _read_fonts()})
+        fonts = _read_fonts()
+        response = Response({'fonts': fonts, 'font_languages': read_font_languages(fonts)})
         response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=600'
         return response
 

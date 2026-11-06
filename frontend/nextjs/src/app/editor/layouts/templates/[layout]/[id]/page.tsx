@@ -82,6 +82,7 @@ export default function TemplateEditorPage() {
   const [status, setStatus] = useState<'draft' | 'published'>('draft');
   const [sample, setSample] = useState<File | null>(null);
   const [selectedFonts, setSelectedFonts] = useState<string[]>([DEFAULT_OVERLAY_FONT]);
+  const [fontLanguages, setFontLanguages] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -183,6 +184,7 @@ export default function TemplateEditorPage() {
           const fonts = await fontsRes.json().catch(() => null);
           const list = Array.isArray(fonts?.fonts) ? fonts.fonts : Array.isArray(fonts) ? fonts : [];
           if (list.length) setSelectedFonts(pickerFonts(list));
+          if (fonts?.font_languages) setFontLanguages(fonts.font_languages);
         }
         if (candidatesRes.ok) {
           const cands = await candidatesRes.json().catch(() => null);
@@ -671,6 +673,7 @@ export default function TemplateEditorPage() {
           layout={editorLayout}
           globalFitMode="cover"
           selectedFonts={selectedFonts}
+          fontLanguages={fontLanguages}
           apiBase={API}
           getAuthHeaders={() => ({})}
           setEditingCanvas={setEditingCanvas}

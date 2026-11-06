@@ -207,7 +207,7 @@ def test_weight_is_set_on_the_wght_axis_by_tag():
         bold = gf.get_overlay_font("Test Variable", SIZE, weight=700)
     assert _ink(_render(bold)) > _ink(_render(regular)) * 1.2
 
-    explicit = ImageFont.truetype(str(_FONT_PATH), size=SIZE)
+    explicit = ImageFont.truetype(str(_FONT_PATH), size=SIZE, layout_engine=ImageFont.Layout.BASIC)
     explicit.set_variation_by_axes([14.0, 700.0])
     assert list(_render(bold).getdata()) == list(_render(explicit).getdata()), (
         "700 must land on wght with opsz at its default")

@@ -155,6 +155,13 @@ export async function loadOverlayFonts(texts: readonly { fontFamily?: string | n
   await Promise.all([loadBlankFont(), ...[...families].map(loadPrintFont)]);
 }
 
+/** A font's name in the picker, with the Indian languages it can print: a name
+ *  like "Hind Madurai" does not tell a customer it is the Tamil one. */
+export function fontOptionLabel(family: string, languages?: Record<string, string[]>): string {
+  const names = languages?.[family];
+  return names?.length ? `${family} · ${names.join(', ')}` : family;
+}
+
 /** The fonts a picker offers: the ops list without generics, never empty. */
 export function pickerFonts(fonts: readonly string[]): string[] {
   const google = fonts.filter(f => f.trim() && !isGenericFont(f));

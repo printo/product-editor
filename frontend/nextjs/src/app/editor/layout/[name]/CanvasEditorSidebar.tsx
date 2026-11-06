@@ -13,7 +13,7 @@ import { ARTWORK_LABEL, artworkOverlayFor } from './template-authoring';
 import { UnprintableTextNote } from './EditorNotices';
 import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
 import { convertHeicFiles, type ServerHeicConverter } from '@/lib/heic-convert';
-import { DEFAULT_OVERLAY_FONT, overlayFontFamily } from '@/lib/overlay-fonts';
+import { DEFAULT_OVERLAY_FONT, fontOptionLabel, overlayFontFamily } from '@/lib/overlay-fonts';
 import type { CanvasItem, FitMode, Overlay, TextOverlay, ImageOverlay } from './types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -32,6 +32,7 @@ export interface CanvasEditorSidebarProps {
   pushUndo: (canvas: CanvasItem, isMajor?: boolean) => void;
   loadGoogleFont: (name: string) => void;
   selectedFonts: string[];
+  fontLanguages?: Record<string, string[]>;
   getImageMetadata: (file: File) => Promise<{ width: number; height: number; orientation: number; element: HTMLImageElement }>;
   calculateSmartCropOffsets: (img: HTMLImageElement | HTMLCanvasElement, frameW: number, frameH: number, rotation: number, cacheKey?: string) => Promise<{ x: number; y: number }>;
   /** Expands any PDFs in a picked file list into customer-chosen page
@@ -148,6 +149,7 @@ export function CanvasEditorSidebar({
   pushUndo,
   loadGoogleFont,
   selectedFonts,
+  fontLanguages,
   getImageMetadata,
   calculateSmartCropOffsets,
   expandPdfPages,
@@ -470,7 +472,7 @@ export function CanvasEditorSidebar({
                         <Dropdown
                           value={overlayFontFamily(overlay.fontFamily)}
                           onChange={(f) => { loadGoogleFont(f); updateOverlay({ fontFamily: f }); }}
-                          options={selectedFonts.map(f => ({ value: f, label: f, labelStyle: { fontFamily: f } }))}
+                          options={selectedFonts.map(f => ({ value: f, label: fontOptionLabel(f, fontLanguages), labelStyle: { fontFamily: f } }))}
                           triggerClassName="w-full h-11 bg-white border border-slate-200 rounded-lg text-[11px] font-medium text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none hover:bg-slate-50 transition-all shadow-sm"
                           optionClassName="text-[11px] font-medium"
                         />

@@ -449,7 +449,7 @@ def test_style_list_shows_what_ops_created_and_hides_what_they_deleted():
 def test_fonts_endpoint_serves_storage_root_fonts_json():
     with S3Backend() as b, patch("django.core.cache.cache", _DictCache()):
         b.seed_local("fonts.json", ["Lobster"])
-        assert _dispatch("get", "/api/fonts").data == {"fonts": ["Lobster"]}
+        assert _dispatch("get", "/api/fonts").data["fonts"] == ["Lobster"]
 
 
 def test_corrupt_style_is_a_404_not_a_500():

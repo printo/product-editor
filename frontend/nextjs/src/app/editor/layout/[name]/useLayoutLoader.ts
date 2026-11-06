@@ -17,7 +17,7 @@ type Setter<T> = Dispatch<SetStateAction<T>>;
  *  loads the selected Google fonts. The state stays the page's; this sets it. */
 export function useLayoutLoader({
   layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
-  selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
+  selectedFonts, setSelectedFonts, setFontLanguages, loadGoogleFont, setError, setLayout, setLayoutLoading,
   setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
   urlTemplateId, setActiveTemplate, setTemplateNotice, urlOrientation, setOrientationReport, layoutVersionRef,
 }: {
@@ -34,6 +34,7 @@ export function useLayoutLoader({
   setSessionQty: Setter<number | null>;
   selectedFonts: string[];
   setSelectedFonts: Setter<string[]>;
+  setFontLanguages: Setter<Record<string, string[]>>;
   loadGoogleFont: (font: string) => void;
   setError: Setter<string | null>;
   setLayout: Setter<any>;
@@ -113,6 +114,7 @@ export function useLayoutLoader({
         if (Array.isArray(payload.fonts) && payload.fonts.length) {
           setSelectedFonts(pickerFonts(payload.fonts));
         }
+        if (payload.font_languages) setFontLanguages(payload.font_languages);
         let normalized: NormalizedLayout;
         let initSurfaces: SurfaceState[];
         // A book's surfaces are the customer's chosen page count, not a

@@ -32,7 +32,7 @@ function props(over: Partial<Props> = {}): Props {
   return {
     layoutName: 'test_4x6', embedToken: null, status: 'authenticated', apiBase: '/api/internal/proxy',
     getAuthHeaders: () => ({}), orderId: 'PE-LOCAL', setOrderId: named('setOrderId'), setSessionQty: jest.fn(),
-    selectedFonts: [], setSelectedFonts: jest.fn(), loadGoogleFont: jest.fn(), setError: jest.fn(),
+    selectedFonts: [], setSelectedFonts: jest.fn(), setFontLanguages: jest.fn(), loadGoogleFont: jest.fn(), setError: jest.fn(),
     setLayout: named('setLayout'), setLayoutLoading: jest.fn(), setNormalizedLayoutState: jest.fn(),
     setSurfaceStates: jest.fn(), setActiveSurfaceKey: jest.fn(), setBookPageCount: jest.fn(), setBookHiddenPages: jest.fn(),
     ...over,

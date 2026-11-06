@@ -19,13 +19,15 @@ export type PreSubmitNoticeData = {
 
 /** The one sentence shown wherever text holds characters the print can't draw. */
 export const UNPRINTABLE_HELP =
-  'Emoji and some special characters typed as text won’t print. ' +
-  'Please use the cliparts, images or icons from the sidebar instead.';
+  'These characters won’t print in this font. ' +
+  'Please choose another font, or use a clipart, image or icon from the sidebar. ' +
+  'We also support Indian languages.';
 
 /** Shown once the canvas editor has taken unsupported characters out of a text box. */
 export const UNSUPPORTED_REMOVED =
-  'Emoji and some special characters are not supported in text, so they were removed. ' +
-  'Please use the cliparts, images or icons from the sidebar instead.';
+  'These characters can’t print in this font, so we removed them. ' +
+  'Please choose another font, or use a clipart, image or icon from the sidebar. ' +
+  'We also support Indian languages.';
 
 /**
  * The toast the canvas editor shows each time unsupported characters are
