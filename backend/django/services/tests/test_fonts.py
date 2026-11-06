@@ -37,7 +37,7 @@ def _ink(img: Image.Image) -> int:
 
 
 def _explicit(opsz: float, wght: float) -> ImageFont.ImageFont:
-    font = ImageFont.truetype(str(_FONT_PATH), size=SIZE_PX)
+    font = ImageFont.truetype(str(_FONT_PATH), size=SIZE_PX, layout_engine=ImageFont.Layout.BASIC)
     font.set_variation_by_axes([opsz, wght])
     return font
 

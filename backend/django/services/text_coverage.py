@@ -18,8 +18,11 @@ between emoji), and variation selectors, none of which draw anything.
 
 Scripts whose letters join or reorder (Hindi, Tamil, Arabic, ...) are a second
 case: Poppins has the Devanagari letters, but drawing them one by one, as
-Pillow does without the Raqm shaping library, prints misspelt words. While
-`shaping_available()` is false those characters count as unprintable too.
+Pillow does without the Raqm shaping library, prints misspelt words. So they
+print only in a font that has them, while `shaping_available()` is true, and
+only for the scripts in `_SHAPED_FOR_PRINT` (the Indian ones). The rest (Arabic,
+Hebrew, Thai, ...) stay unprintable: they have not been proofed, and Arabic and
+Hebrew also run right to left, which the editor's text box does not lay out.
 
 `printable_text(family, text)` is what the print draws: the text without the
 characters above. Until 2026-11-05 Pillow drew a missing character as the
@@ -139,9 +142,38 @@ def shaping_available() -> bool:
     return bool(features.check("raqm"))
 
 
+# The scripts above that print once shaping is available: Devanagari, Bengali,
+# Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam.
+_SHAPED_FOR_PRINT = (
+    (0x0900, 0x0D7F),
+    (0xA8E0, 0xA8FF),
+)
+
+# Zero-width joiner and non-joiner: they choose a letter's form in these
+# scripts, and a font need not list them for the shaper to read them.
+_FORM_JOINERS = "‌‍"
+
+
 def _needs_shaping(ch: str) -> bool:
     code = ord(ch)
     return any(first <= code <= last for first, last in _SHAPED_BLOCKS)
+
+
+def _shaped_for_print(ch: str) -> bool:
+    code = ord(ch)
+    return any(first <= code <= last for first, last in _SHAPED_FOR_PRINT)
+
+
+def _printable(ch: str, covered: frozenset[int], shaped: bool) -> bool:
+    if ord(ch) not in covered:
+        return False
+    return not _needs_shaping(ch) or (shaped and _shaped_for_print(ch))
+
+
+def text_needs_shaping(text: str) -> bool:
+    """Whether the print must lay this text out with Raqm. Asked of the text
+    `printable_text` returned, so it is true only where that can work."""
+    return any(_needs_shaping(ch) for ch in text)
 
 
 def _is_mark(ch: str) -> bool:
@@ -194,7 +226,7 @@ def unprintable_chars(family: Optional[str], text: str, weight: int = 400) -> li
         seen.add(ch)
         if _draws_nothing(ch):
             continue
-        if ord(ch) in covered and (shaped or not _needs_shaping(ch)):
+        if _printable(ch, covered, shaped):
             continue
         out.append(ch)
     return out
@@ -208,7 +240,9 @@ def printable_text(family: Optional[str], text: str, weight: int = 400) -> str:
     shaped = shaping_available()
     out: list[str] = []
     for ch in text:
-        if ch in "\n\r\t" or (ord(ch) in covered and (shaped or not _needs_shaping(ch))):
+        if ch in "\n\r\t" or _printable(ch, covered, shaped):
+            out.append(ch)
+        elif ch in _FORM_JOINERS and out and _needs_shaping(out[-1]):
             out.append(ch)
         elif _is_mark(ch) and out and not out[-1].isspace():
             # A mark the font lacks (the keycap around "1" in a keycap emoji)

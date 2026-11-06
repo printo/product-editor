@@ -103,17 +103,17 @@ describe('UnprintableTextNote', () => {
     render(<UnprintableTextNote chars={['\u{1F57A}', '\u{1F3B6}']} />);
     const note = screen.getByRole('status');
     expect(note).toHaveTextContent(UNPRINTABLE_HELP);
-    expect(note).toHaveTextContent('Please use the cliparts, images or icons from the sidebar instead.');
+    expect(note).toHaveTextContent('choose a font that has them. For emoji, use the cliparts, images or icons from the sidebar.');
   });
 });
 
 describe('UnprintableTextNote after a removal', () => {
-  it('says the characters are not supported and were removed, though the box is clean again', () => {
+  it('says the letters were removed, though the box is clean again', () => {
     render(<UnprintableTextNote chars={[]} removed />);
     const note = screen.getByRole('status');
     expect(note).toHaveTextContent(UNSUPPORTED_REMOVED);
-    expect(note).toHaveTextContent('not supported in text, so they were removed');
-    expect(note).toHaveTextContent('Please use the cliparts, images or icons from the sidebar instead.');
+    expect(note).toHaveTextContent('so they were removed');
+    expect(note).toHaveTextContent('choose a font that has them. For emoji, use the cliparts, images or icons from the sidebar.');
   });
 });
 
@@ -145,7 +145,7 @@ describe('TextRemovedToast', () => {
     rerender(<TextRemovedToast removals={1} />);
     const toast = screen.getByRole('status');
     expect(toast).toHaveTextContent(UNSUPPORTED_REMOVED);
-    expect(toast).toHaveTextContent('Please use the cliparts, images or icons from the sidebar instead.');
+    expect(toast).toHaveTextContent('choose a font that has them. For emoji, use the cliparts, images or icons from the sidebar.');
     expect(toast.parentElement).toHaveClass('top-1/2', 'left-1/2', '-translate-x-1/2', '-translate-y-1/2');
     expect(TEXT_REMOVED_TOAST_MS).toBe(15000);
     act(() => { jest.advanceTimersByTime(14999); });

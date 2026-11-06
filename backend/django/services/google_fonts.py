@@ -79,20 +79,28 @@ class FontUnavailable(Exception):
     in another font; the render task retries, then fails the job."""
 
 
-def get_overlay_font(family: Optional[str], size_px: int, weight: int = 400) -> ImageFont.ImageFont:
-    """The PIL font a text overlay prints in. Raises FontUnavailable."""
+def get_overlay_font(
+    family: Optional[str], size_px: int, weight: int = 400, shaped: bool = False,
+) -> ImageFont.ImageFont:
+    """The PIL font a text overlay prints in. Raises FontUnavailable.
+
+    `shaped` lays the text out with Raqm, for text in an Indian script; all
+    other text stays on BASIC so that it prints exactly as it always has. The
+    bundled Inter has no letters that need shaping, so it never asks.
+    """
     name = _fetched_family(family)
     if name is None:
         return get_font(size_px, weight=weight)
     weight = _snap_weight(weight)
     size_px = max(1, int(size_px))
 
-    key = (name.lower(), weight, size_px)
+    key = (name.lower(), weight, size_px, shaped)
     font = _FONT_CACHE.get(key)
     if font is None:
         data = font_bytes(name, weight)
+        engine = ImageFont.Layout.RAQM if shaped else ImageFont.Layout.BASIC
         try:
-            font = ImageFont.truetype(io.BytesIO(data), size=size_px)
+            font = ImageFont.truetype(io.BytesIO(data), size=size_px, layout_engine=engine)
         except OSError as exc:
             raise FontUnavailable(f"{name} {weight}: unloadable font file: {exc}") from exc
         if not set_weight(font, axis_records(data), weight):
@@ -412,7 +420,7 @@ def _snap_weight(weight) -> int:
 
 
 _BYTES_CACHE: dict[str, bytes] = {}
-_FONT_CACHE: dict[tuple[str, int, int], ImageFont.ImageFont] = {}
+_FONT_CACHE: dict[tuple[str, int, int, bool], ImageFont.ImageFont] = {}
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 

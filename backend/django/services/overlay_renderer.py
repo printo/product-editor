@@ -56,7 +56,7 @@ from PIL import Image, ImageDraw, ImageOps
 from services.google_fonts import FontUnavailable, get_overlay_font
 from services.image_loader import open_source_rgba
 from services.shape_catalog import UnsupportedPath, flatten_path, path_bbox, shape_def, shape_path
-from services.text_coverage import printable_text
+from services.text_coverage import printable_text, text_needs_shaping
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +233,6 @@ def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     # The family the editor previewed (services/google_fonts.py); Inter when
     # none is set. The editor never sets fontWeight, so text previews at 400.
     font_weight = int(o.get("fontWeight") or 400)
-    font = get_overlay_font(o.get("fontFamily"), font_size_px, weight=font_weight)
 
     # Draw only what the font can: a character it has no glyph for is left
     # out, as both previews leave it out (services/text_coverage.py). Pillow
@@ -241,6 +240,9 @@ def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     text = printable_text(o.get("fontFamily"), text, font_weight)
     if not text.strip():
         return
+    font = get_overlay_font(
+        o.get("fontFamily"), font_size_px, weight=font_weight, shaped=text_needs_shaping(text),
+    )
 
     x_f = float(o.get("x") or 0) * cw / 100.0
     y_f = float(o.get("y") or 0) * ch / 100.0
