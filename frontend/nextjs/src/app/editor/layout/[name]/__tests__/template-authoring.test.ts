@@ -2,9 +2,10 @@
  * template-authoring.ts — what ops draw on a blank card becomes a template.
  */
 import {
-  ARTWORK_LABEL, artworkOverlayFor, authoredOnFor, blankCard, dataUrlToPngFile, decorationFromCards, drawnFacing, groupBySize,
-  ineligibleTicked, isEmptyDecoration, isTemplateId, keyFacing, layoutsInFacing, localImageOverlays, nearMissLayouts, pairKey,
-  sameBoxLayouts, sizeLabel, slugFromName, templateKey, withArtwork, withoutPhotos, type TemplateCandidate,
+  ARTWORK_LABEL, artworkOverlayFor, authoredOnFor, blankCard, clearImportDraft, dataUrlToPngFile, decorationFromCards, drawnFacing,
+  groupBySize, importedDecoration, ineligibleTicked, isEmptyDecoration, isTemplateId, keyFacing, layoutsInFacing, localImageOverlays,
+  nearMissLayouts, pairKey, readImportDraft, sameBoxLayouts, sizeLabel, slugFromName, templateKey, withArtwork, withoutPhotos,
+  writeImportDraft, type TemplateCandidate,
 } from '../template-authoring';
 import { surfaceGeometry } from '../layout-template';
 import type { SurfaceDefinition } from '@/lib/layout-utils';
@@ -250,5 +251,61 @@ describe('dataUrlToPngFile', () => {
     expect(file?.size).toBe(8);
     expect(dataUrlToPngFile('data:image/jpeg;base64,xx')).toBeNull();
     expect(dataUrlToPngFile('')).toBeNull();
+  });
+});
+
+describe('a design imported from the older design tool', () => {
+  const def = {
+    canvas: { width: 1800, height: 2400, widthMm: 152.4, heightMm: 203.2, dpi: 300 },
+    frames: [{ id: 'import-1', x: 0.2, y: 0.3, width: 0.6, height: 0.4 }],
+    printSheet: { mode: 'canvas' as const },
+  };
+
+  it('puts the page artwork first, over the whole sheet, then the stickers and texts in the old order', () => {
+    const decoration = importedDecoration({
+      def,
+      paperColor: '#F599A6',
+      artworkSrc: '/api/templates/assets/sticker_aaaa.svg',
+      overlays: [
+        { kind: 'text', id: 'import-text-1', text: 'November 17', x: 9.6, y: 8.4, width: 82.3, fontSize: 105.8, color: '#302a18', fontFamily: 'Marck Script', textAlign: 'left', rotation: 0 },
+        { kind: 'sticker', id: 'import-5', src: '/api/templates/assets/sticker_bbbb.svg', label: 'Asset_31.svg', box: { x: 5.9, y: 68.9, width: 34.5, height: 27.9 }, opacity: 0.42 },
+      ],
+    });
+    const side = decoration.surfaces.default;
+    expect(side.paperColor).toBe('#F599A6');
+    expect(side.bgColor).toBeUndefined();
+    expect(side.overlays).toHaveLength(3);
+    expect(side.overlays[0]).toMatchObject({ type: 'image', source: 'clipart', label: ARTWORK_LABEL, src: '/api/templates/assets/sticker_aaaa.svg', x: 0, y: 0, width: 100, height: 100 });
+    expect(side.overlays[1]).toEqual({ type: 'text', id: 'import-text-1', text: 'November 17', x: 9.6, y: 8.4, width: 82.3, fontSize: 105.8, color: '#302a18', fontFamily: 'Marck Script', textAlign: 'left', rotation: 0 });
+    expect(side.overlays[2]).toEqual({ type: 'image', id: 'import-5', source: 'clipart', src: '/api/templates/assets/sticker_bbbb.svg', label: 'Asset_31.svg', x: 5.9, y: 68.9, width: 34.5, height: 27.9, rotation: 0, opacity: 0.42 });
+  });
+
+  it('is empty for a design with nothing but windows on white paper', () => {
+    expect(isEmptyDecoration(importedDecoration({ def, paperColor: '#ffffff', artworkSrc: null, overlays: [] }))).toBe(true);
+    expect(isEmptyDecoration(importedDecoration({ def, paperColor: null, artworkSrc: null, overlays: [] }))).toBe(true);
+    expect(isEmptyDecoration(importedDecoration({ def, paperColor: '#b3e5fc', artworkSrc: null, overlays: [] }))).toBe(false);
+  });
+
+  it('hands the draft to the authoring page of its layout, and only that one, until it is cleared', () => {
+    const decoration = importedDecoration({ def, paperColor: '#b3e5fc', artworkSrc: null, overlays: [] });
+    writeImportDraft({ layout: 'photo_frame_6x8_6_photos', displayName: 'Six photos', decoration });
+    expect(readImportDraft('photo_frame_6x8_6_photos')).toEqual({ layout: 'photo_frame_6x8_6_photos', displayName: 'Six photos', decoration });
+    expect(readImportDraft('another_layout')).toBeNull();
+    clearImportDraft('photo_frame_6x8_6_photos');
+    expect(readImportDraft('photo_frame_6x8_6_photos')).toBeNull();
+  });
+
+  it('still reaches the editor in this tab when the browser keeps no storage, and ignores a draft it cannot read', () => {
+    const decoration = importedDecoration({ def, paperColor: '#b3e5fc', artworkSrc: null, overlays: [] });
+    const set = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+    writeImportDraft({ layout: 'held_only', displayName: 'Held', decoration });
+    set.mockRestore();
+    expect(readImportDraft('held_only')?.displayName).toBe('Held');
+    clearImportDraft('held_only');
+
+    window.sessionStorage.setItem('pe:template-import:broken', '{"layout":"broken","displayName":"x","decoration":{"surfaces":{"default":{}}}}');
+    expect(readImportDraft('broken')).toBeNull();
+    window.sessionStorage.setItem('pe:template-import:garbled', 'not json');
+    expect(readImportDraft('garbled')).toBeNull();
   });
 });

@@ -9,7 +9,7 @@ from .views import (
     OrientationDetectView, HeicConvertView,
     IconSvgView, IconSearchView,
     EditorRenderView, EditorInitView, CSPReportView,
-    TemplatesListView, TemplateDetailView, TemplateManagementView, TemplateCandidatesView,
+    TemplatesListView, TemplateDetailView, TemplateManagementView, TemplateCandidatesView, DesignImportArtworkView, DesignImportFontView,
     TemplateAssetUploadView, TemplateAssetDownloadView,
     LayoutTagsView, LayoutTagManagementView,
 )
@@ -65,6 +65,9 @@ urlpatterns = [
     # Before `<template_id>`, like `assets`: the layouts a template can be offered on.
     path("ops/templates/candidates", TemplateCandidatesView.as_view(), name="ops-template-candidates"),
     path("ops/templates/<str:template_id>", TemplateManagementView.as_view(), name="ops-templates-detail"),
+    # Importing a design from the older design tool: the artwork fetch the browser cannot do itself.
+    path("ops/import/artwork", DesignImportArtworkView.as_view(http_method_names=["post", "options"]), name="ops-design-import-artwork"),
+    path("ops/import/font", DesignImportFontView.as_view(http_method_names=["post", "options"]), name="ops-design-import-font"),
 
     # Layout management (Ops Team only)
     path("ops/layouts", LayoutManagementView.as_view(), name="ops-layouts-list"),

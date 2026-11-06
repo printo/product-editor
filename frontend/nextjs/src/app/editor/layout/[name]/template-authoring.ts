@@ -356,3 +356,95 @@ export function dataUrlToPngFile(dataUrl: string, name = 'thumbnail.png'): File 
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new File([bytes], name, { type: 'image/png' });
 }
+
+// ─── A design imported from the older design tool ───────────────────────────
+
+/** A piece of an imported design that sits above its page artwork. */
+export type ImportedOverlay =
+  | { kind: 'sticker'; id: string; src: string; label: string; box: { x: number; y: number; width: number; height: number }; opacity: number }
+  | {
+    kind: 'text'; id: string; text: string; x: number; y: number; width: number; fontSize: number; color: string; fontFamily: string;
+    textAlign: 'left' | 'center' | 'right'; rotation: number;
+  };
+
+/**
+ * The decoration of a design read by the Templates page's Import dialog
+ * (lib/online-canvas-import.ts): the page colour as the paper colour (the
+ * colour around the print areas), the page artwork (everything that sat
+ * under the photos, already stored as one sticker) first so the rest draws
+ * over it, then the stickers and texts in the old order. For the layout the
+ * import just created, which has the one side `default`.
+ */
+export function importedDecoration(input: {
+  def: Pick<SurfaceDefinition, 'canvas' | 'frames' | 'printSheet'>;
+  paperColor: string | null;
+  artworkSrc: string | null;
+  overlays: ImportedOverlay[];
+}): TemplateDecoration {
+  const overlays: Overlay[] = [];
+  if (input.artworkSrc) overlays.push(artworkOverlayFor(input.def, input.artworkSrc));
+  for (const o of input.overlays) {
+    if (o.kind === 'sticker') {
+      overlays.push({ type: 'image', id: o.id, source: 'clipart', src: o.src, label: o.label, ...o.box, rotation: 0, opacity: o.opacity });
+    } else {
+      const { kind: _kind, ...text } = o;
+      void _kind;
+      overlays.push({ type: 'text', ...text });
+    }
+  }
+  const side: TemplateSide = { overlays };
+  if (input.paperColor && input.paperColor.toLowerCase() !== '#ffffff') side.paperColor = input.paperColor;
+  return { surfaces: { default: side } };
+}
+
+/** An imported design on its way from the Import dialog to the authoring
+ *  page that opens on it. Nothing is saved until Save is pressed there. */
+export interface ImportDraft {
+  layout: string;
+  displayName: string;
+  decoration: TemplateDecoration;
+}
+
+const importDraftKey = (layout: string) => `pe:template-import:${layout}`;
+// Kept here as well as in the tab's storage, so the hand-off works where storage is blocked.
+const heldDrafts = new Map<string, ImportDraft>();
+
+function asImportDraft(value: unknown, layout: string): ImportDraft | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Partial<ImportDraft>;
+  const surfaces = v.decoration?.surfaces;
+  if (v.layout !== layout || typeof v.displayName !== 'string' || !surfaces || typeof surfaces !== 'object') return null;
+  if (!Object.values(surfaces).every(s => !!s && Array.isArray(s.overlays))) return null;
+  return { layout, displayName: v.displayName, decoration: { surfaces } };
+}
+
+export function writeImportDraft(draft: ImportDraft): void {
+  heldDrafts.set(draft.layout, draft);
+  try {
+    window.sessionStorage.setItem(importDraftKey(draft.layout), JSON.stringify(draft));
+  } catch {
+    // Storage blocked or full: the copy held above still reaches the editor in this tab.
+  }
+}
+
+/** The draft waiting for `layout`, from this tab's storage (it survives a
+ *  refresh) or the copy held in memory; null when there is none. */
+export function readImportDraft(layout: string): ImportDraft | null {
+  try {
+    const raw = window.sessionStorage.getItem(importDraftKey(layout));
+    const stored = raw ? asImportDraft(JSON.parse(raw), layout) : null;
+    if (stored) return stored;
+  } catch {
+    // Unreadable: fall back to the copy in memory.
+  }
+  return heldDrafts.get(layout) ?? null;
+}
+
+export function clearImportDraft(layout: string): void {
+  heldDrafts.delete(layout);
+  try {
+    window.sessionStorage.removeItem(importDraftKey(layout));
+  } catch {
+    // Nothing to clear.
+  }
+}

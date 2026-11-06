@@ -59,6 +59,7 @@ from .embed import (  # noqa: F401
     EditorInitView,
     CanvasStateView,
 )
+from .design_import import DesignImportArtworkView, DesignImportFontView  # noqa: F401
 from .templates import (  # noqa: F401
     TemplatesListView,
     TemplateDetailView,
