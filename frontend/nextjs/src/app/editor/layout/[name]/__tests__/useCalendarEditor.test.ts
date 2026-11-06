@@ -86,11 +86,21 @@ describe('useCalendarEditor', () => {
     act(() => result.current.updateCellEntries('2027-03-01', () => [{ type: 'text', text: 'old' }]));
     await act(async () => { await result.current.handleCellImageFileSelected(jpg); });
     expect(p.expandPdfPages).toHaveBeenCalledWith([jpg], { maxSelectable: 1 });
-    expect(upload).toHaveBeenCalledWith(jpg, { apiBase: '/api/embed/proxy', orderId: 'EXT-1', getAuthHeaders: p.getAuthHeaders });
+    expect(upload).toHaveBeenCalledWith(jpg, { apiBase: '/api/embed/proxy', orderId: 'EXT-1', getAuthHeaders: p.getAuthHeaders, autoOrient: true });
     expect(result.current.calendarCells).toEqual({ '2027-03-01': [{ type: 'image', uploadId: 'u-1' }] });
     expect(result.current.calendarCellImagePreviews).toEqual({ '2027-03-01': 'blob:1' });
     expect(result.current.calendarImageUploading).toBe(false);
     expect(p.setPersistDegraded).not.toHaveBeenCalled();
+  });
+
+  it('a day photo the pose model read as sideways arrives turned upright', async () => {
+    upload.mockResolvedValue({ uploadId: 'u-1', blobUrl: 'blob:1', rotation: 270 } as never);
+    const { result } = renderHook(() => useCalendarEditor(editorProps()));
+    act(() => result.current.handleCalendarMonthTileClick(0, 2027, 3));
+    await act(async () => { await result.current.handleCellImageFileSelected(jpg); });
+    expect(result.current.calendarCells).toEqual({ '2027-03-01': [{ type: 'image', uploadId: 'u-1', rotation: 270 }] });
+    // The placement pop-up opens on the date once its photo is in.
+    expect(result.current.cellPhotoDialogIso).toBe('2027-03-01');
   });
 
   it('a second photo frees the first preview, and storage trouble is reported', async () => {

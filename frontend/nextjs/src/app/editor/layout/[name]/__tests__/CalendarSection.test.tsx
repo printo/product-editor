@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { SetStateAction } from 'react';
 import { CalendarControls, CalendarSection } from '../CalendarSection';
 
@@ -28,6 +28,7 @@ function setup(over: Partial<Props> = {}) {
     calendarCellImagePreviews: { [ISO]: 'blob:preview' }, setCalendarCellImagePreviews: jest.fn(),
     calendarImageUploading: false, calendarCellFileInputRef: { current: null }, handleCellImageFileSelected: jest.fn(),
     visibleCalendarMonths: Array.from({ length: 12 }, (_, i) => ({ year: 2027, month: i + 1 })), selectCalendarDate: jest.fn(),
+    cellPhotoDialogIso: null, setCellPhotoDialogIso: jest.fn(),
     ...over,
   };
   preview.mockClear(); panel.mockClear();
@@ -123,6 +124,42 @@ describe('CalendarSection', () => {
     act(() => panelProps().onReset());
     expect(updater(props, 1).fn([{ type: 'text', text: 'A' }])).toEqual([]);
     revoke.mockRestore();
+  });
+
+  it('Edit opens the placement pop-up on the selected day', () => {
+    const { panelProps, props, queryByTestId } = setup();
+    expect(queryByTestId('cell-photo-dialog')).toBeNull();
+    act(() => panelProps().onEditImagePlacement());
+    expect(props.setCellPhotoDialogIso).toHaveBeenCalledWith(ISO);
+  });
+
+  it('the pop-up shows the stored placement and writes each change to the day’s photo at once', () => {
+    const cells = { [ISO]: [{ type: 'image', uploadId: 'u1', fit: 'contain', rotation: 90 }] };
+    const { props } = setup({
+      cellPhotoDialogIso: ISO, calendarCells: cells as never,
+      calendarCellEntries: (iso: string) => ((cells as Record<string, unknown[]>)[iso] || []) as never[],
+    });
+    expect(screen.getByTestId('cell-photo-fit-contain')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByTestId('cell-photo-rotate'));
+    const { iso, fn } = updater(props);
+    expect(iso).toBe(ISO);
+    expect(fn([{ type: 'text', text: 'A' }, { type: 'image', uploadId: 'u1', fit: 'contain', rotation: 90 }])).toEqual([
+      { type: 'text', text: 'A' }, { type: 'image', uploadId: 'u1', fit: 'contain', rotation: 180, blur: false },
+    ]);
+    fireEvent.click(screen.getByTestId('cell-photo-save'));
+    expect(props.updateCellEntries).toHaveBeenCalledTimes(1);
+    expect(props.setCellPhotoDialogIso).toHaveBeenCalledWith(null);
+  });
+
+  it('Cancel puts back the placement the pop-up opened with; no pop-up without a preview to draw', () => {
+    const { props, unmount } = setup({ cellPhotoDialogIso: ISO });
+    fireEvent.click(screen.getByTestId('cell-photo-cancel'));
+    expect(updater(props).fn([{ type: 'image', uploadId: 'u1', fit: 'contain', rotation: 270, blur: true }])).toEqual([
+      { type: 'image', uploadId: 'u1', fit: 'cover', rotation: 0, blur: false },
+    ]);
+    expect(props.setCellPhotoDialogIso).toHaveBeenCalledWith(null);
+    unmount();
+    expect(setup({ cellPhotoDialogIso: ISO, calendarCellImagePreviews: {} }).queryByTestId('cell-photo-dialog')).toBeNull();
   });
 
   it('asks for a day photo through the hidden picker and hands over the file', () => {

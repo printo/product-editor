@@ -13,6 +13,8 @@ export type CalendarCardsConfig = {
   pages: CalendarCardPage[];
   weekStart: WeekStart;
   cells: Record<string, CalendarCellOverride[]>;
+  /** Preview URLs of the photos placed on dates, keyed by ISO date. */
+  cellImages?: Record<string, string>;
   holidays: HolidayEntry[];
   colors: ThumbColors;
   dotCycle: readonly string[];
@@ -49,6 +51,7 @@ export function CalendarGridZone({ page, calendar }: { page: CalendarCardPage; c
         month={page.month}
         weekStart={calendar.weekStart}
         cells={calendar.cells}
+        cellImages={calendar.cellImages}
         holidays={calendar.holidays}
         colors={calendar.colors}
         dotCycle={calendar.dotCycle}

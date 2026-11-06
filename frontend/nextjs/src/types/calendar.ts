@@ -158,9 +158,28 @@ export type SurfaceOverrideMap = Record<string, SurfaceOverride>;
  * Keyed by ISO date string ("2026-01-15") so leap-year / calendar-type
  * flips preserve entries naturally (§11.4, §11.8).
  */
+export type CellImageFit = 'cover' | 'contain';
+
+/** How a date's photo is placed in its cell, every value resolved. */
+export interface CellImagePlacement {
+  fit: CellImageFit;
+  rotation: 0 | 90 | 180 | 270;
+  blur: boolean;
+}
+
 export type CalendarCellOverride =
   | { type: 'text'; text: string }
-  | { type: 'image'; uploadId: string; opacity?: number }
+  | {
+      type: 'image';
+      uploadId: string;
+      opacity?: number;
+      /** 'cover' (absent) fills the cell and crops; 'contain' shows the whole photo. */
+      fit?: CellImageFit;
+      /** Clockwise quarter turns, in degrees. Absent is none. */
+      rotation?: 0 | 90 | 180 | 270;
+      /** With 'contain': fill the empty sides with a blurred copy of the photo. */
+      blur?: boolean;
+    }
   | { type: 'hide' /* hide the date number, leave cell empty */ };
 
 /**

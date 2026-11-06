@@ -51,6 +51,9 @@ export function useCalendarEditor({
   // Hidden file input ref; result stored as blobUrl for instant preview.
   const calendarCellFileInputRef = useRef<HTMLInputElement | null>(null);
   const [calendarImageUploading, setCalendarImageUploading] = useState(false);
+  // The date whose photo is being placed in the pop-up: set once a photo is
+  // picked for a date, and by the date editor's Edit button.
+  const [cellPhotoDialogIso, setCellPhotoDialogIso] = useState<string | null>(null);
   // Key: iso date, value: blobUrl for preview thumbnail.
   // Blob URLs are revoked when the override is cleared or the page unmounts.
   const [calendarCellImagePreviews, setCalendarCellImagePreviews] = useState<Record<string, string>>({});
@@ -97,9 +100,15 @@ export function useCalendarEditor({
         apiBase,
         orderId,
         getAuthHeaders,
+        // Only the pose model's reading: a photo stored sideways arrives
+        // upright; the date editor's Rotate is there when it reads nothing.
+        autoOrient: true,
       });
       // Replace any existing entries on this cell with the image override.
-      updateCellEntries(iso, () => [{ type: 'image', uploadId: result.uploadId }]);
+      updateCellEntries(iso, () => [{
+        type: 'image', uploadId: result.uploadId,
+        ...(result.rotation ? { rotation: result.rotation } : {}),
+      }]);
       if (result.persistDegraded) setPersistDegraded(true);
       // Cache the blob URL for the panel preview (keyed by ISO — dates are
       // globally unique, so the key survives calendar-type flips).
@@ -107,6 +116,7 @@ export function useCalendarEditor({
         if (prev[iso]) URL.revokeObjectURL(prev[iso]);
         return { ...prev, [iso]: result.blobUrl };
       });
+      setCellPhotoDialogIso(iso);
     } catch (err) {
       if (err instanceof CalendarCellUploadError) {
         setError(err.message);
@@ -146,7 +156,7 @@ export function useCalendarEditor({
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
     genzPalettes, setGenzPalettes, setCalendarHolidays, printedHolidays, calendarCells, setCalendarCells,
     selectedCalendarCell, setSelectedCalendarCell, calendarCellFileInputRef, calendarImageUploading,
-    calendarCellImagePreviews, setCalendarCellImagePreviews,
+    calendarCellImagePreviews, setCalendarCellImagePreviews, cellPhotoDialogIso, setCellPhotoDialogIso,
     calendarCellEntries, updateCellEntries, handleCellImageFileSelected, handleCalendarMonthTileClick,
     visibleCalendarMonths, selectCalendarDate,
   };

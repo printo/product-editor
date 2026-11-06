@@ -410,6 +410,9 @@ export interface CalendarProductPreviewProps {
    *  (`monthHeadingEnabled` on the layout's calendar block). Default true. */
   showMonthName?: boolean;
 
+  /** Preview URLs of the photos placed on dates, keyed by ISO date. */
+  cellImages?: Record<string, string>;
+
   /** The style controls, the Feb 29 notice and the flip warning. Default true. */
   showControls?: boolean;
   /** The 12 month tiles. Default true; off where the editor's cards draw
@@ -438,6 +441,7 @@ export function CalendarProductPreview({
   defaultYear,
   showMonthName = true,
   showControls = true,
+  cellImages,
   showMonthTiles = true,
   now,
 }: CalendarProductPreviewProps) {
@@ -606,6 +610,7 @@ export function CalendarProductPreview({
                 dotCycle={dotCycle}
                 ariaLabel={`${t.label} preview`}
                 showMonthName={showMonthName}
+                cellImages={cellImages}
               />
             </div>
           </button>
