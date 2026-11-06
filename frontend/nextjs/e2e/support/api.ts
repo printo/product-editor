@@ -77,6 +77,55 @@ export async function hideLeftoverTemplates() {
   for (const t of templates) if (t.id.startsWith(E2E_TEMPLATE_PREFIX)) await hideTemplate(t.id);
 }
 
+/** A template as ops read it (drafts included), or null when there is none. */
+export async function getTemplate(id: string): Promise<{
+  id: string; status: string; layoutName: string;
+  decoration: { surfaces: Record<string, { bgColor?: string; paperColor?: string; overlays: Array<Record<string, unknown>> }> };
+} | null> {
+  const res = await api(`ops/templates/${encodeURIComponent(id)}`);
+  return res.ok ? res.json() : null;
+}
+
+export async function setTemplateStatus(id: string, status: 'draft' | 'published') {
+  const res = await api(`ops/templates/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ status }) });
+  if (!res.ok) throw new Error(`template status: ${res.status} ${await res.text()}`);
+}
+
+/** Test layouts are named `zz_e2e_…`: last in every list, and easy to find after a crashed run. */
+export const E2E_LAYOUT_PREFIX = 'zz_e2e_';
+
+/** A layout as the editor is served it, or null when there is none. */
+export async function getLayout(name: string): Promise<{
+  name: string; canvas: Record<string, number>; frames: Array<Record<string, number | string>>; frameMaskUrl?: string | null;
+} | null> {
+  const res = await api(`layouts/${encodeURIComponent(name)}`);
+  return res.ok ? res.json() : null;
+}
+
+/** Create (or update) a layout the way the ops layout editor does. */
+export async function createLayout(name: string, definition: unknown) {
+  const { apiUrl, apiKey } = e2eEnv();
+  const form = new FormData();
+  form.append('name', name);
+  form.append('layout_data', JSON.stringify(definition));
+  const res = await fetch(`${apiUrl}/ops/layouts/${encodeURIComponent(name)}`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form });
+  if (!res.ok) throw new Error(`create layout: ${res.status} ${await res.text()}`);
+}
+
+/** Retire a layout (the server never hard-deletes one). */
+export async function deleteLayout(name: string) {
+  const res = await api(`ops/layouts/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  return res.status;
+}
+
+/** The text of a stored sticker (an SVG), from its `/api/templates/assets/<file>` address. Local storage only. */
+export async function stickerText(src: string): Promise<string> {
+  const { apiUrl } = e2eEnv();
+  const res = await fetch(`${apiUrl}${src.replace(/^\/api/, '')}`);
+  if (!res.ok) throw new Error(`sticker ${src}: ${res.status}`);
+  return res.text();
+}
+
 /** Wait for a render to finish and return its print archive. */
 export async function printArchive(jobId: string, timeoutMs = 120_000): Promise<Buffer> {
   const deadline = Date.now() + timeoutMs;
