@@ -163,24 +163,24 @@ def test_a_replaced_mask_gets_a_new_url_and_the_same_mask_keeps_its_url():
     assert other["frameMaskUrl"] != first["frameMaskUrl"]
 
 
-def test_the_two_slots_take_their_own_fields_and_file_names():
+def test_the_frame_slot_takes_its_field_and_a_layout_refuses_artwork():
     layout = {"canvas": {"width": 10, "height": 10}}
     with _LocalStore() as st:
-        _store_uploaded_masks({"frame_mask": _png(), "artwork_mask": _png(body=PNG + b"art")}, "a4", layout)
-        art_fp = hashlib.sha256(PNG + b"art").hexdigest()[:10]
-        assert st.masks() == [f"a4_artwork_mask_{art_fp}.png", f"a4_mask_{FP}.png"]
+        _store_uploaded_masks({"frame_mask": _png()}, "a4", layout)
+        assert st.masks() == [f"a4_mask_{FP}.png"]
+        _raises(lambda: _store_uploaded_masks({"artwork_mask": _png()}, "a4", dict(layout)), "no artwork of its own")
+        assert st.masks() == [f"a4_mask_{FP}.png"]
     assert layout["frameMaskUrl"] == f"/api/layouts/masks/a4_mask_{FP}.png"
-    assert layout["artworkMaskUrl"] == f"/api/layouts/masks/a4_artwork_mask_{art_fp}.png"
-    assert "maskUrl" not in layout
+    assert "artworkMaskUrl" not in layout and "maskUrl" not in layout
 
 
 def test_surface_slots_follow_the_surface_key():
     layout = {"type": "product", "surfaces": [{"key": "front"}, {"key": "back"}]}
     with _LocalStore():
-        _store_uploaded_masks({"artwork_mask_back": _png(), "frame_mask_front": _png()}, "sleeve", layout)
-    assert layout["surfaces"][1]["artworkMaskUrl"] == f"/api/layouts/masks/sleeve_back_artwork_mask_{FP}.png"
+        _store_uploaded_masks({"frame_mask_front": _png()}, "sleeve", layout)
+        _raises(lambda: _store_uploaded_masks({"artwork_mask_back": _png()}, "sleeve", layout), "no artwork of its own")
     assert layout["surfaces"][0]["frameMaskUrl"] == f"/api/layouts/masks/sleeve_front_mask_{FP}.png"
-    assert "artworkMaskUrl" not in layout["surfaces"][0] and "frameMaskUrl" not in layout["surfaces"][1]
+    assert "frameMaskUrl" not in layout["surfaces"][1]
 
 
 def test_a_calendar_keeps_one_mask_and_refuses_the_slot_fields():

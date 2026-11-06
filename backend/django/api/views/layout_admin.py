@@ -536,7 +536,8 @@ _MASK_TARGET_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
 _BOOK_MASK_ROLES = ('cover', 'innerPage', 'backCover')
 # Upload field prefixes → mask slot. `mask` is the legacy field and lands in
 # the frame slot (preview only); calendars and books, which keep one mask,
-# still take it as their single `maskUrl`.
+# still take it as their single `maskUrl`. `artwork_mask` is listed only so it
+# is refused by name: a generic layout has no artwork of its own, a template does.
 _MASK_FIELD_SLOTS = (('artwork_mask', 'artwork'), ('frame_mask', 'frame'), ('mask', 'legacy'))
 
 
@@ -622,16 +623,20 @@ def _store_uploaded_masks(files, layout_name: str, layout_data: dict) -> None:
                 f"'{field}': a calendar or book layout takes one mask; send it as "
                 f"'mask' or 'mask_<role>'."
             )
+        if slot == 'artwork':
+            raise ValueError(
+                f"'{field}': a layout has no artwork of its own. Add artwork to a template, "
+                f"or send a frame picture as 'frame_mask'."
+            )
         block = _mask_target_block(layout_data, target) if target else layout_data
         if single_mask:
             key = 'maskUrl'
         else:
-            key = ARTWORK_MASK if slot == 'artwork' else FRAME_MASK
+            key = FRAME_MASK
         ext = os.path.splitext(upload.name)[1].lower()
         if ext not in ('.png', '.svg'):
             raise ValueError("Masks must be PNG or SVG files, with a transparent window where the photo shows.")
-        kind = 'artwork_mask' if slot == 'artwork' else 'mask'
-        stem = f"{layout_name}_{target}_{kind}" if target else f"{layout_name}_{kind}"
+        stem = f"{layout_name}_{target}_mask" if target else f"{layout_name}_mask"
         data = upload.read()
         if ext == '.svg':
             from services.svg_mask import normalize_svg_mask, validate_svg_mask

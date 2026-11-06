@@ -29,7 +29,7 @@ from PIL import Image
 from layout_engine.engine import LayoutEngine
 from services.layout_orientation import apply_orientation
 from services.print_sheet import (
-    normalize_mask_slots, resolve_mask_slots, resolve_print_box, validate_print_sheet,
+    move_artwork_to_frame, normalize_mask_slots, resolve_mask_slots, resolve_print_box, validate_print_sheet,
     with_legacy_mask_fields,
 )
 
@@ -121,10 +121,30 @@ def test_legacy_pair_maps_to_the_right_slot():
     assert resolve_mask_slots({"frameMaskUrl": None, "artworkMaskUrl": None, "maskUrl": "/m.png", "maskOnExport": True}) == (None, "/m.png")
 
 
-def test_normalising_stores_the_slots_and_drops_the_legacy_pair():
+def test_normalising_keeps_only_the_frame_picture():
+    # A generic layout has no artwork of its own: whatever is sent as printed
+    # is stored as the frame picture, which never prints.
     block = {"maskUrl": "/m.png", "maskOnExport": True, "canvas": {}}
     normalize_mask_slots(block)
-    assert block == {"frameMaskUrl": None, "artworkMaskUrl": "/m.png", "canvas": {}}
+    assert block == {"frameMaskUrl": "/m.png", "canvas": {}}
+    both = {"frameMaskUrl": "/f.png", "artworkMaskUrl": "/a.png"}
+    normalize_mask_slots(both)
+    assert both == {"frameMaskUrl": "/f.png"}
+
+
+def test_moving_artwork_leaves_calendars_books_and_frame_pictures_alone():
+    legacy = {"maskUrl": "/m.png", "maskOnExport": True}
+    assert move_artwork_to_frame(legacy) == [{"artwork": "/m.png", "frame": None, "kept_frame": False}]
+    assert legacy == {"frameMaskUrl": "/m.png"}
+    assert move_artwork_to_frame(legacy) == []
+    for untouched in (
+        {"productType": "calendar", "maskUrl": "/c.png", "maskOnExport": True},
+        {"productType": "book", "book": {"cover": {"maskUrl": "/k.png", "maskOnExport": True}}},
+        {"maskUrl": "/p.png", "maskOnExport": False},
+    ):
+        before = str(untouched)
+        assert move_artwork_to_frame(untouched) == []
+        assert str(untouched) == before
 
 
 def test_every_response_carries_both_slots_and_the_derived_legacy_pair():

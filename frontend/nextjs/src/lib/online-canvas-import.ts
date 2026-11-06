@@ -1,7 +1,8 @@
 /**
  * Reading a design exported from the older online-canvas design tool and
- * working out what it becomes here: a layout (its photo windows) and a
- * template (everything else). Pure: no network and no DOM. The Templates
+ * working out what it becomes here: a template on a layout of the size ops
+ * chose (`placedOnLayout`), or, when no layout fits, a new layout from its
+ * photo windows and a template from everything else. Pure: no network and no DOM. The Templates
  * page's Import dialog (components/ImportDesignDialog.tsx) fetches the
  * artwork, calls the builders below and hands the result to the template
  * editor, where nothing is saved until the ops user presses Save.
@@ -483,6 +484,61 @@ export function withLayoutGeometry(design: ImportedDesign, layout: LayoutGeometr
   };
 }
 
+/** A layout that already exists, as a design is placed on it. */
+export interface LayoutTarget extends LayoutGeometry {
+  /** The layout's canvas width in print pixels, when it is not at IMPORT_DPI. */
+  canvasWidthPx?: number;
+  /** It prints its bleed area, so that is what the design is centred on. */
+  printsBleedArea?: boolean;
+}
+
+/**
+ * The design placed on a layout that exists: its page keeps its millimetre
+ * size times `scale`, centred on what the layout prints (the box around its
+ * print areas on a Bleed area print, the canvas otherwise), and the layout's
+ * own print areas take the place of the old windows, holes included. Whatever
+ * runs off the canvas is cropped.
+ */
+export function placedOnLayout(design: ImportedDesign, target: LayoutTarget, scale = 1): ImportedDesign {
+  const W = target.canvas.widthMm, H = target.canvas.heightMm;
+  if (!(W > 0 && H > 0)) return design;
+  let cx = W / 2, cy = H / 2;
+  if (target.printsBleedArea && target.frames.length > 0) {
+    const left = Math.min(...target.frames.map(f => f.x)) * W;
+    const top = Math.min(...target.frames.map(f => f.y)) * H;
+    const right = Math.max(...target.frames.map(f => f.x + f.width)) * W;
+    const bottom = Math.max(...target.frames.map(f => f.y + f.height)) * H;
+    cx = (left + right) / 2;
+    cy = (top + bottom) / 2;
+  }
+  const { width: oldW, height: oldH } = design.printMm;
+  const pxPerImportPx = target.canvasWidthPx ? target.canvasWidthPx / mmToImportPx(W) : 1;
+  const pieces = design.pieces.map(p => ({
+    ...p,
+    box: { x: cx + (p.box.x - oldW / 2) * scale, y: cy + (p.box.y - oldH / 2) * scale, w: p.box.w * scale, h: p.box.h * scale },
+    text: p.text ? { ...p.text, fontSizePx: round(p.text.fontSizePx * scale * pxPerImportPx, 1) } : undefined,
+  }));
+  // These describe the old windows, which the layout's print areas replace.
+  const notes = design.notes.filter(n => !/tilted in the old design|^Photo window \d+ ran off/.test(n.text));
+  return withLayoutGeometry({ ...design, pieces, notes }, target);
+}
+
+/** How far a print area may differ from the old photo space, in mm, before the design is told it will not look the same. */
+const SPACE_TOLERANCE_MM = 5;
+
+/**
+ * Whether the layout's print areas differ in size from the old photo spaces,
+ * matched in order. The hole is cut to the print area, so a much bigger one
+ * takes away the pictures that sat around the old space.
+ */
+export function printAreasDifferFromSpaces(design: ImportedDesign, target: LayoutGeometry): boolean {
+  const W = target.canvas.widthMm, H = target.canvas.heightMm;
+  return design.windows.some((w, i) => {
+    const f = target.frames[i];
+    return !!f && (Math.abs(f.width * W - w.box.w) > SPACE_TOLERANCE_MM || Math.abs(f.height * H - w.box.h) > SPACE_TOLERANCE_MM);
+  });
+}
+
 /** The design with no photo windows: its page artwork is then every picture
  *  whole, which is what the layout editor shows behind the print areas. */
 export const withoutWindows = (design: ImportedDesign): ImportedDesign =>
@@ -497,7 +553,6 @@ export interface ImportedLayoutDefinition {
   canvas: { width: number; height: number; widthMm: number; heightMm: number; dpi: number };
   frames: Array<{ id: string; x: number; y: number; width: number; height: number; xMm: number; yMm: number; widthMm: number; heightMm: number; bleedMm: number; borderRadiusMm: number }>;
   frameMaskUrl: null;
-  artworkMaskUrl: null;
   printSheet: { mode: 'canvas' };
   frameCaptionsEnabled: boolean;
   orientationRotatable: boolean;
@@ -520,7 +575,6 @@ export function layoutDefinitionFor(design: ImportedDesign, name: string): Impor
     canvas: { width: design.canvasPx.width, height: design.canvasPx.height, widthMm: W, heightMm: H, dpi: IMPORT_DPI },
     frames,
     frameMaskUrl: null,
-    artworkMaskUrl: null,
     printSheet: { mode: 'canvas' },
     frameCaptionsEnabled: false,
     orientationRotatable: true,

@@ -92,16 +92,36 @@ def uses_single_mask(definition: dict) -> bool:
 
 
 def normalize_mask_slots(block: dict) -> None:
-    """In place: store the two slots and drop the legacy pair.
+    """In place: store the frame picture and drop everything else.
 
     Used on save for generic layouts so a definition written from now on has
-    one shape. Calendars and books are left as they are (see uses_single_mask).
+    one shape. A generic layout has no artwork of its own (artwork belongs to
+    a template, since 2026-11-06), so one still sent, by an open page during a
+    deploy or an old script, is taken as the frame picture and never prints.
+    Calendars and books are left as they are (see uses_single_mask).
     """
     frame, artwork = resolve_mask_slots(block)
-    block[FRAME_MASK] = frame
-    block[ARTWORK_MASK] = artwork
+    block[FRAME_MASK] = frame or artwork
+    block.pop(ARTWORK_MASK, None)
     block.pop("maskUrl", None)
     block.pop("maskOnExport", None)
+
+
+def move_artwork_to_frame(definition: dict) -> list:
+    """In place: on a generic layout, what is in the artwork slot becomes the
+    frame picture. Returns one `{artwork, frame, kept_frame}` per block changed.
+    `manage.py move_artwork_to_frame` runs it over the catalogue once.
+    """
+    if not isinstance(definition, dict) or uses_single_mask(definition):
+        return []
+    moved = []
+    for block in mask_blocks(definition):
+        frame, artwork = resolve_mask_slots(block)
+        if not artwork:
+            continue
+        normalize_mask_slots(block)
+        moved.append({"artwork": artwork, "frame": frame, "kept_frame": bool(frame)})
+    return moved
 
 
 def _with_all_mask_keys(block: dict) -> dict:

@@ -8,7 +8,7 @@
 import {
   DesignImportError, HOLE_INSET_MM, base64ToBytes, buildPageArtwork, bytesToBase64, fontsUsed, frameOverlaySvg, hexColor, inlineSvgOf,
   layoutDefinitionFor, mmToImportPx, parseOnlineCanvasExport, placedDpi, rasterSize, readSvg, readingOrder, scopeSvg,
-  sniffArtwork, suggestNames, textOverlayFor, withLayoutGeometry, withoutWindows, type ArtworkSource,
+  sniffArtwork, suggestNames, textOverlayFor, placedOnLayout, printAreasDifferFromSpaces, withLayoutGeometry, withoutWindows, type ArtworkSource,
 } from '../online-canvas-import';
 
 type Obj = Record<string, unknown>;
@@ -375,6 +375,72 @@ describe('the design re-cut to the layout as saved', () => {
     const { svg: doc } = buildPageArtwork(withoutWindows(read()), new Map([[2, svg(HEART)]]));
     expect(doc).toContain('data-custom-shape="rect"');
     expect(doc).not.toContain('clipPath');
+  });
+});
+
+describe('the design placed on a layout that exists', () => {
+  const read = () => parseOnlineCanvasExport(exportOf([
+    block('#ffffff', 8, 18, 54, 44),                         // 0: under the window
+    win(10, 20, 50, 40),                                     // 1
+    art('https://f.example/hearts.svg', 0, 0, 152.4, 203.2), // 2: over it
+    { type: 'textbox', text: 'Hello', fontFamily: 'Inter', fontSize: 8.4667, textAlign: 'left', fill: '#000000', width: 50, height: 10, scaleX: 1, scaleY: 1, angle: 0, ...at(30, 90) },
+  ]));
+  const frame = (x: number, y: number, w: number, h: number, W: number, H: number) => ({ x: x / W, y: y / H, width: w / W, height: h / H });
+
+  it('keeps the millimetres, centred on the canvas, with the hole at the layout print area', () => {
+    const d = placedOnLayout(read(), { canvas: { widthMm: 200, heightMm: 250 }, frames: [frame(60, 70, 80, 110, 200, 250)] });
+    expect(d.printMm).toEqual({ width: 200, height: 250 });
+    // The old 152.4 x 203.2 page sits in the middle of the 200 x 250 canvas.
+    const page = d.pieces.find(p => p.index === 2)!;
+    expect(page.box.x).toBeCloseTo(23.8);
+    expect(page.box.y).toBeCloseTo(23.4);
+    expect(page.box.w).toBeCloseTo(152.4);
+    expect(page.overflows).toBe(false);
+    expect(d.windows[0].box.x).toBeCloseTo(60);
+    expect(d.windows[0].box.w).toBeCloseTo(80);
+    expect(d.pieces.find(p => p.index === 0)!.holes).toEqual([1]);
+    expect(page.holes).toEqual([]);
+    expect(d.blocked).toEqual([]);
+  });
+
+  it('centres on the print areas when the layout prints its bleed area', () => {
+    const d = placedOnLayout(read(), { canvas: { widthMm: 200, heightMm: 250 }, frames: [frame(10, 10, 160, 210, 200, 250)], printsBleedArea: true });
+    const page = d.pieces.find(p => p.index === 2)!;
+    expect(page.box.x + page.box.w / 2).toBeCloseTo(90);
+    expect(page.box.y + page.box.h / 2).toBeCloseTo(115);
+  });
+
+  it('grows from the centre and crops what runs off, the text with it', () => {
+    const plain = placedOnLayout(read(), { canvas: { widthMm: 152.4, heightMm: 203.2 }, frames: [frame(10, 20, 50, 40, 152.4, 203.2)] });
+    const big = placedOnLayout(read(), { canvas: { widthMm: 152.4, heightMm: 203.2 }, frames: [frame(10, 20, 50, 40, 152.4, 203.2)] }, 1.5);
+    const page = big.pieces.find(p => p.index === 2)!;
+    expect(page.box.x + page.box.w / 2).toBeCloseTo(76.2);
+    expect(page.box.w).toBeCloseTo(228.6);
+    expect(page.overflows).toBe(true);
+    expect(page.visible.w).toBeCloseTo(152.4);
+    const fontSize = (d: typeof plain) => d.pieces.find(p => p.kind === 'text')!.text!.fontSizePx;
+    expect(fontSize(big)).toBeCloseTo(fontSize(plain) * 1.5, 0);
+    // At 100% on a canvas of the same size, nothing moves.
+    expect(plain.pieces.find(p => p.index === 2)!.box.x).toBeCloseTo(0);
+  });
+
+  it('sizes text for a layout that is not at 300 dpi', () => {
+    const base = placedOnLayout(read(), { canvas: { widthMm: 152.4, heightMm: 203.2 }, frames: [frame(10, 20, 50, 40, 152.4, 203.2)] });
+    const half = placedOnLayout(read(), { canvas: { widthMm: 152.4, heightMm: 203.2 }, canvasWidthPx: 900, frames: [frame(10, 20, 50, 40, 152.4, 203.2)] });
+    expect(half.pieces.find(p => p.kind === 'text')!.text!.fontSizePx).toBeCloseTo(base.pieces.find(p => p.kind === 'text')!.text!.fontSizePx / 2, 0);
+  });
+
+  it('says when the print areas are another size from the old photo spaces', () => {
+    const W = 152.4, H = 203.2;
+    expect(printAreasDifferFromSpaces(read(), { canvas: { widthMm: W, heightMm: H }, frames: [frame(12, 22, 52, 42, W, H)] })).toBe(false);
+    expect(printAreasDifferFromSpaces(read(), { canvas: { widthMm: W, heightMm: H }, frames: [frame(0, 0, W, H, W, H)] })).toBe(true);
+  });
+
+  it('drops notes about the old windows, which the layout replaces', () => {
+    const d = parseOnlineCanvasExport(exportOf([win(60, 10, 30, 30, { angle: 12 })]));
+    expect(d.notes.some(n => /tilted in the old design/.test(n.text))).toBe(true);
+    const placed = placedOnLayout(d, { canvas: { widthMm: 152.4, heightMm: 203.2 }, frames: [frame(10, 20, 50, 40, 152.4, 203.2)] });
+    expect(placed.notes.some(n => /tilted in the old design/.test(n.text))).toBe(false);
   });
 });
 

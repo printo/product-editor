@@ -58,8 +58,6 @@ interface LayoutFabricPreviewProps {
   frames: LayoutFrame[];
   /** The frame picture: outside the bleed area, preview and mock only. Drawn on top. */
   frameMask: MaskSlotSource;
-  /** The artwork: inside the bleed area, printed. Drawn under the frame picture. */
-  artworkMask: MaskSlotSource;
   /** The layout's `printSheet`; draws the bleed area as one rose dashed rectangle when it prints. */
   printSheet?: unknown;
   /** A picture to place the print areas against (an imported design's
@@ -98,12 +96,11 @@ const ALIGN_BUTTONS: { edge: AlignEdge; Icon: React.ComponentType<{ className?: 
 ];
 
 // One mask slot drawn on the preview canvas: replaced when its file or URL
-// changes, removed when the slot empties. The frame picture is kept above
-// the artwork whichever of the two files loads last, and the guide picture
-// stays under everything.
+// changes, removed when the slot empties. The guide picture stays under
+// everything.
 function useMaskSlotLayer(
   fabricRef: React.RefObject<Canvas | null>,
-  role: 'artwork' | 'frame' | 'guide',
+  role: 'frame' | 'guide',
   slot: MaskSlotSource,
   widthMm: number,
   heightMm: number,
@@ -169,7 +166,6 @@ export function LayoutFabricPreview({
   heightMm,
   frames,
   frameMask,
-  artworkMask,
   printSheet,
   guide = null,
   snapGrid,
@@ -433,7 +429,6 @@ export function LayoutFabricPreview({
   // area, printed) and the frame picture (outside it, preview only). Both
   // sit above the frames, the frame picture on top, at 60% so the frame
   // outlines stay readable underneath.
-  useMaskSlotLayer(fabricRef, 'artwork', artworkMask, widthMm, heightMm, getScale);
   useMaskSlotLayer(fabricRef, 'frame', frameMask, widthMm, heightMm, getScale);
   // At its own size from the top-left corner, so it stays put when the canvas is resized.
   const guideSlot = useMemo<MaskSlotSource>(() => ({ url: guide?.url ?? null, file: null }), [guide?.url]);

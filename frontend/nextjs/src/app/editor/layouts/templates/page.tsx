@@ -24,11 +24,11 @@ import { useHeader } from '@/context/HeaderContext';
 import { readError } from '@/lib/read-error';
 import { useModalA11y } from '@/lib/use-modal-a11y';
 import {
-  NO_PRINT_AREAS_KEY, drawnFacing, groupBySize, layoutsInFacing, pairKey, sizeLabel, type BoxFacing, type SizeGroup, type TemplateCandidate,
+  NO_PRINT_AREAS_KEY, groupBySize, pairKey, sizeLabel, type TemplateCandidate,
 } from '@/app/editor/layout/[name]/template-authoring';
 import { ImportDesignDialog } from '@/components/ImportDesignDialog';
+import { TemplateSizePicker, useTemplateSizePick } from '@/components/TemplateSizePicker';
 import { DeleteTemplateDialog, OfferedOn, TemplateCard, type OpsTemplate } from '@/components/TemplateCard';
-import { OrientationToggle } from '@/components/ui/OrientationToggle';
 
 const API = '/api/internal/proxy';
 /** A filter value that names a size group rather than one layout. */
@@ -50,9 +50,6 @@ export default function AllTemplatesPage() {
   const [creating, setCreating] = useState(false);
   // Create asks for the size first, then the way it faces, then which layout
   // of that size to design on (turned when it is drawn the other way).
-  const [createSize, setCreateSize] = useState('');
-  const [createFacing, setCreateFacing] = useState<BoxFacing | null>(null);
-  const [createLayout, setCreateLayout] = useState('');
   // Importing a design made in the older design tool: its own dialog, mounted while open.
   const [importing, setImporting] = useState(false);
   // `?import=continue`: the layout editor has just saved the layout of an
@@ -162,54 +159,20 @@ export default function AllTemplatesPage() {
 
   // Sizes a template can be keyed on: groups with print areas.
   const sizeGroups = useMemo(() => groups.filter(g => g.key !== NO_PRINT_AREAS_KEY), [groups]);
-  const createGroup = sizeGroups.find(g => g.key === createSize) ?? null;
-  // A square size faces either way and gets no toggle.
-  const facingChoice = createGroup && !createGroup.facings.includes('square') ? createFacing : null;
-  const createLayouts = useMemo(
-    () => (createGroup ? (facingChoice ? layoutsInFacing(createGroup, facingChoice) : createGroup.layouts.map(layout => ({ layout, turned: false }))) : []),
-    [createGroup, facingChoice],
-  );
-  const cannotTurn = createGroup && facingChoice ? createGroup.layouts.length - createLayouts.length : 0;
-
-  // The way a size faces by default: the way its first layout is drawn.
-  const defaultFacing = (g: SizeGroup | undefined): BoxFacing | null => {
-    if (!g || g.facings.includes('square')) return null;
-    const drawn = g.layouts[0] ? drawnFacing(g.layouts[0]) : null;
-    return drawn && g.facings.includes(drawn) ? drawn : g.facings[0] ?? null;
-  };
-  const firstLayoutFor = (g: SizeGroup | undefined, facing: BoxFacing | null) =>
-    (g ? (facing ? layoutsInFacing(g, facing)[0]?.layout.name : g.layouts[0]?.name) : undefined) ?? '';
+  const createPick = useTemplateSizePick(sizeGroups);
 
   const openCreate = () => {
-    const first = sizeGroups[0];
-    const facing = defaultFacing(first);
-    setCreateSize(first?.key ?? '');
-    setCreateFacing(facing);
-    setCreateLayout(firstLayoutFor(first, facing));
+    createPick.reset();
     setCreating(true);
-  };
-
-  const pickSize = (key: string) => {
-    const g = sizeGroups.find(x => x.key === key);
-    const facing = defaultFacing(g);
-    setCreateSize(key);
-    setCreateFacing(facing);
-    setCreateLayout(firstLayoutFor(g, facing));
-  };
-
-  const pickFacing = (facing: BoxFacing) => {
-    setCreateFacing(facing);
-    setCreateLayout(firstLayoutFor(createGroup ?? undefined, facing));
   };
 
   // The authoring page pre-ticks every other layout of the size that can show
   // the facing (`tick=size`), so a template created by size reaches the whole
   // size unless ops untick one; `orientation` is the way it faces.
   const startCreate = () => {
-    if (!createLayout) return;
+    if (!createPick.layoutName) return;
     setCreating(false);
-    const facing = facingChoice === 'portrait' || facingChoice === 'landscape' ? `&orientation=${facingChoice}` : '';
-    router.push(`/editor/layouts/templates/${encodeURIComponent(createLayout)}/new?tick=size${facing}`);
+    router.push(`/editor/layouts/templates/${encodeURIComponent(createPick.layoutName)}/new?tick=size${createPick.orientationParam}`);
   };
 
   const inputClass = 'px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500';
@@ -301,7 +264,7 @@ export default function AllTemplatesPage() {
 
       <DeleteTemplateDialog template={deleteConfirm} onConfirm={remove} onCancel={closeDelete} />
 
-      {importing && <ImportDesignDialog takenNames={layoutNames} takenTemplateIds={templateIds} resume={resumeImport} onClose={closeImport} />}
+      {importing && <ImportDesignDialog sizeGroups={sizeGroups} takenNames={layoutNames} takenTemplateIds={templateIds} resume={resumeImport} onClose={closeImport} />}
 
       {creating && (
         <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -311,69 +274,12 @@ export default function AllTemplatesPage() {
               Pick the size (the print areas plus their bleed) and which way it faces. The template is designed on one layout of that size
               and offered on every layout of that size for orders facing that way; you can untick any of them after previewing.
             </p>
-            <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500 mb-4">
-              Size
-              <select
-                id="create-template-size"
-                value={createSize}
-                onChange={e => pickSize(e.target.value)}
-                className={clsx(inputClass, 'normal-case tracking-normal')}
-              >
-                {sizeGroups.map(g => (
-                  <option key={g.key} value={g.key}>
-                    {g.label} · {g.layouts.length} {g.layouts.length === 1 ? 'layout' : 'layouts'}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {createGroup && !createGroup.facings.includes('square') && (
-              <div className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500 mb-4">
-                <span id="create-template-facing">Faces</span>
-                <OrientationToggle
-                  value={facingChoice === 'portrait' || facingChoice === 'landscape' ? facingChoice : null}
-                  onChange={pickFacing}
-                  size="md"
-                  title="Which way the template faces: customers see it on orders facing that way"
-                  disabled={Object.fromEntries((['portrait', 'landscape'] as const)
-                    .filter(f => !createGroup.facings.includes(f))
-                    .map(f => [f, `No layout of this size can be shown in ${f}`]))}
-                />
-                <span className="text-[10px] font-medium normal-case tracking-normal text-slate-400">
-                  A layout drawn the other way opens turned a quarter turn, as a customer ordering {facingChoice ?? 'it that way'} sees it.
-                </span>
-              </div>
-            )}
-            <label className="flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500 mb-6">
-              Design it on
-              <select
-                id="create-template-layout"
-                value={createLayout}
-                onChange={e => setCreateLayout(e.target.value)}
-                disabled={!createGroup || createLayouts.length === 0}
-                className={clsx(inputClass, 'normal-case tracking-normal')}
-              >
-                {createLayouts.map(({ layout: c, turned }) => (
-                  <option key={c.name} value={c.name}>
-                    {c.displayName}{turned ? ' (opens turned)' : ''}{c.templateCount > 0 ? ` (${c.templateCount})` : ''}
-                  </option>
-                ))}
-              </select>
-              {createLayouts.length > 1 && (
-                <span className="text-[10px] font-medium normal-case tracking-normal text-slate-400">
-                  Any of these works as the drawing surface; the others are ticked for you on the next page.
-                </span>
-              )}
-              {cannotTurn > 0 && (
-                <span className="text-[10px] font-medium normal-case tracking-normal text-amber-700">
-                  {cannotTurn} {cannotTurn === 1 ? 'layout' : 'layouts'} of this size cannot be turned and will not offer a {facingChoice} template.
-                </span>
-              )}
-            </label>
+            <TemplateSizePicker idPrefix="create-template" sizeGroups={sizeGroups} pick={createPick} />
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={startCreate}
-                disabled={!createLayout}
+                disabled={!createPick.layoutName}
                 className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
               >
                 Continue

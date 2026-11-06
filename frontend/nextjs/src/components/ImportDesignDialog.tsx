@@ -1,14 +1,17 @@
 'use client';
 
 /**
- * Ops: import a design made in the older online-canvas design tool. Paste
- * its export, see what it becomes here (a new layout from its photo windows,
- * a template from everything else) and confirm. Confirm creates the layout
- * and opens it in the layout editor, with the design's pictures shown behind
- * the print areas, so the canvas and the print areas can be put right first.
- * Saving the layout there comes back here (`resume`): the artwork is cut to
- * the print areas as saved and the template editor opens on it. The template
- * is saved only by that editor's own Create template button.
+ * Ops: import a design made in the older online-canvas design tool. Choose
+ * the size it is for, paste its export and see it: every picture becomes one
+ * artwork, centred on that size, with a slider to grow it from the centre and
+ * holes cut for the chosen layout's print areas. Confirm opens the template
+ * editor on it, and nothing but the artwork file is stored until that editor's
+ * own Create template button.
+ *
+ * When no layout has as many print areas as the design has photo spaces, ops
+ * can make a layout for it instead: that creates the layout and opens the
+ * layout editor with the design's pictures behind the print areas, and saving
+ * there comes back here (`resume`) to cut the artwork to them.
  *
  * The reading is lib/online-canvas-import.ts. The artwork is fetched through
  * POST ops/import/artwork, because the old tool's file host cannot be read
@@ -16,7 +19,7 @@
  * sticker upload, which checks every file.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ClipboardPaste, Info, Loader2, TriangleAlert } from 'lucide-react';
@@ -26,12 +29,13 @@ import { readError } from '@/lib/read-error';
 import { useModalA11y } from '@/lib/use-modal-a11y';
 import {
   DesignImportError, LOW_DPI, MAX_STICKER_BYTES, buildPageArtwork, fontsUsed, frameOverlaySvg, layoutDefinitionFor, mmToImportPx,
-  parseOnlineCanvasExport, placedDpi, rasterSize, sniffArtwork, suggestNames, textOverlayFor, withLayoutGeometry, withoutWindows,
-  type ArtworkSource, type ImportNote, type ImportedDesign, type ImportedPiece, type LayoutGeometry, type TextOverlaySpec,
+  parseOnlineCanvasExport, placedDpi, placedOnLayout, printAreasDifferFromSpaces, rasterSize, sniffArtwork, suggestNames, textOverlayFor, withLayoutGeometry, withoutWindows,
+  type ArtworkSource, type ImportNote, type ImportedDesign, type ImportedPiece, type LayoutGeometry, type LayoutTarget, type TextOverlaySpec,
 } from '@/lib/online-canvas-import';
 import { clearImportSession, readImportSession, writeImportSession } from '@/lib/import-session';
+import { TemplateSizePicker, useTemplateSizePick } from '@/components/TemplateSizePicker';
 import {
-  importedDecoration, isEmptyDecoration, slugFromName, writeImportDraft, type ImportedOverlay,
+  importedDecoration, isEmptyDecoration, slugFromName, writeImportDraft, type ImportedOverlay, type SizeGroup,
 } from '@/app/editor/layout/[name]/template-authoring';
 
 const API = '/api/internal/proxy';
@@ -256,10 +260,32 @@ async function savedGeometry(name: string): Promise<LayoutGeometry> {
   })).filter((f: { x: number; y: number; width: number; height: number }) => [f.x, f.y, f.width, f.height].every(Number.isFinite));
   return { canvas: { widthMm, heightMm }, frames };
 }
+
+/** A layout of the chosen size as customers ordering that way see it. */
+async function targetLayout(name: string, facing: string): Promise<LayoutTarget> {
+  const query = facing === 'portrait' || facing === 'landscape' ? `?orientation=${facing}` : '';
+  const res = await fetch(`${API}/layouts/${encodeURIComponent(name)}${query}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(await readError(res, `The layout '${name}' could not be read (HTTP ${res.status}).`));
+  const data = await res.json();
+  const widthMm = Number(data?.canvas?.widthMm), heightMm = Number(data?.canvas?.heightMm);
+  if (!(widthMm > 0 && heightMm > 0)) throw new Error(`The layout '${name}' does not give its size in millimetres.`);
+  const frames = (Array.isArray(data?.frames) ? data.frames : []).map((f: Record<string, unknown>) => ({
+    x: Number(f.x), y: Number(f.y), width: Number(f.width), height: Number(f.height),
+  })).filter((f: { x: number; y: number; width: number; height: number }) => [f.x, f.y, f.width, f.height].every(Number.isFinite));
+  return {
+    canvas: { widthMm, heightMm },
+    frames,
+    canvasWidthPx: Number(data?.canvas?.width) || undefined,
+    printsBleedArea: data?.printSheet?.mode === 'bleed',
+  };
+}
+
 const inputClass = 'px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-900 normal-case tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-500';
 const labelClass = 'flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500';
 
-export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = false, onClose }: {
+export function ImportDesignDialog({ sizeGroups = [], takenNames, takenTemplateIds, resume = false, onClose }: {
+  /** The sizes on offer, as Create a template offers them. Without any, the design makes its own layout. */
+  sizeGroups?: SizeGroup[];
   /** Names of the layouts that exist, so a suggested name never lands on one. */
   takenNames: readonly string[];
   /** Ids of the templates that exist, for the same reason. */
@@ -271,7 +297,19 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
   const router = useRouter();
   const [step, setStep] = useState<Step>(resume ? 'finishing' : 'paste');
   const [raw, setRaw] = useState('');
-  const [design, setDesign] = useState<ImportedDesign | null>(null);
+  // An imported design has one side, so only one-sided layouts can take it.
+  const oneSided = useMemo(() => sizeGroups
+    .map(g => ({ ...g, layouts: g.layouts.filter(l => l.surfaceKeys.length === 1 && l.surfaceKeys[0] === 'default') }))
+    .filter(g => g.layouts.length > 0), [sizeGroups]);
+  const pick = useTemplateSizePick(oneSided);
+  const [target, setTarget] = useState<LayoutTarget | null>(null);
+  const [targetName, setTargetName] = useState('');
+  const [orientationParam, setOrientationParam] = useState('');
+  const [targetFacing, setTargetFacing] = useState('');
+  const [makeNewLayout, setMakeNewLayout] = useState(false);
+  const [scalePct, setScalePct] = useState(100);
+  const deferredScale = useDeferredValue(scalePct);
+  const [readDesign, setDesign] = useState<ImportedDesign | null>(null);
   const [fetched, setFetched] = useState<Fetched | null>(null);
   const [layoutName, setLayoutName] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -289,6 +327,11 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
   const busy = step === 'reading' || step === 'applying' || (step === 'finishing' && !finishFailed);
   useModalA11y(ref, busy ? null : onClose);
 
+  const onLayout = target !== null && !makeNewLayout;
+  const design = useMemo(
+    () => (readDesign && onLayout ? placedOnLayout(readDesign, target, deferredScale / 100) : readDesign),
+    [readDesign, onLayout, target, deferredScale],
+  );
   const built = useMemo(() => (design && fetched ? build(design, fetched) : null), [design, fetched]);
 
   // What the preview draws: addresses of the documents just built, released when they change.
@@ -325,6 +368,26 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
       return;
     }
     const { sources, failed, overlay, fonts } = got;
+    let layoutTarget: LayoutTarget | null = null;
+    // Asked for only when the layout has to turn to face that way: the server
+    // turns by the canvas, and print areas can face otherwise than their canvas.
+    const turned = pick.layouts.find(l => l.layout.name === pick.layoutName)?.turned ?? false;
+    if (pick.layoutName) {
+      try {
+        setProgress('Reading the layout…');
+        layoutTarget = await targetLayout(pick.layoutName, turned ? pick.facing ?? '' : '');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'The layout could not be read.');
+        setStep('paste');
+        return;
+      }
+    }
+    setTarget(layoutTarget);
+    setTargetName(pick.layoutName);
+    setOrientationParam(turned ? pick.orientationParam : '');
+    setTargetFacing(pick.facing ?? '');
+    setMakeNewLayout(false);
+    setScalePct(100);
     const names = freeNames(suggestNames(d), takenNames, takenTemplateIds);
     setDesign(d);
     setFetched({ sources, failed, overlay, fonts });
@@ -338,14 +401,53 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
   };
 
   const nameTaken = createdLayout === null && takenNames.some(t => t.toLowerCase() === layoutName.trim().toLowerCase());
-  const nameProblem = !LAYOUT_NAME_RE.test(layoutName.trim())
+  const nameProblem = onLayout ? null : !LAYOUT_NAME_RE.test(layoutName.trim())
     ? 'Use letters, digits, hyphens and underscores only, with no spaces.'
     : nameTaken ? 'A layout already has this name.' : null;
   const blocked = [...(design?.blocked ?? []), ...(built?.blocked ?? [])];
   const notes = [...(design?.notes ?? []), ...(built?.notes ?? [])];
   const fontsToOffer = fetched?.fonts.filter(f => !f.listed && f.available) ?? [];
 
+  const photoSpaces = readDesign?.windows.length ?? 0;
+  const countMismatch = onLayout && target.frames.length !== photoSpaces;
+  const areasDiffer = onLayout && !countMismatch && !!readDesign && printAreasDifferFromSpaces(readDesign, target);
+  const chosenGroup = oneSided.find(g => g.layouts.some(l => l.name === targetName)) ?? null;
+  const chosen = chosenGroup?.layouts.find(l => l.name === targetName) ?? null;
+  const sameSize = (() => {
+    const box = chosen?.printAreaBox;
+    if (!box || !readDesign) return true;
+    const a = [box.widthMm, box.heightMm].sort((x, y) => x - y);
+    const b = [readDesign.printMm.width, readDesign.printMm.height].sort((x, y) => x - y);
+    return Math.abs(a[0] - b[0]) < 1.5 && Math.abs(a[1] - b[1]) < 1.5;
+  })();
+
+  // Onto the layout chosen: store the one artwork and open the template editor on it.
+  const applyOnLayout = async () => {
+    if (!design || !built || !target || countMismatch || blocked.length > 0) return;
+    setError(null);
+    setStep('applying');
+    try {
+      for (const family of addFonts) {
+        setProgress(`Adding “${family}” to the font list…`);
+        await listFont(family);
+      }
+      setProgress('Storing the artwork…');
+      const artworkSrc = built.pageSvg ? await storeSticker(new File([built.pageSvg], 'artwork.svg', { type: 'image/svg+xml' })) : null;
+      const overlays: ImportedOverlay[] = built.texts.map(({ piece, spec }) => ({ kind: 'text', id: `import-text-${piece.index}`, ...spec }));
+      // The sheet is the whole canvas whatever the layout prints, so it is placed as one.
+      const def = { canvas: { ...design.canvasPx, ...target.canvas }, frames: [], printSheet: { mode: 'canvas' as const } };
+      const decoration = importedDecoration({ def, paperColor: design.paperColor, artworkSrc, overlays });
+      if (isEmptyDecoration(decoration)) throw new Error('This design has no artwork, text or page colour, so there is nothing to put in a template.');
+      writeImportDraft({ layout: targetName, displayName: templateName.trim() || displayName.trim() || targetName, decoration });
+      router.push(`/editor/layouts/templates/${encodeURIComponent(targetName)}/new?import=1&tick=size${orientationParam}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The import failed.');
+      setStep('review');
+    }
+  };
+
   const apply = async () => {
+    if (onLayout) { await applyOnLayout(); return; }
     if (!design || !built || nameProblem || blocked.length > 0) return;
     const name = layoutName.trim();
     setError(null);
@@ -441,10 +543,11 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
         {(step === 'paste' || step === 'reading') && (
           <>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Paste the JSON of a design made in the old design tool. Its photo windows become a new layout and everything else becomes a
-              template on it. You see the result and confirm before anything is created, then adjust the layout&rsquo;s size and print
-              areas before the artwork is cut to them.
+              {oneSided.length > 0
+                ? 'Choose the size this design is for, then paste its JSON from the old design tool. Every picture becomes one artwork on a template of that size. You see the result before anything is stored.'
+                : 'Paste the JSON of a design made in the old design tool. Its photo windows become a new layout and everything else becomes a template on it. You see the result and confirm before anything is created, then adjust the layout’s size and print areas before the artwork is cut to them.'}
             </p>
+            {oneSided.length > 0 && <TemplateSizePicker idPrefix="import-template" sizeGroups={oneSided} pick={pick} disabled={step === 'reading'} />}
             <label className={clsx(labelClass, 'mb-4')}>
               Design JSON
               <textarea
@@ -475,17 +578,49 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
         {(step === 'review' || step === 'applying') && design && built && (
           <>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              {design.productName || 'This design'}: a {inches(design.printMm.width)} × {inches(design.printMm.height)} in {design.facing} print
-              with {plural(design.windows.length, 'photo window', 'photo windows')}. Check it against the old preview before confirming.
+              {readDesign?.productName || 'This design'}: a {inches(readDesign?.printMm.width ?? 0)} × {inches(readDesign?.printMm.height ?? 0)} in print
+              with {plural(photoSpaces, 'photo space', 'photo spaces')}. Check it against the old preview before confirming.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-[minmax(0,300px)_1fr] gap-6">
               <div className="w-full max-w-[300px] mx-auto md:mx-0">
-                <Preview design={design} built={built} urls={urls} withFrame={withFrame} />
+                <Preview design={design} built={built} urls={urls} withFrame={withFrame && !onLayout} />
                 <p className="text-[10px] text-slate-400 mt-2">
                   A sketch of the result. Photos fill the windows in the order numbered; text is drawn in its real font in the editor.
                 </p>
               </div>
               <div className="flex flex-col gap-4 min-w-0">
+                {onLayout && (
+                  <div className="text-xs text-slate-700 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    <p><span className="font-bold">Mapped to size:</span> {chosenGroup?.label ?? '—'}{targetFacing ? `, ${targetFacing}` : ''}</p>
+                    <p><span className="font-bold">Designed on:</span> {chosen?.displayName ?? targetName}, {plural(target.frames.length, 'print area', 'print areas')}</p>
+                    <p className="text-slate-500 mt-1">The other layouts of this size are ticked under Also show on in the next step; untick any you don&rsquo;t want.</p>
+                  </div>
+                )}
+                {countMismatch && (
+                  <div role="alert" className="bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium px-4 py-3 rounded-lg flex flex-col gap-2 items-start">
+                    <p>This design has {plural(photoSpaces, 'photo space', 'photo spaces')}, but this layout has {plural(target?.frames.length ?? 0, 'print area', 'print areas')}. Go back and choose another layout, or make a layout for this design.</p>
+                    <button type="button" onClick={() => setMakeNewLayout(true)} disabled={step === 'applying'} className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 font-bold hover:bg-amber-100">Make a new layout for this design</button>
+                  </div>
+                )}
+                {areasDiffer && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium px-4 py-3 rounded-lg flex flex-col gap-2 items-start">
+                    <p>This layout&rsquo;s print {target?.frames.length === 1 ? 'area is' : 'areas are'} a different size from the photo {photoSpaces === 1 ? 'space' : 'spaces'} in the old design. The photo takes the print area, so pictures under it are cut away and the result can look quite different from the old preview. Choose a layout that matches, or make a layout for this design.</p>
+                    <button type="button" onClick={() => setMakeNewLayout(true)} disabled={step === 'applying'} className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 font-bold hover:bg-amber-100">Make a new layout for this design</button>
+                  </div>
+                )}
+                {onLayout && !countMismatch && (
+                  <label className={labelClass}>
+                    Artwork size: {scalePct}%
+                    <input
+                      id="import-artwork-size" type="range" min={50} max={200} step={1} value={scalePct} disabled={step === 'applying'}
+                      onChange={e => setScalePct(Number(e.target.value))} className="w-full accent-indigo-600"
+                    />
+                    <span className="text-[10px] font-medium normal-case tracking-normal text-slate-400">
+                      {sameSize ? 'It grows from the centre; anything past the edge is cropped.' : 'The old design is another size, so it starts at its real size in the centre. It grows from the centre; anything past the edge is cropped.'}
+                    </span>
+                  </label>
+                )}
+                {!onLayout && (<>
                 <label className={labelClass}>
                   Layout id (cannot be changed later)
                   <input
@@ -498,13 +633,14 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
                   Layout name
                   <input id="import-layout-display-name" value={displayName} disabled={step === 'applying' || createdLayout !== null} onChange={e => setDisplayName(e.target.value)} className={inputClass} />
                 </label>
+                </>)}
                 <label className={labelClass}>
                   Template name
                   <input id="import-template-name" value={templateName} disabled={step === 'applying'} onChange={e => setTemplateName(e.target.value)} className={inputClass} />
                 </label>
 
                 <ul className="text-xs text-slate-600 leading-relaxed list-disc pl-4 flex flex-col gap-1">
-                  <li>{plural(design.windows.length, 'photo window becomes a print area', 'photo windows become print areas')} of the new layout.</li>
+                  {!onLayout && <li>{plural(design.windows.length, 'photo window becomes a print area', 'photo windows become print areas')} of the new layout.</li>}
                   {pictures > 0 && (
                     <li>
                       {plural(pictures, 'picture becomes', 'pictures become')} the page artwork: one sheet, with a hole wherever a photo
@@ -515,9 +651,9 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
                   {design.paperColor && <li>Page colour {design.paperColor}.</li>}
                 </ul>
 
-                {(fetched?.overlay || fontsToOffer.length > 0) && (
+                {((fetched?.overlay && !onLayout) || fontsToOffer.length > 0) && (
                   <div className="flex flex-col gap-2">
-                    {fetched?.overlay && (
+                    {fetched?.overlay && !onLayout && (
                       <label className="flex items-start gap-2 text-xs text-slate-700">
                         <input type="checkbox" checked={withFrame} disabled={step === 'applying' || createdLayout !== null} onChange={e => setWithFrame(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
                         <span>Use the old tool&rsquo;s frame as this layout&rsquo;s frame picture. It shows in previews what the frame covers and is never printed.</span>
@@ -556,17 +692,17 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = fals
               </div>
             </div>
             <p className="text-[11px] text-slate-500 mt-5 mb-3">
-              Confirming creates the layout and opens it in the layout editor, with the pictures shown behind the print areas. Adjust the
-              size and the print areas there and press Update Layout: the artwork is then cut to them and the template editor opens. The
-              template itself is saved only when you press Create template there.
+              {onLayout
+                ? 'Continuing stores the artwork file and opens the template editor. No layout is created, and the template is saved only when you press Create template there.'
+                : 'Confirming creates the layout and opens it in the layout editor, with the pictures shown behind the print areas. Adjust the size and the print areas there and press Update Layout: the artwork is then cut to them and the template editor opens. The template itself is saved only when you press Create template there.'}
             </p>
             <div className="flex items-center gap-3">
               <button
-                type="button" onClick={apply} disabled={step === 'applying' || nameProblem !== null || blocked.length > 0}
+                type="button" onClick={apply} disabled={step === 'applying' || nameProblem !== null || blocked.length > 0 || countMismatch}
                 className="flex-[2] flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
               >
                 {step === 'applying' && <Loader2 className="w-4 h-4 animate-spin" />}
-                {step === 'applying' ? progress : createdLayout ? 'Try again' : 'Create the layout and adjust it'}
+                {step === 'applying' ? progress : onLayout ? 'Continue to the template editor' : createdLayout ? 'Try again' : 'Create the layout and adjust it'}
               </button>
               <button type="button" onClick={() => { setError(null); setStep('paste'); }} disabled={step === 'applying' || createdLayout !== null} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50">Back</button>
               <button type="button" onClick={onClose} disabled={step === 'applying'} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50">Cancel</button>
