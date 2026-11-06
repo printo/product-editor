@@ -6,7 +6,7 @@
  * and that hide overrides blank the cell as the print would.
  */
 import { render, screen, within } from '@testing-library/react';
-import { MonthTileThumb, type ThumbColors } from '@/components/MonthTileThumb';
+import { MonthTileThumb, fillSizes, type ThumbColors } from '@/components/MonthTileThumb';
 import type { CalendarCellOverride, HolidayEntry } from '@/types/calendar';
 
 // happy-dom keeps style attributes literal (e.g. `background: #F59E0B`), it
@@ -163,5 +163,36 @@ describe('MonthTileThumb — month heading (the print draws the same; calendar_r
   it('leaves it out when the layout turned it off', () => {
     render(<MonthTileThumb year={2026} month={1} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} showMonthName={false} />);
     expect(screen.queryByTestId('month-heading')).toBeNull();
+  });
+});
+
+describe('MonthTileThumb — filling a card\'s date block', () => {
+  it('caps every text by the height of its own row, so a wide, short block cannot stack its rows', () => {
+    // Six date rows under a heading (12%) and a weekday row (10%): each gets 13% of the height.
+    expect(fillSizes(6, true)).toEqual({
+      heading: 'min(max(9px, 6cqw), 7.44cqh)',
+      weekday: 'min(max(6px, 4.2cqw), 6.2cqh)',
+      date: 'min(max(6px, 4.2cqw), 8.06cqh)',
+    });
+    // Fewer rows, or no heading, leave each row more height.
+    expect(fillSizes(5, true).date).toBe('min(max(6px, 4.2cqw), 9.67cqh)');
+    expect(fillSizes(6, false).date).toBe('min(max(6px, 4.2cqw), 9.3cqh)');
+  });
+
+  it('sizes the box by width and height and shares the rest among the date rows', () => {
+    // August 2026 starts on a Saturday and needs six rows. happy-dom drops
+    // container units from a style attribute, so the lengths themselves are
+    // pinned by fillSizes above.
+    render(<MonthTileThumb year={2026} month={8} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} fill />);
+    expect(screen.getByTestId('month-tile-thumb').getAttribute('style')).toContain('container-type: size');
+    expect(screen.getByTestId('date-cells').getAttribute('style')).toContain('repeat(6, minmax(0, 1fr))');
+    expect(screen.getByTestId('month-heading').className).toContain('shrink-0');
+  });
+
+  it('leaves the square tile as it was', () => {
+    render(<MonthTileThumb year={2026} month={8} weekStart="sunday" colors={COLORS} dotCycle={DOT_CYCLE} />);
+    expect(screen.getByTestId('month-heading').getAttribute('style')).toContain('font-size: 9px');
+    expect(screen.getByTestId('month-heading').getAttribute('style')).not.toContain('cqh');
+    expect(screen.getByTestId('month-tile-thumb').getAttribute('style')).not.toContain('container-type');
   });
 });
