@@ -1811,9 +1811,9 @@ export default function LayoutCreatorPage() {
                   {/* Masks and the print sheet */}
                   <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-5">
                     <div>
-                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Frame picture (optional)</label>
+                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Masks (Optional)</label>
                       <p className="text-[10px] text-slate-500 mt-1">
-                        PNG or SVG with transparent holes where the photos show. It shows in every preview and never prints. Artwork that prints belongs on a template, on the Templates page.
+                        PNG or SVG with transparent holes where the photos show. A mask shows in every preview and never prints. Artwork that prints belongs on a template, on the Templates page.
                       </p>
                     </div>
                     <MaskSlotRow
