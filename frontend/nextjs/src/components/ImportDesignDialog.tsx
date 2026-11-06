@@ -3,9 +3,12 @@
 /**
  * Ops: import a design made in the older online-canvas design tool. Paste
  * its export, see what it becomes here (a new layout from its photo windows,
- * a template from everything else), confirm, and the template editor opens
- * on it. The layout is created at Confirm; the template is saved only by the
- * editor's own Create template button.
+ * a template from everything else) and confirm. Confirm creates the layout
+ * and opens it in the layout editor, with the design's pictures shown behind
+ * the print areas, so the canvas and the print areas can be put right first.
+ * Saving the layout there comes back here (`resume`): the artwork is cut to
+ * the print areas as saved and the template editor opens on it. The template
+ * is saved only by that editor's own Create template button.
  *
  * The reading is lib/online-canvas-import.ts. The artwork is fetched through
  * POST ops/import/artwork, because the old tool's file host cannot be read
@@ -13,7 +16,7 @@
  * sticker upload, which checks every file.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ClipboardPaste, Info, Loader2, TriangleAlert } from 'lucide-react';
@@ -23,9 +26,10 @@ import { readError } from '@/lib/read-error';
 import { useModalA11y } from '@/lib/use-modal-a11y';
 import {
   DesignImportError, LOW_DPI, MAX_STICKER_BYTES, buildPageArtwork, fontsUsed, frameOverlaySvg, layoutDefinitionFor, mmToImportPx,
-  parseOnlineCanvasExport, placedDpi, prepareSticker, rasterSize, sniffArtwork, suggestNames, textOverlayFor,
-  type ArtworkSource, type ImportNote, type ImportedDesign, type ImportedPiece, type PreparedSticker, type TextOverlaySpec,
+  parseOnlineCanvasExport, placedDpi, rasterSize, sniffArtwork, suggestNames, textOverlayFor, withLayoutGeometry, withoutWindows,
+  type ArtworkSource, type ImportNote, type ImportedDesign, type ImportedPiece, type LayoutGeometry, type TextOverlaySpec,
 } from '@/lib/online-canvas-import';
+import { clearImportSession, readImportSession, writeImportSession } from '@/lib/import-session';
 import {
   importedDecoration, isEmptyDecoration, slugFromName, writeImportDraft, type ImportedOverlay,
 } from '@/app/editor/layout/[name]/template-authoring';
@@ -34,7 +38,7 @@ const API = '/api/internal/proxy';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const LAYOUT_NAME_RE = /^[a-z0-9_-]{1,80}$/i;
 
-type Step = 'paste' | 'reading' | 'review' | 'applying' | 'layoutOnly';
+type Step = 'paste' | 'reading' | 'review' | 'applying' | 'finishing' | 'layoutOnly';
 
 interface FontCheck { family: string; listed: boolean; available: boolean }
 
@@ -48,7 +52,6 @@ interface Fetched {
 
 interface Built {
   pageSvg: string | null;
-  stickers: Array<{ piece: ImportedPiece; prepared: PreparedSticker }>;
   texts: Array<{ piece: ImportedPiece; spec: TextOverlaySpec }>;
   frameSvg: string | null;
   notes: ImportNote[];
@@ -112,11 +115,6 @@ async function framePng(svg: string, width: number, height: number): Promise<Fil
   }
 }
 
-const stickerFile = (p: PreparedSticker): File =>
-  (p.file.type === 'image/png'
-    ? new File([p.file.bytes as BlobPart], p.file.name, { type: 'image/png' })
-    : new File([p.file.text], p.file.name, { type: 'image/svg+xml' }));
-
 const byteLength = (text: string): number => new TextEncoder().encode(text).length;
 
 /**
@@ -148,25 +146,13 @@ function build(design: ImportedDesign, fetched: Fetched): Built {
   const why = (piece: ImportedPiece) => (fetched.failed.has(piece.index) ? `fetched (${fetched.failed.get(piece.index)})` : 'read');
   const page = buildPageArtwork(design, fetched.sources);
   for (const piece of page.missing) notes.push({ level: 'warning', text: `${piece.label} could not be ${why(piece)} and is left out of the page artwork.` });
-  if (page.svg && byteLength(page.svg) > MAX_STICKER_BYTES) blocked.push('The artwork under the photos is larger than 5 MB once merged.');
+  if (page.svg && byteLength(page.svg) > MAX_STICKER_BYTES) blocked.push('The artwork is larger than 5 MB once merged into one sheet.');
 
-  const stickers: Built['stickers'] = [];
   const texts: Built['texts'] = [];
   for (const piece of design.pieces) {
-    if (piece.layer !== 'overlay') continue;
-    if (piece.kind === 'text') {
-      const spec = textOverlayFor(design, piece);
-      if (spec) texts.push({ piece, spec });
-      continue;
-    }
-    const prepared = prepareSticker(design, piece, fetched.sources);
-    if (!prepared) {
-      notes.push({ level: 'warning', text: `${piece.label} could not be ${why(piece)} and is left out.` });
-    } else if (prepared.file.type === 'image/svg+xml' && byteLength(prepared.file.text) > MAX_STICKER_BYTES) {
-      notes.push({ level: 'warning', text: `${piece.label} is larger than 5 MB and is left out.` });
-    } else {
-      stickers.push({ piece, prepared });
-    }
+    if (piece.kind !== 'text') continue;
+    const spec = textOverlayFor(design, piece);
+    if (spec) texts.push({ piece, spec });
   }
   for (const piece of design.pieces) {
     const source = fetched.sources.get(piece.index);
@@ -182,17 +168,16 @@ function build(design: ImportedDesign, fetched: Fetched): Built {
       notes.push({ level: 'warning', text: `The font “${font.family}” is not on the font list and Google Fonts does not have it, so its text prints in Inter. Pick another font in the editor.` });
     }
   }
-  return { pageSvg: page.svg, stickers, texts, frameSvg: fetched.overlay ? frameOverlaySvg(design, fetched.overlay) : null, notes, blocked };
+  return { pageSvg: page.svg, texts, frameSvg: fetched.overlay ? frameOverlaySvg(design, fetched.overlay) : null, notes, blocked };
 }
 
 function Preview({ design, built, urls, withFrame }: {
   design: ImportedDesign;
   built: Built;
-  urls: { page: string | null; frame: string | null; stickers: Record<number, string> };
+  urls: { page: string | null; frame: string | null };
   withFrame: boolean;
 }) {
   const { width: W, height: H } = design.canvasPx;
-  const above = design.pieces.filter(p => p.layer === 'overlay');
   return (
     <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Preview of the design as it will be imported" className="w-full h-auto rounded-lg border border-slate-200 bg-white">
       <rect width={W} height={H} fill={design.paperColor ?? '#ffffff'} />
@@ -209,20 +194,7 @@ function Preview({ design, built, urls, withFrame }: {
         </g>
       ))}
       {urls.page && <image href={urls.page} x={0} y={0} width={W} height={H} preserveAspectRatio="none" />}
-      {above.map(piece => {
-        const sticker = built.stickers.find(s => s.piece.index === piece.index);
-        if (sticker && urls.stickers[piece.index]) {
-          const b = sticker.prepared.box;
-          return (
-            <image
-              key={piece.index} href={urls.stickers[piece.index]} preserveAspectRatio="none" opacity={piece.opacity}
-              x={(b.x / 100) * W} y={(b.y / 100) * H} width={(b.width / 100) * W} height={(b.height / 100) * H}
-            />
-          );
-        }
-        const text = built.texts.find(t => t.piece.index === piece.index);
-        if (!text) return null;
-        const { spec } = text;
+      {built.texts.map(({ piece, spec }) => {
         return (
           <text
             key={piece.index} x={(spec.x / 100) * W} y={(spec.y / 100) * H} fontSize={spec.fontSize} fill={spec.color}
@@ -238,19 +210,66 @@ function Preview({ design, built, urls, withFrame }: {
   );
 }
 
-const NO_URLS = { page: null, frame: null, stickers: {} };
+const NO_URLS = { page: null, frame: null };
+
+/** The artwork files, the frame and the font answers a design needs. `refused`
+ *  is set when the server would fetch none of them (a switch, not a broken file). */
+async function gather(d: ImportedDesign, say: (text: string) => void): Promise<Fetched & { refused: string | null }> {
+  const wanted = d.pieces.filter(p => p.src);
+  const inFlight = new Map<string, Promise<ArtworkSource>>();
+  const get = (url: string) => {
+    let job = inFlight.get(url);
+    if (!job) { job = fetchArtwork(url); inFlight.set(url, job); }
+    return job;
+  };
+  const sources = new Map<number, ArtworkSource>();
+  const failed = new Map<number, string>();
+  const refused: string[] = [];
+  let done = 0;
+  say(wanted.length ? `Fetching the artwork (0 of ${wanted.length})…` : 'Reading the design…');
+  await Promise.all(wanted.map(async piece => {
+    try {
+      sources.set(piece.index, await get(piece.src as string));
+    } catch (e) {
+      failed.set(piece.index, e instanceof Error ? e.message : 'it could not be fetched');
+      if (e instanceof FetchRefused) refused.push(e.message);
+    }
+    done += 1;
+    say(`Fetching the artwork (${done} of ${wanted.length})…`);
+  }));
+  if (wanted.length > 0 && refused.length === wanted.length) return { sources, failed, overlay: null, fonts: [], refused: refused[0] };
+  const overlay = d.overlayUrl ? await get(d.overlayUrl).catch(() => null) : null;
+  const fonts = await Promise.all(fontsUsed(d).map(checkFont));
+  return { sources, failed, overlay, fonts, refused: null };
+}
+
+/** The saved layout's canvas and print areas; throws with a message for the ops user. */
+async function savedGeometry(name: string): Promise<LayoutGeometry> {
+  const res = await fetch(`${API}/ops/layouts/${encodeURIComponent(name)}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(await readError(res, `The layout '${name}' could not be read (HTTP ${res.status}).`));
+  const data = await res.json();
+  if (Array.isArray(data?.surfaces)) throw new Error('The layout now has more than one side. An imported design has one, so its artwork cannot be placed.');
+  const widthMm = Number(data?.canvas?.widthMm), heightMm = Number(data?.canvas?.heightMm);
+  if (!(widthMm > 0 && heightMm > 0)) throw new Error('The saved layout does not give its size in millimetres.');
+  const frames = (Array.isArray(data?.frames) ? data.frames : []).map((f: Record<string, unknown>) => ({
+    x: Number(f.x), y: Number(f.y), width: Number(f.width), height: Number(f.height),
+  })).filter((f: { x: number; y: number; width: number; height: number }) => [f.x, f.y, f.width, f.height].every(Number.isFinite));
+  return { canvas: { widthMm, heightMm }, frames };
+}
 const inputClass = 'px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-900 normal-case tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-500';
 const labelClass = 'flex flex-col gap-1 text-[11px] font-bold uppercase tracking-tight text-slate-500';
 
-export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
+export function ImportDesignDialog({ takenNames, takenTemplateIds, resume = false, onClose }: {
   /** Names of the layouts that exist, so a suggested name never lands on one. */
   takenNames: readonly string[];
   /** Ids of the templates that exist, for the same reason. */
   takenTemplateIds: readonly string[];
+  /** Carry on an import whose layout was just saved in the layout editor. */
+  resume?: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<Step>('paste');
+  const [step, setStep] = useState<Step>(resume ? 'finishing' : 'paste');
   const [raw, setRaw] = useState('');
   const [design, setDesign] = useState<ImportedDesign | null>(null);
   const [fetched, setFetched] = useState<Fetched | null>(null);
@@ -263,10 +282,11 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
   const [error, setError] = useState<string | null>(null);
   // Set once the layout exists, so a retry after a later failure does not make a second one.
   const [createdLayout, setCreatedLayout] = useState<string | null>(null);
-  const [urls, setUrls] = useState<{ page: string | null; frame: string | null; stickers: Record<number, string> }>(NO_URLS);
+  const [urls, setUrls] = useState<{ page: string | null; frame: string | null }>(NO_URLS);
 
   const ref = useRef<HTMLDivElement | null>(null);
-  const busy = step === 'reading' || step === 'applying';
+  const [finishFailed, setFinishFailed] = useState(false);
+  const busy = step === 'reading' || step === 'applying' || (step === 'finishing' && !finishFailed);
   useModalA11y(ref, busy ? null : onClose);
 
   const built = useMemo(() => (design && fetched ? build(design, fetched) : null), [design, fetched]);
@@ -283,10 +303,6 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
     setUrls({
       page: built.pageSvg ? address(built.pageSvg, 'image/svg+xml') : null,
       frame: built.frameSvg ? address(built.frameSvg, 'image/svg+xml') : null,
-      stickers: Object.fromEntries(built.stickers.map(({ piece, prepared }) => [
-        piece.index,
-        prepared.file.type === 'image/png' ? address(prepared.file.bytes as BlobPart, 'image/png') : address(prepared.file.text, 'image/svg+xml'),
-      ])),
     });
     return () => made.forEach(url => URL.revokeObjectURL(url));
   }, [built]);
@@ -301,36 +317,14 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
       return;
     }
     setStep('reading');
-    const wanted = d.pieces.filter(p => p.src);
-    const inFlight = new Map<string, Promise<ArtworkSource>>();
-    const get = (url: string) => {
-      let job = inFlight.get(url);
-      if (!job) { job = fetchArtwork(url); inFlight.set(url, job); }
-      return job;
-    };
-    const sources = new Map<number, ArtworkSource>();
-    const failed = new Map<number, string>();
-    const refused: string[] = [];
-    let done = 0;
-    setProgress(wanted.length ? `Fetching the artwork (0 of ${wanted.length})…` : 'Reading the design…');
-    await Promise.all(wanted.map(async piece => {
-      try {
-        sources.set(piece.index, await get(piece.src as string));
-      } catch (e) {
-        failed.set(piece.index, e instanceof Error ? e.message : 'it could not be fetched');
-        if (e instanceof FetchRefused) refused.push(e.message);
-      }
-      done += 1;
-      setProgress(`Fetching the artwork (${done} of ${wanted.length})…`);
-    }));
+    const got = await gather(d, setProgress);
     // Every file refused is a switch, not a broken file: say so once, before any review.
-    if (wanted.length > 0 && refused.length === wanted.length) {
-      setError(refused[0]);
+    if (got.refused) {
+      setError(got.refused);
       setStep('paste');
       return;
     }
-    const overlay = d.overlayUrl ? await get(d.overlayUrl).catch(() => null) : null;
-    const fonts = await Promise.all(fontsUsed(d).map(checkFont));
+    const { sources, failed, overlay, fonts } = got;
     const names = freeNames(suggestNames(d), takenNames, takenTemplateIds);
     setDesign(d);
     setFetched({ sources, failed, overlay, fonts });
@@ -378,45 +372,63 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
         setCreatedLayout(name);
       }
 
-      const total = (built.pageSvg ? 1 : 0) + built.stickers.length;
-      let stored = 0;
-      const said = () => setProgress(`Storing the artwork (${stored} of ${total})…`);
-      said();
-      const artworkSrc = built.pageSvg ? await storeSticker(new File([built.pageSvg], 'artwork.svg', { type: 'image/svg+xml' })) : null;
-      if (artworkSrc) { stored += 1; said(); }
-      const stickerSrc = new Map<number, string>();
-      for (const { piece, prepared } of built.stickers) {
-        stickerSrc.set(piece.index, await storeSticker(stickerFile(prepared)));
-        stored += 1;
-        said();
-      }
-
-      const overlays: ImportedOverlay[] = [];
-      for (const piece of design.pieces) {
-        if (piece.layer !== 'overlay') continue;
-        const sticker = built.stickers.find(s => s.piece.index === piece.index);
-        const src = stickerSrc.get(piece.index);
-        if (sticker && src) {
-          overlays.push({ kind: 'sticker', id: `import-${piece.index}`, src, label: piece.label, box: sticker.prepared.box, opacity: piece.opacity });
-          continue;
-        }
-        const text = built.texts.find(t => t.piece.index === piece.index);
-        if (text) overlays.push({ kind: 'text', id: `import-text-${piece.index}`, ...text.spec });
-      }
-      const decoration = importedDecoration({ def: definition, paperColor: design.paperColor, artworkSrc, overlays });
-      if (isEmptyDecoration(decoration)) {
-        setStep('layoutOnly');
-        return;
-      }
-      writeImportDraft({ layout: name, displayName: templateName.trim() || displayName.trim() || name, decoration });
-      router.push(`/editor/layouts/templates/${encodeURIComponent(name)}/new?import=1`);
+      // The pictures whole, with no holes: what the layout editor shows behind the print areas.
+      const guideSvg = fetched ? buildPageArtwork(withoutWindows(design), fetched.sources).svg : null;
+      writeImportSession({ layout: name, raw, templateName: templateName.trim() || displayName.trim() || name, guideSvg, guideMm: design.printMm });
+      router.push(`/editor/layouts?edit=${encodeURIComponent(name)}&import=1`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The import failed.');
       setStep('review');
     }
   };
 
-  const under = design?.pieces.filter(p => p.layer === 'artwork').length ?? 0;
+  // The second half: the layout is saved, so cut the artwork to it and open the template editor.
+  const finish = useCallback(async () => {
+    const session = readImportSession();
+    setError(null);
+    setFinishFailed(false);
+    setStep('finishing');
+    try {
+      if (!session) throw new Error('There is no import under way in this tab. Start again from Import a design.');
+      const name = session.layout;
+      setLayoutName(name);
+      setProgress('Reading the saved layout…');
+      const geometry = await savedGeometry(name);
+      const read = parseOnlineCanvasExport(session.raw);
+      const got = await gather(read, setProgress);
+      if (got.refused) throw new Error(got.refused);
+      const d = withLayoutGeometry(read, geometry);
+      const made = build(d, got);
+      const stops = [...d.blocked, ...made.blocked];
+      if (stops.length > 0) throw new Error(stops.join(' '));
+      setDesign(d);
+      setProgress('Storing the artwork…');
+      const artworkSrc = made.pageSvg ? await storeSticker(new File([made.pageSvg], 'artwork.svg', { type: 'image/svg+xml' })) : null;
+      const overlays: ImportedOverlay[] = made.texts.map(({ piece, spec }) => ({ kind: 'text', id: `import-text-${piece.index}`, ...spec }));
+      // The sheet is the whole canvas whatever the layout prints, so it is placed as one.
+      const def = { canvas: { ...d.canvasPx, ...geometry.canvas }, frames: [], printSheet: { mode: 'canvas' as const } };
+      const decoration = importedDecoration({ def, paperColor: d.paperColor, artworkSrc, overlays });
+      clearImportSession();
+      if (isEmptyDecoration(decoration)) {
+        setStep('layoutOnly');
+        return;
+      }
+      writeImportDraft({ layout: name, displayName: session.templateName || name, decoration });
+      router.push(`/editor/layouts/templates/${encodeURIComponent(name)}/new?import=1`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The import failed.');
+      setFinishFailed(true);
+    }
+  }, [router]);
+
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (!resume || resumed.current) return;
+    resumed.current = true;
+    void finish();
+  }, [resume, finish]);
+
+  const pictures = design?.pieces.filter(p => p.layer === 'artwork').length ?? 0;
 
   return (
     <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -430,7 +442,8 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
           <>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
               Paste the JSON of a design made in the old design tool. Its photo windows become a new layout and everything else becomes a
-              template on it. You see the result and confirm before anything is created.
+              template on it. You see the result and confirm before anything is created, then adjust the layout&rsquo;s size and print
+              areas before the artwork is cut to them.
             </p>
             <label className={clsx(labelClass, 'mb-4')}>
               Design JSON
@@ -492,13 +505,12 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
 
                 <ul className="text-xs text-slate-600 leading-relaxed list-disc pl-4 flex flex-col gap-1">
                   <li>{plural(design.windows.length, 'photo window becomes a print area', 'photo windows become print areas')} of the new layout.</li>
-                  {under > 0 && (
+                  {pictures > 0 && (
                     <li>
-                      {plural(under, 'piece that sat under the photos becomes', 'pieces that sat under the photos become')} the page artwork: one
-                      sheet with a hole cut for each photo. Vector artwork stays vector.
+                      {plural(pictures, 'picture becomes', 'pictures become')} the page artwork: one sheet, with a hole wherever a photo
+                      was above a picture. A click on a see-through part reaches the photo. Vector artwork stays vector.
                     </li>
                   )}
-                  {built.stickers.length > 0 && <li>{plural(built.stickers.length, 'sticker', 'stickers')} above the photos: {built.stickers.map(s => s.piece.label).join(', ')}.</li>}
                   {built.texts.length > 0 && <li>{built.texts.map(t => `${t.piece.label} in ${t.spec.fontFamily || 'the default font'}`).join('; ')}.</li>}
                   {design.paperColor && <li>Page colour {design.paperColor}.</li>}
                 </ul>
@@ -544,8 +556,9 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
               </div>
             </div>
             <p className="text-[11px] text-slate-500 mt-5 mb-3">
-              Confirming creates the layout and stores the artwork, then opens the template editor. The template itself is saved only when
-              you press Create template there.
+              Confirming creates the layout and opens it in the layout editor, with the pictures shown behind the print areas. Adjust the
+              size and the print areas there and press Update Layout: the artwork is then cut to them and the template editor opens. The
+              template itself is saved only when you press Create template there.
             </p>
             <div className="flex items-center gap-3">
               <button
@@ -553,11 +566,34 @@ export function ImportDesignDialog({ takenNames, takenTemplateIds, onClose }: {
                 className="flex-[2] flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
               >
                 {step === 'applying' && <Loader2 className="w-4 h-4 animate-spin" />}
-                {step === 'applying' ? progress : createdLayout ? 'Try again' : 'Create the layout and open the editor'}
+                {step === 'applying' ? progress : createdLayout ? 'Try again' : 'Create the layout and adjust it'}
               </button>
               <button type="button" onClick={() => { setError(null); setStep('paste'); }} disabled={step === 'applying' || createdLayout !== null} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50">Back</button>
               <button type="button" onClick={onClose} disabled={step === 'applying'} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50">Cancel</button>
             </div>
+          </>
+        )}
+
+        {step === 'finishing' && (
+          <>
+            {!finishFailed && (
+              <p role="status" className="flex items-center gap-2 text-sm text-slate-700 my-5">
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                {progress || 'Cutting the artwork to the saved print areas…'}
+              </p>
+            )}
+            {finishFailed && (
+              <>
+                <div role="alert" className="my-4 bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-lg">{error}</div>
+                <p className="text-xs text-slate-500 leading-relaxed mb-4">
+                  The layout{layoutName ? <> <span className="font-mono">{layoutName}</span></> : ''} is saved. Nothing else was created.
+                </p>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={() => void finish()} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95">Try again</button>
+                  <button type="button" onClick={onClose} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95">Close</button>
+                </div>
+              </>
+            )}
           </>
         )}
 

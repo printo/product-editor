@@ -17,9 +17,13 @@
  *   wide at `left`/`top`;
  * - each `mask` is a photo window;
  * - the old tool stacks windows and artwork in any order, while a photo is
- *   always the bottom layer here. So whatever was listed under a window is
- *   merged into ONE page artwork with a hole cut for that window, and
- *   whatever was listed after stays a sticker or a text of its own;
+ *   always the bottom layer here. So every picture is merged, in the old
+ *   order, into ONE page artwork: a picture listed under a window gets a
+ *   hole cut for it, one listed after is drawn over the photo. One sheet,
+ *   because only the page artwork lets a click on a see-through part reach
+ *   the photo; a sticker of its own is picked up by its whole box, and one
+ *   file with hearts on two corners of a photo covered all of it. Text
+ *   stays a text of its own, above the artwork;
  * - artwork running off the print area is cropped to it, because an overlay
  *   may not leave the canvas (services/template_decoration.py);
  * - vector artwork stays vector: cropping and holes are done by wrapping the
@@ -36,9 +40,8 @@ const MM_PER_INCH = 25.4;
 export const HOLE_INSET_MM = 0.3;
 /** Differences smaller than this are rounding, not geometry. */
 const EPS_MM = 0.05;
-/** The server's limits for one sticker (services/template_decoration.py). */
+/** The server's limit for one sticker (services/template_decoration.py). */
 export const MAX_STICKER_BYTES = 5 * 1024 * 1024;
-export const MAX_STICKER_SIDE_PX = 4096;
 /** A raster placed at fewer dots per inch than this looks soft in print. */
 export const LOW_DPI = 150;
 
@@ -48,9 +51,6 @@ export class DesignImportError extends Error {}
 
 /** A rectangle in millimetres from the print area's top-left corner. */
 export interface MmBox { x: number; y: number; w: number; h: number }
-/** The same in percent of the canvas, as an overlay stores it. */
-export interface PctBox { x: number; y: number; width: number; height: number }
-
 export interface ImportedWindow {
   /** Position in the export's object list (its place in the old stacking order). */
   index: number;
@@ -86,8 +86,8 @@ export interface ImportedPiece {
   text?: ImportedText;
   /** Windows listed after this piece that it overlaps: each gets a hole. */
   holes: number[];
-  /** `artwork`: merged into the page artwork under the photos' level.
-   *  `overlay`: a sticker or a text of its own, above it. */
+  /** `artwork`: a picture, merged into the page artwork.
+   *  `overlay`: a text of its own, above it. */
   layer: 'artwork' | 'overlay';
   label: string;
 }
@@ -362,23 +362,10 @@ export function parseOnlineCanvasExport(raw: string): ImportedDesign {
   });
   if (skipped > 0) notes.push({ level: 'info', text: `${skipped} hidden or empty ${skipped === 1 ? 'object was' : 'objects were'} left out.` });
 
-  // Whatever is listed at or before the last piece that sits under a window
-  // belongs to the page artwork; the rest keeps its own layer above it.
-  let lastUnder = -1;
-  for (const p of pieces) {
-    if (p.kind === 'text') continue;
-    p.holes = rawWindows.filter(w => w.index > p.index && overlaps(p.visible, w.box)).map(w => w.index);
-    if (p.holes.length > 0) lastUnder = Math.max(lastUnder, p.index);
-  }
-  for (const p of pieces) {
-    if (p.kind !== 'text' && p.index <= lastUnder) p.layer = 'artwork';
-    else if (p.kind === 'text' && p.index < lastUnder) {
-      notes.push({ level: 'warning', text: `${p.label} sat under artwork in the old design; here it sits above it.` });
-    }
-  }
-  const lockedOverlays = pieces.filter(p => p.layer === 'overlay' && p.locked).length;
-  if (lockedOverlays > 0) {
-    notes.push({ level: 'info', text: `${lockedOverlays} locked ${lockedOverlays === 1 ? 'piece becomes' : 'pieces become'} editable here: a template has no lock.` });
+  stackPieces(pieces, rawWindows, notes);
+  const lockedTexts = pieces.filter(p => p.kind === 'text' && p.locked).length;
+  if (lockedTexts > 0) {
+    notes.push({ level: 'info', text: `${lockedTexts} locked ${lockedTexts === 1 ? 'text becomes' : 'texts become'} editable here: a template has no lock.` });
   }
   if (rawWindows.length === 0) blocked.push('The design has no photo window, so there is nothing to make a layout from.');
 
@@ -397,6 +384,79 @@ export function parseOnlineCanvasExport(raw: string): ImportedDesign {
     blocked,
   };
 }
+
+/**
+ * Which layer each piece lands on and which windows it gets a hole for.
+ * Every picture belongs to the page artwork; a window listed after a picture
+ * it overlaps was above it, so the picture is cut away there.
+ */
+function stackPieces(pieces: ImportedPiece[], windows: readonly ImportedWindow[], notes: ImportNote[]): void {
+  for (const p of pieces) {
+    if (p.kind === 'text') {
+      p.layer = 'overlay';
+      p.holes = [];
+      if (pieces.some(q => q.kind !== 'text' && q.index > p.index && overlaps(q.visible, p.visible))) {
+        notes.push({ level: 'warning', text: `${p.label} sat under artwork in the old design; here it sits above it.` });
+      }
+      continue;
+    }
+    p.layer = 'artwork';
+    p.holes = windows.filter(w => w.index > p.index && overlaps(p.visible, w.box)).map(w => w.index);
+  }
+}
+
+/** What the saved layout holds that the artwork is cut to. */
+export interface LayoutGeometry {
+  canvas: { widthMm: number; heightMm: number };
+  /** In the layout's own order, as fractions of the canvas. */
+  frames: ReadonlyArray<{ x: number; y: number; width: number; height: number }>;
+}
+
+/**
+ * The design re-cut to a layout as the ops user saved it: its canvas and its
+ * print areas replace the ones read from the export, and every hole and crop
+ * is worked out again. Print areas are matched to the old windows in order
+ * (the import writes them in reading order), so each keeps its place in the
+ * old stacking; one added in the layout editor has no old place and is cut
+ * out of every picture it touches. Pieces keep their distance from the
+ * canvas's top-left corner.
+ */
+export function withLayoutGeometry(design: ImportedDesign, layout: LayoutGeometry): ImportedDesign {
+  const W = round(layout.canvas.widthMm, 4);
+  const H = round(layout.canvas.heightMm, 4);
+  if (!(W > 0 && H > 0)) return design;
+  const windows: ImportedWindow[] = layout.frames.map((f, i) => ({
+    index: design.windows[i]?.index ?? 1_000_000 + i,
+    box: clip({ x: round(f.x * W, 4), y: round(f.y * H, 4), w: round(f.width * W, 4), h: round(f.height * H, 4) }, W, H),
+  })).filter(w => w.box.w > 0 && w.box.h > 0);
+  const pieces = design.pieces
+    .map(p => {
+      const visible = clip(p.box, W, H);
+      return { ...p, visible, overflows: differs(visible, p.box), holes: [] as number[] };
+    })
+    .filter(p => p.visible.w > 0 && p.visible.h > 0);
+  const stale = /sat under artwork in the old design/;
+  const notes = design.notes.filter(note => !stale.test(note.text));
+  stackPieces(pieces, windows, notes);
+  const blocked = design.blocked.filter(b => !/no photo window/.test(b));
+  if (windows.length === 0) blocked.push('The layout has no print area, so there is nothing to cut the artwork to.');
+  const ratio = W / H;
+  return {
+    ...design,
+    printMm: { width: W, height: H },
+    canvasPx: { width: Math.round(mmToImportPx(W)), height: Math.round(mmToImportPx(H)) },
+    windows,
+    pieces,
+    facing: ratio > 1.02 ? 'landscape' : ratio < 0.98 ? 'portrait' : 'square',
+    notes,
+    blocked,
+  };
+}
+
+/** The design with no photo windows: its page artwork is then every picture
+ *  whole, which is what the layout editor shows behind the print areas. */
+export const withoutWindows = (design: ImportedDesign): ImportedDesign =>
+  ({ ...design, windows: [], pieces: design.pieces.map(p => ({ ...p, holes: [] })) });
 
 // ─── The layout ──────────────────────────────────────────────────────────────
 
@@ -567,10 +627,6 @@ export function readSvg(markup: string): SvgParts | null {
   };
 }
 
-/** True when an SVG can be stored as it is: the sticker upload refuses a
- *  DOCTYPE or entity declaration, which a wrapped copy leaves behind. */
-export const storableAsIs = (markup: string): boolean => !/<!\s*(DOCTYPE|ENTITY)/i.test(markup);
-
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -639,9 +695,9 @@ export interface BuiltArtwork {
 }
 
 /**
- * The page artwork: every piece that sat under a photo window, stacked in
- * the old order on one sheet the size of the canvas, each with a hole for
- * the windows that were above it. One document so it can carry the
+ * The page artwork: every picture, stacked in the old order on one sheet
+ * the size of the canvas, each with a hole for the windows that were above
+ * it and cropped to the sheet. One document so it can carry the
  * editor's `Artwork` behaviour (a click on a hole reaches the photo).
  */
 export function buildPageArtwork(design: ImportedDesign, sources: ReadonlyMap<number, ArtworkSource>): BuiltArtwork {
@@ -675,54 +731,8 @@ export function buildPageArtwork(design: ImportedDesign, sources: ReadonlyMap<nu
     if (piece.opacity < 1) group += ` opacity="${n(piece.opacity)}"`;
     body += `<g${group}>${art.markup}</g>`;
   }
+  // The root crops what runs off the sheet: an outer <svg> clips to its viewport.
   return { svg: body ? svgDocument(page, defs, body, namespaces) : null, missing };
-}
-
-export interface PreparedSticker {
-  /** The file to store: an SVG document, or the bytes of a PNG kept as it came. */
-  file: { name: string; type: 'image/svg+xml'; text: string } | { name: string; type: 'image/png'; bytes: Uint8Array };
-  /** Where it sits, in percent of the canvas. */
-  box: PctBox;
-}
-
-const pct = (b: MmBox, design: ImportedDesign): PctBox => {
-  const clamp = (v: number) => Math.min(100, Math.max(0, round(v, 3)));
-  return {
-    x: clamp((b.x / design.printMm.width) * 100),
-    y: clamp((b.y / design.printMm.height) * 100),
-    width: clamp((b.w / design.printMm.width) * 100),
-    height: clamp((b.h / design.printMm.height) * 100),
-  };
-};
-
-/**
- * A piece that sat above the photos, ready to store as a sticker of its
- * own. A file that fits the page is stored exactly as it came; one that
- * runs off the page, or that the sticker store would refuse as it is, is
- * wrapped in an SVG showing only the part on the page. Null when the file
- * cannot be read.
- */
-export function prepareSticker(design: ImportedDesign, piece: ImportedPiece, sources: ReadonlyMap<number, ArtworkSource>): PreparedSticker | null {
-  const source = sourceOf(piece, sources);
-  if (!source) return null;
-  const stem = `import-${piece.index}`;
-  if (!piece.overflows) {
-    if (source.kind === 'svg' && storableAsIs(source.text) && readSvg(source.text)) {
-      return { file: { name: `${stem}.svg`, type: 'image/svg+xml', text: source.text }, box: pct(piece.box, design) };
-    }
-    if (source.kind === 'png') {
-      const size = rasterSize(source.bytes);
-      if (size && size.width <= MAX_STICKER_SIDE_PX && size.height <= MAX_STICKER_SIDE_PX) {
-        return { file: { name: `${stem}.png`, type: 'image/png', bytes: source.bytes }, box: pct(piece.box, design) };
-      }
-    }
-  }
-  const art = placed(source, toPx(piece.box), null);
-  if (!art) return null;
-  return {
-    file: { name: `${stem}.svg`, type: 'image/svg+xml', text: svgDocument(toPx(piece.visible), '', art.markup, art.namespaces) },
-    box: pct(piece.visible, design),
-  };
 }
 
 export interface TextOverlaySpec {

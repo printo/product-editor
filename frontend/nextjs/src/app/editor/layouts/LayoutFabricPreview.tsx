@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { Canvas, FabricImage, ActiveSelection, Textbox, type FabricObject } from 'fabric';
 import { captionOverridesFromMm, resolveCaptionBox } from '@/lib/caption-layout';
 import {
@@ -62,6 +62,9 @@ interface LayoutFabricPreviewProps {
   artworkMask: MaskSlotSource;
   /** The layout's `printSheet`; draws the bleed area as one rose dashed rectangle when it prints. */
   printSheet?: unknown;
+  /** A picture to place the print areas against (an imported design's
+   *  artwork). Drawn under everything, never saved with the layout. */
+  guide?: { url: string; widthMm: number; heightMm: number } | null;
   snapGrid: boolean;
   onFramesChange: (frames: LayoutFrame[]) => void;
   onFrameSelect: (frameId: string | null) => void;
@@ -96,10 +99,11 @@ const ALIGN_BUTTONS: { edge: AlignEdge; Icon: React.ComponentType<{ className?: 
 
 // One mask slot drawn on the preview canvas: replaced when its file or URL
 // changes, removed when the slot empties. The frame picture is kept above
-// the artwork whichever of the two files loads last.
+// the artwork whichever of the two files loads last, and the guide picture
+// stays under everything.
 function useMaskSlotLayer(
   fabricRef: React.RefObject<Canvas | null>,
-  role: 'artwork' | 'frame',
+  role: 'artwork' | 'frame' | 'guide',
   slot: MaskSlotSource,
   widthMm: number,
   heightMm: number,
@@ -145,6 +149,7 @@ function useMaskSlotLayer(
       img.__fabricEditor = 'mask';
       img.__maskRole = role;
       live.add(img);
+      if (role === 'guide') live.sendObjectToBack(img);
       const frame = live.getObjects().find((o) => o[DATA_KEY] === 'mask' && o.__maskRole === 'frame');
       if (frame) live.bringObjectToFront(frame);
       live.renderAll();
@@ -166,6 +171,7 @@ export function LayoutFabricPreview({
   frameMask,
   artworkMask,
   printSheet,
+  guide = null,
   snapGrid,
   onFramesChange,
   onFrameSelect,
@@ -429,6 +435,9 @@ export function LayoutFabricPreview({
   // outlines stay readable underneath.
   useMaskSlotLayer(fabricRef, 'artwork', artworkMask, widthMm, heightMm, getScale);
   useMaskSlotLayer(fabricRef, 'frame', frameMask, widthMm, heightMm, getScale);
+  // At its own size from the top-left corner, so it stays put when the canvas is resized.
+  const guideSlot = useMemo<MaskSlotSource>(() => ({ url: guide?.url ?? null, file: null }), [guide?.url]);
+  useMaskSlotLayer(fabricRef, 'guide', guideSlot, guide?.widthMm || widthMm, guide?.heightMm || heightMm, getScale);
 
   // The print rectangle follows the windows live. The full rebuild above only
   // runs once a gesture ends, so while a window is dragged or resized the

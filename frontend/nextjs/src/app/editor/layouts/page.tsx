@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { readImportSession } from '@/lib/import-session';
 import {
   Layout,
   Plus,
@@ -395,6 +396,11 @@ export default function LayoutCreatorPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [confirmMaskRemove, setConfirmMaskRemove] = useState<MaskSlot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  // An import of an old design that is adjusting this layout before its
+  // artwork is cut to it (components/ImportDesignDialog.tsx): the layout's
+  // name, and the design's pictures to show behind the print areas.
+  const [importFor, setImportFor] = useState<string | null>(null);
+  const [importGuide, setImportGuide] = useState<{ url: string; widthMm: number; heightMm: number } | null>(null);
 
   // Derived in render, not inside the effect: depending on `session` itself
   // would re-run this on every identity change from useSession's polling, and
@@ -787,6 +793,10 @@ export default function LayoutCreatorPage() {
 
       const result = await res.json();
       if (res.ok) {
+        if (importFor && importFor === layoutId) {
+          router.push('/editor/layouts/templates?import=continue');
+          return;
+        }
         setSuccess(`Layout "${layoutName}" saved successfully!`);
         fetchLayouts();
         setIsModalOpen(false);
@@ -949,6 +959,32 @@ export default function LayoutCreatorPage() {
       setIsModalOpen(true);
     }
   };
+
+  // `?edit=<layout>` opens the editor on that layout; with `&import=1` and an
+  // import under way for it, the editor also shows the design's pictures and
+  // Save carries the import on. Read once, then taken off the address so a
+  // reload or the Back button does not reopen it.
+  const openedFromAddress = useRef(false);
+  useEffect(() => {
+    if (status !== 'authenticated' || openedFromAddress.current) return;
+    openedFromAddress.current = true;
+    const query = new URLSearchParams(window.location.search);
+    const name = query.get('edit');
+    if (!name || !/^[a-z0-9_-]+$/i.test(name)) return;
+    const session = query.get('import') ? readImportSession(name) : null;
+    window.history.replaceState(null, '', window.location.pathname);
+    if (session) {
+      setImportFor(name);
+      setImportGuide(session.guideSvg
+        ? { url: URL.createObjectURL(new Blob([session.guideSvg], { type: 'image/svg+xml' })), widthMm: session.guideMm.width, heightMm: session.guideMm.height }
+        : null);
+    }
+    void openEditModal(name);
+    // openEditModal only sets state; it is recreated every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+  useEffect(() => () => { if (importGuide) URL.revokeObjectURL(importGuide.url); }, [importGuide]);
+  const importing = isModalOpen && importFor !== null && importFor === layoutId;
 
   const openCopyModal = async (name: string) => {
     const data = await fetchLayoutDetail(name);
@@ -1509,6 +1545,14 @@ export default function LayoutCreatorPage() {
                 {/* Left Column: Form Controls (Scrollable) */}
                 <div className="lg:col-span-7 min-h-0 lg:h-full overflow-y-auto px-6 py-6 space-y-6 custom-scrollbar">
 
+                  {importing && (
+                    <div role="status" className="bg-indigo-50 border border-indigo-200 text-indigo-900 text-sm px-4 py-3 rounded-lg leading-relaxed">
+                      <span className="font-bold">Imported design.</span> The print areas were made from the old design&rsquo;s photo
+                      spaces, with no bleed{importGuide ? ', and its pictures are shown behind them' : ''}. Set the size and the print
+                      areas, then press Update Layout: the artwork is cut to them and the template editor opens next.
+                    </div>
+                  )}
+
                   {/* Basic Info & Canvas */}
                   <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -1974,6 +2018,7 @@ export default function LayoutCreatorPage() {
                           frameMask={activeFrameMask}
                           artworkMask={activeArtworkMask}
                           printSheet={activePrintSheetJson}
+                          guide={importing ? importGuide : null}
                           snapGrid={snapGrid}
                           onFramesChange={setActiveFrames}
                           onFrameSelect={setSelectedFrameId}
