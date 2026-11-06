@@ -16,6 +16,7 @@ Counts by build, newest first. The report in `graphify-out/GRAPH_REPORT.md` is t
 
 | Date | Source | Nodes / edges / communities | Note |
 |---|---|---|---|
+| 2026-11-06 | `d0de6cf`, full rebuild then refresh | 5,669 / 12,085 / 304 | three subagents on the 12 docs the cache lacked (557,258 tokens); 35 older doc nodes the chunks linked to without declaring were carried over with their edges. All 304 communities renamed from their contents, because names had piled up (`Name (2) (2) (2)`) and `API Key Auth & Bearer Tokens` covered unrelated groups; `scripts/graphify-refresh.py` fixed for both |
 | 2026-10-28 | `ac0962a`, refresh | 4,547 / 9,832 / 238 | after the print-sheet PR #299. `/graphify --update` had reported 50 "deleted" files that all still exist: paths `.gitignore`/`.graphifyignore` exclude (graphify merges both into its scan) that `save_manifest` never prunes because it keeps any entry whose file is on disk. 11 of them were leftover icon/fixture image nodes. `scripts/graphify-refresh.py` now drops nodes whose source is outside the scan and rebuilds the manifest from it. Re-clustering folded five named communities into neighbours (Calendar Holidays Tests, Calendar Preview Dev Page, Gen-Z Palette Default Tests, Layout Tag Views, Shape Icon Assets); one new one named by hand (Print Sheet Tests) |
 | 2026-10-26 | `54cdeed6`, refresh (PR #298) | 4,457 / 9,573 / 238 | after layout tags; not recorded here at the time |
 | 2026-10-13 | `a2ea33e`, full rebuild (PR #269) | 4,105 / 8,733 / 229 | six subagents; 176 community names carried by overlap, 29 named by hand; `graph.html` stopped being committed the same day — its 22 commits were 10.8 MB of the repository's 13.5 MB pack |
@@ -30,7 +31,7 @@ Counts by build, newest first. The report in `graphify-out/GRAPH_REPORT.md` is t
 | 2026-09-29 | `f098f3f` | 3,952 / 7,249 / 333 | |
 | 2026-09-04 | — | 2,974 / 5,345 / 213 | until this date `CLAUDE.md` claimed 5,282 / 17,271 / 321 files while the committed graph held 2,297 / 3,977 — figures from an older doc-inclusive build |
 
-God-node history: `a2ea33e` — `LayoutEngine` 73, `S3Backend` 68, `S3Storage` 55, `LayoutCatalogue` 54, `CLAUDE.md` 52, `CanvasItem` 44. `79ba213` — `Product Editor PRD` 64, `Calendar Feature PRD` 63, `LayoutEngine` 58, `AI Guardrails` 50. `0a7cb5f` — `LayoutEngine` 76, `S3Storage` 58, `LocalStorage` 53, `APIKey` 52.
+God-node history: `d0de6cf` — `LayoutCatalogue` 77, `S3Backend` 74, `LayoutEngine` 72, `APIKey` 63, `S3Storage` 57, `CanvasItem` 48. `a2ea33e` — `LayoutEngine` 73, `S3Backend` 68, `S3Storage` 55, `LayoutCatalogue` 54, `CLAUDE.md` 52, `CanvasItem` 44. `79ba213` — `Product Editor PRD` 64, `Calendar Feature PRD` 63, `LayoutEngine` 58, `AI Guardrails` 50. `0a7cb5f` — `LayoutEngine` 76, `S3Storage` 58, `LocalStorage` 53, `APIKey` 52.
 
 Lessons that became rules:
 - 2026-10-06: `graphify update .` after a full rebuild re-added the per-heading doc nodes the rebuild had removed (+430 nodes) and dropped 41 communities back to `Community N`. `--update` aborts without an LLM key.
@@ -39,6 +40,7 @@ Lessons that became rules:
 - The `_AnyContentTypeParser` name collision produced ~28 INFERRED edges to unrelated classes until it moved into `api/views/uploads.py`.
 - 2026-10-08: five parallel subagents, each inheriting ~73k tokens of CLAUDE.md and memory, exhausted the 5-hour rate limit. The 2026-10-13 rebuild ran six because the window was at 26%.
 - 2026-10-13: subagents wrote `_name__usefileintake_x` where the AST had `name_usefileintake_x`, and referenced inner hook functions that have no AST node; 57 ids were remapped before merging. The extractor also flagged `services/asset_store.read_asset` as ambiguous because two migration docs name it loosely; it has five production importers and is fine.
+- 2026-11-06: the refresh script numbered a repeated name without removing the old number, and gave a community the name of whichever old community shared even one node with it. Each refresh made the names longer and spread them wider. It now strips the number first and requires at least half the nodes to match.
 
 ## Hard constraints — git and shipping
 
