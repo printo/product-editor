@@ -49,8 +49,13 @@ type IconSearch = { items: IconResult[]; busy: boolean };
  * Iconify blocked the customer's address after about three searches.
  * `busy` means the server could not ask Iconify just now.
  */
+// How long typing must pause before the box is searched. A word nobody has
+// searched yet takes the server about 7 seconds, so each partial word this
+// catches ("lo", "lov") is a wait and part of its allowance from Iconify.
+const SEARCH_PAUSE_MS = 500;
+
 async function searchIcons(
-  query: string, apiBase?: string, getAuthHeaders?: () => Record<string, string>,
+  query: string, apiBase?: string, getAuthHeaders?: () => Record<string, string>, signal?: AbortSignal,
 ): Promise<IconSearch> {
   const q = query.toLowerCase().trim();
 
@@ -61,7 +66,7 @@ async function searchIcons(
   if (q.length < 2 || !apiBase) return { items: [], busy: false };
 
   try {
-    const res = await fetch(`${apiBase}/icon-search?q=${encodeURIComponent(q)}`, { headers: getAuthHeaders?.() ?? {} });
+    const res = await fetch(`${apiBase}/icon-search?q=${encodeURIComponent(q)}`, { headers: getAuthHeaders?.() ?? {}, signal });
     if (!res.ok) return { items: [], busy: res.status === 503 || res.status === 429 };
     const data = (await res.json()) as { icons?: { prefix: string; name: string }[] };
     return {
@@ -84,6 +89,9 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
   // the browser's broken-image mark, and not offered for adding.
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The search for the word now in the box. Only its answer may reach the
+  // screen: a slow answer for an earlier word used to replace the right one.
+  const searchRef = useRef<AbortController | null>(null);
   // Tracks whether we've already kicked off the default-icon load on expand.
   // Without this, running `doSearch('')` inside the effect would either need
   // results.length in the dep array (re-fires on every result change) or a
@@ -91,14 +99,23 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
   const didInitialLoadRef = useRef(false);
 
   const doSearch = useCallback(async (q: string) => {
+    searchRef.current?.abort();
+    const search = new AbortController();
+    searchRef.current = search;
     setLoading(true);
     setSearched(q.trim().length > 0);
-    const { items, busy: serverBusy } = await searchIcons(q, apiBase, getAuthHeaders);
+    const { items, busy: serverBusy } = await searchIcons(q, apiBase, getAuthHeaders, search.signal);
+    if (searchRef.current !== search) return;
     setResults(items);
     setBusy(serverBusy);
     setFailed(new Set());
     setLoading(false);
   }, [apiBase, getAuthHeaders]);
+
+  React.useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    searchRef.current?.abort();
+  }, []);
 
   // Load default icons the first time the picker expands.
   React.useEffect(() => {
@@ -111,7 +128,10 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
   const handleInput = (val: string) => {
     setQuery(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSearch(val), 300);
+    // The word changed, so an answer still on its way is for the wrong word.
+    searchRef.current?.abort();
+    searchRef.current = null;
+    debounceRef.current = setTimeout(() => doSearch(val), SEARCH_PAUSE_MS);
   };
 
   const handleAdd = (item: IconResult) => {

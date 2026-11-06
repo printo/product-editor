@@ -21,7 +21,7 @@ async function open(onAddImage = jest.fn()) {
 async function searchFor(text: string) {
   jest.useFakeTimers();
   fireEvent.change(screen.getByPlaceholderText('Search icons...'), { target: { value: text } });
-  await act(async () => { jest.advanceTimersByTime(300); });
+  await act(async () => { jest.advanceTimersByTime(500); });
   jest.useRealTimers();
 }
 
@@ -44,7 +44,7 @@ describe('IconBrowser', () => {
     await screen.findByRole('img', { name: 'heart' });
     expect(fetched).toHaveBeenCalledTimes(1);
     expect(fetched.mock.calls[0][0]).toBe('/api/embed/proxy/icon-search?q=love');
-    expect(fetched.mock.calls[0][1]).toEqual({ headers: { 'X-Embed-Token': 't' } });
+    expect(fetched.mock.calls[0][1]).toEqual(expect.objectContaining({ headers: { 'X-Embed-Token': 't' } }));
     expect(screen.getByRole('img', { name: 'red-heart' })).toHaveAttribute('src', `${origin}/api/icons/noto/red-heart.svg`);
   });
 
@@ -83,6 +83,98 @@ describe('IconBrowser', () => {
     await open();
     await searchFor('zzzz');
     await waitFor(() => expect(screen.getByText('No icons found.')).toBeInTheDocument());
+  });
+
+  describe('only the word now in the box counts', () => {
+    /** Each search waits until the test answers it; a cancelled one rejects, as a browser's does. */
+    function controlledSearches() {
+      const open = new Map<string, { answer: (icons: string[]) => void; signal: AbortSignal }>();
+      const mock = jest.fn((url: string, init: { signal: AbortSignal }) => new Promise((resolve, reject) => {
+        const q = new URL(url, 'http://x').searchParams.get('q')!;
+        init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+        open.set(q, {
+          signal: init.signal,
+          answer: icons => resolve({ ok: true, status: 200, json: async () => ({ icons: icons.map(name => ({ prefix: 'mdi', name })) }) }),
+        });
+      }));
+      global.fetch = mock as unknown as typeof fetch;
+      return { open, mock };
+    }
+
+    const type = (text: string) => fireEvent.change(screen.getByPlaceholderText('Search icons...'), { target: { value: text } });
+    const pause = (ms: number) => act(async () => { jest.advanceTimersByTime(ms); });
+
+    async function ready() {
+      const searches = controlledSearches();
+      await open();
+      jest.useFakeTimers();
+      return searches;
+    }
+
+    it('waits for half a second of no typing, so partial words are not searched', async () => {
+      const { mock } = await ready();
+      for (const word of ['lo', 'lov', 'love']) {
+        type(word);
+        await pause(499);
+      }
+      expect(mock).not.toHaveBeenCalled();
+      await pause(1);
+      expect(mock).toHaveBeenCalledTimes(1);
+      expect(mock.mock.calls[0][0]).toBe('/api/embed/proxy/icon-search?q=love');
+    });
+
+    it('a late answer for an earlier word does not replace the right one', async () => {
+      const { open: searches } = await ready();
+      type('lov');
+      await pause(500);
+      const earlier = searches.get('lov')!;
+      type('love');
+      await pause(500);
+      expect(earlier.signal.aborted).toBe(true);
+      await act(async () => { searches.get('love')!.answer(['right']); });
+      expect(screen.getByRole('img', { name: 'right' })).toBeInTheDocument();
+      await act(async () => { earlier.answer(['wrong']); });
+      expect(screen.queryByRole('img', { name: 'wrong' })).toBeNull();
+      expect(screen.getByRole('img', { name: 'right' })).toBeInTheDocument();
+    });
+
+    it('cancelling a search does not end the spinner or say the search is busy', async () => {
+      const { open: searches } = await ready();
+      type('lov');
+      await pause(500);
+      type('love');
+      await pause(0);
+      expect(searches.get('lov')!.signal.aborted).toBe(true);
+      expect(screen.getByText('Searching...')).toBeInTheDocument();
+      expect(screen.queryByText(/busy/)).toBeNull();
+      await pause(500);
+      expect(screen.getByText('Searching...')).toBeInTheDocument();
+      await act(async () => { searches.get('love')!.answer(['right']); });
+      expect(screen.queryByText('Searching...')).toBeNull();
+      expect(screen.queryByText(/busy/)).toBeNull();
+    });
+
+    it('an answer arriving just as more is typed is not shown', async () => {
+      const { open: searches } = await ready();
+      type('lov');
+      await pause(500);
+      const earlier = searches.get('lov')!;
+      type('love');
+      await act(async () => { earlier.answer(['wrong']); });
+      expect(screen.queryByRole('img', { name: 'wrong' })).toBeNull();
+    });
+
+    it('a search still running stops when the icon browser goes away', async () => {
+      const { open: searches } = controlledSearches();
+      const { unmount } = render(<IconBrowser onAddImage={jest.fn()} apiBase="/api/embed/proxy" getAuthHeaders={getAuthHeaders} />);
+      fireEvent.click(screen.getByRole('button', { name: /Add New Icon/ }));
+      await screen.findByRole('img', { name: 'like' });
+      jest.useFakeTimers();
+      type('love');
+      await pause(500);
+      unmount();
+      expect(searches.get('love')!.signal.aborted).toBe(true);
+    });
   });
 
   it('does not search for a single letter', async () => {
