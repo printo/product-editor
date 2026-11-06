@@ -165,6 +165,11 @@ export interface CellImagePlacement {
   fit: CellImageFit;
   rotation: 0 | 90 | 180 | 270;
   blur: boolean;
+  /** Where a photo that fills the cell sits, as seen on the page: -1 moved
+   *  fully left, 0 centred, 1 fully right. Always 0 for a whole photo. */
+  panX: number;
+  /** The same, top to bottom: -1 moved fully up, 1 fully down. */
+  panY: number;
 }
 
 export type CalendarCellOverride =
@@ -179,6 +184,9 @@ export type CalendarCellOverride =
       rotation?: 0 | 90 | 180 | 270;
       /** With 'contain': fill the empty sides with a blurred copy of the photo. */
       blur?: boolean;
+      /** With 'cover': where the photo sits, -1 (fully left / up) to 1. Absent is centred. */
+      panX?: number;
+      panY?: number;
     }
   | { type: 'hide' /* hide the date number, leave cell empty */ };
 

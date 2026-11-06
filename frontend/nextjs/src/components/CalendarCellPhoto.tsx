@@ -6,15 +6,18 @@ import type { CellImagePlacement } from '@/types/calendar';
 /**
  * A date's photo drawn in its box the way the print places it
  * (`_draw_cell_image`): turned, then filling the box and cropped, or shown
- * whole with the sides empty or blurred. The box is whatever `className`
+ * whole with the sides empty or blurred; a photo that fills the box sits
+ * where the customer moved it. The box is whatever `className`
  * sizes this to, and it must be positioned (`relative` or `absolute`); pure CSS, so the date editor's preview and the month
  * grid's tiny cells draw the same thing.
  */
-export function CalendarCellPhoto({ src, placement, className, alt = '' }: {
+export function CalendarCellPhoto({ src, placement, className, alt = '', onPhotoSize }: {
   src: string;
   placement: CellImagePlacement;
   className?: string;
   alt?: string;
+  /** The photo's own pixel size, once it has loaded. */
+  onPhotoSize?: (width: number, height: number) => void;
 }) {
   const sideways = placement.rotation === 90 || placement.rotation === 270;
   // A sideways photo is laid out in the turned box (height x width), then turned back into place.
@@ -27,6 +30,14 @@ export function CalendarCellPhoto({ src, placement, className, alt = '' }: {
     maxWidth: 'none',
     transform: `translate(-50%, -50%) rotate(${placement.rotation}deg)`,
   };
+  // The move is stored as seen on the page; the picture is positioned before
+  // it is turned, so the move is turned back into the picture's own axes.
+  const { panX, panY } = placement;
+  const [localX, localY] = placement.rotation === 90 ? [panY, -panX]
+    : placement.rotation === 180 ? [-panX, -panY]
+    : placement.rotation === 270 ? [-panY, panX]
+    : [panX, panY];
+  const objectPosition = `${50 - 50 * localX}% ${50 - 50 * localY}%`;
   return (
     <div
       className={className}
@@ -35,6 +46,7 @@ export function CalendarCellPhoto({ src, placement, className, alt = '' }: {
       data-fit={placement.fit}
       data-rotation={placement.rotation}
       data-blur={placement.blur ? 'on' : 'off'}
+      data-pan={`${panX},${panY}`}
     >
       {placement.blur && (
         // The print stretches the photo over the box and blurs it; scaled up a
@@ -52,7 +64,13 @@ export function CalendarCellPhoto({ src, placement, className, alt = '' }: {
           }}
         />
       )}
-      <img src={src} alt={alt} draggable={false} style={{ ...turned, objectFit: placement.fit }} />
+      <img
+        src={src}
+        alt={alt}
+        draggable={false}
+        onLoad={onPhotoSize && (e => onPhotoSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight))}
+        style={{ ...turned, objectFit: placement.fit, objectPosition }}
+      />
     </div>
   );
 }

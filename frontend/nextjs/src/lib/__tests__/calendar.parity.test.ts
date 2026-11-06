@@ -18,6 +18,7 @@ import {
   calendarCellAspect,
   calendarPhotoSlots,
   cellImageBox,
+  cellImageOverflow,
   cellImagePlacement,
   displayLabelFor,
   monthHeadingEnabled,
@@ -229,7 +230,7 @@ describe('monthHeadingEnabled / monthHeadingText (TS) vs services/calendar_rende
 const cellImage = JSON.parse(
   fs.readFileSync(path.resolve(path.dirname(FIXTURES_PATH), 'calendar-cell-image.json'), 'utf-8'),
 ) as {
-  placements: { name: string; entry: unknown; expected: { fit: string; rotation: number; blur: boolean } }[];
+  placements: { name: string; entry: unknown; expected: { fit: string; rotation: number; blur: boolean; panX: number; panY: number } }[];
   boxes: { name: string; width: number; height: number; rows: number; heading: boolean; expected: [number, number] }[];
 };
 
@@ -247,10 +248,25 @@ describe('cellImagePlacement / cellImageBox (TS) vs services/calendar_renderer.p
   it('a change keeps the rest of the entry and remembers blur while the photo fills', () => {
     const entry = { type: 'image', uploadId: 'u', fit: 'contain', blur: true } as const;
     const filled = withCellImagePlacement(entry, { fit: 'cover' });
-    expect(filled).toEqual({ type: 'image', uploadId: 'u', fit: 'cover', rotation: 0, blur: true });
+    expect(filled).toEqual({ type: 'image', uploadId: 'u', fit: 'cover', rotation: 0, blur: true, panX: 0, panY: 0 });
     expect(cellImagePlacement(filled).blur).toBe(false);
     expect(cellImagePlacement(withCellImagePlacement(filled, { fit: 'contain' })).blur).toBe(true);
     expect(withCellImagePlacement({ type: 'image', uploadId: 'u' }, { rotation: 90 }).rotation).toBe(90);
+  });
+
+  it('a move is remembered while the photo is shown whole', () => {
+    const moved = withCellImagePlacement({ type: 'image', uploadId: 'u' }, { panX: 0.5 });
+    const whole = withCellImagePlacement(moved, { fit: 'contain' });
+    expect(cellImagePlacement(whole)).toMatchObject({ panX: 0, panY: 0 });
+    expect(cellImagePlacement(withCellImagePlacement(whole, { fit: 'cover' }))).toMatchObject({ panX: 0.5, panY: 0 });
+  });
+
+  it('the room to move a filling photo is how far it hangs over the box, after the turn', () => {
+    expect(cellImageOverflow(1200, 400, 0, 300, 200)).toEqual([300, 0]);
+    expect(cellImageOverflow(400, 1200, 0, 300, 200)).toEqual([0, 700]);
+    expect(cellImageOverflow(1200, 400, 90, 300, 200)).toEqual([0, 700]);
+    expect(cellImageOverflow(300, 200, 0, 300, 200)).toEqual([0, 0]);
+    expect(cellImageOverflow(0, 0, 0, 300, 200)).toEqual([0, 0]);
   });
 
   it('the preview shape comes from the block, the canvas and the month', () => {

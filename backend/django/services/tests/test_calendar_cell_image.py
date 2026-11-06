@@ -86,7 +86,7 @@ def test_default_is_the_old_centre_crop():
     with tempfile.TemporaryDirectory() as tmp:
         wide = _photo(tmp, 800, 200, "lr")
         plain = _draw(wide)
-        explicit = _draw(wide, fit="cover", rotation=0, blur=False)
+        explicit = _draw(wide, fit="cover", rotation=0, blur=False, panX=0, panY=0)
         assert plain.tobytes() == explicit.tobytes()
         # A 4:1 photo fills a square cell: opaque to every edge, sides cropped away.
         assert plain.getpixel((2, 2))[3] == 255 and plain.getpixel((BOX - 3, BOX - 3))[3] == 255
@@ -128,6 +128,40 @@ def test_a_quarter_turn_is_clockwise():
         assert _close(thrice.getpixel((10, 100)), RED) and _close(thrice.getpixel((190, 100)), BLUE)
         twice = _draw(tall, rotation=180)
         assert _close(twice.getpixel((100, 190)), RED) and _close(twice.getpixel((100, 10)), BLUE)
+
+
+def test_a_move_shows_the_side_the_photo_was_moved_towards():
+    with tempfile.TemporaryDirectory() as tmp:
+        wide = _photo(tmp, 800, 200, "lr")   # red left half, blue right half
+        # Moved fully right: the photo's left end is in the cell.
+        right = _draw(wide, panX=1)
+        assert _close(right.getpixel((10, 100)), RED) and _close(right.getpixel((190, 100)), RED)
+        # Moved fully left: its right end.
+        left = _draw(wide, panX=-1)
+        assert _close(left.getpixel((10, 100)), BLUE) and _close(left.getpixel((190, 100)), BLUE)
+        # A wide photo fills the height exactly, so up and down change nothing.
+        assert _draw(wide, panY=1).tobytes() == _draw(wide).tobytes()
+        tall = _photo(tmp, 200, 800, "tb")   # red top half, blue bottom half
+        down = _draw(tall, panY=1)
+        assert _close(down.getpixel((100, 10)), RED) and _close(down.getpixel((100, 190)), RED)
+        up = _draw(tall, panY=-1)
+        assert _close(up.getpixel((100, 10)), BLUE) and _close(up.getpixel((100, 190)), BLUE)
+
+
+def test_a_move_is_read_on_the_page_after_the_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        # Red left, blue right; a quarter turn clockwise puts red on top.
+        wide = _photo(tmp, 800, 200, "lr")
+        down = _draw(wide, rotation=90, panY=1)
+        assert _close(down.getpixel((100, 10)), RED) and _close(down.getpixel((100, 190)), RED)
+        up = _draw(wide, rotation=90, panY=-1)
+        assert _close(up.getpixel((100, 10)), BLUE) and _close(up.getpixel((100, 190)), BLUE)
+
+
+def test_a_whole_photo_does_not_move():
+    with tempfile.TemporaryDirectory() as tmp:
+        wide = _photo(tmp, 800, 200, "lr")
+        assert _draw(wide, fit="contain", panX=1, panY=1).tobytes() == _draw(wide, fit="contain").tobytes()
 
 
 def test_a_turn_changes_what_fit_leaves_empty():

@@ -144,7 +144,7 @@ describe('CalendarSection', () => {
     const { iso, fn } = updater(props);
     expect(iso).toBe(ISO);
     expect(fn([{ type: 'text', text: 'A' }, { type: 'image', uploadId: 'u1', fit: 'contain', rotation: 90 }])).toEqual([
-      { type: 'text', text: 'A' }, { type: 'image', uploadId: 'u1', fit: 'contain', rotation: 180, blur: false },
+      { type: 'text', text: 'A' }, { type: 'image', uploadId: 'u1', fit: 'contain', rotation: 180, blur: false, panX: 0, panY: 0 },
     ]);
     fireEvent.click(screen.getByTestId('cell-photo-save'));
     expect(props.updateCellEntries).toHaveBeenCalledTimes(1);
@@ -155,7 +155,7 @@ describe('CalendarSection', () => {
     const { props, unmount } = setup({ cellPhotoDialogIso: ISO });
     fireEvent.click(screen.getByTestId('cell-photo-cancel'));
     expect(updater(props).fn([{ type: 'image', uploadId: 'u1', fit: 'contain', rotation: 270, blur: true }])).toEqual([
-      { type: 'image', uploadId: 'u1', fit: 'cover', rotation: 0, blur: false },
+      { type: 'image', uploadId: 'u1', fit: 'cover', rotation: 0, blur: false, panX: 0, panY: 0 },
     ]);
     expect(props.setCellPhotoDialogIso).toHaveBeenCalledWith(null);
     unmount();
