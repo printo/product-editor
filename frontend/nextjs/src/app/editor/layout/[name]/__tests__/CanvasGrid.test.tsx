@@ -191,7 +191,7 @@ describe('CanvasCard', () => {
       lowDpiByCard: new Map([[':2', { canvasIdx: 2, frameIdx: 0, surfaceKey: null, dpi: 92.4, severity: 'critical' as const }]]),
     });
     const badge = screen.getByRole('button', { name: /Some text won’t print/ });
-    expect(badge).toHaveAttribute('title', expect.stringContaining('icons from the sidebar'));
+    expect(badge).toHaveAttribute('title', expect.stringContaining('from the sidebar'));
     expect(screen.queryByText(/Low res/)).toBeNull();
     fireEvent.click(badge);
     expect(props.openEditor).toHaveBeenCalledWith(2);

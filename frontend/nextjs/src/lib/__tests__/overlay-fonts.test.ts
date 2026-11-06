@@ -1,7 +1,17 @@
 import {
-  BLANK_FONT, DEFAULT_OVERLAY_FONT, canvasText, configurePrintFonts, isGenericFont, loadBlankFont, loadOverlayFonts,
+  BLANK_FONT, DEFAULT_OVERLAY_FONT, canvasText, configurePrintFonts, fontOptionLabel, isGenericFont, loadBlankFont, loadOverlayFonts,
   overlayFontFamily, overlayFontsReady, overlayFontStack, pickerFonts, printFontName,
 } from '../overlay-fonts';
+
+describe('fontOptionLabel', () => {
+  it('names the language beside a font that has one, and leaves the rest alone', () => {
+    const languages = { 'Hind Madurai': ['Tamil'] };
+    expect(fontOptionLabel('Hind Madurai', languages)).toBe('Hind Madurai · Tamil');
+    expect(fontOptionLabel('Lobster', languages)).toBe('Lobster');
+    expect(fontOptionLabel('Hind Madurai')).toBe('Hind Madurai');
+    expect(fontOptionLabel('Odd', { Odd: [] })).toBe('Odd');
+  });
+});
 
 describe('overlay fonts are Google Fonts only', () => {
   it('draws a missing or generic family in the default, like the print', () => {

@@ -511,7 +511,7 @@ export default function LayoutCreatorPage() {
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 
   const googleFontsList = [
-    'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Oswald', 'Raleway',
+    'Roboto', 'Lato', 'Montserrat', 'Oswald', 'Raleway',
     'Poppins', 'Nunito', 'Ubuntu', 'Playfair Display', 'Merriweather',
     'Inter', 'Rubik', 'Work Sans', 'Quicksand', 'Barlow', 'Fira Sans',
     'Karla', 'Cabin', 'Arvo', 'Bitter', 'Crimson Text', 'Josefin Sans',

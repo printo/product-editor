@@ -26,7 +26,7 @@ from services.template_decoration import editor_url as build_editor_url, is_temp
 from ..permissions import IsAuthenticatedWithAPIKey, CanListLayouts
 from ..authentication import APIKeyUser
 from ..models import EmbedSession
-from .calendar_assets import _read_fonts
+from .calendar_assets import _read_fonts, read_font_languages
 from ._common import is_safe_layout_name
 
 logger = logging.getLogger(__name__)
@@ -545,6 +545,10 @@ class EditorInitView(APIView):
                         ),
                     ),
                     "fonts": drf_serializers.ListField(child=drf_serializers.CharField()),
+                    "font_languages": drf_serializers.DictField(
+                        child=drf_serializers.ListField(child=drf_serializers.CharField()),
+                        help_text="The Indian languages each listed font can print, by family. A font with none is absent.",
+                    ),
                     "order_id": drf_serializers.CharField(
                         allow_null=True,
                         help_text="Echo of the embed session's order_id; null for dashboard requests.",
@@ -689,12 +693,14 @@ class EditorInitView(APIView):
             .values_list('version', flat=True).first()
         )
 
+        fonts = _read_fonts()
         response = Response({
             # Both mask slots plus the derived legacy pair, after the turn so
             # every URL carries `?rotate=90` when the layout was turned.
             'layout': with_legacy_mask_fields(layout_data),
             'layout_version': layout_version,
-            'fonts': _read_fonts(),
+            'fonts': fonts,
+            'font_languages': read_font_languages(fonts),
             'order_id': (request.headers.get('X-Order-ID') or '').strip() or None,
             'qty': init_qty,
             'template': template_data,

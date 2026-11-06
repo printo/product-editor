@@ -166,6 +166,7 @@ export default function LayoutEditorPage() {
   });
 
   const [selectedFonts, setSelectedFonts] = useState<string[]>([DEFAULT_OVERLAY_FONT]);
+  const [fontLanguages, setFontLanguages] = useState<Record<string, string[]>>({});
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts({ apiBase, getAuthHeaders });
   const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; surfaceKey: string | null } | null>(null);
   const { headerHeight } = useHeader();
@@ -183,7 +184,7 @@ export default function LayoutEditorPage() {
 
   useLayoutLoader({
     layoutName, embedToken, status, apiBase, getAuthHeaders, orderId, setOrderId, setSessionQty,
-    selectedFonts, setSelectedFonts, loadGoogleFont, setError, setLayout, setLayoutLoading,
+    selectedFonts, setSelectedFonts, setFontLanguages, loadGoogleFont, setError, setLayout, setLayoutLoading,
     setNormalizedLayoutState, setSurfaceStates, setActiveSurfaceKey, setBookPageCount, setBookHiddenPages,
     urlTemplateId, setActiveTemplate, setTemplateNotice: setUploadWarning, urlOrientation, layoutVersionRef,
   });
@@ -768,6 +769,7 @@ export default function LayoutEditorPage() {
           layout={layout}
           globalFitMode={globalFitMode}
           selectedFonts={selectedFonts}
+          fontLanguages={fontLanguages}
           apiBase={apiBase}
           getAuthHeaders={getAuthHeaders}
           setEditingCanvas={setEditingCanvas}

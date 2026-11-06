@@ -170,6 +170,31 @@ def _printable(ch: str, covered: frozenset[int], shaped: bool) -> bool:
     return not _needs_shaping(ch) or (shaped and _shaped_for_print(ch))
 
 
+# What a font must have to be offered for a language: the letters ka and ma and
+# the joining mark. Named as a customer would look for them.
+_LANGUAGE_LETTERS = (
+    ("Hindi", "कम्"),
+    ("Tamil", "கம்"),
+    ("Bengali", "কম্"),
+    ("Punjabi", "ਕਮ੍"),
+    ("Gujarati", "કમ્"),
+    ("Odia", "କମ୍"),
+    ("Telugu", "కమ్"),
+    ("Kannada", "ಕಮ್"),
+    ("Malayalam", "കമ്"),
+)
+
+
+def font_languages(family: Optional[str], weight: int = 400) -> list[str]:
+    """The Indian languages the print can set in `family`, read from the same
+    font file it prints from. Empty while the print cannot shape them, so the
+    picker never offers what would be removed. Raises FontUnavailable."""
+    if not shaping_available():
+        return []
+    covered = _coverage(print_font_data(family, weight))
+    return [name for name, letters in _LANGUAGE_LETTERS if all(ord(c) in covered for c in letters)]
+
+
 def text_needs_shaping(text: str) -> bool:
     """Whether the print must lay this text out with Raqm. Asked of the text
     `printable_text` returned, so it is true only where that can work."""

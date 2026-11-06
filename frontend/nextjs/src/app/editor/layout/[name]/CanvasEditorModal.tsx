@@ -35,6 +35,7 @@ export interface CanvasEditorModalProps {
   layout: any;
   globalFitMode: FitMode;
   selectedFonts: string[];
+  fontLanguages?: Record<string, string[]>;
 
   apiBase: string;
   getAuthHeaders: () => Record<string, string>;
@@ -68,7 +69,7 @@ export interface CanvasEditorModalProps {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function CanvasEditorModal({
-  activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, selectedFonts,
+  activeCanvasIdx, editingCanvas, canvases, surfaceStates, activeSurfaceKey, layout, selectedFonts, fontLanguages,
   setEditingCanvas, setCanvases, onClose, onOpenCanvas,
   getFileUrl, loadGoogleFont, expandPdfPages, serverHeicConvert, unprintableFor, textRemovals = 0,
   apiBase, getAuthHeaders,
@@ -457,6 +458,7 @@ export function CanvasEditorModal({
         pushUndo={pushUndo}
         loadGoogleFont={loadGoogleFont}
         selectedFonts={selectedFonts}
+        fontLanguages={fontLanguages}
         getImageMetadata={getImageMetadata}
         calculateSmartCropOffsets={calculateSmartCropOffsets}
         expandPdfPages={expandPdfPages}

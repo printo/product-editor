@@ -247,6 +247,23 @@ def test_a_joiner_stays_with_its_indian_letter_and_goes_with_an_emoji():
         _restore()
 
 
+def test_a_font_is_labelled_with_the_languages_its_file_has():
+    """The picker's label comes from the font itself, so a font ops add later
+    is labelled without anyone writing it down."""
+    _with_fonts()
+    original_shaping = tc.shaping_available
+    tc.shaping_available = lambda: True
+    try:
+        assert tc.font_languages("Sample Devanagari") == ["Hindi"]
+        assert tc.font_languages("Sample Tamil") == ["Tamil"]
+        assert tc.font_languages("Inter") == []
+        tc.shaping_available = lambda: False
+        assert tc.font_languages("Sample Tamil") == []
+    finally:
+        tc.shaping_available = original_shaping
+        _restore()
+
+
 def test_the_samples_are_what_they_claim():
     for data, word in ((DEVANAGARI, HINDI_WORD), (TAMIL, TAMIL_WORD)):
         covered = tc.cmap_codepoints(data)
