@@ -116,13 +116,10 @@ interface LayoutConfig {
   maskUrl?: string;
   maskOnExport?: boolean;
   frameMaskUrl?: string | null;
-  artworkMaskUrl?: string | null;
   printSheet?: PrintSheet;
   frameCaptionsEnabled?: boolean;
   orientationRotatable?: boolean;
 }
-
-type MaskSlot = 'frame' | 'artwork';
 
 /** The "Print file" choice as the form holds it. */
 interface PrintSheetState {
@@ -137,7 +134,6 @@ interface SurfaceEditorState {
   dpi: number;
   frames: LayoutFrame[];
   frameMask: MaskSlotSource;
-  artworkMask: MaskSlotSource;
   printSheet: PrintSheetState;
 }
 
@@ -188,8 +184,8 @@ const EMPTY_SLOT: MaskSlotSource = { url: null, file: null };
 const WHOLE_CANVAS: PrintSheetState = { mode: 'canvas' };
 
 /** One slot from a saved layout (or surface), reading a legacy mask into the right slot. */
-const slotFromData = (block: unknown, slot: MaskSlot): MaskSlotSource => ({
-  url: resolveMaskSlots(block)[slot === 'frame' ? 'frameMaskUrl' : 'artworkMaskUrl'],
+const frameSlotFromData = (block: unknown): MaskSlotSource => ({
+  url: resolveMaskSlots(block).frameMaskUrl,
   file: null,
 });
 
@@ -350,17 +346,15 @@ export default function LayoutCreatorPage() {
   // Custom frames
   const [frames, setFrames] = useState<LayoutFrame[]>([]);
 
-  // Mask slots and the print sheet (single-canvas state; a product keeps
-  // them per surface). The frame picture sits outside the bleed area and
-  // only previews; the artwork sits inside it and prints.
+  // The frame picture and the print sheet (single-canvas state; a product
+  // keeps them per surface). The frame picture sits outside the bleed area
+  // and only previews. Artwork belongs to a template, never to a layout.
   const [frameMask, setFrameMask] = useState<MaskSlotSource>(EMPTY_SLOT);
-  const [artworkMask, setArtworkMask] = useState<MaskSlotSource>(EMPTY_SLOT);
   const [printSheet, setPrintSheet] = useState<PrintSheetState>(WHOLE_CANVAS);
   const frameMaskInputRef = useRef<HTMLInputElement>(null);
-  const artworkMaskInputRef = useRef<HTMLInputElement>(null);
   // Set after scanning a freshly-picked mask File for transparency (see
   // hasTransparentPixels) — warns before save, not enforced server-side.
-  const [maskWarnings, setMaskWarnings] = useState<Partial<Record<MaskSlot, string>>>({});
+  const [maskWarning, setMaskWarning] = useState<string | undefined>(undefined);
 
   // Multi-surface state
   const [layoutType, setLayoutType] = useState<'single' | 'product'>('single');
@@ -368,7 +362,7 @@ export default function LayoutCreatorPage() {
   const [activeSurfaceIdx, setActiveSurfaceIdx] = useState(0);
   // Each surface has its own masks — a stale warning from surface A must not
   // linger over surface B's card after switching tabs.
-  useEffect(() => { setMaskWarnings({}); }, [activeSurfaceIdx]);
+  useEffect(() => { setMaskWarning(undefined); }, [activeSurfaceIdx]);
 
   const [snapGrid, setSnapGrid] = useState(true);
   const [zoom, setZoom] = useState(1);
@@ -394,7 +388,7 @@ export default function LayoutCreatorPage() {
 
   const [selectedLayout, setSelectedLayout] = useState<LayoutConfig | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [confirmMaskRemove, setConfirmMaskRemove] = useState<MaskSlot | null>(null);
+  const [confirmMaskRemove, setConfirmMaskRemove] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   // An import of an old design that is adjusting this layout before its
   // artwork is cut to it (components/ImportDesignDialog.tsx): the layout's
@@ -560,18 +554,14 @@ export default function LayoutCreatorPage() {
   const activeHeightMm = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].heightMm : heightMm;
   const activeDpi = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].dpi : dpi;
   const activeFrameMask = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].frameMask : frameMask;
-  const activeArtworkMask = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].artworkMask : artworkMask;
   const activePrintSheet = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].printSheet : printSheet;
   // The preview re-reads the sheet by identity, so give it one object per state change.
   const activePrintSheetJson = useMemo(() => printSheetJson(activePrintSheet), [activePrintSheet]);
-  const setActiveSlot = (slot: MaskSlot, next: MaskSlotSource) => {
-    const key = slot === 'frame' ? 'frameMask' : 'artworkMask';
+  const setActiveFrameMask = (next: MaskSlotSource) => {
     if (layoutType === 'product') {
-      setSurfaces(prev => prev.map((s, i) => i === activeSurfaceIdx ? { ...s, [key]: next } : s));
-    } else if (slot === 'frame') {
-      setFrameMask(next);
+      setSurfaces(prev => prev.map((p, i) => i === activeSurfaceIdx ? { ...p, frameMask: next } : p));
     } else {
-      setArtworkMask(next);
+      setFrameMask(next);
     }
   };
   const setActivePrintSheet = (updater: (prev: PrintSheetState) => PrintSheetState) => {
@@ -581,11 +571,10 @@ export default function LayoutCreatorPage() {
       setPrintSheet(updater);
     }
   };
-  const removeActiveMask = (slot: MaskSlot) => {
-    setActiveSlot(slot, EMPTY_SLOT);
-    setMaskWarnings(prev => ({ ...prev, [slot]: undefined }));
-    const ref = slot === 'frame' ? frameMaskInputRef : artworkMaskInputRef;
-    if (ref.current) ref.current.value = '';
+  const removeActiveMask = () => {
+    setActiveFrameMask(EMPTY_SLOT);
+    setMaskWarning(undefined);
+    if (frameMaskInputRef.current) frameMaskInputRef.current.value = '';
   };
 
   const setActiveFrames = useCallback((updater: LayoutFrame[] | ((prev: LayoutFrame[]) => LayoutFrame[])) => {
@@ -728,7 +717,6 @@ export default function LayoutCreatorPage() {
         },
         frames: _mapFrames(s.frames, s.widthMm, s.heightMm, s.dpi),
         frameMaskUrl: s.frameMask.url || null,
-        artworkMaskUrl: s.artworkMask.url || null,
         printSheet: printSheetJson(s.printSheet),
       }));
 
@@ -744,7 +732,6 @@ export default function LayoutCreatorPage() {
       // Append per-surface mask files, one field per slot
       surfaces.forEach(s => {
         if (s.frameMask.file) formData.append(`frame_mask_${s.key}`, s.frameMask.file);
-        if (s.artworkMask.file) formData.append(`artwork_mask_${s.key}`, s.artworkMask.file);
       });
     } else {
       // Single-surface layout (existing format)
@@ -763,14 +750,12 @@ export default function LayoutCreatorPage() {
         },
         frames: _mapFrames(frames, widthMm, heightMm, dpi),
         frameMaskUrl: frameMask.url || null,
-        artworkMaskUrl: artworkMask.url || null,
         printSheet: printSheetJson(printSheet),
         frameCaptionsEnabled,
         orientationRotatable,
       };
 
       if (frameMask.file) formData.append('frame_mask', frameMask.file);
-      if (artworkMask.file) formData.append('artwork_mask', artworkMask.file);
     }
 
     formData.append('name', layoutId);
@@ -885,7 +870,7 @@ export default function LayoutCreatorPage() {
       setTagKeys(layoutTagKeys(data));
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
       setOrientationRotatable(data.orientationRotatable !== false);
-      setMaskWarnings({});
+      setMaskWarning(undefined);
 
       // Multi-surface product layout
       if (data.type === 'product' && Array.isArray(data.surfaces)) {
@@ -899,8 +884,7 @@ export default function LayoutCreatorPage() {
             heightMm: round2(s.canvas?.heightMm || pxToMm(s.canvas?.height || 0, sDpi)),
             dpi: sDpi,
             frames: _loadFramesFromData(s, s.canvas || {}),
-            frameMask: slotFromData(s, 'frame'),
-            artworkMask: slotFromData(s, 'artwork'),
+            frameMask: frameSlotFromData(s),
             printSheet: printSheetStateFrom(s.printSheet),
           };
         });
@@ -950,8 +934,7 @@ export default function LayoutCreatorPage() {
           setFrames(fallbackFrames);
         }
 
-        setFrameMask(slotFromData(data, 'frame'));
-        setArtworkMask(slotFromData(data, 'artwork'));
+        setFrameMask(frameSlotFromData(data));
         setPrintSheet(printSheetStateFrom(data.printSheet));
       }
 
@@ -989,7 +972,7 @@ export default function LayoutCreatorPage() {
   const openCopyModal = async (name: string) => {
     const data = await fetchLayoutDetail(name);
     if (data) {
-      setMaskWarnings({});
+      setMaskWarning(undefined);
       const displayDpi = data.canvas.dpi || 300;
       setDpi(displayDpi);
       setWidthMm(round2(data.canvas.widthMm || pxToMm(data.canvas.width, displayDpi)));
@@ -1014,8 +997,7 @@ export default function LayoutCreatorPage() {
         }));
         setFrames(loadedFrames);
       }
-      setFrameMask(slotFromData(data, 'frame'));
-      setArtworkMask(slotFromData(data, 'artwork'));
+      setFrameMask(frameSlotFromData(data));
       setPrintSheet(printSheetStateFrom(data.printSheet));
       setFrameCaptionsEnabled(Boolean(data.frameCaptionsEnabled));
       setOrientationRotatable(data.orientationRotatable !== false);
@@ -1034,9 +1016,8 @@ export default function LayoutCreatorPage() {
     setDpi(300);
     setFrames([]);
     setFrameMask(EMPTY_SLOT);
-    setArtworkMask(EMPTY_SLOT);
     setPrintSheet(WHOLE_CANVAS);
-    setMaskWarnings({});
+    setMaskWarning(undefined);
     setLayoutType('single');
     setSurfaces([]);
     setActiveSurfaceIdx(0);
@@ -1045,15 +1026,10 @@ export default function LayoutCreatorPage() {
   };
   // Warn (never block) if a freshly-picked mask PNG has no transparent
   // window — see hasTransparentPixels for why this matters.
-  const checkMaskTransparency = (slot: MaskSlot, file: File) => {
-    setMaskWarnings(prev => ({ ...prev, [slot]: undefined }));
+  const checkMaskTransparency = (file: File) => {
+    setMaskWarning(undefined);
     hasTransparentPixels(file).then(transparent => {
-      if (!transparent) {
-        setMaskWarnings(prev => ({
-          ...prev,
-          [slot]: 'This mask has no transparent pixels — the photo will be fully covered instead of showing through a window. Add a transparent cutout before saving.',
-        }));
-      }
+      if (!transparent) setMaskWarning('This mask has no transparent pixels — the photo will be fully covered instead of showing through a window. Add a transparent cutout before saving.');
     });
   };
 
@@ -1200,9 +1176,8 @@ export default function LayoutCreatorPage() {
                 setSurfaces([]);
                 setLayoutType('single');
                 setFrameMask(EMPTY_SLOT);
-                setArtworkMask(EMPTY_SLOT);
                 setPrintSheet(WHOLE_CANVAS);
-                setMaskWarnings({});
+                setMaskWarning(undefined);
                 setFrameCaptionsEnabled(false);
                 setIsModalOpen(true);
               }}
@@ -1629,7 +1604,7 @@ export default function LayoutCreatorPage() {
                               // Copy first surface to flat state
                               const s = surfaces[0];
                               setWidthMm(s.widthMm); setHeightMm(s.heightMm); setDpi(s.dpi);
-                              setFrames(s.frames); setFrameMask(s.frameMask); setArtworkMask(s.artworkMask); setPrintSheet(s.printSheet);
+                              setFrames(s.frames); setFrameMask(s.frameMask); setPrintSheet(s.printSheet);
                             }
                             setLayoutType('single');
                           }}
@@ -1645,7 +1620,7 @@ export default function LayoutCreatorPage() {
                               setSurfaces([{
                                 key: 'front', label: 'Front',
                                 widthMm, heightMm, dpi, frames,
-                                frameMask, artworkMask, printSheet,
+                                frameMask, printSheet,
                               }]);
                               setActiveSurfaceIdx(0);
                             }
@@ -1718,7 +1693,7 @@ export default function LayoutCreatorPage() {
                               setSurfaces(prev => [...prev, {
                                 key: `surface-${n}`, label: `Surface ${n}`,
                                 widthMm: 101.6, heightMm: 152.4, dpi: 300,
-                                frames: [], frameMask: EMPTY_SLOT, artworkMask: EMPTY_SLOT, printSheet: WHOLE_CANVAS,
+                                frames: [], frameMask: EMPTY_SLOT, printSheet: WHOLE_CANVAS,
                               }]);
                               setActiveSurfaceIdx(surfaces.length);
                             }}
@@ -1836,9 +1811,9 @@ export default function LayoutCreatorPage() {
                   {/* Masks and the print sheet */}
                   <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-5">
                     <div>
-                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Masks (Optional)</label>
+                      <label className="block text-xs font-bold text-indigo-600 uppercase tracking-wider">Frame picture (optional)</label>
                       <p className="text-[10px] text-slate-500 mt-1">
-                        PNG or SVG with transparent holes where the photos show. Where a mask is placed decides whether it prints; nothing is ticked as printable.
+                        PNG or SVG with transparent holes where the photos show. It shows in every preview and never prints. Artwork that prints belongs on a template, on the Templates page.
                       </p>
                     </div>
                     <MaskSlotRow
@@ -1846,18 +1821,9 @@ export default function LayoutCreatorPage() {
                       hint="Outside the print areas — shown in every preview and the mock, never printed"
                       slot={activeFrameMask}
                       inputRef={frameMaskInputRef}
-                      warning={maskWarnings.frame}
-                      onPick={(file) => { setActiveSlot('frame', { url: activeFrameMask.url, file }); checkMaskTransparency('frame', file); }}
-                      onRemove={() => setConfirmMaskRemove('frame')}
-                    />
-                    <MaskSlotRow
-                      title="Artwork"
-                      hint="Inside the print areas — shown in previews and the mock, and in the print file"
-                      slot={activeArtworkMask}
-                      inputRef={artworkMaskInputRef}
-                      warning={maskWarnings.artwork}
-                      onPick={(file) => { setActiveSlot('artwork', { url: activeArtworkMask.url, file }); checkMaskTransparency('artwork', file); }}
-                      onRemove={() => setConfirmMaskRemove('artwork')}
+                      warning={maskWarning}
+                      onPick={(file) => { setActiveFrameMask({ url: activeFrameMask.url, file }); checkMaskTransparency(file); }}
+                      onRemove={() => setConfirmMaskRemove(true)}
                     />
 
                   </div>
@@ -2016,7 +1982,6 @@ export default function LayoutCreatorPage() {
                           dpi={activeDpi}
                           frames={activeFrames}
                           frameMask={activeFrameMask}
-                          artworkMask={activeArtworkMask}
                           printSheet={activePrintSheetJson}
                           guide={importing ? importGuide : null}
                           snapGrid={snapGrid}
@@ -2066,29 +2031,29 @@ export default function LayoutCreatorPage() {
       )}
 
       {confirmMaskRemove && (
-        <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-label={confirmMaskRemove === 'frame' ? 'Remove frame picture?' : 'Remove artwork?'}>
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setConfirmMaskRemove(null)} />
+        <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-label="Remove frame picture">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setConfirmMaskRemove(false)} />
           <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
             <div className="flex flex-col items-center text-center">
               <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
                 <Trash2 className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-1">{confirmMaskRemove === 'frame' ? 'Remove frame picture?' : 'Remove artwork?'}</h3>
+              <h3 className="text-lg font-bold text-slate-900 mb-1">Remove frame picture?</h3>
               <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-                {confirmMaskRemove === 'frame' ? 'The frame picture' : 'The artwork'} is detached from this layout once you save. You can upload another one afterwards.
+                The frame picture is detached from this layout once you save. You can upload another one afterwards.
               </p>
               <div className="flex w-full gap-2">
                 <button
                   type="button"
                   autoFocus
-                  onClick={() => setConfirmMaskRemove(null)}
+                  onClick={() => setConfirmMaskRemove(false)}
                   className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-all active:scale-95"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={() => { removeActiveMask(confirmMaskRemove); setConfirmMaskRemove(null); }}
+                  onClick={() => { removeActiveMask(); setConfirmMaskRemove(false); }}
                   className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
                 >
                   Remove

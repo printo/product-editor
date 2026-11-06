@@ -8,13 +8,19 @@ import { signIn } from './support/auth';
 import { PHOTOS, addPhotos, cards } from './support/editor';
 
 /**
- * Importing a design made in the older design tool, end to end: ops paste
- * its JSON on the Templates page, see what it becomes and confirm. Confirm
- * creates the layout and opens it in the layout editor, where the test
- * narrows the print area and presses Update Layout. Back on the Templates
- * page the artwork is cut to the print area as saved and the template editor
- * opens on the design. The layout and the template are then read back from
- * the server, and a real render's print file is read where the page colour,
+ * Importing a design made in the older design tool, end to end, both ways.
+ *
+ * Onto a size: ops choose a size and paste the JSON; every picture becomes one
+ * artwork on the chosen layout, no layout is created, the template editor opens
+ * on it, and a real render shows the artwork centred with the hole at that
+ * layout's print area.
+ *
+ * Its own layout, when no layout has as many print areas as the design has
+ * photo spaces: Confirm creates the layout and opens it in the layout editor,
+ * where the test narrows the print area and presses Update Layout. Back on the
+ * Templates page the artwork is cut to the print area as saved and the template
+ * editor opens on the design. The layout and the template are then read back
+ * from the server, and a real render's print file is read where the page colour,
  * the artwork under the photo, the hole cut for the photo (as saved, not as
  * imported) and the picture drawn over the photo layer should be.
  *
@@ -28,6 +34,12 @@ import { PHOTOS, addPhotos, cards } from './support/editor';
 const RUN = `${Date.now()}_${process.pid}`;
 const LAYOUT = `${E2E_LAYOUT_PREFIX}import_${RUN}`;
 const RACE_LAYOUT = `${E2E_LAYOUT_PREFIX}import_race_${RUN}`;
+/** Two print areas, so a one-photo design has to make its own layout. */
+const TWO_AREAS = `${E2E_LAYOUT_PREFIX}import_two_${RUN}`;
+/** One print area on a bigger canvas: a design is placed on it, centred. */
+const ON_SIZE = `${E2E_LAYOUT_PREFIX}import_size_${RUN}`;
+const SIZE_TEMPLATE_NAME = `E2E Import Size ${RUN.replace('_', ' ')}`;
+const SIZE_TEMPLATE_ID = `${E2E_TEMPLATE_PREFIX}import-size-${RUN.replace('_', '-')}`;
 // The editor makes the template's id from its name.
 const TEMPLATE_NAME = `E2E Import ${RUN.replace('_', ' ')}`;
 const TEMPLATE_ID = `${E2E_TEMPLATE_PREFIX}import-${RUN.replace('_', '-')}`;
@@ -95,10 +107,31 @@ const dialogOf = (page: Page) => page.getByRole('dialog', { name: 'Import a desi
 /** The review's confirm button. */
 const CONFIRM = 'Create the layout and adjust it';
 
-/** Open the dialog, paste a design and press Read. */
-async function readDesign(page: Page, text: string) {
+const CONTINUE = 'Continue to the template editor';
+
+const TWO_AREA_LAYOUT = {
+  canvas: { width: 1800, height: 1200, widthMm: 152.4, heightMm: 101.6, dpi: 300 },
+  frames: [{ x: 0.05, y: 0.1, width: 0.4, height: 0.8 }, { x: 0.55, y: 0.1, width: 0.4, height: 0.8 }],
+};
+
+/** Pick a layout in the dialog's size picker, whichever size it is listed under. */
+async function chooseLayout(page: Page, name: string) {
+  const sizes = await page.locator('#import-template-size option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
+  for (const size of sizes) {
+    await page.locator('#import-template-size').selectOption(size);
+    if (await page.locator(`#import-template-layout option[value="${name}"]`).count()) {
+      await page.locator('#import-template-layout').selectOption(name);
+      return;
+    }
+  }
+  throw new Error(`layout ${name} is not offered in the size picker`);
+}
+
+/** Open the dialog, optionally choose a layout, paste a design and press Read. */
+async function readDesign(page: Page, text: string, layout?: string) {
   await page.getByRole('button', { name: 'Import a design' }).click();
   const dialog = dialogOf(page);
+  if (layout) await chooseLayout(page, layout);
   await dialog.getByLabel('Design JSON').fill(text);
   await dialog.getByRole('button', { name: 'Read the design' }).click();
   return dialog;
@@ -108,18 +141,103 @@ async function readDesign(page: Page, text: string) {
 const px = (mm: number) => Math.round((mm / 25.4) * 300);
 const far = (a: number[], b: number[]) => a.reduce((sum, v, i) => sum + Math.abs(v - b[i]), 0);
 
+/** Render one photo with a template through the embed and read the print file at these points. */
+async function renderAndRead(page: Page, templateId: string, points: number[][]) {
+  await setTemplateStatus(templateId, 'published');
+  const session = await createEmbedSession({ templateId });
+  await page.goto(session.editorUrl!);
+  await addPhotos(page, [PHOTOS.portrait]);
+  await expect(cards(page)).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Save and continue' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Ready to Submit?' });
+  await confirm.getByRole('checkbox').check();
+  const renderResponse = page.waitForResponse(
+    (r) => r.url().endsWith('/api/embed/proxy/editor/render') && r.request().method() === 'POST', { timeout: 90_000 },
+  );
+  await confirm.getByRole('button', { name: 'Yes, Proceed' }).click();
+  const res = await renderResponse;
+  expect(res.status()).toBe(202);
+  const { job_id: jobId } = await res.json();
+
+  const zip = await JSZip.loadAsync(await printArchive(jobId));
+  const pngName = Object.keys(zip.files).find((n) => /\.png$/i.test(n));
+  expect(pngName).toBeTruthy();
+  const png = await zip.file(pngName!)!.async('base64');
+  return page.evaluate(async ({ b64, points: pts }) => {
+    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const bmp = await createImageBitmap(blob);
+    const canvas = new OffscreenCanvas(bmp.width, bmp.height);
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(bmp, 0, 0);
+    return { size: [bmp.width, bmp.height], at: pts.map(([x, y]) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3))) };
+  }, { b64: png, points });
+}
+
 test.describe.serial('importing a design from the old design tool', () => {
   test.afterAll(async () => {
     await hideTemplate(TEMPLATE_ID);
-    await deleteLayout(LAYOUT);
-    await deleteLayout(RACE_LAYOUT);
+    await hideTemplate(SIZE_TEMPLATE_ID);
+    for (const name of [LAYOUT, RACE_LAYOUT, TWO_AREAS, ON_SIZE]) await deleteLayout(name);
   });
 
-  test('paste, review and confirm; the layout is adjusted in its editor; the template editor opens on the design cut to it', async ({ context, page }) => {
+  test('onto a size: one artwork on the chosen layout, no layout created, centred, with the hole at its print area', async ({ context, page }) => {
+    test.skip(process.env.E2E_WORKERS === '0', 'No Celery worker is running, so a render cannot complete (see e2e/README.md).');
     await signIn(context, 'ops');
     await answerArtwork(page);
+    // 200 x 250 mm, so the 152.4 x 203.2 mm page sits 23.8 mm in and 23.4 mm down. The print area is 60, 80, 80 x 70.
+    await createLayout(ON_SIZE, {
+      canvas: { width: 2362, height: 2953, widthMm: 200, heightMm: 250, dpi: 300 },
+      frames: [{ x: 0.3, y: 0.32, width: 0.4, height: 0.28, xMm: 60, yMm: 80, widthMm: 80, heightMm: 70, bleedMm: 0 }],
+    });
     await page.goto('/editor/layouts/templates');
-    const dialog = await readDesign(page, exportOf([BLOCK, WINDOW, STICKER, TEXT]));
+    const layoutWrites: string[] = [];
+    page.on('request', (r) => { if (r.method() === 'POST' && r.url().includes('/ops/layouts')) layoutWrites.push(r.url()); });
+    const dialog = await readDesign(page, exportOf([BLOCK, WINDOW, STICKER, TEXT]), ON_SIZE);
+
+    const go = dialog.getByRole('button', { name: CONTINUE });
+    await expect(go).toBeEnabled();
+    await expect(dialog.getByText(/Mapped to size:/)).toBeVisible();
+    await expect(dialog.getByLabel(/Artwork size/)).toBeVisible();
+    await expect(dialog.getByLabel(/Layout id/)).toHaveCount(0);
+    await dialog.getByLabel('Template name').fill(SIZE_TEMPLATE_NAME);
+    await go.click();
+
+    await expect(page).toHaveURL(new RegExp(`/editor/layouts/templates/${ON_SIZE}/new\\?import=1&tick=size`), { timeout: 60_000 });
+    await expect(page.locator('#template-id')).toHaveValue(SIZE_TEMPLATE_ID);
+    expect(layoutWrites).toEqual([]);
+    await page.getByRole('button', { name: 'Create template' }).click();
+    await expect(page).toHaveURL(new RegExp(`/editor/layouts/templates/${ON_SIZE}/${SIZE_TEMPLATE_ID}$`), { timeout: 60_000 });
+
+    const side = (await getTemplate(SIZE_TEMPLATE_ID))!.decoration.surfaces.default;
+    expect(side.overlays.map((o) => [o.type, o.label ?? o.text])).toEqual([['image', 'Artwork'], ['text', 'E2E imported']]);
+    expect(side.overlays[0]).toMatchObject({ x: 0, y: 0, width: 100, height: 100 });
+
+    const read = await renderAndRead(page, SIZE_TEMPLATE_ID, [
+      [px(5), px(5)],        // outside the old page: the page colour
+      [px(50), px(100)],     // the colour block, left of the print area
+      [px(100), px(115)],    // the middle of the print area
+      [px(148.8), px(188.4)], // the middle of the sticker, moved with the page
+    ]);
+    const [paper, ring, photo, sticker] = read.at;
+    expect(far(paper, [245, 153, 166]), `page colour, got ${paper}`).toBeLessThanOrEqual(30);
+    expect(far(ring, BLOCK_RGB), `colour block, got ${ring}`).toBeLessThanOrEqual(30);
+    expect(far(sticker, STICKER_RGB), `sticker, got ${sticker}`).toBeLessThanOrEqual(30);
+    expect(far(photo, BLOCK_RGB), `photo in the print area, got ${photo}`).toBeGreaterThan(90);
+    expect(far(photo, [245, 153, 166]), `photo in the print area, got ${photo}`).toBeGreaterThan(90);
+  });
+
+  test('its own layout: confirm; the layout is adjusted in its editor; the template editor opens on the design cut to it', async ({ context, page }) => {
+    await signIn(context, 'ops');
+    await answerArtwork(page);
+    await createLayout(TWO_AREAS, TWO_AREA_LAYOUT);
+    await page.goto('/editor/layouts/templates');
+    const dialog = await readDesign(page, exportOf([BLOCK, WINDOW, STICKER, TEXT]), TWO_AREAS);
+
+    // A layout with another number of print areas cannot take it, and the dialog says so.
+    await expect(dialog.getByRole('button', { name: CONTINUE })).toBeDisabled();
+    await expect(dialog.getByRole('alert')).toContainText('has 1 photo space, but this layout has 2 print areas');
+    await dialog.getByRole('button', { name: 'Make a new layout for this design' }).click();
 
     // The review: what it becomes, before anything is created.
     const confirm = dialog.getByRole('button', { name: CONFIRM });
@@ -191,27 +309,6 @@ test.describe.serial('importing a design from the old design tool', () => {
 
   test('the print carries the page colour, the artwork with a hole cut to the saved print area, and the sticker; never the frame', async ({ page }) => {
     test.skip(process.env.E2E_WORKERS === '0', 'No Celery worker is running, so a render cannot complete (see e2e/README.md).');
-    await setTemplateStatus(TEMPLATE_ID, 'published');
-    const session = await createEmbedSession({ templateId: TEMPLATE_ID });
-    await page.goto(session.editorUrl!);
-    await addPhotos(page, [PHOTOS.portrait]);
-    await expect(cards(page)).toHaveCount(1);
-
-    await page.getByRole('button', { name: 'Save and continue' }).click();
-    const confirm = page.getByRole('dialog', { name: 'Ready to Submit?' });
-    await confirm.getByRole('checkbox').check();
-    const renderResponse = page.waitForResponse(
-      (r) => r.url().endsWith('/api/embed/proxy/editor/render') && r.request().method() === 'POST', { timeout: 90_000 },
-    );
-    await confirm.getByRole('button', { name: 'Yes, Proceed' }).click();
-    const res = await renderResponse;
-    expect(res.status()).toBe(202);
-    const { job_id: jobId } = await res.json();
-
-    const zip = await JSZip.loadAsync(await printArchive(jobId));
-    const pngName = Object.keys(zip.files).find((n) => /\.png$/i.test(n));
-    expect(pngName).toBeTruthy();
-    const png = await zip.file(pngName!)!.async('base64');
     const spots = {
       paper: [px(5), px(5)],            // a corner the frame covers in previews: the print has the page colour there
       ring: [px(23), px(90)],           // the colour block, between its edge and the print area
@@ -219,14 +316,7 @@ test.describe.serial('importing a design from the old design tool', () => {
       narrowed: [px(121), px(90)],      // inside the window as imported, outside the print area as saved
       sticker: [px(125), px(165)],      // the middle of the sticker
     };
-    const read = await page.evaluate(async ({ b64, points }) => {
-      const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
-      const bmp = await createImageBitmap(blob);
-      const canvas = new OffscreenCanvas(bmp.width, bmp.height);
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(bmp, 0, 0);
-      return { size: [bmp.width, bmp.height], at: points.map(([x, y]) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3))) };
-    }, { b64: png, points: Object.values(spots) });
+    const read = await renderAndRead(page, TEMPLATE_ID, Object.values(spots));
     expect(read.size).toEqual([1800, 2400]);
     const [paper, ring, photo, narrowed, sticker] = read.at;
     expect(far(paper, [245, 153, 166]), `page colour at the corner, got ${paper}`).toBeLessThanOrEqual(30);
@@ -246,13 +336,11 @@ test.describe.serial('importing a design from the old design tool', () => {
     await page.goto('/editor/layouts/templates');
     await expect(page.getByRole('button', { name: 'Import a design' })).toBeEnabled();
     // Someone else creates a layout under the name while this page is open: the page's own list cannot know.
-    const theirs = {
-      canvas: { width: 1800, height: 1200, widthMm: 152.4, heightMm: 101.6, dpi: 300 },
-      frames: [{ x: 0.05, y: 0.1, width: 0.4, height: 0.8 }, { x: 0.55, y: 0.1, width: 0.4, height: 0.8 }],
-    };
-    await createLayout(RACE_LAYOUT, theirs);
+    await createLayout(RACE_LAYOUT, TWO_AREA_LAYOUT);
 
-    const dialog = await readDesign(page, exportOf([BLOCK, WINDOW]));
+    // The sizes on the page predate it, so a layout with another number of print areas is what makes this design need its own.
+    const dialog = await readDesign(page, exportOf([BLOCK, WINDOW]), TWO_AREAS);
+    await dialog.getByRole('button', { name: 'Make a new layout for this design' }).click();
     await dialog.getByLabel(/Layout id/).fill(RACE_LAYOUT);
     await dialog.getByRole('button', { name: CONFIRM }).click();
     await expect(dialog.getByRole('alert')).toContainText(`A layout named '${RACE_LAYOUT}' already exists`);

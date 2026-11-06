@@ -36,9 +36,20 @@ function exportOf(objects: Obj[]): string {
   ]);
 }
 
+/** A 200 x 250 mm frame layout of the size chosen: one print area, printing the whole canvas. */
+const TARGET: Obj = {
+  name: 'frame_6x8', canvas: { width: 2362, height: 2953, widthMm: 200, heightMm: 250, dpi: 300 },
+  frames: [{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }],
+};
+const CANDIDATE = {
+  name: 'frame_6x8', displayName: 'Frame 6 x 8', windowBox: { xMm: 20, yMm: 25, widthMm: 160, heightMm: 200 }, windowKey: '160x200',
+  printAreaBox: { xMm: 20, yMm: 25, widthMm: 160, heightMm: 200 }, printAreaKey: '160x200', bleedMm: 0, surfaceKeys: ['default'], templateCount: 0,
+};
+const SIZES = [{ key: '160x200', label: '6.3 × 7.87 in', layouts: [CANDIDATE], facings: ['portrait' as const] }];
+
 interface Call { method: string; path: string; json?: Obj; form?: FormData }
 let calls: Call[];
-let server: { font: { listed: boolean; available: boolean }; layoutStatus: number; failSticker: number; fetchOff: boolean; saved: Obj };
+let server: { font: { listed: boolean; available: boolean }; layoutStatus: number; failSticker: number; fetchOff: boolean; saved: Obj; target: Obj };
 
 /** The layout as the layout editor saved it: the print area moved 2 mm right and down, and made smaller. */
 const SAVED: Obj = {
@@ -56,7 +67,7 @@ const answer = (status: number, body: unknown, bytes?: Uint8Array) => ({
 
 beforeEach(() => {
   calls = [];
-  server = { font: { listed: false, available: true }, layoutStatus: 200, failSticker: 0, fetchOff: false, saved: SAVED };
+  server = { font: { listed: false, available: true }, layoutStatus: 200, failSticker: 0, fetchOff: false, saved: SAVED, target: TARGET };
   mockRouter.push.mockClear();
   URL.createObjectURL = jest.fn(() => 'blob:preview');
   URL.revokeObjectURL = jest.fn();
@@ -78,6 +89,7 @@ beforeEach(() => {
     if (path === '/ops/import/font') return answer(200, { family: call.json?.family, ...server.font });
     if (path === '/fonts') return answer(200, { fonts: method === 'PUT' ? call.json?.fonts : ['Inter', 'Lobster'] });
     if (path.startsWith('/ops/layouts/') && method === 'GET') return answer(200, server.saved);
+    if (path.startsWith('/layouts/') && method === 'GET') return answer(200, server.target);
     if (path.startsWith('/ops/layouts/')) {
       return server.layoutStatus === 200 ? answer(200, { status: 'success' }) : answer(server.layoutStatus, { detail: "A layout named 'x' already exists. Choose another name." });
     }
@@ -92,6 +104,7 @@ beforeEach(() => {
 
 afterEach(() => {
   clearImportSession();
+  clearImportDraft('frame_6x8');
   clearImportDraft('photo_frame_6x8_1_photo');
   clearImportDraft('photo_frame_6x8_1_photo_2');
 });
@@ -293,4 +306,90 @@ it('makes only the layout when the design is nothing but windows on white', asyn
   expect(await screen.findByText(/is created with 1 print area/)).toBeInTheDocument();
   expect(mockRouter.push).not.toHaveBeenCalled();
   expect(readImportDraft('photo_frame_6x8_1_photo')).toBeNull();
+});
+
+describe('choosing a size first', () => {
+  function openOnSize() {
+    render(<ImportDesignDialog sizeGroups={SIZES} takenNames={['frame_6x8']} takenTemplateIds={[]} onClose={jest.fn()} />);
+  }
+
+  it('asks for the size, shows what it maps to and creates no layout', async () => {
+    openOnSize();
+    expect(screen.getByLabelText('Size')).toHaveValue('160x200');
+    await read(exportOf([BLOCK, WINDOW, HEART_ART, DATE]));
+    const go = await screen.findByRole('button', { name: 'Continue to the template editor' });
+    expect(sent('GET', '/layouts/frame_6x8')).toHaveLength(1);
+    expect(screen.getByText(/Mapped to size:/).parentElement).toHaveTextContent('6.3 × 7.87 in');
+    expect(screen.getByText(/Designed on:/).parentElement).toHaveTextContent('Frame 6 x 8, 1 print area');
+    expect(screen.queryByLabelText(/Layout id/)).toBeNull();
+    expect(screen.queryByLabelText(/Use the old tool/)).toBeNull();
+    expect(screen.getByText(/old design is another size/)).toBeInTheDocument();
+
+    fireEvent.click(go);
+    await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/editor/layouts/templates/frame_6x8/new?import=1&tick=size'));
+    expect(calls.some(c => c.method === 'POST' && c.path.startsWith('/ops/layouts'))).toBe(false);
+
+    const stored = sent('POST', '/ops/templates/assets').map(c => (c.form as FormData).get('file') as File);
+    expect(stored.map(f => f.name)).toEqual(['artwork.svg']);
+    // One sheet of the layout's canvas, with the hole at the layout's print area (20 mm in, plus the 0.3 mm inset).
+    const sheet = await stored[0].text();
+    expect(sheet).toContain('viewBox="0 0 2362 2953"');
+    expect(sheet).toContain(`M${Math.round(((20 + 0.3) / 25.4) * 300 * 1000) / 1000} `);
+    const side = readImportDraft('frame_6x8')?.decoration.surfaces.default;
+    expect(side?.overlays.map(o => o.type)).toEqual(['image', 'text']);
+    expect(side?.overlays[0]).toMatchObject({ label: ARTWORK_LABEL, x: 0, y: 0, width: 100, height: 100 });
+  });
+
+  it('grows the artwork with the slider before it is stored', async () => {
+    openOnSize();
+    await read(exportOf([{ ...BLOCK, width: 100, height: 100, ...at(26, 50) }, WINDOW]));
+    const go = await screen.findByRole('button', { name: 'Continue to the template editor' });
+    fireEvent.change(screen.getByLabelText(/Artwork size/), { target: { value: '200' } });
+    expect(screen.getByLabelText(/Artwork size: 200%/)).toBeInTheDocument();
+    fireEvent.click(go);
+    await waitFor(() => expect(mockRouter.push).toHaveBeenCalled());
+    const sheet = await ((sent('POST', '/ops/templates/assets')[0].form as FormData).get('file') as File).text();
+    // 100 mm at 200% is 2362.205 px.
+    expect(sheet).toContain('width="2362.205"');
+  });
+
+  it('will not put a design on a layout with another number of print areas, and offers a layout of its own', async () => {
+    server.target = { ...TARGET, frames: [] };
+    openOnSize();
+    await read(exportOf([BLOCK, WINDOW]));
+    const go = await screen.findByRole('button', { name: 'Continue to the template editor' });
+    expect(go).toBeDisabled();
+    expect(screen.getByText(/has 1 photo space, but this layout has 0 print areas/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Make a new layout for this design' }));
+    expect(await screen.findByRole('button', { name: 'Create the layout and adjust it' })).toBeEnabled();
+    expect(screen.getByLabelText(/Layout id/)).toHaveValue('photo_frame_6x8_1_photo');
+    expect(mockRouter.push).not.toHaveBeenCalled();
+  });
+
+  it('asks for the layout turned only when it has to turn to face the way chosen', async () => {
+    const canTurn = { ...CANDIDATE, turnedWindowKey: '200x160' };
+    render(<ImportDesignDialog sizeGroups={[{ ...SIZES[0], layouts: [canTurn], facings: ['portrait', 'landscape'] }]} takenNames={[]} takenTemplateIds={[]} onClose={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /landscape/i }));
+    await read(exportOf([BLOCK, WINDOW]));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue to the template editor' }));
+    await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/editor/layouts/templates/frame_6x8/new?import=1&tick=size&orientation=landscape'));
+    expect(sent('GET', '/layouts/frame_6x8?orientation=landscape')).toHaveLength(1);
+  });
+
+  it('warns when the print area is another size from the old photo space, and still lets it through', async () => {
+    openOnSize();
+    await read(exportOf([BLOCK, WINDOW]));   // a 50 x 40 mm space against a 160 x 200 mm print area
+    const go = await screen.findByRole('button', { name: 'Continue to the template editor' });
+    expect(screen.getByText(/a different size from the photo space/)).toBeInTheDocument();
+    expect(go).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Make a new layout for this design' }));
+    expect(await screen.findByRole('button', { name: 'Create the layout and adjust it' })).toBeEnabled();
+  });
+
+  it('leaves two-sided layouts out of the sizes', () => {
+    const twoSided = { ...CANDIDATE, name: 'sleeve', displayName: 'Sleeve', surfaceKeys: ['front', 'back'] };
+    render(<ImportDesignDialog sizeGroups={[{ key: '1x1', label: 'Sleeve size', layouts: [twoSided], facings: ['portrait'] }, ...SIZES]} takenNames={[]} takenTemplateIds={[]} onClose={jest.fn()} />);
+    expect(screen.queryByRole('option', { name: /Sleeve size/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /6.3 × 7.87 in/ })).toBeInTheDocument();
+  });
 });
