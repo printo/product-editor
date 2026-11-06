@@ -152,11 +152,33 @@ describe('reading the export', () => {
     expect(d.notes.some(n => /bold or italic/.test(n.text))).toBe(true);
   });
 
+  it('brings a tilted window in upright, at the same centre and size, and says so once', () => {
+    // A quarter turn about the corner at (60, 10): the 30 x 30 box then lies to its left, centred on (45, 25).
+    const d = parseOnlineCanvasExport(exportOf([
+      win(60, 10, 30, 30, { angle: 90 }),
+      win(50, 100, 40, 20, { angle: 30, originX: 'center', originY: 'center' }),   // placed by its centre
+      win(10, 150, 30, 30),
+    ]));
+    expect(d.blocked).toEqual([]);
+    const [turned, centred, plain] = [...d.windows].sort((a, b) => a.index - b.index);
+    expect(turned.box.x).toBeCloseTo(30);
+    expect(turned.box.y).toBeCloseTo(10);
+    expect(turned.box).toMatchObject({ w: 30, h: 30 });
+    expect(centred.box.x).toBeCloseTo(30);
+    expect(centred.box.y).toBeCloseTo(90);
+    expect(centred.box).toMatchObject({ w: 40, h: 20 });
+    expect(plain.box.x).toBeCloseTo(10);
+    const said = d.notes.filter(n => /tilted in the old design/.test(n.text));
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatchObject({ level: 'warning' });
+    expect(said[0].text).toMatch(/^2 photo windows were tilted.*they come in straight, at the same centre and size/);
+    const one = parseOnlineCanvasExport(exportOf([win(60, 10, 30, 30, { angle: 12 })]));
+    expect(one.notes[0].text).toMatch(/^1 photo window was tilted.*it comes in straight/);
+  });
+
   it('refuses what it cannot place rather than guessing', () => {
     const round = parseOnlineCanvasExport(exportOf([win(10, 10, 30, 30, { element: 'circle' })]));
     expect(round.blocked[0]).toMatch(/circle-shaped/);
-    const tilted = parseOnlineCanvasExport(exportOf([win(10, 10, 30, 30, { angle: 12 })]));
-    expect(tilted.blocked[0]).toMatch(/tilted/);
     const none = parseOnlineCanvasExport(exportOf([art('https://f.example/a.svg', 0, 0, 10, 10)]));
     expect(none.blocked[0]).toMatch(/no photo window/);
     const turned = parseOnlineCanvasExport(exportOf([win(10, 10, 30, 30)], { clockwise_rotation_degree: 90 }));
