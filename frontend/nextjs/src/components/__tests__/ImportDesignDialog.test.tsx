@@ -1,11 +1,13 @@
 /**
  * The Templates page's Import dialog: what it asks the server for, what it
- * shows before anything is created, and what Confirm sends. The server is a
+ * shows before anything is created, what Confirm sends, and how it finishes
+ * once the layout editor has saved the layout. The server is a
  * stand-in; the reading itself is covered in lib/__tests__/online-canvas-import.test.ts.
  */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ImportDesignDialog } from '@/components/ImportDesignDialog';
 import { ARTWORK_LABEL, clearImportDraft, readImportDraft } from '@/app/editor/layout/[name]/template-authoring';
+import { clearImportSession, readImportSession, writeImportSession } from '@/lib/import-session';
 
 const mockRouter = { push: jest.fn() };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
@@ -36,7 +38,13 @@ function exportOf(objects: Obj[]): string {
 
 interface Call { method: string; path: string; json?: Obj; form?: FormData }
 let calls: Call[];
-let server: { font: { listed: boolean; available: boolean }; layoutStatus: number; failSticker: number; fetchOff: boolean };
+let server: { font: { listed: boolean; available: boolean }; layoutStatus: number; failSticker: number; fetchOff: boolean; saved: Obj };
+
+/** The layout as the layout editor saved it: the print area moved 2 mm right and down, and made smaller. */
+const SAVED: Obj = {
+  name: 'photo_frame_6x8_1_photo', canvas: { width: 1800, height: 2400, widthMm: 152.4, heightMm: 203.2, dpi: 300 },
+  frames: [{ x: 12 / 152.4, y: 22 / 203.2, width: 46 / 152.4, height: 36 / 203.2 }],
+};
 
 const answer = (status: number, body: unknown, bytes?: Uint8Array) => ({
   ok: status >= 200 && status < 300,
@@ -48,7 +56,7 @@ const answer = (status: number, body: unknown, bytes?: Uint8Array) => ({
 
 beforeEach(() => {
   calls = [];
-  server = { font: { listed: false, available: true }, layoutStatus: 200, failSticker: 0, fetchOff: false };
+  server = { font: { listed: false, available: true }, layoutStatus: 200, failSticker: 0, fetchOff: false, saved: SAVED };
   mockRouter.push.mockClear();
   URL.createObjectURL = jest.fn(() => 'blob:preview');
   URL.revokeObjectURL = jest.fn();
@@ -69,6 +77,7 @@ beforeEach(() => {
     }
     if (path === '/ops/import/font') return answer(200, { family: call.json?.family, ...server.font });
     if (path === '/fonts') return answer(200, { fonts: method === 'PUT' ? call.json?.fonts : ['Inter', 'Lobster'] });
+    if (path.startsWith('/ops/layouts/') && method === 'GET') return answer(200, server.saved);
     if (path.startsWith('/ops/layouts/')) {
       return server.layoutStatus === 200 ? answer(200, { status: 'success' }) : answer(server.layoutStatus, { detail: "A layout named 'x' already exists. Choose another name." });
     }
@@ -82,6 +91,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearImportSession();
   clearImportDraft('photo_frame_6x8_1_photo');
   clearImportDraft('photo_frame_6x8_1_photo_2');
 });
@@ -90,6 +100,12 @@ function open(taken: string[] = [], templateIds: string[] = []) {
   const onClose = jest.fn();
   render(<ImportDesignDialog takenNames={taken} takenTemplateIds={templateIds} onClose={onClose} />);
   return { onClose };
+}
+
+/** The dialog as the Templates page opens it once the layout editor has saved the layout. */
+function resume(raw: string) {
+  writeImportSession({ layout: 'photo_frame_6x8_1_photo', raw, templateName: 'Love you', guideSvg: null, guideMm: { width: 152.4, height: 203.2 } });
+  render(<ImportDesignDialog takenNames={['photo_frame_6x8_1_photo']} takenTemplateIds={[]} resume onClose={jest.fn()} />);
 }
 
 async function read(text: string) {
@@ -109,7 +125,7 @@ it('says plainly when the text is not an export, and asks the server for nothing
 it('shows what the design becomes before anything is created', async () => {
   open(['photo_frame_6x8_1_photo']);
   await read(exportOf([BLOCK, WINDOW, HEART_ART, DATE]));
-  const confirm = await screen.findByRole('button', { name: 'Create the layout and open the editor' });
+  const confirm = await screen.findByRole('button', { name: 'Create the layout and adjust it' });
   // The artwork and the old frame are fetched through the server, each once; the font is checked.
   expect(sent('POST', '/ops/import/artwork').map(c => c.json?.url)).toEqual([
     'https://files.example/site/20200730_113904593323_4a09c4_Asset_9.svg', 'https://files.example/site/frame.svg',
@@ -119,22 +135,21 @@ it('shows what the design becomes before anything is created', async () => {
   expect(screen.getByLabelText(/Layout id/)).toHaveValue('photo_frame_6x8_1_photo_2');
   expect(screen.getByLabelText('Layout name')).toHaveValue('Photo Frame 6 x 8 in, 1 photo (2)');
   expect(screen.getByLabelText('Template name')).toHaveValue('Photo Frame 6 x 8 in, 1 photo (2)');
-  expect(screen.getByText(/1 piece that sat under the photos becomes the page artwork/)).toBeInTheDocument();
-  expect(screen.getByText(/1 sticker above the photos: Asset_9\.svg/)).toBeInTheDocument();
+  expect(screen.getByText(/2 pictures become the page artwork/)).toBeInTheDocument();
   expect(screen.getByText(/in Marck Script/)).toBeInTheDocument();
   expect(screen.getByLabelText(/Add the font “Marck Script” to the font list/)).toBeChecked();
   expect(screen.getByLabelText(/Use the old tool’s frame/)).toBeChecked();
-  expect(within(screen.getByRole('list', { name: 'Things to check' })).getByText(/1 locked piece becomes editable/)).toBeInTheDocument();
   expect(confirm).toBeEnabled();
   // Nothing has been written yet.
   expect(calls.some(c => c.path.startsWith('/ops/layouts') || c.path === '/ops/templates/assets' || c.method === 'PUT')).toBe(false);
 });
 
-it('on confirm adds the font, creates the layout without ever replacing one, stores the artwork and opens the editor on the draft', async () => {
+it('on confirm adds the font, creates the layout without ever replacing one and opens it in the layout editor', async () => {
   open();
-  await read(exportOf([BLOCK, WINDOW, HEART_ART, DATE]));
-  fireEvent.click(await screen.findByRole('button', { name: 'Create the layout and open the editor' }));
-  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/editor/layouts/templates/photo_frame_6x8_1_photo/new?import=1'));
+  const raw = exportOf([BLOCK, WINDOW, HEART_ART, DATE]);
+  await read(raw);
+  fireEvent.click(await screen.findByRole('button', { name: 'Create the layout and adjust it' }));
+  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/editor/layouts?edit=photo_frame_6x8_1_photo&import=1'));
 
   expect(sent('PUT', '/fonts')[0].json).toEqual({ fonts: ['Inter', 'Lobster', 'Marck Script'] });
 
@@ -147,26 +162,59 @@ it('on confirm adds the font, creates the layout without ever replacing one, sto
   expect(definition.frames[0]).toMatchObject({ xMm: 10, yMm: 20, widthMm: 50, heightMm: 40, bleedMm: 0 });
   expect((layout.get('frame_mask') as File).name).toBe('frame.png');
 
+  // No artwork is stored yet: it is cut only once the print areas are settled.
+  expect(sent('POST', '/ops/templates/assets')).toHaveLength(0);
+  expect(readImportDraft('photo_frame_6x8_1_photo')).toBeNull();
+  // What the layout editor is handed: the export, and every picture whole to place the print areas against.
+  const session = readImportSession('photo_frame_6x8_1_photo');
+  expect(session).toMatchObject({ raw, templateName: 'Photo Frame 6 x 8 in, 1 photo', guideMm: { width: 152.4, height: 203.2 } });
+  expect(session?.guideSvg).toContain('data-custom-shape="rect"');
+  expect(session?.guideSvg).toContain('<path d="M0 0h100v50z"/>');
+  expect(session?.guideSvg).not.toContain('clipPath');
+});
+
+it('once the layout is saved, cuts one artwork to its print areas and opens the template editor on the draft', async () => {
+  resume(exportOf([BLOCK, WINDOW, HEART_ART, DATE]));
+  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/editor/layouts/templates/photo_frame_6x8_1_photo/new?import=1'));
+
+  expect(sent('GET', '/ops/layouts/photo_frame_6x8_1_photo')).toHaveLength(1);
+  expect(sent('POST', '/ops/layouts/photo_frame_6x8_1_photo')).toHaveLength(0);
   const stored = sent('POST', '/ops/templates/assets').map(c => (c.form as FormData).get('file') as File);
-  expect(stored.map(f => [f.name, f.type])).toEqual([['artwork.svg', 'image/svg+xml'], ['import-2.svg', 'image/svg+xml']]);
-  // The page artwork is the white block with a hole for the window; the sticker is the file as it came.
-  expect(await stored[0].text()).toContain('<clipPath id="pe-holes-0">');
-  expect(await stored[1].text()).toBe(HEART);
+  expect(stored.map(f => [f.name, f.type])).toEqual([['artwork.svg', 'image/svg+xml']]);
+  // One sheet: the white block with its hole where the print area now is, and the heart over the photo with none.
+  const sheet = await stored[0].text();
+  expect(sheet).toContain('<clipPath id="pe-holes-0">');
+  expect(sheet).toContain(`M${Math.round(((12 + 0.3) / 25.4) * 300 * 1000) / 1000} `);
+  expect(sheet).toContain('<path d="M0 0h100v50z"/>');
+  expect((sheet.match(/<clipPath /g) ?? []).length).toBe(1);
 
   const draft = readImportDraft('photo_frame_6x8_1_photo');
-  expect(draft?.displayName).toBe('Photo Frame 6 x 8 in, 1 photo');
+  expect(draft?.displayName).toBe('Love you');
   const side = draft?.decoration.surfaces.default;
   expect(side?.paperColor).toBe('#f599a6');
-  expect(side?.overlays.map(o => o.type)).toEqual(['image', 'image', 'text']);
+  expect(side?.overlays.map(o => o.type)).toEqual(['image', 'text']);
   expect(side?.overlays[0]).toMatchObject({ label: ARTWORK_LABEL, src: '/api/templates/assets/sticker_1.svg', x: 0, y: 0, width: 100, height: 100 });
-  expect(side?.overlays[1]).toMatchObject({ id: 'import-2', source: 'clipart', src: '/api/templates/assets/sticker_2.svg', label: 'Asset_9.svg' });
-  expect(side?.overlays[2]).toMatchObject({ text: 'November 17, Saturday', fontFamily: 'Marck Script', textAlign: 'left' });
+  expect(side?.overlays[1]).toMatchObject({ text: 'November 17, Saturday', fontFamily: 'Marck Script', textAlign: 'left' });
+  expect(readImportSession()).toBeNull();
+});
+
+it('says so when there is no import to carry on', async () => {
+  render(<ImportDesignDialog takenNames={[]} takenTemplateIds={[]} resume onClose={jest.fn()} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('There is no import under way in this tab');
+  expect(calls).toHaveLength(0);
+});
+
+it('will not cut artwork to a layout left with no print area', async () => {
+  server.saved = { ...SAVED, frames: [] };
+  resume(exportOf([BLOCK, WINDOW]));
+  expect(await screen.findByRole('alert')).toHaveTextContent('The layout has no print area');
+  expect(sent('POST', '/ops/templates/assets')).toHaveLength(0);
 });
 
 it('suggests a template name whose id no template has, even when the layout id is free', async () => {
   open([], ['photo-frame-6-x-8-in-1-photo', 'photo-frame-6-x-8-in-1-photo-2']);
   await read(exportOf([WINDOW, DATE]));
-  await screen.findByRole('button', { name: 'Create the layout and open the editor' });
+  await screen.findByRole('button', { name: 'Create the layout and adjust it' });
   expect(screen.getByLabelText(/Layout id/)).toHaveValue('photo_frame_6x8_1_photo_3');
   expect(screen.getByLabelText('Template name')).toHaveValue('Photo Frame 6 x 8 in, 1 photo (3)');
 });
@@ -174,10 +222,10 @@ it('suggests a template name whose id no template has, even when the layout id i
 it('leaves the font list alone when the box is unticked, and the frame out when that one is', async () => {
   open();
   await read(exportOf([WINDOW, DATE]));
-  await screen.findByRole('button', { name: 'Create the layout and open the editor' });
+  await screen.findByRole('button', { name: 'Create the layout and adjust it' });
   fireEvent.click(screen.getByLabelText(/Add the font “Marck Script”/));
   fireEvent.click(screen.getByLabelText(/Use the old tool’s frame/));
-  fireEvent.click(screen.getByRole('button', { name: 'Create the layout and open the editor' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create the layout and adjust it' }));
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalled());
   expect(sent('PUT', '/fonts')).toHaveLength(0);
   expect((sent('POST', '/ops/layouts/photo_frame_6x8_1_photo')[0].form as FormData).get('frame_mask')).toBeNull();
@@ -187,7 +235,7 @@ it('warns instead of offering a font Google does not have', async () => {
   server.font = { listed: false, available: false };
   open();
   await read(exportOf([WINDOW, DATE]));
-  await screen.findByRole('button', { name: 'Create the layout and open the editor' });
+  await screen.findByRole('button', { name: 'Create the layout and adjust it' });
   expect(screen.queryByLabelText(/Add the font/)).toBeNull();
   expect(screen.getByText(/Google Fonts does not have it, so its text prints in Inter/)).toBeInTheDocument();
 });
@@ -195,8 +243,8 @@ it('warns instead of offering a font Google does not have', async () => {
 it('says which artwork could not be fetched and leaves it out', async () => {
   open();
   await read(exportOf([WINDOW, { ...HEART_ART, src: 'https://files.example/site/gone.png', objType: 'rasterImage' }]));
-  await screen.findByRole('button', { name: 'Create the layout and open the editor' });
-  expect(screen.getByText(/gone\.png could not be fetched \('files\.example' answered 404 for this artwork\.\) and is left out\./)).toBeInTheDocument();
+  await screen.findByRole('button', { name: 'Create the layout and adjust it' });
+  expect(screen.getByText(/gone\.png could not be fetched \('files\.example' answered 404 for this artwork\.\) and is left out of the page artwork\./)).toBeInTheDocument();
 });
 
 it('says once that fetching is switched off, before any review, when the server refuses every file', async () => {
@@ -205,7 +253,7 @@ it('says once that fetching is switched off, before any review, when the server 
   await read(exportOf([BLOCK, WINDOW, HEART_ART]));
   expect(await screen.findByRole('alert')).toHaveTextContent('Fetching artwork is off for this API key. An administrator can switch it on.');
   expect(screen.getByRole('button', { name: 'Read the design' })).toBeEnabled();
-  expect(screen.queryByRole('button', { name: 'Create the layout and open the editor' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Create the layout and adjust it' })).toBeNull();
 });
 
 it('will not confirm a design it cannot place', async () => {
@@ -213,30 +261,27 @@ it('will not confirm a design it cannot place', async () => {
   await read(exportOf([{ ...WINDOW, element: 'circle' }]));
   expect(await screen.findByText('This design cannot be imported')).toBeInTheDocument();
   expect(screen.getByText(/circle-shaped/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Create the layout and open the editor' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Create the layout and adjust it' })).toBeDisabled();
 });
 
 it('stays on the review when the name turns out to be taken, with nothing stored', async () => {
   server.layoutStatus = 409;
   open();
   await read(exportOf([BLOCK, WINDOW]));
-  fireEvent.click(await screen.findByRole('button', { name: 'Create the layout and open the editor' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Create the layout and adjust it' }));
   expect(await screen.findByText(/already exists/)).toBeInTheDocument();
   expect(sent('POST', '/ops/templates/assets')).toHaveLength(0);
   expect(mockRouter.push).not.toHaveBeenCalled();
   expect(screen.getByLabelText(/Layout id/)).toBeEnabled();
 });
 
-it('does not create the layout a second time when a retry follows a failed artwork upload', async () => {
+it('keeps the import to try again when storing the artwork fails', async () => {
   server.failSticker = 1;
-  open();
-  await read(exportOf([BLOCK, WINDOW]));
-  fireEvent.click(await screen.findByRole('button', { name: 'Create the layout and open the editor' }));
+  resume(exportOf([BLOCK, WINDOW]));
   expect(await screen.findByText('Could not store the sticker')).toBeInTheDocument();
-  expect(screen.getByLabelText(/Layout id/)).toBeDisabled();
+  expect(mockRouter.push).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-  await waitFor(() => expect(mockRouter.push).toHaveBeenCalled());
-  expect(sent('POST', '/ops/layouts/photo_frame_6x8_1_photo')).toHaveLength(1);
+  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/editor/layouts/templates/photo_frame_6x8_1_photo/new?import=1'));
 });
 
 it('makes only the layout when the design is nothing but windows on white', async () => {
@@ -244,10 +289,8 @@ it('makes only the layout when the design is nothing but windows on white', asyn
   const design = JSON.parse(plain[0].customized_locations_map['40'].customization_data);
   delete design.printableAreaFill;
   plain[0].customized_locations_map['40'].customization_data = JSON.stringify(design);
-  open();
-  await read(JSON.stringify(plain));
-  fireEvent.click(await screen.findByRole('button', { name: 'Create the layout and open the editor' }));
-  expect(await screen.findByRole('status')).toHaveTextContent('is created with 1 print area');
+  resume(JSON.stringify(plain));
+  expect(await screen.findByText(/is created with 1 print area/)).toBeInTheDocument();
   expect(mockRouter.push).not.toHaveBeenCalled();
   expect(readImportDraft('photo_frame_6x8_1_photo')).toBeNull();
 });

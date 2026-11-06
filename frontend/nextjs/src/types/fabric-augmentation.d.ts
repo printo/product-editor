@@ -40,7 +40,7 @@ declare module 'fabric' {
      * Which mask slot a 'mask' object is: the artwork (inside the bleed area,
      * printed) sits below the frame picture (outside it, preview only).
      */
-    __maskRole?: 'artwork' | 'frame'
+    __maskRole?: 'artwork' | 'frame' | 'guide'
 
     /** Index into the calendars[] array for CalendarFabricPreview objects. */
     __calendarIdx?: number

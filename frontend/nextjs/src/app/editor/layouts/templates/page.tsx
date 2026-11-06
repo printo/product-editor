@@ -55,7 +55,16 @@ export default function AllTemplatesPage() {
   const [createLayout, setCreateLayout] = useState('');
   // Importing a design made in the older design tool: its own dialog, mounted while open.
   const [importing, setImporting] = useState(false);
-  const closeImport = useCallback(() => setImporting(false), []);
+  // `?import=continue`: the layout editor has just saved the layout of an
+  // import, and the dialog finishes it. Taken off the address at once.
+  const [resumeImport, setResumeImport] = useState(false);
+  const closeImport = useCallback(() => { setImporting(false); setResumeImport(false); }, []);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('import') !== 'continue') return;
+    window.history.replaceState(null, '', window.location.pathname);
+    setResumeImport(true);
+    setImporting(true);
+  }, []);
   const layoutNames = useMemo(() => candidates.map(c => c.name), [candidates]);
   const templateIds = useMemo(() => templates.map(t => t.id), [templates]);
 
@@ -292,7 +301,7 @@ export default function AllTemplatesPage() {
 
       <DeleteTemplateDialog template={deleteConfirm} onConfirm={remove} onCancel={closeDelete} />
 
-      {importing && <ImportDesignDialog takenNames={layoutNames} takenTemplateIds={templateIds} onClose={closeImport} />}
+      {importing && <ImportDesignDialog takenNames={layoutNames} takenTemplateIds={templateIds} resume={resumeImport} onClose={closeImport} />}
 
       {creating && (
         <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">

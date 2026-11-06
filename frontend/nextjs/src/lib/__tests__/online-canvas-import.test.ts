@@ -7,8 +7,8 @@
  */
 import {
   DesignImportError, HOLE_INSET_MM, base64ToBytes, buildPageArtwork, bytesToBase64, fontsUsed, frameOverlaySvg, hexColor, inlineSvgOf,
-  layoutDefinitionFor, mmToImportPx, parseOnlineCanvasExport, placedDpi, prepareSticker, rasterSize, readSvg, readingOrder, scopeSvg,
-  sniffArtwork, storableAsIs, suggestNames, textOverlayFor, type ArtworkSource,
+  layoutDefinitionFor, mmToImportPx, parseOnlineCanvasExport, placedDpi, rasterSize, readSvg, readingOrder, scopeSvg,
+  sniffArtwork, suggestNames, textOverlayFor, withLayoutGeometry, withoutWindows, type ArtworkSource,
 } from '../online-canvas-import';
 
 type Obj = Record<string, unknown>;
@@ -86,7 +86,7 @@ describe('reading the export', () => {
     expect(d.paperColor).toBeNull();
   });
 
-  it('puts what was listed under a window into the page artwork, with a hole, and the rest above', () => {
+  it('puts every picture into the page artwork, with a hole for each window listed after it', () => {
     const d = parseOnlineCanvasExport(exportOf([
       art('https://f.example/pattern.svg', 0, 0, 152.4, 203.2),   // 0: under both windows
       block('#ffffff', 8, 18, 54, 44),                             // 1: under the first window only
@@ -101,14 +101,15 @@ describe('reading the export', () => {
       [1, 'artwork', [4]],
       [2, 'artwork', []],
       [3, 'artwork', [5]],
-      [6, 'overlay', []],
+      [6, 'artwork', []],
     ]);
     expect(d.pieces.map(p => p.kind)).toEqual(['vector', 'shape', 'raster', 'shape', 'raster']);
   });
 
-  it('keeps a piece above the photos when nothing after it sits under a window', () => {
-    const d = parseOnlineCanvasExport(exportOf([win(10, 10, 30, 30), art('https://f.example/a.svg', 0, 0, 152.4, 203.2)]));
-    expect(d.pieces[0]).toMatchObject({ layer: 'overlay', holes: [] });
+  it('keeps a picture listed after a window whole: it is drawn over the photo, inside the same artwork', () => {
+    const d = parseOnlineCanvasExport(exportOf([win(10, 10, 30, 30), art('https://f.example/a.svg', 0, 0, 152.4, 203.2, { locked: true })]));
+    expect(d.pieces[0]).toMatchObject({ layer: 'artwork', holes: [] });
+    expect(d.notes.some(n => /locked/.test(n.text))).toBe(false);
   });
 
   it('marks artwork that runs off the print area and leaves out what is wholly outside', () => {
@@ -225,10 +226,6 @@ describe('reading an SVG file', () => {
     expect(readSvg('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>')).toBeNull();
     expect(readSvg('<div/>')).toBeNull();
   });
-  it('knows which files the sticker store takes as they are', () => {
-    expect(storableAsIs(HEART)).toBe(true);
-    expect(storableAsIs('<!DOCTYPE svg><svg viewBox="0 0 1 1"/>')).toBe(false);
-  });
 });
 
 describe('keeping two drawings apart in one document', () => {
@@ -259,7 +256,7 @@ describe('the page artwork', () => {
 
   it('stacks every piece that was under a window on one sheet, each with its holes', () => {
     const d = design();
-    const sources = new Map<number, ArtworkSource>([[0, svg(HEART)], [2, { kind: 'png', bytes: pngHeader(640, 624) }]]);
+    const sources = new Map<number, ArtworkSource>([[0, svg(HEART)], [2, { kind: 'png', bytes: pngHeader(640, 624) }], [5, { kind: 'png', bytes: pngHeader(162, 167) }]]);
     const { svg: doc, missing } = buildPageArtwork(d, sources);
     expect(missing).toEqual([]);
     expect(doc).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" xmlns:xlink="http:\/\/www\.w3\.org\/1999\/xlink" viewBox="0 0 1800 2400" width="1800" height="2400">/);
@@ -276,8 +273,9 @@ describe('the page artwork', () => {
     expect(doc).toContain('<g clip-path="url(#pe-holes-2)"><image');
     expect(doc).toContain('href="data:image/png;base64,iVBORw0KGgo');
     expect((doc?.match(/<clipPath /g) ?? []).length).toBe(3);
-    // The bear sat above the photos and is not part of it.
+    // The bear sat above the photos: in the same sheet, last, with no hole.
     expect(doc).not.toContain('pe-holes-5');
+    expect(doc).toMatch(/<g><image [^>]*\/><\/g><\/svg>$/);
   });
 
   it('keeps two vector files from restyling each other', () => {
@@ -295,55 +293,66 @@ describe('the page artwork', () => {
   it('reports a piece whose file could not be read and builds the rest', () => {
     const d = design();
     const { svg: doc, missing } = buildPageArtwork(d, new Map<number, ArtworkSource>([[0, svg('<div/>')]]));
-    expect(missing.map(p => p.index)).toEqual([0, 2]);
+    expect(missing.map(p => p.index)).toEqual([0, 2, 5]);
     expect(doc).toContain('data-custom-shape="rect"');
   });
 
-  it('is nothing when no piece sat under a window', () => {
-    const d = parseOnlineCanvasExport(exportOf([win(10, 20, 50, 40), art('https://f.example/bear.png', 50, 50, 20, 20)]));
+  it('draws a picture that sat over a photo with no hole', () => {
+    const d = parseOnlineCanvasExport(exportOf([win(10, 20, 50, 40), art('https://f.example/hearts.svg', 0, 0, 152.4, 203.2)]));
+    const { svg: doc } = buildPageArtwork(d, new Map([[1, svg(HEART)]]));
+    expect(doc).toContain('<g><svg x="0" y="0"');
+    expect(doc).not.toContain('clipPath');
+  });
+
+  it('is nothing when the design has no picture', () => {
+    const d = parseOnlineCanvasExport(exportOf([win(10, 20, 50, 40)]));
     expect(buildPageArtwork(d, new Map())).toEqual({ svg: null, missing: [] });
   });
 });
 
-describe('a sticker of its own', () => {
-  const d = parseOnlineCanvasExport(exportOf([
-    win(10, 20, 50, 40),
-    art('https://f.example/heart.svg', 15.24, 20.32, 30.48, 40.64),   // 1: on the page: 10%, 10%, 20% x 20%
-    art('https://f.example/big.svg', 132.4, 183.2, 40, 40),            // 2: half off the corner
-    art('https://f.example/bear.png', 50, 50, 20, 20),                 // 3
-    art('https://f.example/photo.jpg', 60, 60, 20, 20),                // 4
-    art('https://f.example/huge.png', 70, 70, 20, 20),                 // 5
+describe('the design re-cut to the layout as saved', () => {
+  const read = () => parseOnlineCanvasExport(exportOf([
+    block('#ffffff', 8, 18, 54, 44),                         // 0: under the window
+    win(10, 20, 50, 40),                                     // 1
+    art('https://f.example/hearts.svg', 0, 0, 152.4, 203.2), // 2: over it
   ]));
-  const piece = (i: number) => d.pieces.find(p => p.index === i)!;
+  const frame = (x: number, y: number, w: number, h: number, W = 152.4, H = 203.2) => ({ x: x / W, y: y / H, width: w / W, height: h / H });
 
-  it('stores a file that fits the page exactly as it came', () => {
-    const s = prepareSticker(d, piece(1), new Map([[1, svg(HEART)]]));
-    expect(s?.file).toEqual({ name: 'import-1.svg', type: 'image/svg+xml', text: HEART });
-    expect(s?.box).toEqual({ x: 10, y: 10, width: 20, height: 20 });
-    const png = prepareSticker(d, piece(3), new Map<number, ArtworkSource>([[3, { kind: 'png', bytes: pngHeader(162, 167) }]]));
-    expect(png?.file.type).toBe('image/png');
+  it('moves the hole with the print area and keeps the old stacking', () => {
+    const d = withLayoutGeometry(read(), { canvas: { widthMm: 152.4, heightMm: 203.2 }, frames: [frame(12, 22, 46, 36)] });
+    expect(d.windows).toHaveLength(1);
+    expect(d.windows[0].index).toBe(1);
+    expect(d.windows[0].box.x).toBeCloseTo(12);
+    expect(d.windows[0].box.w).toBeCloseTo(46);
+    expect(d.pieces.map(p => [p.index, p.holes])).toEqual([[0, [1]], [2, []]]);
+    const { svg: doc } = buildPageArtwork(d, new Map([[2, svg(HEART)]]));
+    const inset = mmToImportPx(HOLE_INSET_MM);
+    expect(doc).toContain(`M${Math.round((mmToImportPx(12) + inset) * 1000) / 1000} ${Math.round((mmToImportPx(22) + inset) * 1000) / 1000}h`);
   });
 
-  it('wraps a file that runs off the page, showing only the part on it', () => {
-    const s = prepareSticker(d, piece(2), new Map([[2, svg(HEART)]]));
-    expect(s?.box).toEqual({ x: 86.877, y: 90.157, width: 13.123, height: 9.843 });
-    const text = s?.file.type === 'image/svg+xml' ? s.file.text : '';
-    expect(text).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" xmlns:xlink="[^"]+" viewBox="1563\.78 2163\.78 236\.22 236\.22" width="236\.22" height="236\.22">/);
-    expect(text).toContain('<svg x="1563.78" y="2163.78" width="472.441" height="472.441" viewBox="0 0 100 50" preserveAspectRatio="none">');
+  it('cuts a print area added in the layout editor out of every picture it touches', () => {
+    const d = withLayoutGeometry(read(), { canvas: { widthMm: 152.4, heightMm: 203.2 }, frames: [frame(10, 20, 50, 40), frame(80, 100, 40, 40)] });
+    expect(d.pieces.map(p => p.holes)).toEqual([[1], [1_000_001]]);
   });
 
-  it('wraps what the sticker store would refuse as it is', () => {
-    const doctype = prepareSticker(d, piece(1), new Map([[1, svg(`<!DOCTYPE svg PUBLIC "a" "b">${HEART}`)]]));
-    expect(doctype?.file.type === 'image/svg+xml' && doctype.file.text).not.toContain('DOCTYPE');
-    const jpeg = prepareSticker(d, piece(4), new Map<number, ArtworkSource>([[4, { kind: 'jpeg', bytes: jpegHeader(800, 600) }]]));
-    expect(jpeg?.file.type === 'image/svg+xml' && jpeg.file.text).toContain('href="data:image/jpeg;base64,');
-    const huge = prepareSticker(d, piece(5), new Map<number, ArtworkSource>([[5, { kind: 'png', bytes: pngHeader(5000, 100) }]]));
-    expect(huge?.file.type).toBe('image/svg+xml');
+  it('follows a resized canvas: pieces keep their place from the top-left corner and are cropped to it', () => {
+    const d = withLayoutGeometry(read(), { canvas: { widthMm: 100, heightMm: 150 }, frames: [frame(10, 20, 50, 40, 100, 150)] });
+    expect(d.printMm).toEqual({ width: 100, height: 150 });
+    expect(d.canvasPx).toEqual({ width: 1181, height: 1772 });
+    expect(d.pieces[1].visible).toMatchObject({ x: 0, y: 0, w: 100, h: 150 });
+    expect(d.pieces[1].overflows).toBe(true);
+    expect(d.blocked).toEqual([]);
   });
 
-  it('is nothing without a readable file', () => {
-    expect(prepareSticker(d, piece(1), new Map())).toBeNull();
-    expect(prepareSticker(d, piece(1), new Map([[1, svg('<div/>')]]))).toBeNull();
+  it('refuses a layout left with no print area', () => {
+    const d = withLayoutGeometry(read(), { canvas: { widthMm: 152.4, heightMm: 203.2 }, frames: [] });
+    expect(d.blocked).toEqual(['The layout has no print area, so there is nothing to cut the artwork to.']);
+  });
+
+  it('gives the guide picture: every picture whole', () => {
+    const { svg: doc } = buildPageArtwork(withoutWindows(read()), new Map([[2, svg(HEART)]]));
+    expect(doc).toContain('data-custom-shape="rect"');
+    expect(doc).not.toContain('clipPath');
   });
 });
 
