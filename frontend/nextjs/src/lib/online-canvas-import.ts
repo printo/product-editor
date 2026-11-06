@@ -29,7 +29,11 @@
  * - vector artwork stays vector: cropping and holes are done by wrapping the
  *   SVG, never by drawing it to pixels.
  *
- * Anything the samples never showed (a round or tilted window, rotated or
+ * A tilted window comes in upright, at the same centre and size, with a
+ * warning: a print area here is always upright, and the layout editor opens
+ * before the artwork is cut, so it can be put right there.
+ *
+ * Anything the samples never showed (a round window, rotated or
  * mirrored artwork, a second side) is reported, not guessed.
  */
 
@@ -152,6 +156,22 @@ const clip = (b: MmBox, W: number, H: number): MmBox => {
   const y = Math.max(b.y, 0);
   return { x, y, w: Math.min(b.x + b.w, W) - x, h: Math.min(b.y + b.h, H) - y };
 };
+
+/**
+ * The upright box with the same centre and size as a box the old tool drew
+ * turned by `degrees` clockwise. `box.x`/`box.y` is where the old tool put
+ * the object's origin: its top-left corner after the turn, or its centre
+ * along an axis whose origin is the centre.
+ */
+function straighten(box: MmBox, degrees: number, centredX: boolean, centredY: boolean): MmBox {
+  const t = (degrees * Math.PI) / 180;
+  // From the origin point to the centre, in the object's own axes, then turned.
+  const dx = centredX ? 0 : box.w / 2;
+  const dy = centredY ? 0 : box.h / 2;
+  const cx = box.x + dx * Math.cos(t) - dy * Math.sin(t);
+  const cy = box.y + dx * Math.sin(t) + dy * Math.cos(t);
+  return { x: cx - box.w / 2, y: cy - box.h / 2, w: box.w, h: box.h };
+}
 
 const differs = (a: MmBox, b: MmBox): boolean =>
   Math.abs(a.x - b.x) > EPS_MM || Math.abs(a.y - b.y) > EPS_MM || Math.abs(a.w - b.w) > EPS_MM || Math.abs(a.h - b.h) > EPS_MM;
@@ -282,6 +302,7 @@ export function parseOnlineCanvasExport(raw: string): ImportedDesign {
   const rawWindows: ImportedWindow[] = [];
   const pieces: ImportedPiece[] = [];
   let skipped = 0;
+  let straightened = 0;
   (design.objects as unknown[]).forEach((entry, index) => {
     if (!isObj(entry)) return;
     const o = entry;
@@ -294,10 +315,13 @@ export function parseOnlineCanvasExport(raw: string): ImportedDesign {
 
     if (type === 'mask') {
       if (String(o.element ?? 'rectangle').toLowerCase() !== 'rectangle') blocked.push(`Photo window ${rawWindows.length + 1} is ${String(o.element)}-shaped; only rectangular windows can be imported.`);
-      if (tilted) blocked.push(`Photo window ${rawWindows.length + 1} is tilted; only upright windows can be imported.`);
-      const inside = clip(box, W, H);
+      // The old tool stores a tilted object's corner as it lies after the
+      // turn (about that corner, or about the centre when the origin says so).
+      const upright = tilted ? straighten(box, num(o.angle, 0), o.originX === 'center', o.originY === 'center') : box;
+      if (tilted) straightened += 1;
+      const inside = clip(upright, W, H);
       if (!(inside.w > 0 && inside.h > 0)) { skipped += 1; return; }
-      if (differs(inside, box)) notes.push({ level: 'warning', text: `Photo window ${rawWindows.length + 1} ran off the print area and was trimmed to it.` });
+      if (differs(inside, upright)) notes.push({ level: 'warning', text: `Photo window ${rawWindows.length + 1} ran off the print area and was trimmed to it.` });
       rawWindows.push({ index, box: inside });
       return;
     }
@@ -360,6 +384,12 @@ export function parseOnlineCanvasExport(raw: string): ImportedDesign {
     const vector = String(o.objType ?? '').toLowerCase() === 'vectorimage' || /\.svg$/i.test(src.split(/[?#]/)[0]);
     pieces.push({ ...base, kind: vector ? 'vector' : 'raster', src, label: name });
   });
+  if (straightened > 0) {
+    notes.unshift({
+      level: 'warning',
+      text: `${straightened} photo ${straightened === 1 ? 'window was' : 'windows were'} tilted in the old design. Print areas here are always upright, so ${straightened === 1 ? 'it comes' : 'they come'} in straight, at the same centre and size: the result will not match the old design exactly. Check ${straightened === 1 ? 'it' : 'them'} in the layout editor.`,
+    });
+  }
   if (skipped > 0) notes.push({ level: 'info', text: `${skipped} hidden or empty ${skipped === 1 ? 'object was' : 'objects were'} left out.` });
 
   stackPieces(pieces, rawWindows, notes);
