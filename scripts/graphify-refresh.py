@@ -9,7 +9,7 @@ from the scan, and carries each community's name across by node overlap.
 Run from the repo root:
     $(cat graphify-out/.graphify_python) scripts/graphify-refresh.py
 """
-import json,subprocess,collections,sys
+import json,re,subprocess,collections,sys
 from pathlib import Path
 def main():
     from graphify.detect import detect, save_manifest
@@ -57,9 +57,13 @@ def main():
     lab={};used=collections.Counter()
     for k,v in com.items():
         sv=set(v);best=max(oldcom.items(),key=lambda kv:len(kv[1]&sv),default=(None,set()))
-        l=oldlab.get(best[0]) if best[0] is not None and best[1]&sv else None
+        # A name is inherited only from the community that held at least half of these nodes:
+        # any overlap at all let one name spread over unrelated groups. The number is stripped
+        # before renumbering, or each refresh adds another: "Name (2) (2) (2)".
+        l=oldlab.get(best[0]) if best[0] is not None and len(best[1]&sv)*2>=len(sv) else None
         if l and not l.startswith('Small group'):
-            used[l]+=1; lab[k]=l if used[l]==1 else f"{l} ({used[l]})"
+            base=re.sub(r'( \(\d+\))+$','',l)
+            used[base]+=1; lab[k]=base if used[base]==1 else f"{base} ({used[base]})"
         else: lab[k]=("Small group: "+str(G.nodes[v[0]].get('label',v[0])))[:60]
     sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
     print('wrote',to_json(G,com,'graphify-out/graph.json',force=True,built_at_commit=sha,community_labels=lab))
