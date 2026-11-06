@@ -1108,333 +1108,59 @@ def garbage_collector_task():
     same value unless set lower). Files belonging to orders flagged for manual
     review are skipped even if expired.
 
+    The sweeps live in api/gc_sweeps.py; this task fixes their order (files
+    before the CanvasData rows whose cascade would strand them, tombstones
+    after the sweeps that create them) and assembles the result.
+
     Returns:
         dict with deleted_count, deleted_bytes, disk_usage_percent
     """
-    import shutil
     from datetime import timedelta
-    from api.models import ExportedResult, CanvasData, RenderJob, UploadedFile, EmbedSession
+    from api import gc_sweeps
 
     now = timezone.now()
-    # Same constant that sets CanvasData.expires_at and the expires_at we send
-    # in the completion webhook — see settings.EXPORT_RETENTION_DAYS. Keep them
-    # reading one value; when these drifted, callers were promised 30 days for
-    # files the GC removed at 14.
-    retention_days = settings.EXPORT_RETENTION_DAYS
-
-    try:
-        disk_usage = shutil.disk_usage(settings.EXPORTS_DIR)
-        usage_percent = (disk_usage.used / disk_usage.total) * 100
-    except Exception as exc:
-        logger.error("Failed to check disk usage: %s", exc)
-        usage_percent = 0
-
-    if usage_percent > 80:
-        retention_days = settings.EXPORT_RETENTION_DAYS_UNDER_PRESSURE
-        logger.critical(
-            "EXPORTS_DIR disk usage at %.1f%% — reducing retention to %d days",
-            usage_percent, retention_days,
-        )
-
+    usage_percent = gc_sweeps.disk_usage_percent()
+    # One constant sets CanvasData.expires_at, the expires_at sent in the
+    # completion webhook and this sweep; when they drifted, callers were
+    # promised 30 days for files removed at 14.
+    retention_days = gc_sweeps.effective_retention_days(usage_percent)
     cutoff_date = now - timedelta(days=retention_days)
-
-    # Collect file paths that belong to manual-review orders so we can skip them.
-    # ExportedResult stores layout_name but not order_id; we cross-reference via
-    # the output file path prefix (EXPORTS_DIR/<order_id>/...).
-    manual_review_order_ids = set(
-        CanvasData.objects.filter(
-            requires_manual_review=True
-        ).values_list('order_id', flat=True)
+    due = gc_sweeps.expiry_filter(
+        now, cutoff_date, under_pressure=retention_days < settings.EXPORT_RETENTION_DAYS,
     )
 
-    # Sweep on the expiry STAMPED ON THE ROW, not on `created_at + retention`
-    # recomputed now. The old form was retroactive: shortening
-    # EXPORT_RETENTION_DAYS deleted files whose expiry we had already promised a
-    # partner in the completion webhook, and the download endpoint then served a
-    # ZIP silently missing those files. CanvasData and the async render outputs
-    # were already swept on a stored expires_at; these two now match.
-    #
-    # Rows written before expires_at was populated carry NULL and keep the old
-    # age-based behaviour, so nothing already on disk changes semantics.
-    #
-    # Under genuine disk pressure the valve still wins: setting
-    # EXPORT_RETENTION_DAYS_UNDER_PRESSURE below the normal window is an
-    # explicit decision to break the promise to reclaim space (see settings.py),
-    # so in that case we fall back to pure age.
-    under_pressure = retention_days < settings.EXPORT_RETENTION_DAYS
-
-    def _expiry_filter(now_ts, cutoff):
-        if under_pressure:
-            return Q(created_at__lt=cutoff)
-        return Q(expires_at__lt=now_ts) | Q(expires_at__isnull=True, created_at__lt=cutoff)
-
-    expired_exports = ExportedResult.objects.filter(
-        _expiry_filter(now, cutoff_date),
-        is_deleted=False,
-    ).only('id', 'export_file_path')
-
-    deleted_count = 0
-    deleted_bytes = 0
-    skipped_count = 0
-    export_dirs_to_clean: set = set()
-    deleted_export_ids: list = []
-
-    def _is_manual_review_path(path_str: str, review_ids: set) -> bool:
-        # Match an order_id only when it sits between path separators (or at
-        # the start / end of the path). The previous `oid in path_str` check
-        # would treat 'EXT-1' as a hit inside 'EXT-12', skipping unrelated GC.
-        if not review_ids:
-            return False
-        parts = set(path_str.split(os.sep))
-        return bool(parts & review_ids)
-
-    for export in expired_exports:
-        # Skip files whose path contains a manual-review order_id segment.
-        path_str = export.export_file_path or ''
-        if _is_manual_review_path(path_str, manual_review_order_ids):
-            skipped_count += 1
-            logger.debug(
-                "GC: skipping manual-review file %s", export.export_file_path
-            )
-            continue
-
-        try:
-            if os.path.exists(export.export_file_path):
-                file_size = os.path.getsize(export.export_file_path)
-                os.remove(export.export_file_path)
-                deleted_bytes += file_size
-                deleted_count += 1
-                export_dirs_to_clean.add(os.path.dirname(export.export_file_path))
-
-            deleted_export_ids.append(export.id)
-            logger.info("GC: deleted expired file %s", export.export_file_path)
-        except Exception as exc:
-            logger.error("GC: failed to delete %s: %s", export.export_file_path, exc)
-
-    # Bulk-flag rows as deleted in one UPDATE round-trip rather than per-row
-    # .save(). For 1000+ expired rows this collapses 1000 UPDATEs into 1.
-    if deleted_export_ids:
-        ExportedResult.objects.filter(id__in=deleted_export_ids).update(is_deleted=True)
-
-    # Remove per-request export subdirectories that are now empty (sync renders).
-    for export_dir in export_dirs_to_clean:
-        try:
-            if export_dir and os.path.isdir(export_dir):
-                os.rmdir(export_dir)  # only succeeds if the directory is empty
-        except OSError:
-            pass
-
-    # ── Upload file cleanup ─────────────────────────────────────────────────
-    # Delete uploaded images older than retention period (same as exports).
-    from api.models import UploadedFile
-    upload_cutoff = now - timedelta(days=retention_days)
-    expired_uploads = UploadedFile.objects.filter(
-        _expiry_filter(now, upload_cutoff),
-        is_deleted=False,
-    ).only('id', 'file_path')
-    upload_deleted = 0
-    upload_deleted_bytes = 0
-    deleted_upload_ids: list = []
-    for upload in expired_uploads:
-        try:
-            if os.path.exists(upload.file_path):
-                fsize = os.path.getsize(upload.file_path)
-                os.remove(upload.file_path)
-                upload_deleted_bytes += fsize
-                upload_deleted += 1
-            deleted_upload_ids.append(upload.id)
-        except Exception as exc:
-            logger.error("GC: failed to delete upload %s: %s", upload.file_path, exc)
-    if deleted_upload_ids:
-        UploadedFile.objects.filter(id__in=deleted_upload_ids).update(is_deleted=True)
-
-    # ── Async render output file cleanup ─────────────────────────────────
-    # Async renders (via render_canvas_task) write output paths to
-    # RenderJob.output_paths but do NOT create ExportedResult records, so
-    # the ExportedResult-based GC loop above never touches them.
-    # Clean up by finding RenderJobs whose CanvasData has expired and deleting
-    # the actual files on disk.
-    #
-    # NOT filtered on status='completed' any more, and that omission is the
-    # point. A job killed mid-render — worker OOM, SIGKILL, container recreate —
-    # leaves output files behind with no cleanup path. It never reaches
-    # 'completed', so this sweep skipped it; then its CanvasData expired, the
-    # delete below cascaded the RenderJob away, and the files became
-    # unreachable: no row names them, so no query-driven sweep can ever find
-    # them again. That is how 62 orphaned export directories accumulated on
-    # production (see reconcile_orphan_exports below, which reclaims the ones
-    # already stranded).
-    #
-    # Safe to include unfinished jobs because the filter is on the CANVAS having
-    # expired — a full retention window — while a render has a 55-minute soft
-    # limit. Anything still 'processing' that far past its canvas expiry is dead.
-    # The created_at guard is belt-and-braces for the one case that could race:
-    # a brand-new job submitted against an already-expired CanvasData (a reprint
-    # of an old order). A day is far more than a render needs, and every orphan
-    # we are chasing is over a week old.
-    async_files_deleted = 0
-    async_bytes_deleted = 0
-    try:
-        expired_jobs = (
-            RenderJob.objects
-            .filter(
-                canvas_data__expires_at__lt=now,
-                canvas_data__requires_manual_review=False,
-                output_paths__isnull=False,
-                created_at__lt=now - timedelta(days=1),
-            )
-            .exclude(output_paths=[])
-            .select_related('canvas_data')
-        )
-        for rjob in expired_jobs:
-            dirs_to_clean: set = set()
-            for fpath in (rjob.output_paths or []):
-                try:
-                    if os.path.exists(fpath):
-                        fsize = os.path.getsize(fpath)
-                        os.remove(fpath)
-                        async_bytes_deleted += fsize
-                        async_files_deleted += 1
-                        dirs_to_clean.add(os.path.dirname(fpath))
-                except Exception as exc:
-                    logger.error("GC: failed to delete async render file %s: %s", fpath, exc)
-            # Remove the per-job subdirectory if it is now empty.
-            # os.rmdir raises OSError if the directory is non-empty, which
-            # we silently ignore to avoid breaking jobs with partially-deleted files.
-            for job_dir in dirs_to_clean:
-                try:
-                    if job_dir and os.path.isdir(job_dir):
-                        os.rmdir(job_dir)  # no-op if not empty
-                except OSError:
-                    pass
-    except Exception as exc:
-        logger.error("GC: async render file cleanup failed: %s", exc)
-
-    # ── Canvas-state record cleanup ───────────────────────────────────────
-    # CanvasData rows that have passed their expires_at date accumulate large
-    # editor_state JSON blobs (dataUrl previews).  Delete the expired rows that
-    # are not flagged for manual review so the DB doesn't grow unbounded.
-    # Note: this runs AFTER the file cleanups above so files are removed before
-    # their parent DB records (and child RenderJob rows) are cascade-deleted.
-    canvas_deleted = 0
-    try:
-        canvas_deleted, _ = CanvasData.objects.filter(
-            expires_at__lt=now,
-            requires_manual_review=False,
-        ).delete()
-        if canvas_deleted:
-            logger.info("GC: deleted %d expired CanvasData records", canvas_deleted)
-    except Exception as exc:
-        logger.error("GC: failed to delete expired CanvasData records: %s", exc)
-
-    # ── Tombstone cleanup ─────────────────────────────────────────────────
-    # Deleting a file only flips is_deleted=True on its ExportedResult /
-    # UploadedFile row — and every sweep above filters is_deleted=False, so
-    # nothing ever looked at those rows again. They accumulated one per output
-    # file forever (7,585 in production after a single backlog clear).
-    #
-    # Once the file is gone the row has no operational purpose: the sweeps skip
-    # it and no endpoint reads it. Drop tombstones older than the retention
-    # window, which leaves a full window of recent rows for anyone inspecting
-    # what was collected, then reclaims the space.
-    tombstones_deleted = 0
-    try:
-        for model in (ExportedResult, UploadedFile):
-            n, _ = model.objects.filter(
-                is_deleted=True, created_at__lt=cutoff_date,
-            ).delete()
-            tombstones_deleted += n
-        if tombstones_deleted:
-            logger.info("GC: hard-deleted %d tombstone row(s)", tombstones_deleted)
-    except Exception as exc:
-        logger.error("GC: tombstone cleanup failed: %s", exc)
-
-    # ── API audit-trail cleanup ───────────────────────────────────────────
-    # Kept on its own, much longer clock than the files (see
-    # settings.API_AUDIT_RETENTION_DAYS): the trail has to outlive the data it
-    # describes to be worth anything. Swept here so it cannot become the next
-    # unbounded-growth surprise.
-    audit_deleted = 0
-    try:
-        from api.models import APIRequest
-        audit_cutoff = now - timedelta(days=settings.API_AUDIT_RETENTION_DAYS)
-        audit_deleted, _ = APIRequest.objects.filter(created_at__lt=audit_cutoff).delete()
-        if audit_deleted:
-            logger.info("GC: deleted %d expired API audit row(s)", audit_deleted)
-    except Exception as exc:
-        logger.error("GC: API audit cleanup failed: %s", exc)
+    exports = gc_sweeps.sweep_expired_exports(due)
+    uploads = gc_sweeps.sweep_expired_uploads(due)
+    async_renders = gc_sweeps.sweep_async_render_files(now)
+    canvas_deleted = gc_sweeps.sweep_expired_canvas_data(now)
+    tombstones_deleted = gc_sweeps.sweep_tombstones(cutoff_date)
+    audit_deleted = gc_sweeps.sweep_audit_trail(now)
 
     logger.info(
         "GC complete: exports deleted=%d (%.2f MB), skipped=%d manual-review, "
         "uploads deleted=%d (%.2f MB), async render files deleted=%d (%.2f MB), "
         "canvas_data deleted=%d, tombstones=%d, "
         "audit rows=%d, disk=%.1f%%",
-        deleted_count, deleted_bytes / 1024 / 1024, skipped_count,
-        upload_deleted, upload_deleted_bytes / 1024 / 1024,
-        async_files_deleted, async_bytes_deleted / 1024 / 1024,
+        exports['deleted_count'], exports['deleted_bytes'] / 1024 / 1024, exports['skipped_count'],
+        uploads['upload_deleted_count'], uploads['upload_deleted_bytes'] / 1024 / 1024,
+        async_renders['async_render_files_deleted'],
+        async_renders['async_render_bytes_deleted'] / 1024 / 1024,
         canvas_deleted, tombstones_deleted, audit_deleted,
         usage_percent,
     )
 
-    # ── Orphaned export directories ───────────────────────────────────────
-    # The only sweep here that starts from the filesystem rather than a DB row,
-    # because it is the only one that can reclaim a file whose row is gone. Off
-    # by default (dry_run reports without deleting) — see
-    # services/orphan_exports.py for why this one earns extra caution.
-    orphan_result: dict = {}
-    try:
-        from services.orphan_exports import reconcile_orphan_exports
-        orphan_result = reconcile_orphan_exports(now=now)
-    except Exception as exc:
-        logger.error("GC: orphan export sweep failed: %s", exc)
-
-    # Abandoned chunked-upload staging dirs. Unlike the orphan sweep above this
-    # one deletes by default: a stale `.chunks/<uuid>/` holds only `.part`
-    # fragments that are unusable without the `/complete` call that would have
-    # consumed them, so no inference about "is this still wanted" is involved.
-    # See services/chunk_staging.py for the three conditions it requires.
-    chunk_staging_result: dict = {}
-    try:
-        from services.chunk_staging import sweep_stale_chunk_staging
-        chunk_staging_result = sweep_stale_chunk_staging(now=now)
-    except Exception as exc:
-        logger.error("GC: chunk staging sweep failed: %s", exc)
-
-    # ── Expired embed session cleanup ────────────────────────────────────────
-    # EmbedSession rows accumulate indefinitely after their 2-hour token
-    # expiry. Keeping ~30 days of history (one cleanup pass per order flow
-    # recovery scenario) is sufficient; anything older is just DB bloat.
-    embed_sessions_deleted = 0
-    try:
-        embed_cutoff = now - timedelta(days=30)
-        embed_sessions_deleted, _ = EmbedSession.objects.filter(
-            expires_at__lt=embed_cutoff
-        ).delete()
-        if embed_sessions_deleted:
-            logger.info("GC: deleted %d expired EmbedSession row(s)", embed_sessions_deleted)
-    except Exception as exc:
-        logger.error("GC: failed to delete expired EmbedSession rows: %s", exc)
-
-    # Purge-ledger entries only matter while a backup that still holds the
-    # order exists (daily sets: 7 days), so keep them well past that.
-    ledger_trimmed = 0
-    try:
-        from services.purge_ledger import trim as trim_purge_ledger
-        ledger_trimmed = trim_purge_ledger(int(os.getenv('PURGE_LEDGER_RETENTION_DAYS', '45')))
-    except Exception as exc:
-        logger.error("GC: purge ledger trim failed: %s", exc)
+    orphan_result = gc_sweeps.sweep_orphan_exports(now)
+    chunk_staging_result = gc_sweeps.sweep_chunk_staging(now)
+    embed_sessions_deleted = gc_sweeps.sweep_embed_sessions(now)
+    ledger_trimmed = gc_sweeps.trim_purge_ledger_entries()
 
     result = {
         'purge_ledger_trimmed': ledger_trimmed,
         'chunk_staging': chunk_staging_result,
         'orphan_exports': orphan_result,
-        'deleted_count': deleted_count,
-        'deleted_bytes': deleted_bytes,
-        'skipped_count': skipped_count,
-        'upload_deleted_count': upload_deleted,
-        'upload_deleted_bytes': upload_deleted_bytes,
-        'async_render_files_deleted': async_files_deleted,
-        'async_render_bytes_deleted': async_bytes_deleted,
+        **exports,
+        **uploads,
+        **async_renders,
         'canvas_data_deleted': canvas_deleted,
         'tombstones_deleted': tombstones_deleted,
         'audit_rows_deleted': audit_deleted,
@@ -1442,12 +1168,11 @@ def garbage_collector_task():
         'disk_usage_percent': usage_percent,
     }
 
-    # Leave a durable trace that this sweep happened. Everything above is
+    # Leave a durable trace that this sweep happened: everything above is
     # otherwise recorded only in the Celery log, which dies with the container,
-    # and the DB keeps no evidence because the tombstone purge above removes the
-    # very rows that would have shown it. A GC that silently stops running is
-    # invisible until the disk fills — it was, for over a week, until prod hit
-    # 89%. Surfaced on /api/celery/monitor/; see services/gc_status.py.
+    # and the tombstone purge removes the very rows that would show it. A GC
+    # that silently stops running is invisible until the disk fills (prod hit
+    # 89%). Surfaced on /api/celery/monitor/; see services/gc_status.py.
     from services.gc_status import record_gc_run
     record_gc_run(result)
 
