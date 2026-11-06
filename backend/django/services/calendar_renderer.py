@@ -37,7 +37,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from services.fonts import get_font
 from services.image_loader import open_source_rgba
@@ -155,15 +155,14 @@ def render_calendar(
     # ── Layout: month heading + weekday header band + grid area ────────
     # The month heading takes the top MONTH_HEADING_FRACTION of the block
     # (mirrored by MonthTileThumb); the weekday band ~10% of the height.
-    title_h = int(h_px * MONTH_HEADING_FRACTION) if month_heading_enabled(style) else 0
-    header_h = max(20, int(h_px * 0.10))
-    grid_top = title_h + header_h
-    grid_h = h_px - grid_top
-
     grid = build_month_grid(year, month, week_start)
     rows = len(grid) // 7
-    cell_w = w_px / 7.0
-    cell_h = grid_h / rows
+    metrics = grid_metrics(w_px, h_px, rows, month_heading_enabled(style))
+    title_h = metrics["title_h"]
+    header_h = metrics["header_h"]
+    grid_top = metrics["grid_top"]
+    cell_w = metrics["cell_w"]
+    cell_h = metrics["cell_h"]
 
     if title_h:
         _draw_month_heading(draw, month_heading_text(year, month), w_px, title_h, colors["monthText"])
@@ -208,7 +207,7 @@ def render_calendar(
     pill_font_size = max(6, int(min(cell_w, cell_h) * 0.13))
     pill_font = get_font(pill_font_size, weight=500)
 
-    date_pad = max(2, int(min(cell_w, cell_h) * 0.05))
+    date_pad = metrics["date_pad"]
     pill_h = max(12, int(min(cell_w, cell_h) * 0.20))
     pill_gap = max(1, int(pill_h * 0.15))
 
@@ -487,6 +486,72 @@ def _merge_cell_pills(
     return pills
 
 
+def grid_metrics(w_px: int, h_px: int, rows: int, heading: bool) -> dict:
+    """
+    Where a calendar block of w_px x h_px puts its bands and how big a date
+    cell is: the month heading (when on), the weekday band, then `rows` rows
+    of seven cells. `date_pad` is the gap kept between a cell's edge and what
+    is drawn in it.
+    """
+    title_h = int(h_px * MONTH_HEADING_FRACTION) if heading else 0
+    header_h = max(20, int(h_px * 0.10))
+    grid_top = title_h + header_h
+    cell_w = w_px / 7.0
+    cell_h = (h_px - grid_top) / rows
+    return {
+        "title_h": title_h,
+        "header_h": header_h,
+        "grid_top": grid_top,
+        "cell_w": cell_w,
+        "cell_h": cell_h,
+        "date_pad": max(2, int(min(cell_w, cell_h) * 0.05)),
+    }
+
+
+def cell_image_box(w_px: int, h_px: int, rows: int, heading: bool) -> tuple[float, float]:
+    """
+    The box a photo placed on a date is fitted into: the cell less its padding
+    on every side. Mirrored by `cellImageBox` in frontend/nextjs/src/lib/
+    calendar.ts, which the date editor uses to draw its preview in the cell's
+    own proportions. Pinned by storage/parity-fixtures/calendar-cell-image.json.
+    """
+    m = grid_metrics(w_px, h_px, rows, heading)
+    return (
+        max(1.0, m["cell_w"] - 2 * m["date_pad"]),
+        max(1.0, m["cell_h"] - 2 * m["date_pad"]),
+    )
+
+
+def cell_image_placement(override: object) -> dict:
+    """
+    How the customer placed a date's photo: `fit` ('cover' fills the cell and
+    crops, 'contain' shows the whole photo), `rotation` (clockwise quarter
+    turns, in degrees) and `blur` (fill the empty sides of a contained photo
+    with a blurred copy). Anything absent or unreadable is the old behaviour:
+    cover, no turn, no blur. Mirrored by `cellImagePlacement` in calendar.ts.
+    """
+    entry = override if isinstance(override, dict) else {}
+    fit = entry.get("fit")
+    if fit not in ("cover", "contain"):
+        fit = "cover"
+    raw = entry.get("rotation")
+    rotation = 0
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw == int(raw) and int(raw) % 90 == 0:
+        rotation = int(raw) % 360
+    return {
+        "fit": fit,
+        "rotation": rotation,
+        "blur": fit == "contain" and entry.get("blur") is True,
+    }
+
+
+_QUARTER_TURNS = {
+    90: Image.Transpose.ROTATE_270,
+    180: Image.Transpose.ROTATE_180,
+    270: Image.Transpose.ROTATE_90,
+}
+
+
 def _draw_cell_image(
     strip: Image.Image,
     override: dict,
@@ -497,8 +562,9 @@ def _draw_cell_image(
 ) -> None:
     """
     Draw a customer's image override into a cell (PRD §4.2.2 — replaces the
-    whole cell content). The image is cover-fit to (cell - 2*pad) so it
-    fills the cell without crashing into the grid lines.
+    whole cell content), placed in (cell - 2*pad) the way the customer chose
+    in the date editor (`cell_image_placement`): turned, then either filling
+    the box and cropped, or shown whole with the sides left empty or blurred.
 
     Falls back to a no-op when the upload can't be resolved (file GC'd or
     upload_id not in the map — PRD §11.3 "re-upload on reopen" path).
@@ -529,16 +595,38 @@ def _draw_cell_image(
         )
         return
 
-    # Cover-fit: scale so the smaller axis matches the target, then crop centre.
+    placement = cell_image_placement(override)
+    turn = _QUARTER_TURNS.get(placement["rotation"])
+    if turn is not None:
+        img = img.transpose(turn)
+
     src_w, src_h = img.size
-    scale = max(target_w / src_w, target_h / src_h)
-    new_w = max(1, int(src_w * scale))
-    new_h = max(1, int(src_h * scale))
-    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    crop_x = (new_w - target_w) // 2
-    crop_y = (new_h - target_h) // 2
-    if crop_x > 0 or crop_y > 0:
-        img = img.crop((crop_x, crop_y, crop_x + target_w, crop_y + target_h))
+    if placement["fit"] == "contain":
+        # The whole photo, centred; the sides it leaves stay empty, or carry
+        # the photo stretched over the box and blurred, as a frame's blur fill does.
+        layer = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+        if placement["blur"]:
+            bg = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            bg = bg.filter(ImageFilter.GaussianBlur(max(2, int(min(target_w, target_h) * 0.04))))
+            layer.alpha_composite(bg)
+            bg.close()
+        scale = min(target_w / src_w, target_h / src_h)
+        new_w = max(1, min(target_w, round(src_w * scale)))
+        new_h = max(1, min(target_h, round(src_h * scale)))
+        fitted = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        layer.alpha_composite(fitted, ((target_w - new_w) // 2, (target_h - new_h) // 2))
+        fitted.close()
+        img = layer
+    else:
+        # Cover-fit: scale so the smaller axis matches the target, then crop centre.
+        scale = max(target_w / src_w, target_h / src_h)
+        new_w = max(1, int(src_w * scale))
+        new_h = max(1, int(src_h * scale))
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        crop_x = (new_w - target_w) // 2
+        crop_y = (new_h - target_h) // 2
+        if crop_x > 0 or crop_y > 0:
+            img = img.crop((crop_x, crop_y, crop_x + target_w, crop_y + target_h))
 
     # Apply optional opacity from the override (default 1.0).
     opacity = float(override.get("opacity") if override.get("opacity") is not None else 1.0)

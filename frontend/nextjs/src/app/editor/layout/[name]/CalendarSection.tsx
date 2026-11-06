@@ -5,7 +5,16 @@ import { CalendarProductPreview } from '@/components/CalendarProductPreview';
 import { CalendarEditPanel } from '@/components/CalendarEditPanel';
 import { CalendarDayPicker } from '@/components/CalendarDayPicker';
 import { IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
-import type { CalendarTheme, CalendarType, GenzPalette, HolidayEntry } from '@/types/calendar';
+import { CalendarCellPhotoDialog } from '@/components/CalendarCellPhotoDialog';
+import { cellImagePlacement, withCellImagePlacement } from '@/lib/calendar';
+
+function longDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+}
+import type { CalendarTheme, CalendarType, CellImagePlacement, GenzPalette, HolidayEntry } from '@/types/calendar';
 
 type PreviewProps = ComponentProps<typeof CalendarProductPreview>;
 type SelectedCell = { surfaceIndex: number; year: number; month: number; iso: string };
@@ -54,7 +63,8 @@ export function CalendarSection({
   calendarType, setCalendarType, handleCalendarMonthTileClick, calendarCells, printedHolidays,
   selectedCalendarCell, setSelectedCalendarCell, calendarCellEntries, updateCellEntries,
   calendarCellImagePreviews, setCalendarCellImagePreviews, calendarImageUploading, calendarCellFileInputRef,
-  handleCellImageFileSelected, visibleCalendarMonths, selectCalendarDate,
+  handleCellImageFileSelected, visibleCalendarMonths, selectCalendarDate, selectedCellAspect,
+  cellPhotoDialogIso, setCellPhotoDialogIso,
 }: {
   isCalendarProduct: boolean;
   showMonthTiles: boolean;
@@ -80,7 +90,18 @@ export function CalendarSection({
   handleCellImageFileSelected: (file: File) => void;
   visibleCalendarMonths: readonly { year: number; month: number }[];
   selectCalendarDate: (iso: string) => void;
+  /** Width over height of the selected date's photo box, as the print fits it. */
+  selectedCellAspect?: number;
+  /** The date whose photo is being placed in the pop-up, if any. */
+  cellPhotoDialogIso: string | null;
+  setCellPhotoDialogIso: Dispatch<SetStateAction<string | null>>;
 }) {
+  const dialogPhoto = cellPhotoDialogIso && selectedCalendarCell?.iso === cellPhotoDialogIso
+    ? calendarCellEntries(cellPhotoDialogIso).find(o => o.type === 'image')
+    : undefined;
+  const dialogSrc = cellPhotoDialogIso ? calendarCellImagePreviews[cellPhotoDialogIso] : undefined;
+  const placePhoto = (iso: string, change: Partial<CellImagePlacement>) =>
+    updateCellEntries(iso, prev => prev.map(o => (o.type === 'image' ? withCellImagePlacement(o, change) : o)));
   return (
     <>
       {/* ── Calendar product: month tiles (poster only) + cell editor ── */}
@@ -101,6 +122,7 @@ export function CalendarSection({
             defaultYear={layout?.calendarDefaultYear ?? 'current'}
             showMonthName={layout?.calendarShowMonthName ?? true}
             showControls={false}
+            cellImages={calendarCellImagePreviews}
           />}
           {selectedCalendarCell && (
             <div className="fixed inset-y-0 right-0 z-[50000] flex">
@@ -114,6 +136,8 @@ export function CalendarSection({
                   !calendarCellImagePreviews[selectedCalendarCell.iso]
                 }
                 isImageUploading={calendarImageUploading}
+                cellAspect={selectedCellAspect}
+                onEditImagePlacement={() => setCellPhotoDialogIso(selectedCalendarCell.iso)}
                 dateNavigation={
                   <CalendarDayPicker
                     iso={selectedCalendarCell.iso}
@@ -166,6 +190,21 @@ export function CalendarSection({
                 onClose={() => setSelectedCalendarCell(null)}
               />
             </div>
+          )}
+          {cellPhotoDialogIso && dialogPhoto && dialogSrc && (
+            <CalendarCellPhotoDialog
+              key={`${cellPhotoDialogIso}:${dialogPhoto.uploadId}`}
+              src={dialogSrc}
+              placement={cellImagePlacement(dialogPhoto)}
+              cellAspect={selectedCellAspect}
+              dateLabel={longDate(cellPhotoDialogIso)}
+              onChange={change => placePhoto(cellPhotoDialogIso, change)}
+              onSave={() => setCellPhotoDialogIso(null)}
+              onCancel={original => {
+                placePhoto(cellPhotoDialogIso, original);
+                setCellPhotoDialogIso(null);
+              }}
+            />
           )}
           {/* Hidden file input for cell image override (Phase 8) */}
           <input

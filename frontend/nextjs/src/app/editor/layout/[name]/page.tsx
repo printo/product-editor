@@ -33,7 +33,7 @@ import { CanvasGrid } from './CanvasGrid';
 import { CalendarControls, CalendarSection } from './CalendarSection';
 import type { CalendarCardsConfig } from './CalendarCards';
 import { useCalendarThumbColors } from '@/components/CalendarProductPreview';
-import { calendarCardPages } from '@/lib/calendar';
+import { calendarCardPages, calendarCellAspect } from '@/lib/calendar';
 import { useEditorEnvironment, useLoginRedirect } from './useEditorEnvironment';
 import { useActiveSurfaceLayout, useLayoutLoader } from './useLayoutLoader';
 import { useSubmitGuards } from './useSubmitGuards';
@@ -158,7 +158,7 @@ export default function LayoutEditorPage() {
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
     genzPalettes, setGenzPalettes, setCalendarHolidays, printedHolidays, calendarCells, setCalendarCells,
     selectedCalendarCell, setSelectedCalendarCell, calendarCellFileInputRef, calendarImageUploading,
-    calendarCellImagePreviews, setCalendarCellImagePreviews,
+    calendarCellImagePreviews, setCalendarCellImagePreviews, cellPhotoDialogIso, setCellPhotoDialogIso,
     calendarCellEntries, updateCellEntries, handleCellImageFileSelected, handleCalendarMonthTileClick,
     visibleCalendarMonths, selectCalendarDate,
   } = useCalendarEditor({
@@ -480,6 +480,7 @@ export default function LayoutEditorPage() {
       pages,
       weekStart: layout?.weekStart === 'monday' ? 'monday' : 'sunday',
       cells: calendarCells,
+      cellImages: calendarCellImagePreviews,
       holidays: printedHolidays,
       colors: calendarThumb.colors,
       dotCycle: calendarThumb.dotCycle,
@@ -487,7 +488,22 @@ export default function LayoutEditorPage() {
       onOpenMonth: handleCalendarMonthTileClick,
       onAddPhotos: () => uploadInputRef.current?.click(),
     };
-  }, [isCalendarProduct, visibleCalendarMonths, layout, canvases.length, calendarCells, printedHolidays, calendarThumb, handleCalendarMonthTileClick]);
+  }, [isCalendarProduct, visibleCalendarMonths, layout, canvases.length, calendarCells, calendarCellImagePreviews, printedHolidays, calendarThumb, handleCalendarMonthTileClick]);
+
+  // The shape of the selected date's photo box, as the print fits it, for the date editor's preview.
+  const selectedCellAspect = useMemo(() => {
+    if (!selectedCalendarCell) return 1;
+    return calendarCellAspect({
+      block: calendarCardsConfig?.pages[selectedCalendarCell.surfaceIndex]?.block
+        ?? layout?.calendarBlocks?.[selectedCalendarCell.surfaceIndex] ?? layout?.calendarBlocks?.[0],
+      canvasWidthPx: layout?.canvas?.width,
+      canvasHeightPx: layout?.canvas?.height,
+      year: selectedCalendarCell.year,
+      month: selectedCalendarCell.month,
+      weekStart: layout?.weekStart === 'monday' ? 'monday' : 'sunday',
+      heading: layout?.calendarShowMonthName ?? true,
+    });
+  }, [selectedCalendarCell, calendarCardsConfig, layout]);
 
   if (status === 'loading' && !embedToken) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -696,6 +712,8 @@ export default function LayoutEditorPage() {
             calendarImageUploading={calendarImageUploading} calendarCellFileInputRef={calendarCellFileInputRef}
             handleCellImageFileSelected={handleCellImageFileSelected}
             visibleCalendarMonths={visibleCalendarMonths} selectCalendarDate={selectCalendarDate}
+            selectedCellAspect={selectedCellAspect}
+            cellPhotoDialogIso={cellPhotoDialogIso} setCellPhotoDialogIso={setCellPhotoDialogIso}
           />
 
           {/* Dashboard: combined disclaimer + download options modal */}

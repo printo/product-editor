@@ -30,10 +30,13 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react';
+import { Pencil } from 'lucide-react';
 import {
   MAX_ENTRIES_PER_CELL,
+  cellImagePlacement,
   mergeCellEntries,
 } from '@/lib/calendar';
+import { CalendarCellPhoto } from '@/components/CalendarCellPhoto';
 import type {
   CalendarCellOverride,
   HolidayEntry,
@@ -58,6 +61,12 @@ export interface CalendarEditPanelProps {
   onRequestImageOverride: () => void;
   /** Clear the image override (back to date-number + text entries). */
   onRemoveImageOverride: () => void;
+  /** Open the pop-up that places the date's photo (fill or fit, a turn,
+   *  blurred sides). Without it no Edit button is shown. */
+  onEditImagePlacement?: () => void;
+  /** Width over height of the box the print fits the photo into
+   *  (`cellImageBox`), so the preview has the date's own shape. Default 1. */
+  cellAspect?: number;
   /** Toggle the hide override (blank cell). */
   onToggleHide: () => void;
   /** Clear ALL user overrides on this cell. */
@@ -119,6 +128,8 @@ export function CalendarEditPanel({
   onRemoveTextEntryByIndex,
   onRequestImageOverride,
   onRemoveImageOverride,
+  onEditImagePlacement,
+  cellAspect = 1,
   onToggleHide,
   onReset,
   onClose,
@@ -139,6 +150,8 @@ export function CalendarEditPanel({
   // Classify the customer's existing overrides into the 3 mutually-exclusive
   // modes plus the user-text entries that share the "default" mode.
   const imageOverride = cellEntries.find(o => o.type === 'image');
+  const placement = cellImagePlacement(imageOverride);
+  const aspect = Number.isFinite(cellAspect) && cellAspect > 0 ? cellAspect : 1;
   const hasHideOverride = cellEntries.some(o => o.type === 'hide');
   const userTextEntries = cellEntries.filter(o => o.type === 'text');
 
@@ -379,11 +392,38 @@ export function CalendarEditPanel({
               has a blob URL cached by the host page (Phase 8). Gives the customer
               instant visual confirmation of what photo is assigned to this cell. */}
           {imageOverride && !imageExpired && imagePreviewUrl && (
-            <img
-              src={imagePreviewUrl}
-              alt="Cell image override preview"
-              className="w-full h-28 object-cover rounded-md mb-2 border border-zinc-200"
-            />
+            <div className="mb-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3" data-testid="cell-editor-photo">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs text-zinc-500">How this date will print</span>
+                {onEditImagePlacement && (
+                  <button
+                    type="button"
+                    onClick={onEditImagePlacement}
+                    data-testid="cell-editor-edit-photo"
+                    className="flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:border-zinc-900 hover:text-zinc-900"
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
+                    Edit
+                  </button>
+                )}
+              </div>
+              {/* The date as it prints: the box has the cell's own shape. */}
+              <div className="flex justify-center">
+                <div
+                  className="bg-white shadow-sm ring-1 ring-zinc-300"
+                  style={aspect >= 1
+                    ? { width: '9rem', aspectRatio: String(aspect) }
+                    : { height: '9rem', aspectRatio: String(aspect) }}
+                >
+                  <CalendarCellPhoto
+                    src={imagePreviewUrl}
+                    placement={placement}
+                    alt="How this date will print"
+                    className="relative w-full h-full"
+                  />
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Upload in-progress state — shown while chunked upload is running. */}

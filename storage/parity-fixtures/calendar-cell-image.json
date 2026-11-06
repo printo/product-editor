@@ -1,0 +1,274 @@
+{
+  "_meta": {
+    "purpose": "Shared ground truth for a photo placed on a calendar date. 'placements': how a cell entry's fit / rotation / blur are read (cell_image_placement in backend/django/services/calendar_renderer.py, cellImagePlacement in frontend/nextjs/src/lib/calendar.ts); absent or unreadable is the old behaviour (cover, no turn, no blur). 'boxes': the box the photo is fitted into for a calendar block of width x height print px with that many week rows (cell_image_box / cellImageBox), which the date editor uses to draw its preview in the cell's own proportions.",
+    "loaded_by": {
+      "python": "backend/django/services/tests/test_calendar_cell_image.py",
+      "typescript": "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts"
+    }
+  },
+  "placements": [
+    {
+      "name": "nothing set is the old centre crop",
+      "entry": {
+        "type": "image",
+        "uploadId": "u"
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "fit",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "fit": "contain"
+      },
+      "expected": {
+        "fit": "contain",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "fit with blur",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "fit": "contain",
+        "blur": true
+      },
+      "expected": {
+        "fit": "contain",
+        "rotation": 0,
+        "blur": true
+      }
+    },
+    {
+      "name": "blur means nothing on a filled cell",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "fit": "cover",
+        "blur": true
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "quarter turn",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": 90
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 90,
+        "blur": false
+      }
+    },
+    {
+      "name": "three quarter turns with fit",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": 270,
+        "fit": "contain"
+      },
+      "expected": {
+        "fit": "contain",
+        "rotation": 270,
+        "blur": false
+      }
+    },
+    {
+      "name": "a full turn is no turn",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": 360
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "turns past a full turn wrap",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": 450
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 90,
+        "blur": false
+      }
+    },
+    {
+      "name": "a negative turn wraps",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": -90
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 270,
+        "blur": false
+      }
+    },
+    {
+      "name": "not a quarter turn",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": 45
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "rotation as text is ignored",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": "90"
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "rotation as a boolean is ignored",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": true
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "unknown fit",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "fit": "stretch",
+        "blur": true
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "blur must be a real true",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "fit": "contain",
+        "blur": "yes"
+      },
+      "expected": {
+        "fit": "contain",
+        "rotation": 0,
+        "blur": false
+      }
+    },
+    {
+      "name": "not an entry at all",
+      "entry": null,
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false
+      }
+    }
+  ],
+  "boxes": [
+    {
+      "name": "wall calendar block, five rows",
+      "width": 2400,
+      "height": 1500,
+      "rows": 5,
+      "heading": true,
+      "expected": [
+        320.85714285714283,
+        212.0
+      ]
+    },
+    {
+      "name": "same block, six rows",
+      "width": 2400,
+      "height": 1500,
+      "rows": 6,
+      "heading": true,
+      "expected": [
+        324.85714285714283,
+        177.0
+      ]
+    },
+    {
+      "name": "no month heading",
+      "width": 2400,
+      "height": 1500,
+      "rows": 5,
+      "heading": false,
+      "expected": [
+        316.85714285714283,
+        244.0
+      ]
+    },
+    {
+      "name": "poster month, small",
+      "width": 600,
+      "height": 520,
+      "rows": 6,
+      "heading": true,
+      "expected": [
+        79.71428571428571,
+        61.66666666666667
+      ]
+    },
+    {
+      "name": "tiny block keeps the 20px weekday band",
+      "width": 140,
+      "height": 150,
+      "rows": 5,
+      "heading": true,
+      "expected": [
+        16.0,
+        18.4
+      ]
+    },
+    {
+      "name": "tall narrow block",
+      "width": 900,
+      "height": 2100,
+      "rows": 5,
+      "heading": false,
+      "expected": [
+        116.57142857142858,
+        366.0
+      ]
+    }
+  ]
+}

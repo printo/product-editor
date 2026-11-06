@@ -15,13 +15,17 @@ import path from 'node:path';
 import {
   buildMonthGrid,
   calendarPageCount,
+  calendarCellAspect,
   calendarPhotoSlots,
+  cellImageBox,
+  cellImagePlacement,
   displayLabelFor,
   monthHeadingEnabled,
   monthHeadingText,
   printedHolidayLocale,
   resolveDefaultYear,
   resolveSurfaceMonth,
+  withCellImagePlacement,
   yearOfMonth,
 } from '@/lib/calendar';
 import type { CalendarType, WeekStart } from '@/types/calendar';
@@ -217,6 +221,49 @@ describe('monthHeadingEnabled / monthHeadingText (TS) vs services/calendar_rende
 
   it.each(monthHeading.labels.map(l => [l.text, l] as const))('labels %s', (_text, l) => {
     expect(monthHeadingText(l.year, l.month)).toBe(l.text);
+  });
+});
+
+// ── A photo on a date (fill or fit, turns, blurred sides) ────────────────
+
+const cellImage = JSON.parse(
+  fs.readFileSync(path.resolve(path.dirname(FIXTURES_PATH), 'calendar-cell-image.json'), 'utf-8'),
+) as {
+  placements: { name: string; entry: unknown; expected: { fit: string; rotation: number; blur: boolean } }[];
+  boxes: { name: string; width: number; height: number; rows: number; heading: boolean; expected: [number, number] }[];
+};
+
+describe('cellImagePlacement / cellImageBox (TS) vs services/calendar_renderer.py', () => {
+  it.each(cellImage.placements.map(c => [c.name, c] as const))('%s', (_name, c) => {
+    expect(cellImagePlacement(c.entry)).toEqual(c.expected);
+  });
+
+  it.each(cellImage.boxes.map(c => [c.name, c] as const))('box: %s', (_name, c) => {
+    const [w, h] = cellImageBox(c.width, c.height, c.rows, c.heading);
+    expect(w).toBeCloseTo(c.expected[0], 9);
+    expect(h).toBeCloseTo(c.expected[1], 9);
+  });
+
+  it('a change keeps the rest of the entry and remembers blur while the photo fills', () => {
+    const entry = { type: 'image', uploadId: 'u', fit: 'contain', blur: true } as const;
+    const filled = withCellImagePlacement(entry, { fit: 'cover' });
+    expect(filled).toEqual({ type: 'image', uploadId: 'u', fit: 'cover', rotation: 0, blur: true });
+    expect(cellImagePlacement(filled).blur).toBe(false);
+    expect(cellImagePlacement(withCellImagePlacement(filled, { fit: 'contain' })).blur).toBe(true);
+    expect(withCellImagePlacement({ type: 'image', uploadId: 'u' }, { rotation: 90 }).rotation).toBe(90);
+  });
+
+  it('the preview shape comes from the block, the canvas and the month', () => {
+    const base = {
+      block: { x: 0, y: 0.5, width: 1, height: 0.5 }, canvasWidthPx: 2400, canvasHeightPx: 3000,
+      weekStart: 'sunday' as const, heading: true,
+    };
+    // 2400 x 1500 block: the "wall calendar block" cases of the fixture.
+    const five = cellImage.boxes[0].expected, six = cellImage.boxes[1].expected;
+    expect(calendarCellAspect({ ...base, year: 2026, month: 1 })).toBeCloseTo(five[0] / five[1], 9);
+    expect(calendarCellAspect({ ...base, year: 2026, month: 5 })).toBeCloseTo(six[0] / six[1], 9);
+    expect(calendarCellAspect({ ...base, block: undefined, year: 2026, month: 1 })).toBe(1);
+    expect(calendarCellAspect({ ...base, canvasWidthPx: undefined, year: 2026, month: 1 })).toBe(1);
   });
 });
 

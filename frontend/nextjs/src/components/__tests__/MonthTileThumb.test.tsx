@@ -120,6 +120,21 @@ describe('MonthTileThumb — overrides', () => {
     );
     expect(container.textContent).toContain('📷');
   });
+
+  it('draws the date’s photo, placed as stored, when the host has a preview', () => {
+    const cells: Record<string, CalendarCellOverride[]> = {
+      '2026-01-30': [{ type: 'image', uploadId: 'abc', fit: 'contain', rotation: 180 }],
+    };
+    const { container, getByTestId } = render(
+      <MonthTileThumb year={2026} month={1} weekStart="sunday" cells={cells} cellImages={{ '2026-01-30': 'blob:p' }} colors={COLORS} dotCycle={DOT_CYCLE} />
+    );
+    const drawn = getByTestId('calendar-cell-photo');
+    expect(drawn).toHaveAttribute('data-fit', 'contain');
+    expect(drawn).toHaveAttribute('data-rotation', '180');
+    expect(container.textContent).not.toContain('📷');
+    // The print draws no date number under a photo.
+    expect(drawn.parentElement?.textContent).toBe('');
+  });
 });
 
 describe('MonthTileThumb — weekday-highlight theme', () => {

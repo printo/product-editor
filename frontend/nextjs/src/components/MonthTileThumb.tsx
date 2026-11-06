@@ -21,12 +21,18 @@
  * What it deliberately does NOT show:
  *   - Pill labels (no room — clicking the tile opens the full editor)
  *   - "+N more" overflow (hard cap of 3 already means max 3 dots per cell)
- *   - Image / hide overrides (renders the cell blank — same as the print)
+ *   - Hide overrides (renders the cell blank — same as the print)
+ *
+ * A date with a photo shows the photo, placed as the print places it
+ * (`CalendarCellPhoto`), when the host has a preview for it in `cellImages`;
+ * without one it shows a camera glyph.
  */
 
 import { clsx } from 'clsx';
+import { CalendarCellPhoto } from '@/components/CalendarCellPhoto';
 import {
   buildMonthGrid,
+  cellImagePlacement,
   monthHeadingText,
   weekdayHeaderLabels,
 } from '@/lib/calendar';
@@ -56,6 +62,8 @@ export interface MonthTileThumbProps {
   cells?: Record<string, CalendarCellOverride[]>;
   /** Holidays in this month (already filtered). */
   holidays?: HolidayEntry[];
+  /** Preview URLs of the photos placed on dates, keyed by ISO date. */
+  cellImages?: Record<string, string>;
   /** Resolved colours from the active theme + palette. */
   colors: ThumbColors;
   /** 3-slot user-entry dot cycle from the active theme/palette. */
@@ -115,6 +123,7 @@ export function MonthTileThumb({
   weekStart,
   cells,
   holidays = [],
+  cellImages,
   colors,
   dotCycle,
   ariaLabel,
@@ -189,7 +198,8 @@ export function MonthTileThumb({
             : { dotColors: [], hasImage: false, hasHide: false };
 
           // Out-of-month or hidden cells render the number greyed (or blank for hide).
-          const showNumber = !dotInfo.hasHide;
+          const photoUrl = dotInfo.hasImage ? cellImages?.[iso] : undefined;
+          const showNumber = !dotInfo.hasHide && !photoUrl;
           const numColor = !gc.inMonth
             ? colors.outOfMonthText
             : (gc.dayOfWeek === 0 && colors.sundayText) || colors.dateText;
@@ -228,7 +238,14 @@ export function MonthTileThumb({
                 </div>
               )}
               {/* Image override → tiny camera glyph in the cell centre. */}
-              {dotInfo.hasImage && (
+              {photoUrl && (
+                <CalendarCellPhoto
+                  src={photoUrl}
+                  placement={cellImagePlacement(cells?.[iso]?.find(o => o.type === 'image'))}
+                  className="absolute inset-[5%]"
+                />
+              )}
+              {dotInfo.hasImage && !photoUrl && (
                 <span
                   className="absolute inset-0 flex items-center justify-center text-[8px]"
                   aria-label="cell has image override"

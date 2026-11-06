@@ -221,6 +221,46 @@ describe('CalendarEditPanel — image override', () => {
   });
 });
 
+// ─── The date's photo: a preview and Edit (placement lives in the pop-up) ────
+
+describe('CalendarEditPanel — photo preview', () => {
+  const photo = (extra: object = {}): CalendarCellOverride[] => [{ type: 'image', uploadId: 'abc', ...extra }];
+
+  it('draws the preview in the date’s own shape, placed as stored', () => {
+    setup({ cellEntries: photo({ fit: 'contain', rotation: 90, blur: true }), imagePreviewUrl: 'blob:p', cellAspect: 1.6 });
+    const drawn = screen.getByTestId('calendar-cell-photo');
+    expect(drawn).toHaveAttribute('data-fit', 'contain');
+    expect(drawn).toHaveAttribute('data-rotation', '90');
+    expect(drawn).toHaveAttribute('data-blur', 'on');
+    expect(parseFloat(drawn.parentElement?.style.aspectRatio ?? '')).toBe(1.6);
+  });
+
+  it('an entry with no placement is the old centre crop', () => {
+    setup({ cellEntries: photo(), imagePreviewUrl: 'blob:p' });
+    expect(screen.getByTestId('calendar-cell-photo')).toHaveAttribute('data-fit', 'cover');
+  });
+
+  it('Edit opens the placement pop-up; the panel itself holds no placement controls', async () => {
+    const onEditImagePlacement = jest.fn();
+    setup({ cellEntries: photo(), imagePreviewUrl: 'blob:p', onEditImagePlacement });
+    await userEvent.click(screen.getByTestId('cell-editor-edit-photo'));
+    expect(onEditImagePlacement).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Rotate')).not.toBeInTheDocument();
+  });
+
+  it('shows no preview without one to draw or for an expired photo, and no Edit without a handler', () => {
+    const noPreview = setup({ cellEntries: photo(), onEditImagePlacement: jest.fn() });
+    expect(screen.queryByTestId('cell-editor-photo')).not.toBeInTheDocument();
+    noPreview.unmount();
+    const expired = setup({ cellEntries: photo(), imagePreviewUrl: 'blob:p', imageExpired: true, onEditImagePlacement: jest.fn() });
+    expect(screen.queryByTestId('cell-editor-photo')).not.toBeInTheDocument();
+    expired.unmount();
+    setup({ cellEntries: photo(), imagePreviewUrl: 'blob:p' });
+    expect(screen.getByTestId('cell-editor-photo')).toBeInTheDocument();
+    expect(screen.queryByTestId('cell-editor-edit-photo')).not.toBeInTheDocument();
+  });
+});
+
 // ─── P8.2: Image expiry — "please re-upload" prompt ─────────────────────────
 
 describe('CalendarEditPanel — image expired (PRD §11.3)', () => {

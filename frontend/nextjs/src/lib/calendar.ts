@@ -18,6 +18,7 @@
  */
 
 import type {
+  CellImagePlacement,
   CalendarCellOverride,
   CalendarTheme,
   CalendarType,
@@ -162,6 +163,71 @@ export function monthHeadingEnabled(calendar: unknown): boolean {
   if (calendar.showMonthName === false) return false;
   const title = calendar.monthTitle;
   return !(isObjectRecord(title) && title.enabled);
+}
+
+// ─── A photo on a date ───────────────────────────────────────────────────────
+
+/**
+ * How the customer placed a date's photo: fill the cell and crop, or show the
+ * whole photo; turned by quarter turns; the empty sides of a whole photo
+ * blurred or not. Anything absent or unreadable is the old behaviour (fill,
+ * no turn, no blur). Mirrors `cell_image_placement` in calendar_renderer.py;
+ * pinned by storage/parity-fixtures/calendar-cell-image.json.
+ */
+export function cellImagePlacement(entry: unknown): CellImagePlacement {
+  const e = isObjectRecord(entry) ? entry : {};
+  const fit = e.fit === 'contain' ? 'contain' : 'cover';
+  const raw = e.rotation;
+  const rotation = typeof raw === 'number' && Number.isInteger(raw) && raw % 90 === 0
+    ? ((((raw % 360) + 360) % 360) as CellImagePlacement['rotation'])
+    : 0;
+  return { fit, rotation, blur: fit === 'contain' && e.blur === true };
+}
+
+/** A date's image entry with its placement changed; the customer's blur
+ *  choice is kept while the photo fills the cell, so Fit brings it back. */
+export function withCellImagePlacement<T extends object>(
+  entry: T,
+  change: Partial<CellImagePlacement>,
+): T & CellImagePlacement {
+  const now = cellImagePlacement(entry);
+  const blur = isObjectRecord(entry) && entry.blur === true;
+  return { ...entry, fit: now.fit, rotation: now.rotation, blur, ...change };
+}
+
+/**
+ * The box a date's photo is fitted into, in print px, for a calendar block of
+ * `widthPx` x `heightPx` with `rows` week rows: the cell less its padding.
+ * The date editor draws its preview in these proportions. Mirrors
+ * `cell_image_box` in calendar_renderer.py (same fixture).
+ */
+export function cellImageBox(widthPx: number, heightPx: number, rows: number, heading: boolean): [number, number] {
+  const titleH = heading ? Math.trunc(heightPx * MONTH_HEADING_FRACTION) : 0;
+  const headerH = Math.max(20, Math.trunc(heightPx * 0.10));
+  const cellW = widthPx / 7;
+  const cellH = (heightPx - titleH - headerH) / rows;
+  const pad = Math.max(2, Math.trunc(Math.min(cellW, cellH) * 0.05));
+  return [Math.max(1, cellW - 2 * pad), Math.max(1, cellH - 2 * pad)];
+}
+
+/** Width over height of the photo box of a date in `year`/`month`, for a
+ *  calendar block given in fractions of the canvas; 1 when unreadable. */
+export function calendarCellAspect({ block, canvasWidthPx, canvasHeightPx, year, month, weekStart, heading }: {
+  block: unknown;
+  canvasWidthPx: unknown;
+  canvasHeightPx: unknown;
+  year: number;
+  month: number;
+  weekStart: WeekStart;
+  heading: boolean;
+}): number {
+  if (!isCalendarBlock(block) || typeof canvasWidthPx !== 'number' || typeof canvasHeightPx !== 'number') return 1;
+  const w = Math.trunc(block.width * canvasWidthPx);
+  const h = Math.trunc(block.height * canvasHeightPx);
+  if (w <= 0 || h <= 0) return 1;
+  const rows = buildMonthGrid(year, month, weekStart).length / 7;
+  const [boxW, boxH] = cellImageBox(w, h, rows, heading);
+  return boxW / boxH;
 }
 
 /** "January 2026" — the printed month heading. Mirrors `month_heading_text`. */
