@@ -131,6 +131,7 @@ describe('MonthTileThumb — overrides', () => {
     const drawn = getByTestId('calendar-cell-photo');
     expect(drawn).toHaveAttribute('data-fit', 'contain');
     expect(drawn).toHaveAttribute('data-rotation', '180');
+    expect(drawn).toHaveAttribute('data-pan', '0,0');
     expect(container.textContent).not.toContain('📷');
     // The print draws no date number under a photo.
     expect(drawn.parentElement?.textContent).toBe('');

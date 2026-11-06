@@ -170,8 +170,10 @@ export function monthHeadingEnabled(calendar: unknown): boolean {
 /**
  * How the customer placed a date's photo: fill the cell and crop, or show the
  * whole photo; turned by quarter turns; the empty sides of a whole photo
- * blurred or not. Anything absent or unreadable is the old behaviour (fill,
- * no turn, no blur). Mirrors `cell_image_placement` in calendar_renderer.py;
+ * blurred or not; and where a photo that fills the cell was moved to (`panX`,
+ * `panY`: -1 fully left / up, 0 centred, 1 fully right / down, as seen on the
+ * page after the turn; a whole photo has nowhere to move). Anything absent or
+ * unreadable is the old behaviour (fill, no turn, no blur, centred). Mirrors `cell_image_placement` in calendar_renderer.py;
  * pinned by storage/parity-fixtures/calendar-cell-image.json.
  */
 export function cellImagePlacement(entry: unknown): CellImagePlacement {
@@ -181,18 +183,46 @@ export function cellImagePlacement(entry: unknown): CellImagePlacement {
   const rotation = typeof raw === 'number' && Number.isInteger(raw) && raw % 90 === 0
     ? ((((raw % 360) + 360) % 360) as CellImagePlacement['rotation'])
     : 0;
-  return { fit, rotation, blur: fit === 'contain' && e.blur === true };
+  return {
+    fit, rotation, blur: fit === 'contain' && e.blur === true,
+    panX: fit === 'cover' ? panValue(e.panX) : 0,
+    panY: fit === 'cover' ? panValue(e.panY) : 0,
+  };
 }
 
-/** A date's image entry with its placement changed; the customer's blur
- *  choice is kept while the photo fills the cell, so Fit brings it back. */
+function panValue(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) || 0 : 0;
+}
+
+/**
+ * How far a photo that fills its box hangs over it, across and down, in the
+ * box's own units: the room there is to move it. `photoW` x `photoH` is the
+ * photo as stored; the turn is applied here.
+ */
+export function cellImageOverflow(
+  photoW: number, photoH: number, rotation: number, boxW: number, boxH: number,
+): [number, number] {
+  if (!(photoW > 0 && photoH > 0 && boxW > 0 && boxH > 0)) return [0, 0];
+  const sideways = rotation === 90 || rotation === 270;
+  const w = sideways ? photoH : photoW;
+  const h = sideways ? photoW : photoH;
+  const scale = Math.max(boxW / w, boxH / h);
+  return [Math.max(0, w * scale - boxW), Math.max(0, h * scale - boxH)];
+}
+
+/** A date's image entry with its placement changed. The blur choice is kept
+ *  while the photo fills the cell, and the move while it is shown whole, so
+ *  switching back brings each one back. */
 export function withCellImagePlacement<T extends object>(
   entry: T,
   change: Partial<CellImagePlacement>,
 ): T & CellImagePlacement {
   const now = cellImagePlacement(entry);
-  const blur = isObjectRecord(entry) && entry.blur === true;
-  return { ...entry, fit: now.fit, rotation: now.rotation, blur, ...change };
+  const raw: Record<string, unknown> = isObjectRecord(entry) ? entry : {};
+  return {
+    ...entry, fit: now.fit, rotation: now.rotation, blur: raw.blur === true,
+    panX: panValue(raw.panX), panY: panValue(raw.panY), ...change,
+  };
 }
 
 /**

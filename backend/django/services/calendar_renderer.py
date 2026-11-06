@@ -32,6 +32,7 @@ Key spec points enforced here:
 from __future__ import annotations
 
 import logging
+import math
 import os
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -526,9 +527,12 @@ def cell_image_placement(override: object) -> dict:
     """
     How the customer placed a date's photo: `fit` ('cover' fills the cell and
     crops, 'contain' shows the whole photo), `rotation` (clockwise quarter
-    turns, in degrees) and `blur` (fill the empty sides of a contained photo
-    with a blurred copy). Anything absent or unreadable is the old behaviour:
-    cover, no turn, no blur. Mirrored by `cellImagePlacement` in calendar.ts.
+    turns, in degrees), `blur` (fill the empty sides of a contained photo
+    with a blurred copy) and `panX` / `panY` (where a photo that fills the
+    cell sits: -1 moved fully left / up, 0 centred, 1 fully right / down, as
+    seen on the page after the turn; a contained photo has nowhere to move).
+    Anything absent or unreadable is the old behaviour: cover, no turn, no
+    blur, centred. Mirrored by `cellImagePlacement` in calendar.ts.
     """
     entry = override if isinstance(override, dict) else {}
     fit = entry.get("fit")
@@ -542,7 +546,24 @@ def cell_image_placement(override: object) -> dict:
         "fit": fit,
         "rotation": rotation,
         "blur": fit == "contain" and entry.get("blur") is True,
+        "panX": _pan(entry.get("panX")) if fit == "cover" else 0.0,
+        "panY": _pan(entry.get("panY")) if fit == "cover" else 0.0,
     }
+
+
+def _pan(value: object) -> float:
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        return max(-1.0, min(1.0, float(value))) + 0.0
+    return 0.0
+
+
+def _pan_crop(overflow: int, pan: float) -> int:
+    """Left / top edge of the crop for a photo `overflow` px larger than its box."""
+    if overflow <= 0:
+        return 0
+    if pan == 0:
+        return overflow // 2
+    return max(0, min(overflow, round(overflow * (0.5 - 0.5 * pan))))
 
 
 _QUARTER_TURNS = {
@@ -618,13 +639,14 @@ def _draw_cell_image(
         fitted.close()
         img = layer
     else:
-        # Cover-fit: scale so the smaller axis matches the target, then crop centre.
+        # Cover-fit: scale so the smaller axis matches the target, then crop
+        # where the customer moved the photo to (the centre when untouched).
         scale = max(target_w / src_w, target_h / src_h)
         new_w = max(1, int(src_w * scale))
         new_h = max(1, int(src_h * scale))
         img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        crop_x = (new_w - target_w) // 2
-        crop_y = (new_h - target_h) // 2
+        crop_x = _pan_crop(new_w - target_w, placement["panX"])
+        crop_y = _pan_crop(new_h - target_h, placement["panY"])
         if crop_x > 0 or crop_y > 0:
             img = img.crop((crop_x, crop_y, crop_x + target_w, crop_y + target_h))
 

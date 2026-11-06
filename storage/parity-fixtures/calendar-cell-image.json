@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "purpose": "Shared ground truth for a photo placed on a calendar date. 'placements': how a cell entry's fit / rotation / blur are read (cell_image_placement in backend/django/services/calendar_renderer.py, cellImagePlacement in frontend/nextjs/src/lib/calendar.ts); absent or unreadable is the old behaviour (cover, no turn, no blur). 'boxes': the box the photo is fitted into for a calendar block of width x height print px with that many week rows (cell_image_box / cellImageBox), which the date editor uses to draw its preview in the cell's own proportions.",
+    "purpose": "Shared ground truth for a photo placed on a calendar date. 'placements': how a cell entry's fit / rotation / blur / panX / panY are read (cell_image_placement in backend/django/services/calendar_renderer.py, cellImagePlacement in frontend/nextjs/src/lib/calendar.ts); absent or unreadable is the old behaviour (cover, no turn, no blur, centred). 'boxes': the box the photo is fitted into for a calendar block of width x height print px with that many week rows (cell_image_box / cellImageBox), which the date editor uses to draw its preview in the cell's own proportions.",
     "loaded_by": {
       "python": "backend/django/services/tests/test_calendar_cell_image.py",
       "typescript": "frontend/nextjs/src/lib/__tests__/calendar.parity.test.ts"
@@ -16,7 +16,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -29,7 +31,9 @@
       "expected": {
         "fit": "contain",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -43,7 +47,9 @@
       "expected": {
         "fit": "contain",
         "rotation": 0,
-        "blur": true
+        "blur": true,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -57,7 +63,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -70,7 +78,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 90,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -84,7 +94,9 @@
       "expected": {
         "fit": "contain",
         "rotation": 270,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -97,7 +109,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -110,7 +124,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 90,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -123,7 +139,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 270,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -136,7 +154,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -149,7 +169,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -162,7 +184,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -176,7 +200,9 @@
       "expected": {
         "fit": "cover",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -190,7 +216,9 @@
       "expected": {
         "fit": "contain",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     },
     {
@@ -199,7 +227,123 @@
       "expected": {
         "fit": "cover",
         "rotation": 0,
-        "blur": false
+        "blur": false,
+        "panX": 0,
+        "panY": 0
+      }
+    },
+    {
+      "name": "moved right and up",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "panX": 0.5,
+        "panY": -0.25
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false,
+        "panX": 0.5,
+        "panY": -0.25
+      }
+    },
+    {
+      "name": "moved fully left",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "panX": -1
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false,
+        "panX": -1,
+        "panY": 0
+      }
+    },
+    {
+      "name": "a move past the edge stops at the edge",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "panX": 3,
+        "panY": -7.5
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false,
+        "panX": 1,
+        "panY": -1
+      }
+    },
+    {
+      "name": "a move with a turn",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "rotation": 90,
+        "panY": 1
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 90,
+        "blur": false,
+        "panX": 0,
+        "panY": 1
+      }
+    },
+    {
+      "name": "a whole photo has nowhere to move",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "fit": "contain",
+        "panX": 0.5,
+        "panY": 0.5
+      },
+      "expected": {
+        "fit": "contain",
+        "rotation": 0,
+        "blur": false,
+        "panX": 0,
+        "panY": 0
+      }
+    },
+    {
+      "name": "a move as text is ignored",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "panX": "0.5",
+        "panY": true
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false,
+        "panX": 0,
+        "panY": 0
+      }
+    },
+    {
+      "name": "a move that is not a number is ignored",
+      "entry": {
+        "type": "image",
+        "uploadId": "u",
+        "panX": null,
+        "panY": [
+          1
+        ]
+      },
+      "expected": {
+        "fit": "cover",
+        "rotation": 0,
+        "blur": false,
+        "panX": 0,
+        "panY": 0
       }
     }
   ],
