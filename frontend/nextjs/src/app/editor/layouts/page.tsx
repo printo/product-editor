@@ -1278,9 +1278,9 @@ export default function LayoutCreatorPage() {
                       : 'border-slate-200 hover:shadow-lg hover:border-indigo-200'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    {/* min-w-0 lets this side shrink: without it a long name or file name pushed the action icons out of the card. */}
-                    <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 mb-4">
+                    {/* min-w-0 lets this side shrink, so a long name or file name no longer pushes the action icons out of the card. basis-56 is the room it needs: with less than that left beside the icons, they wrap under it instead of squeezing the name into a sliver. */}
+                    <div className="flex min-w-0 flex-1 basis-56 items-center gap-4">
                       {/* Thumbnail Preview */}
                       <div className="w-16 h-16 bg-slate-50 rounded-lg overflow-hidden border border-slate-100 flex items-center justify-center flex-shrink-0 group-hover:border-indigo-100 transition-colors">
                         <LayoutSVG layout={layoutObj} className="w-full h-full object-contain" />
