@@ -597,6 +597,10 @@ def _mask_target_block(layout_data: dict, target: str) -> dict:
             f"Mask for '{target}': a book layout takes masks for "
             f"{', '.join(r for r in _BOOK_MASK_ROLES if isinstance(book.get(r), dict))} only."
         )
+    if layout_data.get('productType') == 'calendar' and target in ('frontCover', 'backCover'):
+        if isinstance(layout_data.get(target), dict):
+            return layout_data[target]
+        raise ValueError(f"Mask for '{target}': this calendar has no {target} to put it on.")
     for surface in layout_data.get('surfaces') or []:
         if isinstance(surface, dict) and surface.get('key') == target:
             return surface
