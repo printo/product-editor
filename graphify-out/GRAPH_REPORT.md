@@ -15,18 +15,18 @@
 
 ## Community Hubs (Navigation)
 - [[_COMMUNITY_Layout Templates API|Layout Templates API]]
-- [[_COMMUNITY_Small group GoogleFontLinks.tsx|Small group: GoogleFontLinks.tsx]]
-- [[_COMMUNITY_Small group urls.py|Small group: urls.py]]
+- [[_COMMUNITY_Fabric Editor Rendering & Overlay Fonts|Fabric Editor Rendering & Overlay Fonts]]
+- [[_COMMUNITY_API Views & URL Routing|API Views & URL Routing]]
 - [[_COMMUNITY_Small group Photo on a calendar date fit, rotation, blur,|Small group: Photo on a calendar date: fit, rotation, blur, ]]
 - [[_COMMUNITY_Ops Views & Permissions|Ops Views & Permissions]]
 - [[_COMMUNITY_Photo Upload & HEIC (Client)|Photo Upload & HEIC (Client)]]
 - [[_COMMUNITY_Template Authoring|Template Authoring]]
-- [[_COMMUNITY_Small group useCalendarThumbColors()|Small group: useCalendarThumbColors()]]
+- [[_COMMUNITY_Editor Page Components & Hooks|Editor Page Components & Hooks]]
 - [[_COMMUNITY_Book Layout (TS) & Surface State|Book Layout (TS) & Surface State]]
 - [[_COMMUNITY_Editor Utils & Canvas Cards|Editor Utils & Canvas Cards]]
 - [[_COMMUNITY_Layout Catalogue Views & Cache|Layout Catalogue Views & Cache]]
 - [[_COMMUNITY_Render Submission & Task|Render Submission & Task]]
-- [[_COMMUNITY_Small group CalendarFabricPreview.tsx|Small group: CalendarFabricPreview.tsx]]
+- [[_COMMUNITY_Layout Fabric Preview & Alignment|Layout Fabric Preview & Alignment]]
 - [[_COMMUNITY_Imposition Print Sheets|Imposition Print Sheets]]
 - [[_COMMUNITY_Print Sheet & Template Window Box|Print Sheet & Template Window Box]]
 - [[_COMMUNITY_Audit Middleware Tests|Audit Middleware Tests]]
@@ -34,7 +34,7 @@
 - [[_COMMUNITY_Layout Cards & Mask Slots|Layout Cards & Mask Slots]]
 - [[_COMMUNITY_Restored Photo Stand-ins|Restored Photo Stand-ins]]
 - [[_COMMUNITY_Shape Catalogue & Geometry|Shape Catalogue & Geometry]]
-- [[_COMMUNITY_Small group LayoutTemplate|Small group: LayoutTemplate]]
+- [[_COMMUNITY_Layout Template Model & Tests|Layout Template Model & Tests]]
 - [[_COMMUNITY_Calendar Ops Editor|Calendar Ops Editor]]
 - [[_COMMUNITY_Template Copy onto Cards|Template Copy onto Cards]]
 - [[_COMMUNITY_Google Fonts Service|Google Fonts Service]]
@@ -54,7 +54,7 @@
 - [[_COMMUNITY_Engine Compositing & Captions|Engine Compositing & Captions]]
 - [[_COMMUNITY_Render Submission & Task (2)|Render Submission & Task (2)]]
 - [[_COMMUNITY_No-Order Upload Reconcile Tests|No-Order Upload Reconcile Tests]]
-- [[_COMMUNITY_Small group AGENTS.md workflow rules|Small group: AGENTS.md workflow rules]]
+- [[_COMMUNITY_PRDs, Download View & Git Workflow Rules|PRDs, Download View & Git Workflow Rules]]
 - [[_COMMUNITY_Roles & Header|Roles & Header]]
 - [[_COMMUNITY_SSRF Guard Tests|SSRF Guard Tests]]
 - [[_COMMUNITY_Server Font Loader|Server Font Loader]]
@@ -71,31 +71,31 @@
 - [[_COMMUNITY_API Key Daily Request Cap|API Key Daily Request Cap]]
 - [[_COMMUNITY_Old Design Import Reader|Old Design Import Reader]]
 - [[_COMMUNITY_Icon Store Tests|Icon Store Tests]]
-- [[_COMMUNITY_Small group test_mask_uploads.py|Small group: test_mask_uploads.py]]
+- [[_COMMUNITY_Mask Upload Handling|Mask Upload Handling]]
 - [[_COMMUNITY_Small group Book  photobook product type (materialize page|Small group: Book / photobook product type (materialize page]]
 - [[_COMMUNITY_Colour-Managed Image Loader|Colour-Managed Image Loader]]
 - [[_COMMUNITY_Icon Cache & Iconify Limit|Icon Cache & Iconify Limit]]
 - [[_COMMUNITY_Restore Manifest|Restore Manifest]]
 - [[_COMMUNITY_Layout Tag Manager & UI Controls|Layout Tag Manager & UI Controls]]
 - [[_COMMUNITY_Render Payload Extraction|Render Payload Extraction]]
-- [[_COMMUNITY_Small group Bundled fonts (server-side renderer)|Small group: Bundled fonts (server-side renderer)]]
+- [[_COMMUNITY_Overlay Renderer & Bundled Fonts|Overlay Renderer & Bundled Fonts]]
 - [[_COMMUNITY_Layout Catalogue Views & Cache (2)|Layout Catalogue Views & Cache (2)]]
 - [[_COMMUNITY_Calendar Assets on S3 Tests|Calendar Assets on S3 Tests]]
-- [[_COMMUNITY_Small group garbage_collector_task()|Small group: garbage_collector_task()]]
+- [[_COMMUNITY_Garbage Collector Task & Tests|Garbage Collector Task & Tests]]
 - [[_COMMUNITY_Calendar Product Preview|Calendar Product Preview]]
 - [[_COMMUNITY_Dashboard Filter & Orientation|Dashboard Filter & Orientation]]
 - [[_COMMUNITY_Editor Dialogs & Notices|Editor Dialogs & Notices]]
 - [[_COMMUNITY_S3 Storage Backend|S3 Storage Backend]]
 - [[_COMMUNITY_Overlay Text Layout Tests|Overlay Text Layout Tests]]
 - [[_COMMUNITY_Text Coverage Tests|Text Coverage Tests]]
-- [[_COMMUNITY_Small group Auto-fit text via ImageFont.getbbox binary sear|Small group: Auto-fit text via ImageFont.getbbox binary sear]]
+- [[_COMMUNITY_Calendar Renderer & Cell Photos|Calendar Renderer & Cell Photos]]
 - [[_COMMUNITY_Indian Script Print Tests|Indian Script Print Tests]]
 - [[_COMMUNITY_Unprintable Text (Client)|Unprintable Text (Client)]]
 - [[_COMMUNITY_GC Status Tests|GC Status Tests]]
-- [[_COMMUNITY_Small group resvg-py 0.5.0 (SVG mask rasteriser)|Small group: resvg-py 0.5.0 (SVG mask rasteriser)]]
+- [[_COMMUNITY_SVG Mask Validation & Rasterising|SVG Mask Validation & Rasterising]]
 - [[_COMMUNITY_Import Session & Dialog Tests|Import Session & Dialog Tests]]
-- [[_COMMUNITY_Small group gc_sweeps.py|Small group: gc_sweeps.py]]
-- [[_COMMUNITY_Small group layout.tsx|Small group: layout.tsx]]
+- [[_COMMUNITY_GC Sweep Functions|GC Sweep Functions]]
+- [[_COMMUNITY_App Shell & Layout Editor Pages|App Shell & Layout Editor Pages]]
 - [[_COMMUNITY_Book Layout Editor (Ops UI)|Book Layout Editor (Ops UI)]]
 - [[_COMMUNITY_Calendar Month Grid Tests|Calendar Month Grid Tests]]
 - [[_COMMUNITY_Playwright Editor Helpers|Playwright Editor Helpers]]
@@ -107,7 +107,7 @@
 - [[_COMMUNITY_Editor Page Characterization Suite|Editor Page Characterization Suite]]
 - [[_COMMUNITY_Orphan Export Sweep Tests|Orphan Export Sweep Tests]]
 - [[_COMMUNITY_Photo Fetch Tests|Photo Fetch Tests]]
-- [[_COMMUNITY_Small group Calendars lacked month names and never asked fo|Small group: Calendars lacked month names and never asked fo]]
+- [[_COMMUNITY_Calendar Surface Materialising|Calendar Surface Materialising]]
 - [[_COMMUNITY_Local Storage Backend|Local Storage Backend]]
 - [[_COMMUNITY_LayoutCatalogue Model Tests|LayoutCatalogue Model Tests]]
 - [[_COMMUNITY_Colour-Managed Image Loader (2)|Colour-Managed Image Loader (2)]]
@@ -141,14 +141,14 @@
 - [[_COMMUNITY_PDF Import & Lazy Image|PDF Import & Lazy Image]]
 - [[_COMMUNITY_Jobs-Per-Day Monitor|Jobs-Per-Day Monitor]]
 - [[_COMMUNITY_Editor Restore Page Tests|Editor Restore Page Tests]]
-- [[_COMMUNITY_Small group test_calendar_covers.py|Small group: test_calendar_covers.py]]
+- [[_COMMUNITY_Calendar Cover Tests|Calendar Cover Tests]]
 - [[_COMMUNITY_Smart Downscale Zoom Tests|Smart Downscale Zoom Tests]]
 - [[_COMMUNITY_Login & Callback URL|Login & Callback URL]]
 - [[_COMMUNITY_Calendar & Book Validators (3)|Calendar & Book Validators (3)]]
 - [[_COMMUNITY_S3 Storage Backend (2)|S3 Storage Backend (2)]]
 - [[_COMMUNITY_Import Design E2E Spec|Import Design E2E Spec]]
 - [[_COMMUNITY_Frontend Dependencies|Frontend Dependencies]]
-- [[_COMMUNITY_Small group calendar_layout.py|Small group: calendar_layout.py]]
+- [[_COMMUNITY_Calendar Year & Label Helpers|Calendar Year & Label Helpers]]
 - [[_COMMUNITY_Calendar Date Photo Tests|Calendar Date Photo Tests]]
 - [[_COMMUNITY_Holiday Refresh Tests|Holiday Refresh Tests]]
 - [[_COMMUNITY_Mask Loading Tests|Mask Loading Tests]]
@@ -167,7 +167,7 @@
 - [[_COMMUNITY_Photo Fetch & Allowed Hosts (2)|Photo Fetch & Allowed Hosts (2)]]
 - [[_COMMUNITY_Calendar Drawing Helpers|Calendar Drawing Helpers]]
 - [[_COMMUNITY_Frontend Scripts|Frontend Scripts]]
-- [[_COMMUNITY_Small group calendar_covers.py|Small group: calendar_covers.py]]
+- [[_COMMUNITY_Calendar Cover Sheets|Calendar Cover Sheets]]
 - [[_COMMUNITY_Calendar Month Heading Tests|Calendar Month Heading Tests]]
 - [[_COMMUNITY_Canvas Colour Tests|Canvas Colour Tests]]
 - [[_COMMUNITY_Frame Alignment Tests|Frame Alignment Tests]]
@@ -188,10 +188,10 @@
 - [[_COMMUNITY_Design Import Artwork Fetch|Design Import Artwork Fetch]]
 - [[_COMMUNITY_Overlay Integration Tests|Overlay Integration Tests]]
 - [[_COMMUNITY_Export Download Path Guards|Export Download Path Guards]]
-- [[_COMMUNITY_Small group useCardActions.test.ts|Small group: useCardActions.test.ts]]
+- [[_COMMUNITY_useCardActions Tests|useCardActions Tests]]
 - [[_COMMUNITY_Queue Guard Tests|Queue Guard Tests]]
 - [[_COMMUNITY_Icon Raster (Client)|Icon Raster (Client)]]
-- [[_COMMUNITY_Small group display_label_for()|Small group: display_label_for()]]
+- [[_COMMUNITY_Book Layout Parity Tests|Book Layout Parity Tests]]
 - [[_COMMUNITY_Order Quantity Rules (Server) (2)|Order Quantity Rules (Server) (2)]]
 - [[_COMMUNITY_Font Language Labels|Font Language Labels]]
 - [[_COMMUNITY_Surface Slicing Tests|Surface Slicing Tests]]
@@ -205,22 +205,22 @@
 - [[_COMMUNITY_Calendar Holidays Loader|Calendar Holidays Loader]]
 - [[_COMMUNITY_S3 Storage Backend (3)|S3 Storage Backend (3)]]
 - [[_COMMUNITY_Editor Page Test Harness|Editor Page Test Harness]]
-- [[_COMMUNITY_Small group test_move_artwork_command.py|Small group: test_move_artwork_command.py]]
+- [[_COMMUNITY_Move Artwork Command Tests|Move Artwork Command Tests]]
 - [[_COMMUNITY_Purge Replay & Backups|Purge Replay & Backups]]
 - [[_COMMUNITY_Caption Box Resolution|Caption Box Resolution]]
 - [[_COMMUNITY_Package Manifest|Package Manifest]]
-- [[_COMMUNITY_Small group 1 for English (Jan), 4 for Financial (Apr).|Small group: 1 for English (Jan), 4 for Financial (Apr).]]
+- [[_COMMUNITY_Calendar Month Resolution|Calendar Month Resolution]]
 - [[_COMMUNITY_API Key Daily Cap Tests|API Key Daily Cap Tests]]
 - [[_COMMUNITY_CSP & Ops Write Test Stubs|CSP & Ops Write Test Stubs]]
 - [[_COMMUNITY_Rollback-Safe Columns Test|Rollback-Safe Columns Test]]
 - [[_COMMUNITY_S3 Storage Backend (4)|S3 Storage Backend (4)]]
 - [[_COMMUNITY_Order Quantity Rules (Server) (4)|Order Quantity Rules (Server) (4)]]
-- [[_COMMUNITY_Small group useLayoutLoader.test.ts|Small group: useLayoutLoader.test.ts]]
+- [[_COMMUNITY_useLayoutLoader Tests|useLayoutLoader Tests]]
 - [[_COMMUNITY_Editor Hook Split & Tests|Editor Hook Split & Tests]]
-- [[_COMMUNITY_Small group notify_caller_webhook_task()|Small group: notify_caller_webhook_task()]]
+- [[_COMMUNITY_Caller Webhook Delivery|Caller Webhook Delivery]]
 - [[_COMMUNITY_Holiday Refresh|Holiday Refresh]]
 - [[_COMMUNITY_Book Layout Decisions|Book Layout Decisions]]
-- [[_COMMUNITY_Small group Restore manifest retention|Small group: Restore manifest retention]]
+- [[_COMMUNITY_Restore Manifest & ZIP Download Docs|Restore Manifest & ZIP Download Docs]]
 - [[_COMMUNITY_E2E TypeScript Config|E2E TypeScript Config]]
 - [[_COMMUNITY_Shell Print Helpers|Shell Print Helpers]]
 - [[_COMMUNITY_Blank Font Builder|Blank Font Builder]]
@@ -228,16 +228,16 @@
 - [[_COMMUNITY_Calendar Holidays Parity Tests|Calendar Holidays Parity Tests]]
 - [[_COMMUNITY_Calendar Theme & Palette|Calendar Theme & Palette]]
 - [[_COMMUNITY_Orientation Render Tests|Orientation Render Tests]]
-- [[_COMMUNITY_Small group EmbedSession GC sweep (30 days)|Small group: EmbedSession GC sweep (30 days)]]
+- [[_COMMUNITY_Embed postMessage & Restore Protocol|Embed postMessage & Restore Protocol]]
 - [[_COMMUNITY_Small group orientationInfo on GET apilayouts|Small group: orientationInfo on GET /api/layouts]]
 - [[_COMMUNITY_Fresh Install Script|Fresh Install Script]]
 - [[_COMMUNITY_Smoke Test Helpers|Smoke Test Helpers]]
-- [[_COMMUNITY_Small group test_calendar_year_parity.py|Small group: test_calendar_year_parity.py]]
+- [[_COMMUNITY_Calendar Year Parity Tests|Calendar Year Parity Tests]]
 - [[_COMMUNITY_Image Pixel Cap Test|Image Pixel Cap Test]]
-- [[_COMMUNITY_Small group Data Lifecycle & Retention|Small group: Data Lifecycle & Retention]]
+- [[_COMMUNITY_Data Lifecycle & Webhook Signature|Data Lifecycle & Webhook Signature]]
 - [[_COMMUNITY_Submit Guards & DPI (2)|Submit Guards & DPI (2)]]
 - [[_COMMUNITY_Templates Smoke Test|Templates Smoke Test]]
-- [[_COMMUNITY_Small group Merge layout style block + active Gen-Z palette|Small group: Merge layout style block + active Gen-Z palette]]
+- [[_COMMUNITY_Calendar Colour Resolution|Calendar Colour Resolution]]
 - [[_COMMUNITY_Google Fonts Tests (2)|Google Fonts Tests (2)]]
 - [[_COMMUNITY_Benchmark Script|Benchmark Script]]
 - [[_COMMUNITY_Deploy Safety Docs|Deploy Safety Docs]]
@@ -254,7 +254,7 @@
 - [[_COMMUNITY_Server Font Loader (2)|Server Font Loader (2)]]
 - [[_COMMUNITY_API Key Rotation Script|API Key Rotation Script]]
 - [[_COMMUNITY_Embed Smoke Test|Embed Smoke Test]]
-- [[_COMMUNITY_Small group gutter_side_for()|Small group: gutter_side_for()]]
+- [[_COMMUNITY_Book Gutter Side|Book Gutter Side]]
 - [[_COMMUNITY_FakeBackend Test Double|FakeBackend Test Double]]
 - [[_COMMUNITY_Fabric Type Augmentation|Fabric Type Augmentation]]
 - [[_COMMUNITY_NextAuth Types|NextAuth Types]]
@@ -265,8 +265,8 @@
 - [[_COMMUNITY_Book Smoke Test|Book Smoke Test]]
 - [[_COMMUNITY_Calendar Smoke Test|Calendar Smoke Test]]
 - [[_COMMUNITY_Backup Restore Test|Backup Restore Test]]
-- [[_COMMUNITY_Small group page_count_bounds()|Small group: page_count_bounds()]]
-- [[_COMMUNITY_Small group pages_to_spreads()|Small group: pages_to_spreads()]]
+- [[_COMMUNITY_Book Page Count Bounds|Book Page Count Bounds]]
+- [[_COMMUNITY_Book Spread Grouping|Book Spread Grouping]]
 - [[_COMMUNITY_Small group Checking a deployed UI change on production via|Small group: Checking a deployed UI change on production via]]
 - [[_COMMUNITY_Small group Mask and sticker previews via CloudFront CDN|Small group: Mask and sticker previews via CloudFront CDN]]
 - [[_COMMUNITY_Small group entrypoint.sh|Small group: entrypoint.sh]]
@@ -364,15 +364,15 @@
 Cohesion: 0.03
 Nodes (93): Layout tags (fixed key, renameable name, switch off not delete), LayoutTemplate, Q, _is_fractional(), parse_orientation(), Serve a layout in the orientation the caller asked for.  printo.in's CMS decides, A quarter turn clockwise: (x, y, w, h) -> (H - y - h, x, h, w)., In place. The caller passes a copy. (+85 more)
 
-### Community 1 - "Small group: GoogleFontLinks.tsx"
+### Community 1 - "Fabric Editor Rendering & Overlay Fonts"
 Cohesion: 0.05
 Nodes (66): GoogleFontLinks(), Calendar z-order slot (above overlays, below mask), CaptionAlign, CaptionBoxOverrides, CaptionMmFields, captionOverridesFromMm(), hasCaptionPlacement(), resolveCaptionBox() (+58 more)
 
-### Community 2 - "Small group: urls.py"
+### Community 2 - "API Views & URL Routing"
 Cohesion: 0.04
 Nodes (74): APIView, BaseParser, CSP enforcement plan, History: the 2026-09-10 CSP test run, Flip-to-enforcement procedure, Pre-enforcement checklist, CSP report-only mode, Sentry is the CSP violation history (+66 more)
 
-### Community 3 - "Small group: Photo on a calendar date: fit, rotation, blur, "
+### Community 3 - "Layout Orientation & Print Sheet"
 Cohesion: 0.05
 Nodes (78): Photo on a calendar date: fit, rotation, blur, move (no zoom), Calendar month name above the grid (month_heading_enabled), Calendar product type (materialize 12 surfaces), isExport flag keeps outlines and frame picture out of downloads, Layout orientation: quarter turn by apply_orientation, never an error, Layout templates (ops-authored decoration), Print sheet: whole canvas or bleed area read from the photo windows, A template faces one way (portrait or landscape), never turned (+70 more)
 
@@ -388,7 +388,7 @@ Nodes (57): ALLOWED_MIMES, CalendarCellUploadError, uploadCalendarCellImage(), U
 Cohesion: 0.06
 Nodes (62): CalendarPreviewClient(), DeleteTemplateDialog(), DeleteTemplateDialogProps, OfferedOn(), OpsTemplate, TemplateCard(), TemplateCardProps, templateEditHref() (+54 more)
 
-### Community 7 - "Small group: useCalendarThumbColors()"
+### Community 7 - "Editor Page Components & Hooks"
 Cohesion: 0.06
 Nodes (57): useCalendarThumbColors(), useGoogleFonts(), Editor page Jest characterization suite (Phase 0a), Deploy each split PR soon after merge, Detached download links fix, One owner per ref, Part 2: editor page.tsx split into hooks and components, Playwright editor smoke suite (Phase 0b) (+49 more)
 
@@ -408,7 +408,7 @@ Nodes (57): default_display_name_for(), LayoutCatalogue, Auto-derived display na
 Cohesion: 0.05
 Nodes (39): Async rendering job status and results., RenderJob, Shared render submission service for GenerateLayoutView and EditorRenderView.  C, Enqueue render task to Celery and update job with Celery task ID.          Calle, Estimate seconds until a newly-enqueued job will start processing.          Take, Raised when render submission fails., Unified render submission service.      Handles:       1. CanvasData upsert (ide, Initialize submission service.          Args:             api_key: The APIKey ob (+31 more)
 
-### Community 12 - "Small group: CalendarFabricPreview.tsx"
+### Community 12 - "Layout Fabric Preview & Alignment"
 Cohesion: 0.06
 Nodes (46): CalBlock, CalendarFabricPreviewProps, CalFrame, MONTH_SHORT, AlignEdge, AlignFrame, alignFrames(), nudgeFrames() (+38 more)
 
@@ -440,7 +440,7 @@ Nodes (30): A restored photo's preview must never be uploaded or printed, Editor
 Cohesion: 0.08
 Nodes (48): What the previews draw for a shape overlay whose box is (sx, sy, sw, sh).      R, shape_geometry(), flatten_path(), path_bbox(), polygon_bbox_fraction(), Python twin of `frontend/nextjs/src/lib/shape-catalog.ts`.  The two previews bui, `getShapeDef`: the catalogue entry, or None for an unknown key., `getShapePath`: the overlay's own path, else the catalogue's, else the rectangle (+40 more)
 
-### Community 20 - "Small group: LayoutTemplate"
+### Community 20 - "Layout Template Model & Tests"
 Cohesion: 0.07
 Nodes (15): LayoutTemplate, Ops-authored decoration (background, text, stickers) for a layout, offered     a, _Base, CustomerReadsTest, EmbedSessionTest, ModelTest, OpsWritesTest, _png_bytes() (+7 more)
 
@@ -520,7 +520,7 @@ Nodes (34): ApiConfig, AppConfig, Access-mode invariant (dashboard vs embed prod
 Cohesion: 0.09
 Nodes (29): CanvasData, Persisted canvas design for async rendering and editor state recovery., Command, _haystack(), _human(), Trace storage/uploads/_no_order/ files back to their real owning order, and (wit, Recursively replace any string LEAF that exactly equals `old` with `new`,     in, Move each RECOVERABLE file and repoint its references.          Returns (succeed (+21 more)
 
-### Community 40 - "Small group: AGENTS.md workflow rules"
+### Community 40 - "PRDs, Download View & Git Workflow Rules"
 Cohesion: 0.07
 Nodes (34): AGENTS.md workflow rules, Git and PR workflow (pull main, branch, push, PR only), API Surface Separation PRD, Core Product Invariant: dashboard and embed render byte-equivalent output, Shared Render Submission Service (CanvasData upsert + RenderJob + on_commit dispatch), Calendar primitive (layout-agnostic positioned region), Calendar Feature PRD, Calendar as Multi-Surface Product (productType: calendar) (+26 more)
 
@@ -588,11 +588,11 @@ Nodes (25): BuiltArtwork, hexColor(), ImportedLayoutDefinition, ImportedText, Im
 Cohesion: 0.11
 Nodes (21): Env, FakeCache, FakeIconify, _raises(), Tests for services.icon_store — icons served from our own cache.  The Icons tab, A temp storage root, a dict cache and a fake Iconify for one test., The few cache calls the store makes, over a dict., Serves single icons, icon-set JSON and searches; records every call. (+13 more)
 
-### Community 57 - "Small group: test_mask_uploads.py"
+### Community 57 - "Mask Upload Handling"
 Cohesion: 0.19
 Nodes (28): _LocalStore, _png(), _raises(), Tests for where an ops mask upload lands (api/views/layout_admin.py `_store_uplo, Cache safety: a CDN or browser may keep a mask URL for good., A 301 is cached indefinitely; the target here is a signed URL that expires., Swap in a LocalStorage whose masks dir is a temp dir., test_a_bad_target_writes_nothing_even_after_a_good_one() (+20 more)
 
-### Community 58 - "Small group: Book / photobook product type (materialize page"
+### Community 58 - "Book Page Count & Page Expansion"
 Cohesion: 0.15
 Nodes (30): Book / photobook product type (materialize pages), materialize_pages(), Expand a book template into concrete per-page surface dicts.      Mirrors `servi, Clamp a customer-requested page count onto the template's allowed grid.      Boo, resolve_page_count(), _book_layout(), _collage_book(), Unit tests for services.book_layout — page-count resolution, gutter mirroring, s (+22 more)
 
@@ -616,7 +616,7 @@ Nodes (20): BookLayoutEditorProps, isTagKey(), keyForName(), LayoutTagInfo, tagN
 Cohesion: 0.11
 Nodes (27): _build_restore_manifest(), _extract_backgrounds_per_canvas(), _extract_book_state(), _extract_calendar_state(), _extract_canvases_meta(), _extract_frame_transforms(), _extract_overlays_per_canvas(), Celery tasks for asynchronous image generation. (+19 more)
 
-### Community 64 - "Small group: Bundled fonts (server-side renderer)"
+### Community 64 - "Overlay Renderer & Bundled Fonts"
 Cohesion: 0.11
 Nodes (27): Bundled fonts (server-side renderer), Inter-Variable.ttf (bundled default font), SIL Open Font License 1.1, Overlay drift fix (PR #258), _composite_rotated(), _draw_shape(), _draw_text(), _parse_color() (+19 more)
 
@@ -628,7 +628,7 @@ Nodes (18): Cache invalidation errors never propagate to the write, Layout cache
 Cohesion: 0.19
 Nodes (23): Swap the process-wide storage for an S3Storage over the fake client,     and STO, S3Backend, _holidays(), _printed(), _raises(), Tests that an ops edit to a calendar asset reaches the print under STORAGE_BACKE, test_access_denied_reads_as_a_missing_key(), test_body_read_failure_is_an_outage() (+15 more)
 
-### Community 67 - "Small group: garbage_collector_task()"
+### Community 67 - "Garbage Collector Task & Tests"
 Cohesion: 0.14
 Nodes (12): garbage_collector_task(), Periodic task to clean up expired export files.      Runs every 6 hours (00:00,, GC skips manual-review orders, priority queue has no producer and is not a QoS tier, AUDIT_EXEMPT_PREFIXES blind spots, API audit trail outlives the data (90 days), An empty audit table proves nothing, GC expiry wave diagnosis (why every 6 hours) (+4 more)
 
@@ -656,7 +656,7 @@ Nodes (26): layout_text(), Wrap `text` the way Fabric's Textbox does.      `meas
 Cohesion: 0.13
 Nodes (26): _font_with_cmap(), _freetype_draws(), Tests for services.text_coverage — which characters of a text overlay the print, Parisienne has no Greek; Inter does. The answer must follow the family., The table reader against the renderer itself, over a spread of     characters, f, No missing-glyph boxes, no gap: the same pixels as if the emoji had     never be, Poppins has the Devanagari letters; drawn one by one they print     misspelt, so, A minimal sfnt holding only a cmap table with one subtable. (+18 more)
 
-### Community 74 - "Small group: Auto-fit text via ImageFont.getbbox binary sear"
+### Community 74 - "Calendar Renderer & Cell Photos"
 Cohesion: 0.10
 Nodes (26): Auto-fit text via ImageFont.getbbox binary search, Ops vs customer control split (theme, palette, calendar type customer-controllable), Calendar grid rendering algorithm (identical client/server math), Hard cap of 3 entries per cell, no overflow badge, Minimal customer-facing controls principle, Out-of-month cells show date number only, Pill-style cell entries with rotating 3-slot dotCycle, User-first MAX_ENTRIES precedence (+18 more)
 
@@ -672,7 +672,7 @@ Nodes (17): checkedChars(), coverageKey(), fetchUnprintable(), graphemes(), Prin
 Cohesion: 0.14
 Nodes (23): Tests for the durable GC last-run record (services/gc_status.py).  The point of, Point STORAGE_ROOT at a throwaway dir — these tests must never touch real storag, _TempStorage, test_a_second_run_overwrites_the_first(), test_a_string_error_is_accepted(), test_failure_after_success_sets_failing_even_while_not_yet_stale(), test_failure_is_recorded_with_type_and_message(), test_failure_with_no_prior_success_is_stale_and_failing() (+15 more)
 
-### Community 78 - "Small group: resvg-py 0.5.0 (SVG mask rasteriser)"
+### Community 78 - "SVG Mask Validation & Rasterising"
 Cohesion: 0.13
 Nodes (23): resvg-py 0.5.0 (SVG mask rasteriser), _safe(), normalize_svg_mask(), rasterize_svg_mask(), SVG layout masks: upload validation and rasterising at print size.  A PNG mask i, Raise ValueError unless `data` is a self-contained SVG safe to store.      Masks, Give the root `<svg>` a pixel width and height taken from its viewBox.      A br, The SVG drawn at exactly width x height as RGBA.      The artwork is stretched t (+15 more)
 
@@ -680,11 +680,11 @@ Nodes (23): resvg-py 0.5.0 (SVG mask rasteriser), _safe(), normalize_svg_mask(),
 Cohesion: 0.10
 Nodes (16): clearImportSession(), ImportSession, readImportSession(), storage(), writeImportSession(), BLOCK, Call, CANDIDATE (+8 more)
 
-### Community 80 - "Small group: gc_sweeps.py"
+### Community 80 - "GC Sweep Functions"
 Cohesion: 0.09
 Nodes (22): effective_retention_days(), expiry_filter(), _is_manual_review_path(), The individual sweeps behind `api.tasks.garbage_collector_task`.  Each function, Delete the output files of render jobs whose CanvasData has expired.      Async, Delete expired CanvasData (large editor_state blobs) not flagged for manual, Hard-delete flagged ExportedResult / UploadedFile rows older than the window., API audit rows, on their own longer clock (settings.API_AUDIT_RETENTION_DAYS): (+14 more)
 
-### Community 81 - "Small group: layout.tsx"
+### Community 81 - "App Shell & Layout Editor Pages"
 Cohesion: 0.12
 Nodes (17): viewport, Service Worker (cache-first for hashed static assets), AppWrapper(), HeaderSpacer(), useHasHydrated(), AuthProvider(), AuthProviderProps, Header() (+9 more)
 
@@ -732,7 +732,7 @@ Nodes (17): Tests for the path-based orphan export sweep (services/orphan_export
 Cohesion: 0.17
 Nodes (19): _fetch(), Fetching a customer photo from an embedding company's storage (services/photo_fe, Run fetch_photo against a stand-in connection; returns (result, path, response)., _refused(), _Response, test_a_declared_size_over_the_limit_is_refused_before_reading(), test_a_good_fetch_writes_the_bytes_and_closes_the_connection(), test_a_host_not_on_the_list_is_refused_with_403() (+11 more)
 
-### Community 93 - "Small group: Calendars lacked month names and never asked fo"
+### Community 93 - "Calendar Surface Materialising"
 Cohesion: 0.18
 Nodes (21): Calendars lacked month names and never asked for 12 photos (2026-10-17), materialize_surfaces(), Expand a calendar template into a list of concrete surfaces.      Args:, _desk_calendar(), _poster_calendar(), Unit tests for services.calendar_layout — surface materialization, year resoluti, maskUrl is layout-global (§10.2.1) — every materialized surface inherits., surfaceOverrides cannot change mask config — it stays template-global. (+13 more)
 
@@ -756,7 +756,7 @@ Nodes (21): Auto-orientation: rotate-to-fill first, pose then face model, Editor
 Cohesion: 0.14
 Nodes (12): CalendarCellPhoto(), CalendarCellPhotoDialog(), FITS, MOVES, cellImageOverflow(), CalendarState, CellImageFit, CellImagePlacement (+4 more)
 
-### Community 99 - "Small group: Auth matrix: which caller reaches which route"
+### Community 99 - "Embed Session API & README"
 Cohesion: 0.11
 Nodes (21): Auth matrix: which caller reaches which route, Dashboard/Internal API (NextAuth cookie -> /api/internal/proxy -> INTERNAL_API_KEY), Direct Partner API (POST /api/layout/generate, multipart, async-only, no webhook), Iframe Embed API (session token, embed proxy injects Bearer + X-Order-ID/X-Callback-URL/X-Include-Uploads), callback_url session field, order_id required on every embed session, API key bundle leak closed: NEXT_PUBLIC_DIRECT_API_KEY replaced by server-side internal proxy, B3: SKU-to-layout mapping built then removed 2026-09-04 (printo.in owns resolution) (+13 more)
 
@@ -824,7 +824,7 @@ Nodes (11): AccountInactiveError, DecodedToken, GoogleDomainNotAllowedError, nex
 Cohesion: 0.18
 Nodes (14): DotInfo, fillSizes(), MonthTileThumb(), MonthTileThumbProps, ThumbColors, displayLabelFor(), MONTH_NAMES_EN, monthHeadingText() (+6 more)
 
-### Community 116 - "Small group: D5: one gutterMm mirrored by page parity"
+### Community 116 - "Book Gutter Mirroring"
 Cohesion: 0.13
 Nodes (18): D5: one gutterMm mirrored by page parity, R3: gutter parity backwards shows only in print, apply_gutter(), _as_float(), _canvas_width_mm(), gutter_shift_fraction(), Server-side helpers for the book / booklet / photobook product type (BOOK_LAYOUT, Physical width of a canvas in mm, derived from `dpi` when `widthMm` is     absen (+10 more)
 
@@ -868,7 +868,7 @@ Nodes (16): bucket_counts(), jobs_per_day(), Jobs submitted per day, split dashb
 Cohesion: 0.12
 Nodes (9): earlierPhotos, mockParams, mockRememberImageSize, mockRouter, mockSession, Posted, savedCard(), SavedDesign (+1 more)
 
-### Community 127 - "Small group: test_calendar_covers.py"
+### Community 127 - "Calendar Cover Tests"
 Cohesion: 0.22
 Nodes (15): _calendar(), _cover(), _invalid(), _near(), Front and back cover sheets on a calendar: the pure helpers, the validator, and, _render(), _solid(), test_a_cover_frame_must_stay_on_its_canvas() (+7 more)
 
@@ -896,7 +896,7 @@ Nodes (11): BLOCK, BLOCK_RGB, chooseLayout(), dialogOf(), Obj, readDesign(), STI
 Cohesion: 0.12
 Nodes (17): dependencies, clsx, exifreader, fabric, framer-motion, heic2any, jose, jszip (+9 more)
 
-### Community 134 - "Small group: calendar_layout.py"
+### Community 134 - "Calendar Year & Label Helpers"
 Cohesion: 0.15
 Nodes (16): display_label_for(), Server-side helpers for the calendar product type (CALENDAR_FEATURE_PRD.md §10 +, ZIP-filename-friendly month/year label (PRD §11.6)., Return today's date in IST. v1 customers are India-only (§11.13)., Implement the PRD §10.4 baseYear formula.      Args:         calendar_type: 'eng, Resolve a layout's `monthRange.defaultYear` to a concrete year.      `"current"`, resolve_base_year(), resolve_default_year() (+8 more)
 
@@ -972,7 +972,7 @@ Nodes (15): ImageDraw, _autofit_text(), _draw_month_heading(), _draw_pill(), _he
 Cohesion: 0.13
 Nodes (15): scripts, build, clean, dev, dev:clean, e2e, e2e:headed, lint (+7 more)
 
-### Community 153 - "Small group: calendar_covers.py"
+### Community 153 - "Calendar Cover Sheets"
 Cohesion: 0.17
 Nodes (14): cover_block(), cover_keys_present(), cover_surface(), is_cover_key(), numbered_label(), Front and back cover sheets for the calendar product type.  A calendar layout ma, The authored block for a cover, or None when the layout has none., Cover keys this layout carries, in print order (front, back). (+6 more)
 
@@ -1048,7 +1048,7 @@ Nodes (11): _dark_ys(), _full_frame_surface(), _near(), Integration test for ove
 Cohesion: 0.18
 Nodes (8): Path guards in the api.views package.  is_safe_layout_name used to exist as thre, test_export_download_status_codes(), test_layout_names_with_path_parts_are_refused(), Check if file path is safe (no traversal attempts)., Verify full path is within allowed directory.         Defense in depth against t, Secure file serving endpoint for exports.     Requires authentication and checks, Download a generated export file securely., SecureExportDownloadView
 
-### Community 174 - "Small group: useCardActions.test.ts"
+### Community 174 - "useCardActions Tests"
 Cohesion: 0.17
 Nodes (8): expandPdfPages, frame(), generateCanvasesForLayout, Init, LAYOUT, photo(), renderCanvas, setup()
 
@@ -1060,7 +1060,7 @@ Nodes (10): _free_space_mb(), Free disk space at `path` in MB (used by the disk-
 Cohesion: 0.27
 Nodes (7): framePng(), loadImage(), needsRasterForPrint(), overlayRasterSize(), rasterFileName(), rasterizeSvgUrl(), svgForRaster()
 
-### Community 177 - "Small group: display_label_for()"
+### Community 177 - "Book Layout Parity Tests"
 Cohesion: 0.26
 Nodes (11): display_label_for(), Filename stem for one printed side, e.g. `"01 Front Cover"`,     `"02 Page 01"`,, _layout_for(), _load_fixtures(), TS<->Python parity test for the book/booklet layout math (BOOK_LAYOUT_PRD.md §5., test_display_label_cases_match_fixtures(), test_gutter_shift_cases_match_fixtures(), test_gutter_side_cases_match_fixtures() (+3 more)
 
@@ -1116,7 +1116,7 @@ Nodes (5): _check_font_name(), FontCacheUnavailable, _local_font_path(), Under t
 Cohesion: 0.18
 Nodes (10): BOOK_LAYOUT, CALENDAR_FINANCIAL_GENZ, CALENDAR_LAYOUT, CALENDAR_NO_HOLIDAYS, Call, Hold, LAYOUT_4X6, makePhoto() (+2 more)
 
-### Community 191 - "Small group: test_move_artwork_command.py"
+### Community 191 - "Move Artwork Command Tests"
 Cohesion: 0.40
 Nodes (3): make(), MoveArtworkCommandTest, manage.py move_artwork_to_frame: what sat in a generic layout's artwork slot bec
 
@@ -1132,7 +1132,7 @@ Nodes (8): Resolve an explicitly-placed caption's box (px, top-left origin) from
 Cohesion: 0.20
 Nodes (9): name, brace-expansion@>=4.0.0, picomatch@>=4.0.0, yaml, packageManager, pnpm, overrides, private (+1 more)
 
-### Community 195 - "Small group: 1 for English (Jan), 4 for Financial (Apr)."
+### Community 195 - "Calendar Month Resolution"
 Cohesion: 0.20
 Nodes (10): 1 for English (Jan), 4 for Financial (Apr)., Resolve a (year, month) pair for a given (surface, primitive) position.      The, resolve_surface_month(), start_month_for(), test_resolve_surface_month_english_desk(), test_resolve_surface_month_financial_desk(), test_resolve_surface_month_poster_english(), test_resolve_surface_month_poster_financial() (+2 more)
 
@@ -1152,11 +1152,11 @@ Nodes (6): S3 calendar asset key mismatch (missing prefix/.json), Git-seeded loc
 Cohesion: 0.22
 Nodes (9): parse_order_qty(), Normalise a caller-supplied quantity.      Returns `None` when nothing was sent, The caller did not say" is a valid state, distinct from a bad value., `qty: true` is a caller mistake; int(True) == 1 would cap the order at 1., test_a_clean_quantity_parses_from_int_str_and_whole_float(), test_absent_quantity_is_not_an_error(), test_an_absurd_quantity_is_refused(), test_booleans_are_refused_rather_than_read_as_one() (+1 more)
 
-### Community 201 - "Small group: useLayoutLoader.test.ts"
+### Community 201 - "useLayoutLoader Tests"
 Cohesion: 0.25
 Nodes (6): BOOK, LAYOUT_4X6, named(), order, Props, TWO_SIDED
 
-### Community 203 - "Small group: notify_caller_webhook_task()"
+### Community 203 - "Caller Webhook Delivery"
 Cohesion: 0.32
 Nodes (8): notify_caller_webhook_task(), Notify the embed caller (e.g. printo.in storefront) that rendering has     compl, Signed completion webhook payload, Caller webhook is a separate Celery task, Webhook retry policy (6 attempts, 2^n backoff), Track A2: post-checkout 300 DPI render delivered by signed webhook (primary) or polling download (fallback), Standalone generator: no internal OMS push (push_to_production_estimator_task retired v1.9), Webhook delivery (embed flow only)
 
@@ -1168,7 +1168,7 @@ Nodes (5): Command, Annual ops task (PRD §11.9): merge a locale/year's public h
 Cohesion: 0.25
 Nodes (8): Book layout schema (book.cover, innerPage, backCover), Collage pages need no schema flag, D2a: author one cover and one inner page, D4: covers authored separately, addressed by role, D7: canvas per role, One ZIP with covers named to sort first, pageOverrides escape hatch, Per-frame photo allocation prerequisite
 
-### Community 206 - "Small group: Restore manifest retention"
+### Community 206 - "Restore Manifest & ZIP Download Docs"
 Cohesion: 0.29
 Nodes (8): Restore manifest retention, Print file size follows the bleed area, include_uploads session field, pe:restore_data reply, restore.json in the uploads archive, Split download URLs (print / mock / uploads), ZIP fetch with Bearer auth, B7: storefront webhook consumer confirmed working (43 sessions, 45 ZIP fetches, order 576430; closed 2026-10-13)
 
@@ -1196,11 +1196,11 @@ Nodes (7): Which Gen-Z palette the print uses when the customer never picked one
 Cohesion: 0.50
 Nodes (7): _layout(), _near(), End to end through the real engine: a landscape layout asked for in portrait pri, _render(), _solid(), test_portrait_request_prints_a_portrait_file_with_photos_in_the_turned_frames(), test_the_mask_is_turned_with_the_layout()
 
-### Community 214 - "Small group: EmbedSession GC sweep (30 days)"
+### Community 214 - "Embed postMessage & Restore Protocol"
 Cohesion: 0.29
 Nodes (7): EmbedSession GC sweep (30 days), pe:back postMessage, pe:render_job postMessage, pe:restore_request message, pe:restore_result message, restore_order_id on the iframe address, Product Editor PRD (End-to-End Production Automation, v1.13)
 
-### Community 215 - "Small group: orientationInfo on GET /api/layouts"
+### Community 215 - "Template & Orientation Session Fields"
 Cohesion: 0.29
 Nodes (7): orientationInfo on GET /api/layouts, orientation report on webhook and editor/init, orientation session field, One template on several layouts (alsoOn), A template faces one way (facing, templateCounts), template_flow session field, template_id session field
 
@@ -1208,7 +1208,7 @@ Nodes (7): orientationInfo on GET /api/layouts, orientation report on webhook an
 Cohesion: 0.52
 Nodes (6): log_error(), log_header(), log_info(), log_success(), log_warning(), fresh-install.sh script
 
-### Community 218 - "Small group: test_calendar_year_parity.py"
+### Community 218 - "Calendar Year Parity Tests"
 Cohesion: 0.48
 Nodes (6): _cases(), _layout(), TS ↔ Python parity for the calendar's year: monthRange.defaultYear + calendarTyp, test_fixture_has_cases(), test_print_month_labels_match_fixture(), test_resolve_default_year_matches_fixture()
 
@@ -1216,7 +1216,7 @@ Nodes (6): _cases(), _layout(), TS ↔ Python parity for the calendar's year: mo
 Cohesion: 0.43
 Nodes (6): The 500 MP Pillow ceiling must hold in every Django process.  The web process va, Run code in a fresh interpreter and return its RESULT line., _run(), test_django_startup_sets_the_ceiling_without_the_engine(), test_the_render_engine_applies_the_same_ceiling(), test_upload_validation_accepts_a_photo_above_pillows_default_limit()
 
-### Community 220 - "Small group: Data Lifecycle & Retention"
+### Community 220 - "Data Lifecycle & Webhook Signature"
 Cohesion: 0.33
 Nodes (6): Data Lifecycle & Retention, expires_at stamped on the row at creation, EXPORT_RETENTION_DAYS_UNDER_PRESSURE defaults to the same value, One retention clock (EXPORT_RETENTION_DAYS), Webhook payload (completed / failed), X-Signature HMAC-SHA256 of raw body
 
@@ -1224,7 +1224,7 @@ Nodes (6): Data Lifecycle & Retention, expires_at stamped on the row at creation
 Cohesion: 0.33
 Nodes (6): Low-resolution (effective DPI < 150) warning, non-blocking, Manual design preflight checkpoint (1-3 h per order, fixed-capacity team), Open: production readiness sign-off (Mohan) — fallback for print-quality issues preflight would have caught, Success metrics (TAT, hold rate, cancellation, render success, memory, image size), Target: under 5 minutes upload-to-production, zero human intervention, Track A: customer-facing preview and quantity validation before checkout
 
-### Community 223 - "Small group: Merge layout style block + active Gen-Z palette"
+### Community 223 - "Calendar Colour Resolution"
 Cohesion: 0.33
 Nodes (6): Merge layout style block + active Gen-Z palette + defaults.     Result has every, _resolve_colors(), test_resolve_colors_palette_sets_weekday_sunday(), test_resolve_colors_palette_overrides_style(), test_resolve_colors_style_overrides_defaults(), test_resolve_colors_uses_defaults_when_style_empty()
 
@@ -1256,7 +1256,7 @@ Nodes (5): D3: flow in order, blanks stay blank, warn on overflow, Calendar qty_
 Cohesion: 0.40
 Nodes (5): Orphan export sweep (GC_ORPHAN_SWEEP), Uploads stored per order, Option C: filesystem discovery sweep in the purge (viable only after per-order paths), _no_order/ bucket for direct partner API uploads, v1.13.x theme: absence of a signal read as good news (empty APIRequest, GC tombstones, stale disk stats)
 
-### Community 232 - "Small group: Spine width for a book of `page_count` printed "
+### Community 232 - "Book Spine Width"
 Cohesion: 0.40
 Nodes (5): Spine width for a book of `page_count` printed SIDES.      `paper_thickness_mm`, spine_width_mm(), test_spine_width_includes_cover_thickness(), test_spine_width_uses_leaves_not_sides(), test_spine_width_zero_page_count()
 
@@ -1272,7 +1272,7 @@ Nodes (4): GoogleIdButtonOptions, GoogleIdConfiguration, GoogleIdCredentialRespo
 Cohesion: 0.50
 Nodes (3): Boot-time startup_check() for missing font, Log whether the bundled font is present at startup. Called from     a Django App, startup_check()
 
-### Community 241 - "Small group: gutter_side_for()"
+### Community 241 - "Book Gutter Side"
 Cohesion: 0.50
 Nodes (4): gutter_side_for(), Which edge of this page is bound into the spine.      Page 1 is a recto — the ri, test_gutter_side_even_pages_bind_right(), test_gutter_side_odd_pages_bind_left()
 
@@ -1292,11 +1292,11 @@ Nodes (3): Backups (backup.sh / restore.sh / test-backup-restore.sh), DPDP order
 Cohesion: 0.67
 Nodes (3): Django admin SSO via nginx auth_request + signed identity headers, Ops privilege gate must live in the internal proxy, Role model: Admin (is_staff) / Ops (is_ops_team) / Editor
 
-### Community 254 - "Small group: page_count_bounds()"
+### Community 254 - "Book Page Count Bounds"
 Cohesion: 0.67
 Nodes (3): page_count_bounds(), Return `(min, max, step, default)` for a book layout's page count.      Falls ba, test_page_count_bounds_reads_template()
 
-### Community 255 - "Small group: pages_to_spreads()"
+### Community 255 - "Book Spread Grouping"
 Cohesion: 0.67
 Nodes (3): pages_to_spreads(), Group a flat page list into how the bound book reads.      Covers stand alone. P, test_pages_to_spreads_groups_facing_pages()
 
