@@ -24,6 +24,7 @@ import {
   createCenterGuides,
   createGridLines,
   snapToGrid,
+  snapResizedRect,
   constrainToCanvas,
   initAligningGuidelines,
 } from '@/lib/fabric-utils';
@@ -478,6 +479,22 @@ export function CalendarFabricPreview({
       const cw = widthMm * scale;
       const ch = heightMm * scale;
       const minPx = 5 * scale;
+      // Snap grid: the edges the handle is dragging land on the grid, as a
+      // moved object's position does.
+      if (snapGrid) {
+        const snapped = snapResizedRect(
+          {
+            left: target.left ?? 0, top: target.top ?? 0,
+            width: (target.width ?? 0) * (target.scaleX ?? 1), height: (target.height ?? 0) * (target.scaleY ?? 1),
+          },
+          e.transform?.corner,
+          GRID_SNAP_MM * scale,
+        );
+        target.set({
+          left: snapped.left, top: snapped.top,
+          scaleX: snapped.width / (target.width || 1), scaleY: snapped.height / (target.height || 1),
+        });
+      }
       const w = (target.width  ?? 0) * (target.scaleX ?? 1);
       const h = (target.height ?? 0) * (target.scaleY ?? 1);
       if (w < minPx) target.set({ scaleX: minPx / (target.width  ?? 1) });
