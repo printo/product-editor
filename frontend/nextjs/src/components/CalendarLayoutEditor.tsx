@@ -38,6 +38,8 @@ import {
   yearOfMonth,
 } from '@/lib/calendar';
 import { MonthTileThumb } from '@/components/MonthTileThumb';
+import { CalendarCoversPanel, coverToJson, validateCover, type CoverDraft, type CoverKey } from '@/components/CalendarCoversPanel';
+import { MmRectFields } from '@/components/CalendarMmRectFields';
 import { NumberField } from '@/components/ui/NumberField';
 import { TagPicker } from '@/components/ui/TagPicker';
 import type { LayoutTagInfo } from '@/lib/layout-tags';
@@ -151,6 +153,9 @@ export interface CalendarLayoutDraft {
    * validator at save time.
    */
   surfaceOverrides?: import('@/types/calendar').SurfaceOverrideMap;
+  /** Optional cover sheets: printed before the months (front) and after (back). */
+  frontCover?: CoverDraft | null;
+  backCover?: CoverDraft | null;
 }
 
 export interface CalendarLayoutEditorProps {
@@ -191,6 +196,8 @@ export interface CalendarLayoutEditorProps {
     layoutJson: Record<string, unknown>,
     displayName: string,
     maskFile: File | null,
+    /** Newly chosen cover masks, uploaded with the save as `mask_frontCover` / `mask_backCover`. */
+    coverMaskFiles?: Partial<Record<CoverKey, File>>,
   ) => void | Record<string, unknown> | Promise<void | Record<string, unknown>>;
   /** Called on Cancel button click. Parent navigates away or resets. */
   onCancel?: () => void;
@@ -300,6 +307,10 @@ export function draftToLayoutJson(
   if (draft.surfaceOverrides && Object.keys(draft.surfaceOverrides).length > 0) {
     out.surfaceOverrides = draft.surfaceOverrides;
   }
+  // Cover sheets: only emitted when added, so a layout without covers saves
+  // byte-for-byte as before.
+  if (draft.frontCover) out.frontCover = coverToJson(draft.frontCover);
+  if (draft.backCover) out.backCover = coverToJson(draft.backCover);
   return out;
 }
 
@@ -307,6 +318,8 @@ export function draftToLayoutJson(
 
 export function validateDraft(draft: CalendarLayoutDraft): string | null {
   if (!draft.name.trim()) return 'Layout name is required.';
+  const coverError = validateCover('frontCover', draft.frontCover) ?? validateCover('backCover', draft.backCover);
+  if (coverError) return coverError;
   if (!/^[a-z0-9_-]+$/i.test(draft.name)) {
     return 'Layout name may contain letters, digits, hyphen, underscore only.';
   }
@@ -847,44 +860,6 @@ function MonthOverrideModal({
   );
 }
 
-type RectFrac = { x: number; y: number; width: number; height: number };
-
-/**
- * X / Y / Width / Height in millimetres for a block stored as canvas
- * fractions (0..1). Typed mm → fraction, kept inside the canvas and at least
- * 1 mm wide/tall. Shared by the photo frames and the calendar block so both
- * tabs of the Layout step read and edit the same way.
- */
-function MmRectFields({
-  rect, canvasW, canvasH, onPatch, testId,
-}: {
-  rect: RectFrac;
-  canvasW: number;
-  canvasH: number;
-  onPatch: (next: Partial<RectFrac>) => void;
-  testId?: string;
-}) {
-  const toMm = (f: number, total: number) => Math.round(f * total * 100) / 100;
-  const setMm = (key: keyof RectFrac, mm: number) => {
-    const total = key === 'x' || key === 'width' ? canvasW : canvasH;
-    if (!(total > 0)) return;
-    const f = mm / total;
-    const minSize = Math.min(1, 1 / total);
-    if (key === 'x') onPatch({ x: Math.min(Math.max(0, f), 1 - rect.width) });
-    else if (key === 'y') onPatch({ y: Math.min(Math.max(0, f), 1 - rect.height) });
-    else if (key === 'width') onPatch({ width: Math.min(Math.max(minSize, f), 1 - rect.x) });
-    else onPatch({ height: Math.min(Math.max(minSize, f), 1 - rect.y) });
-  };
-  return (
-    <div className="grid grid-cols-2 gap-2" data-testid={testId}>
-      <NumberField label="X (mm)" value={toMm(rect.x, canvasW)} step={0.5} min={0} onChange={(n) => setMm('x', n)} />
-      <NumberField label="Y (mm)" value={toMm(rect.y, canvasH)} step={0.5} min={0} onChange={(n) => setMm('y', n)} />
-      <NumberField label="Width (mm)" value={toMm(rect.width, canvasW)} step={0.5} min={1} onChange={(n) => setMm('width', n)} />
-      <NumberField label="Height (mm)" value={toMm(rect.height, canvasH)} step={0.5} min={1} onChange={(n) => setMm('height', n)} />
-    </div>
-  );
-}
-
 // ─── Step indicator ─────────────────────────────────────────────────────────
 
 type WizardStep = 1 | 2 | 3 | 4;
@@ -982,6 +957,7 @@ export function CalendarLayoutEditor({
   const [posterCustomLayout, setPosterCustomLayout] = useState(false);
   const [snapGrid, setSnapGrid] = useState(true);
   const [maskFile, setMaskFile] = useState<File | null>(null);
+  const [coverMaskFiles, setCoverMaskFiles] = useState<Partial<Record<CoverKey, File>>>({});
   const [openMonthKey, setOpenMonthKey] = useState<string | null>(null);
   const [yearInputBuffer, setYearInputBuffer] = useState<string>(
     typeof draft.defaultYear === 'number' ? String(draft.defaultYear) : ''
@@ -1059,13 +1035,23 @@ export function CalendarLayoutEditor({
     }
     setBusy(true);
     try {
-      const stored = await onSave(draftToLayoutJson(draft, { posterCustomLayout }), draft.displayName ?? '', maskFile);
+      const stored = await onSave(draftToLayoutJson(draft, { posterCustomLayout }), draft.displayName ?? '', maskFile, coverMaskFiles);
       // The draft holds the chosen file's bare name until the upload; a later
       // save in this session must send the stored path, not that name.
       if (maskFile && stored && typeof stored.maskUrl === 'string') {
         patch({ maskUrl: stored.maskUrl });
         setMaskFile(null);
       }
+      // Same for each cover's mask: adopt the stored path in place of the file name.
+      const storedCovers = stored as { frontCover?: { maskUrl?: string }; backCover?: { maskUrl?: string } } | undefined;
+      for (const key of ['frontCover', 'backCover'] as CoverKey[]) {
+        const path = storedCovers?.[key]?.maskUrl;
+        const current = draft[key];
+        if (coverMaskFiles[key] && current && typeof path === 'string') {
+          patch({ [key]: { ...current, maskUrl: path } });
+        }
+      }
+      setCoverMaskFiles({});
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
@@ -1613,6 +1599,18 @@ export function CalendarLayoutEditor({
                   Apply mask on export
                 </label>
               </section>
+
+              <CalendarCoversPanel
+                covers={{ frontCover: draft.frontCover, backCover: draft.backCover }}
+                onChange={(key, next) => patch({ [key]: next })}
+                maskFiles={coverMaskFiles}
+                onMaskFile={(key, file) => setCoverMaskFiles((prev) => {
+                  const next = { ...prev };
+                  if (file) next[key] = file; else delete next[key];
+                  return next;
+                })}
+                base={{ canvasWidthMm: draft.canvasWidthMm, canvasHeightMm: draft.canvasHeightMm, dpi: draft.dpi }}
+              />
             </div>
 
             {/* Right: Interactive Fabric canvas. Its height follows the viewport,

@@ -294,6 +294,96 @@ describe('CalendarLayoutEditor — paper mask', () => {
 
 // ─── Style controls ────────────────────────────────────────────────────────
 
+// ─── Cover pages ──────────────────────────────────────────────────────────
+
+describe('CalendarLayoutEditor — cover pages', () => {
+  const coverBlock = (widthMm = 100, heightMm = 150) => ({
+    canvasWidthMm: widthMm, canvasHeightMm: heightMm, dpi: 300,
+    frames: [{ x: 0.1, y: 0.1, width: 0.8, height: 0.5 }], maskUrl: null, maskOnExport: false,
+  });
+  const defaultDraftFor = (): CalendarLayoutDraft => ({
+    name: 'family_calendar', productType: 'calendar', mode: 'multi-surface',
+    canvasWidthMm: 127, canvasHeightMm: 177.8, dpi: 300,
+    frames: [{ x: 0.05, y: 0.05, width: 0.9, height: 0.4 }],
+    calendars: [{ x: 0.05, y: 0.5, width: 0.9, height: 0.45 }],
+    style: { themePreset: 'modern-minimalist', calendarType: 'english', weekStart: 'sunday', holidaySource: { enabled: true, locale: 'en-IN' } },
+    defaultYear: 'current',
+  });
+  const saveAndRead = async (onSave: jest.Mock) => {
+    await goToStep(4);
+    await userEvent.click(screen.getByTestId('save-btn'));
+    return onSave.mock.calls[0];
+  };
+
+  it('has no cover by default and saves none', async () => {
+    const { onSave } = setup();
+    await goToStep(2);
+    expect(screen.getByTestId('cover-add-front')).toBeInTheDocument();
+    expect(screen.getByTestId('cover-add-back')).toBeInTheDocument();
+    const [json] = await saveAndRead(onSave);
+    expect(json).not.toHaveProperty('frontCover');
+    expect(json).not.toHaveProperty('backCover');
+  });
+
+  it('adds a front and a back cover at the calendar page size and saves them as generic blocks', async () => {
+    const { onSave } = setup();
+    await goToStep(2);
+    await userEvent.click(screen.getByTestId('cover-add-front'));
+    await userEvent.click(screen.getByTestId('cover-add-back'));
+    expect(screen.getByTestId('cover-front')).toBeInTheDocument();
+    // Only the printed side exists here: nothing about an inside page.
+    expect(screen.getByTestId('covers-panel').textContent).not.toMatch(/inside|blank/i);
+    const [json] = await saveAndRead(onSave);
+    for (const key of ['frontCover', 'backCover']) {
+      expect(json[key]).toMatchObject({ canvas: { widthMm: 127, heightMm: 177.8, dpi: 300 } });
+      expect(json[key].frames).toHaveLength(1);
+      expect(json[key]).not.toHaveProperty('maskUrl');
+    }
+  });
+
+  it('adds and removes photo windows, and removing a cover drops it from the saved layout', async () => {
+    const { onSave } = setup();
+    await goToStep(2);
+    await userEvent.click(screen.getByTestId('cover-add-front'));
+    await userEvent.click(screen.getByTestId('cover-front-add-frame'));
+    expect(screen.getByTestId('cover-front-frame-1')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Remove photo window 1 from the front cover' }));
+    expect(screen.queryByTestId('cover-front-frame-1')).toBeNull();
+    await userEvent.click(screen.getByTestId('cover-add-back'));
+    await userEvent.click(screen.getByTestId('cover-remove-back'));
+    const [json] = await saveAndRead(onSave);
+    expect(json.frontCover.frames).toHaveLength(1);
+    expect(json).not.toHaveProperty('backCover');
+  });
+
+  it('hands a cover mask to onSave under its own cover', async () => {
+    const { onSave } = setup();
+    await goToStep(2);
+    await userEvent.click(screen.getByTestId('cover-add-front'));
+    const png = new File(['png'], 'front_frame.png', { type: 'image/png' });
+    await userEvent.upload(screen.getByTestId('cover-front-mask-input'), png);
+    expect(screen.getByTestId('cover-front-mask-current')).toHaveTextContent('front_frame.png — uploads when you save');
+    const call = await saveAndRead(onSave);
+    expect(call[3]).toEqual({ frontCover: png });
+  });
+
+  it('opens a layout that already has a cover, and keeps it on save', async () => {
+    const { onSave } = setup({ initial: { backCover: coverBlock(90, 120) } });
+    await goToStep(2);
+    expect(screen.getByTestId('cover-back')).toBeInTheDocument();
+    expect(screen.getByTestId('cover-add-front')).toBeInTheDocument();
+    const [json] = await saveAndRead(onSave);
+    expect(json.backCover.canvas).toMatchObject({ widthMm: 90, heightMm: 120 });
+  });
+
+  it('refuses a cover with no photo window, in words', () => {
+    const draft = { ...defaultDraftFor(), frontCover: { ...coverBlock(), frames: [] } };
+    expect(validateDraft(draft)).toMatch(/Front cover: add at least one photo window/);
+    const off = { ...defaultDraftFor(), backCover: { ...coverBlock(), frames: [{ x: 0.6, y: 0.1, width: 0.6, height: 0.2 }] } };
+    expect(validateDraft(off)).toMatch(/Back cover: photo window 1 goes past the page edge/);
+  });
+});
+
 describe('CalendarLayoutEditor — style controls', () => {
   it('switches calendarType default via the dropdown', async () => {
     const { onSave } = setup();
