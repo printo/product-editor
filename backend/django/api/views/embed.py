@@ -834,6 +834,28 @@ class CanvasStateView(APIView):
             403: OpenApiResponse(description="Caller presented no API key — PIA sessions cannot own canvas state."),
         },
     )
+    @staticmethod
+    def _owned_upload_paths(paths, api_key) -> list:
+        from ..models import UploadedFile
+
+        if not isinstance(paths, list):
+            return []
+        base = os.path.realpath(settings.UPLOADS_DIR)
+        inside = []
+        for p in paths[:2000]:
+            if not isinstance(p, str) or not p:
+                continue
+            real = os.path.realpath(p)
+            if real.startswith(base + os.sep):
+                inside.append(p)
+        if not inside:
+            return []
+        owned = set(
+            UploadedFile.objects.filter(api_key=api_key, file_path__in=inside)
+            .values_list('file_path', flat=True)
+        )
+        return [p for p in inside if p in owned]
+
     def put(self, request, order_id: str):
         from api.models import CanvasData
         from datetime import timedelta
@@ -889,6 +911,12 @@ class CanvasStateView(APIView):
             editor_state=editor_state,
             expires_at=timezone.now() + timedelta(days=settings.EXPORT_RETENTION_DAYS),
         )
+        # The browser never legitimately sends server file paths, so a client
+        # value is trusted only for paths that sit under the uploads folder AND
+        # belong to an upload this key made. Anything else (a planted
+        # /app/storage/... path) is dropped, because a later erasure deletes
+        # whatever this field names.
+        image_paths = self._owned_upload_paths(image_paths, api_key)
         if image_paths:
             defaults['image_paths'] = image_paths
 
