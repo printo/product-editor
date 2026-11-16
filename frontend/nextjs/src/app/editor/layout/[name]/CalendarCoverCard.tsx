@@ -38,7 +38,7 @@ export function CalendarCoverCard({ surface, busy, onAddPhotos, onEdit }: {
           <button
             type="button"
             onClick={() => onEdit(0, key)}
-            className="flex items-center gap-1 text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wide"
+            className="relative flex items-center gap-1 text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wide before:absolute before:-inset-x-3 before:-inset-y-3 before:content-[''] sm:before:hidden"
           >
             <Pencil className="w-3 h-3" aria-hidden /> Edit
           </button>
@@ -88,7 +88,7 @@ export function CalendarCoverCard({ surface, busy, onAddPhotos, onEdit }: {
           type="button"
           onClick={pick}
           disabled={busy}
-          className="self-center text-[11px] font-bold text-slate-500 underline-offset-2 hover:text-indigo-700 hover:underline disabled:opacity-60"
+          className="self-center inline-flex min-h-11 items-center px-3 text-[11px] font-bold text-slate-500 underline-offset-2 hover:text-indigo-700 hover:underline disabled:opacity-60 sm:min-h-0 sm:px-0"
         >
           {busy ? 'Adding…' : windows > 1 ? 'Choose different photos' : 'Choose a different photo'}
         </button>
