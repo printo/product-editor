@@ -1,5 +1,6 @@
 'use client';
 
+import { sideCount } from '@/lib/calendar-covers';
 import { useRef, useState, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react';
 import type React from 'react';
 import { convertAndPartitionFiles, convertHeicFileIfNeeded, isHeicFile } from '@/lib/heic-convert';
@@ -117,7 +118,7 @@ export function useFileIntake({
     // allocateFilesToSurfaces) rather than appending onto a "next canvas",
     // because each surface is a fixed physical side, not an extendable page
     // run. Picking again therefore still REPLACES the whole product's photos.
-    const allFiles = surfaceStates.length > 1 ? newlyPicked : [...files, ...newlyPicked];
+    const allFiles = sideCount(surfaceStates) > 1 ? newlyPicked : [...files, ...newlyPicked];
 
     // Catch truncated / incomplete photos up-front. A file cut off during
     // transfer (common with phone & WhatsApp images) still decodes leniently in
@@ -185,7 +186,7 @@ export function useFileIntake({
     // hard-block a customer's checkout.
     setQtyUnder(null);
     setPendingOverFiles(null);
-    const qtyVerdict = checkOrderQty(allFiles.length, orderQty, surfaceStates.length);
+    const qtyVerdict = checkOrderQty(allFiles.length, orderQty, sideCount(surfaceStates));
     if (qtyVerdict.status === 'under') {
       setQtyUnder({ uploaded: qtyVerdict.uploaded, needed: qtyVerdict.needed });
     } else if (qtyVerdict.status === 'over') {
@@ -193,7 +194,7 @@ export function useFileIntake({
       return; // held for the Keep-first-N / Choose-again decision
     }
 
-    if (surfaceStates.length > 1 && normalizedLayoutState) {
+    if (sideCount(surfaceStates) > 1 && normalizedLayoutState) {
       // A book overflow decision to extend applies the new page count HERE,
       // synchronously, rather than via setBookPageCount + a second render —
       // see the comment on `extendToPageCount` above.

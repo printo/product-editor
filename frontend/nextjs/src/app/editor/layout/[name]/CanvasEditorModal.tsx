@@ -1,5 +1,6 @@
 'use client';
 
+import { sideCount } from '@/lib/calendar-covers';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { X, Minus, Undo2, Redo2, Plus, ChevronRight } from 'lucide-react';
@@ -305,7 +306,7 @@ export function CanvasEditorModal({
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const isMultiSurface = surfaceStates && surfaceStates.length > 1;
+  const isMultiSurface = surfaceStates && sideCount(surfaceStates) > 1;
   const currentIdx = isMultiSurface 
     ? surfaceStates.findIndex(s => s.key === activeSurfaceKey)
     : activeCanvasIdx;
@@ -444,7 +445,7 @@ export function CanvasEditorModal({
 
       {/* ═══ Right Sidebar — Gen-Z vibrant glassmorphism ═══ */}
       <CanvasEditorSidebar
-        key={`sidebar-${surfaceStates && surfaceStates.length > 1 ? activeSurfaceKey : activeCanvasIdx}`}
+        key={`sidebar-${surfaceStates && sideCount(surfaceStates) > 1 ? activeSurfaceKey : activeCanvasIdx}`}
         editingCanvas={editingCanvas}
         layout={layout}
         selectedLayer={selectedLayer}

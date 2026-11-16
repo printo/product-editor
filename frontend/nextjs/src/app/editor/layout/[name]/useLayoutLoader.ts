@@ -2,6 +2,7 @@
 
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { normalizeLayout, filterSurfaces, type NormalizedLayout } from '@/lib/layout-utils';
+import { coverSurfaceDefs } from '@/lib/calendar-covers';
 import { calendarPageCount, calendarPhotoSlots, monthHeadingEnabled, printedHolidayLocale } from '@/lib/calendar';
 import type { BookLayoutLike } from '@/lib/book-layout';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
@@ -152,6 +153,22 @@ export function useLayoutLoader({
             canvases: [],
             globalFitMode: 'contain' as FitMode,
           }));
+          // A calendar's front and back cover sheets ride along as surfaces
+          // after the month surface (which stays first: it is the layout the
+          // page opens on). They are never counted as sides; see
+          // lib/calendar-covers.ts.
+          if (item.productType === 'calendar') {
+            const covers = coverSurfaceDefs(item);
+            if (covers.length > 0) {
+              normalized = { ...normalized, surfaces: [...normalized.surfaces, ...covers] };
+              initSurfaces = [
+                ...initSurfaces,
+                ...covers.map(def => ({
+                  key: def.key, label: def.label, def, files: [], canvases: [], globalFitMode: 'cover' as FitMode,
+                })),
+              ];
+            }
+          }
         }
         setNormalizedLayoutState(normalized);
         setSurfaceStates(initSurfaces);

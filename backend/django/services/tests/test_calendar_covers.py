@@ -101,6 +101,16 @@ def test_sheet_labels_match_the_shared_fixture():
         assert cc.sheet_labels(layout, case["months"]) == case["expected"], case["name"]
 
 
+def test_cover_photos_are_not_counted_toward_a_calendars_photos():
+    from services.order_qty import count_placed_photos
+    canvases = [
+        {"surface_key": "cover_front", "frames": [{"upload_id": "a"}, {"upload_id": "b"}]},
+        {"surface_key": "default", "frames": [{"upload_id": "c"}]},
+        {"surface_key": "cover_back", "frames": [{"upload_id": "d"}]},
+    ]
+    assert count_placed_photos(canvases) == 1
+
+
 # ── Validator ───────────────────────────────────────────────────────────────
 
 def test_a_calendar_with_both_covers_validates():

@@ -1,5 +1,6 @@
 'use client';
 
+import { COVER_BACK, COVER_FRONT, isCoverKey, nonCoverSurfaces, sideCount } from '@/lib/calendar-covers';
 import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { CalendarTheme, CalendarType } from '@/types/calendar';
 import { isAllowedImageFile, unsupportedFilesMessage, uploadFiles } from '@/lib/upload-utils';
@@ -113,33 +114,45 @@ export function useServerRender({
       // rather than dropped: dropping it used to make the engine render that
       // surface with the other surface's photos (Phase 3 wrong-print fix) —
       // now it prints blank and the pre-submit warning tells the customer so.
-      const allCanvases = surfaceStates.length > 1
-        ? surfaceStates.flatMap(s =>
-            s.canvases.length > 0
-              ? s.canvases.map(c => ({ ...c, surfaceKey: s.key }))
-              : [{
-                  id: 0,
-                  frames: (s.def.frames || [{ }]).map((_, fi) => ({
-                    id: fi,
-                    originalFile: null,
-                    offset: { x: 0, y: 0 },
-                    scale: 1,
-                    rotation: 0,
-                    fitMode: s.globalFitMode,
-                  })) as FrameState[],
-                  overlays: [] as Overlay[],
-                  bgColor: '#ffffff',
-                  paperColor: '#ffffff',
-                  dataUrl: null,
-                  surfaceKey: s.key,
-                }]
-          )
+      const canvasesOfSurface = (s: SurfaceState) =>
+        s.canvases.length > 0
+          ? s.canvases.map(c => ({ ...c, surfaceKey: s.key }))
+          : [{
+              id: 0,
+              frames: (s.def.frames || [{ }]).map((_, fi) => ({
+                id: fi,
+                originalFile: null,
+                offset: { x: 0, y: 0 },
+                scale: 1,
+                rotation: 0,
+                fitMode: s.globalFitMode,
+              })) as FrameState[],
+              overlays: [] as Overlay[],
+              bgColor: '#ffffff',
+              paperColor: '#ffffff',
+              dataUrl: null,
+              surfaceKey: s.key,
+            }];
+      // A calendar's cover sheets go in the payload under their own surface
+      // keys, front ahead of the months and back after them; the server takes
+      // them out of the month slicing (services/calendar_covers.py). A cover
+      // the customer left empty prints blank, like an empty side.
+      const coverSurfaces = surfaceStates.filter(s => isCoverKey(s.key));
+      const mainSurface = nonCoverSurfaces(surfaceStates)[0];
+      // `canvases` mirrors the ACTIVE surface; at submit that is the month one.
+      const monthCanvases = isCoverKey(activeSurfaceKey) ? (mainSurface?.canvases ?? []) : canvases;
+      const allCanvases = sideCount(surfaceStates) > 1
+        ? surfaceStates.flatMap(canvasesOfSurface)
         // Send the REAL surface key, not a literal 'canvas'. For a single
         // surface of a type:product layout (e.g. a ?surfaces=front view of a
         // 2-sided product) the engine's per-surface grouping keys off this;
         // the literal matched no surface and printed every side blank. Legacy
         // type:single layouts fall back to 'canvas', which the engine ignores.
-        : canvases.map(c => ({ ...c, surfaceKey: surfaceStates[0]?.key ?? activeSurfaceKey ?? 'canvas' }));
+        : [
+            ...coverSurfaces.filter(s => s.key === COVER_FRONT).flatMap(canvasesOfSurface),
+            ...monthCanvases.map(c => ({ ...c, surfaceKey: mainSurface?.key ?? activeSurfaceKey ?? 'canvas' })),
+            ...coverSurfaces.filter(s => s.key === COVER_BACK).flatMap(canvasesOfSurface),
+          ];
 
       // 2. Collect unique File objects in frame order, then any local
       //    image-overlay files (stickers the customer uploaded) so they upload
@@ -525,7 +538,7 @@ export function useServerRender({
   // (≤20 canvas) jobs now incur an upload + poll round-trip (~10–20 s extra
   // on a fast connection) instead of rendering instantly in the browser.
   const executeBatchDownload = async () => {
-    const allCanvases = surfaceStates.length > 1
+    const allCanvases = sideCount(surfaceStates) > 1
       ? surfaceStates.flatMap(s => s.canvases)
       : canvases;
     if (allCanvases.length === 0) {
@@ -542,7 +555,7 @@ export function useServerRender({
   // parent's webhook. The iframe additionally fires `pe:render_job` so the
   // parent's frontend can show "your design is being prepared" UX.
   const handleSubmitDesign = async () => {
-    const allCanvases = surfaceStates.length > 1
+    const allCanvases = sideCount(surfaceStates) > 1
       ? surfaceStates.flatMap(s => s.canvases)
       : canvases;
     if (allCanvases.length === 0) return;
