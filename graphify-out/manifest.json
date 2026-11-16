@@ -1825,9 +1825,9 @@
     "semantic_hash": "9a1cdad55d1e4953b60947b8ebe17d72"
   },
   "frontend/nextjs/src/components/CalendarCoversPanel.tsx": {
-    "mtime": 1794815218.2667334,
-    "ast_hash": "1204d7fd74af429d879d392b954b19b2",
-    "semantic_hash": "1204d7fd74af429d879d392b954b19b2"
+    "mtime": 1794819015.4868133,
+    "ast_hash": "1f32ad7622f75f3516ce0870310ff36b",
+    "semantic_hash": "1f32ad7622f75f3516ce0870310ff36b"
   },
   "frontend/nextjs/src/components/CalendarDayPicker.tsx": {
     "mtime": 1794813477.9859889,
@@ -1840,14 +1840,14 @@
     "semantic_hash": "76de5c41412226b49c823acebec29c86"
   },
   "frontend/nextjs/src/components/CalendarFabricPreview.tsx": {
-    "mtime": 1794813477.986584,
-    "ast_hash": "9807d7f0d0dbd0ec91e20ea1bdc7c3c8",
-    "semantic_hash": "9807d7f0d0dbd0ec91e20ea1bdc7c3c8"
+    "mtime": 1794819015.4876168,
+    "ast_hash": "d45a7e4b1ff2d15120c65ea617919d8f",
+    "semantic_hash": "d45a7e4b1ff2d15120c65ea617919d8f"
   },
   "frontend/nextjs/src/components/CalendarLayoutEditor.tsx": {
-    "mtime": 1794815367.5446854,
-    "ast_hash": "be39f0b55862e9ca751a42a55acf01ef",
-    "semantic_hash": "be39f0b55862e9ca751a42a55acf01ef"
+    "mtime": 1794819015.488531,
+    "ast_hash": "7df3b20ce6820caa8547a598fac9d34e",
+    "semantic_hash": "7df3b20ce6820caa8547a598fac9d34e"
   },
   "frontend/nextjs/src/components/CalendarMmRectFields.tsx": {
     "mtime": 1794815186.224361,
@@ -1960,9 +1960,9 @@
     "semantic_hash": "783281979aa17c2e5a2cb6edf10ce893"
   },
   "frontend/nextjs/src/components/__tests__/CalendarLayoutEditor.test.tsx": {
-    "mtime": 1794815259.9313242,
-    "ast_hash": "7f637693366227459a83d7dafd930e15",
-    "semantic_hash": "7f637693366227459a83d7dafd930e15"
+    "mtime": 1794819015.4894547,
+    "ast_hash": "d38771682aa062f976b2365e0c4ca639",
+    "semantic_hash": "d38771682aa062f976b2365e0c4ca639"
   },
   "frontend/nextjs/src/components/__tests__/CalendarProductPreview.test.tsx": {
     "mtime": 1794813477.9941306,
@@ -2098,6 +2098,11 @@
     "mtime": 1794813477.9984622,
     "ast_hash": "cfc8bdd4bef2a5a39dc5cb980c9c572c",
     "semantic_hash": "cfc8bdd4bef2a5a39dc5cb980c9c572c"
+  },
+  "frontend/nextjs/src/lib/__tests__/fabric-snap-resize.test.ts": {
+    "mtime": 1794819015.4899356,
+    "ast_hash": "61c533d1557c02762d59da3833a768bf",
+    "semantic_hash": "61c533d1557c02762d59da3833a768bf"
   },
   "frontend/nextjs/src/lib/__tests__/file-store.test.ts": {
     "mtime": 1794813477.9986053,
@@ -2260,9 +2265,9 @@
     "semantic_hash": "90a8b254b982043d132a0844e3befc9b"
   },
   "frontend/nextjs/src/lib/fabric-utils.ts": {
-    "mtime": 1794813478.0040586,
-    "ast_hash": "2725c46785c4af81ee0778b1db448a8d",
-    "semantic_hash": "2725c46785c4af81ee0778b1db448a8d"
+    "mtime": 1794819015.4905684,
+    "ast_hash": "bd6cc011ef4d9172f9ca4fb9e4de9ec5",
+    "semantic_hash": "bd6cc011ef4d9172f9ca4fb9e4de9ec5"
   },
   "frontend/nextjs/src/lib/file-identity.ts": {
     "mtime": 1794813478.0042577,
