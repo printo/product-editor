@@ -196,6 +196,29 @@ export function snapToGrid(value: number, gridSize: number): number {
   return Math.round(value / gridSize) * gridSize;
 }
 
+export interface SnapRect { left: number; top: number; width: number; height: number }
+
+/**
+ * Snap the edges a resize handle is dragging to the grid, leaving the opposite
+ * edges where they are. `corner` is Fabric's handle name: tl, tr, bl, br or
+ * ml, mr, mt, mb. Moving a whole object snaps its position, so before this a
+ * resize was the one drag that ignored "Snap grid". An edge never snaps past
+ * its opposite one: a rect keeps at least one grid cell of width and height
+ * (or, when the grid is bigger than it, what it had).
+ */
+export function snapResizedRect(rect: SnapRect, corner: string | undefined, gridSize: number): SnapRect {
+  if (!corner || !(gridSize > 0)) return rect;
+  let left = rect.left;
+  let top = rect.top;
+  let right = rect.left + rect.width;
+  let bottom = rect.top + rect.height;
+  if (corner.includes('l')) left = Math.min(snapToGrid(left, gridSize), right - gridSize);
+  if (corner.includes('r')) right = Math.max(snapToGrid(right, gridSize), left + gridSize);
+  if (corner.includes('t')) top = Math.min(snapToGrid(top, gridSize), bottom - gridSize);
+  if (corner.includes('b')) bottom = Math.max(snapToGrid(bottom, gridSize), top + gridSize);
+  return { left, top, width: right - left, height: bottom - top };
+}
+
 // ─── Aligning Guidelines ────────────────────────────────────────────────────
 //
 // `fabric-guideline-plugin` was previously listed as a dep but is incompatible
