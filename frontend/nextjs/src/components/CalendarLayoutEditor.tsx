@@ -1192,6 +1192,7 @@ export function CalendarLayoutEditor({
               dotCycle={previewDotCycle}
               ariaLabel={`Preview of ${MONTH_NAMES_EN[month - 1]} ${year}`}
               showMonthName={showMonthName}
+              fill
             />
           </div>
         ))}
@@ -1849,7 +1850,7 @@ export function CalendarLayoutEditor({
                         >
                           <MonthTileThumb year={tile.year} month={tile.month} weekStart={draft.style.weekStart}
                             cells={{}} holidays={previewHolidays} colors={previewColors} dotCycle={previewDotCycle}
-                            ariaLabel={`${tile.label} thumbnail`} showMonthName={showMonthName} />
+                            ariaLabel={`${tile.label} thumbnail`} showMonthName={showMonthName} fill />
                         </div>
                       </div>
                     </button>
