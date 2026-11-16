@@ -22,6 +22,24 @@ from django.db import transaction
 logger = logging.getLogger(__name__)
 
 
+def _is_contained(path) -> bool:
+    """True only for a path inside UPLOADS_DIR or EXPORTS_DIR (symlinks resolved).
+
+    Paths reach the purge from stored rows, one of which (CanvasData.image_paths)
+    was once client-writable. Nothing outside the two data folders may ever be
+    removed by an erasure, whatever a row says.
+    """
+    try:
+        real = os.path.realpath(str(path))
+        for root in (settings.UPLOADS_DIR, settings.EXPORTS_DIR):
+            base = os.path.realpath(root)
+            if real != base and real.startswith(base + os.sep):
+                return True
+    except (OSError, ValueError, TypeError):
+        pass
+    return False
+
+
 def _delete_files(paths) -> tuple[int, int, list[str]]:
     """Delete each file path; return (deleted_count, freed_bytes, errors)."""
     deleted = 0
@@ -29,6 +47,10 @@ def _delete_files(paths) -> tuple[int, int, list[str]]:
     errors: list[str] = []
     for p in paths:
         if not p:
+            continue
+        if not _is_contained(p):
+            errors.append(f"{p}: refused, outside the uploads and exports folders")
+            logger.warning("purge refused a path outside the data folders: %r", p)
             continue
         try:
             if os.path.isfile(p):
@@ -143,7 +165,7 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False, record_le
             upload_paths = set(canvas.image_paths or [])
             rs = canvas.render_state or {}
             upload_paths |= set(rs.get('image_paths') or [])
-            deletable = [p for p in upload_paths if p and p not in keep_paths]
+            deletable = [p for p in upload_paths if p and p not in keep_paths and _is_contained(p)]
             attempted_paths.update(deletable)
             d, f, e = _delete_files(deletable)
             files_deleted += d; freed_bytes += f; errors += e
@@ -256,7 +278,7 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False, record_le
     # tell its files from another key's without the rows.
     residual_files: list[str] = []
     for path in sorted(attempted_paths):
-        if not os.path.exists(path):
+        if not _is_contained(path) or not os.path.exists(path):
             continue
         try:                       # one retry — transient locks, slow unlinks
             os.remove(path)
