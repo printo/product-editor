@@ -1278,13 +1278,14 @@ export default function LayoutCreatorPage() {
                       : 'border-slate-200 hover:shadow-lg hover:border-indigo-200'
                   }`}
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 mb-4">
+                    {/* min-w-0 lets this side shrink, so a long name or file name no longer pushes the action icons out of the card. basis-56 is the room it needs: with less than that left beside the icons, they wrap under it instead of squeezing the name into a sliver. */}
+                    <div className="flex min-w-0 flex-1 basis-56 items-center gap-4">
                       {/* Thumbnail Preview */}
                       <div className="w-16 h-16 bg-slate-50 rounded-lg overflow-hidden border border-slate-100 flex items-center justify-center flex-shrink-0 group-hover:border-indigo-100 transition-colors">
                         <LayoutSVG layout={layoutObj} className="w-full h-full object-contain" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <h3 className="font-bold text-slate-900 capitalize tracking-tight">{(typeof layoutObj === 'object' && layoutObj.displayName) || (layoutStr || '').replace(/_/g, ' ')}</h3>
                           {isCalendar && (
@@ -1325,7 +1326,7 @@ export default function LayoutCreatorPage() {
                             )
                           )}
                         </div>
-                        <p className="text-[10px] text-slate-400 font-mono mt-0.5 tracking-wider">{(layoutStr || '')}.json</p>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5 tracking-wider break-all">{(layoutStr || '')}.json</p>
                         {layoutObj.tags && layoutObj.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2">
                             {layoutObj.tags.slice(0, 2).map((t: string) => (
@@ -1338,7 +1339,7 @@ export default function LayoutCreatorPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center">
+                    <div className="flex shrink-0 items-center">
                       {!isDeprecated && (
                         <>
                           <button
