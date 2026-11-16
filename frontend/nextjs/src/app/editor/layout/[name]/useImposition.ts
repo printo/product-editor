@@ -1,6 +1,7 @@
 // Type-only import — erased at compile time, zero bundle impact.
 // The actual Fabric.js runtime is loaded lazily inside executeImposition / the
 // imposition preview useEffect so it does NOT inflate the initial page bundle.
+import { sideCount } from '@/lib/calendar-covers';
 import type { StaticCanvas as FabricStaticCanvas } from 'fabric';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { createZipFromDataUrls, downloadBlob } from '@/lib/zip-utils';
@@ -43,7 +44,7 @@ export function useImposition({ layout, surfaceStates, canvases, renderCanvas, s
 
   /** The canvases destined for the sheet, in placement order. */
   const impositionCanvases = useMemo(
-    () => (surfaceStates.length > 1 ? surfaceStates.flatMap(s => s.canvases) : canvases),
+    () => (sideCount(surfaceStates) > 1 ? surfaceStates.flatMap(s => s.canvases) : canvases),
     [surfaceStates, canvases],
   );
 
@@ -58,7 +59,7 @@ export function useImposition({ layout, surfaceStates, canvases, renderCanvas, s
    */
   const impositionItems = useMemo<ItemSize[] | null>(() => {
     if (!layout) return null;
-    if (surfaceStates.length > 1) {
+    if (sideCount(surfaceStates) > 1) {
       const sizes: ItemSize[] = [];
       for (const s of surfaceStates) {
         const size = canvasSpecToInches(s.def?.canvas);

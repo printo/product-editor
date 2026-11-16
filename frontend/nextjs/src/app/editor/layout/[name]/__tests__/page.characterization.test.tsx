@@ -590,6 +590,53 @@ describe('editor page — calendar layouts', () => {
     expect(backend.unexpected).toEqual([]);
   });
 
+  it('front and back covers are cards of their own, saved with the design and sent around the months', async () => {
+    const cover = (windows: number) => ({
+      canvas: { width: 800, height: 1000, widthMm: 100, heightMm: 125 },
+      frames: Array.from({ length: windows }, (_, i) => ({ id: `c${i}`, x: 0.1, y: 0.1 + i * 0.45, width: 0.8, height: 0.4 })),
+    });
+    backend.layout = { ...CALENDAR_LAYOUT, frontCover: cover(2), backCover: cover(1) } as unknown as Record<string, unknown>;
+    renderEditor();
+    await waitFor(() => expect(backend.callsTo(`canvas-state/${ORDER_ID}/`, 'GET')).toHaveLength(1));
+    const front = await screen.findByTestId('calendar-cover-cover_front');
+    const back = screen.getByTestId('calendar-cover-cover_back');
+    expect(within(front).getByRole('button', { name: /Add photos for the front cover/ })).toBeInTheDocument();
+    expect(within(back).getByRole('button', { name: /Add a photo for the back cover/ })).toBeInTheDocument();
+    // Only the printed side is offered: nothing about an inside or a blank page.
+    expect(screen.queryByText(/inside|blank/i)).toBeNull();
+
+    await waitFor(() => photoInput());
+    await addPhotos(['m1.jpg', 'm2.jpg']);
+    await waitFor(() => expect(cards()).toHaveLength(2));
+
+    const user = userEvent.setup();
+    await user.upload(front.querySelector('input[type="file"]') as HTMLInputElement, [makePhoto('cover1.jpg'), makePhoto('cover2.jpg')]);
+    await within(front).findByRole('img', { name: 'Front Cover' });
+    // The cover's photos are not month photos: the month cards are unchanged.
+    expect(cards()).toHaveLength(2);
+
+    await waitFor(() => {
+      const state = lastPut(ORDER_ID)?.editor_state;
+      const byKey = Object.fromEntries((state?.surfaces ?? []).map((sf: { key: string; canvases: unknown[] }) => [sf.key, sf.canvases.length]));
+      expect(byKey).toEqual({ default: 2, cover_front: 1, cover_back: 0 });
+    }, { timeout: 8000 });
+
+    // Submit: front cover, the months, then the back cover (left empty, so blank).
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+    await screen.findByText('Ready to Submit?');
+    await user.click(screen.getAllByRole('checkbox').pop()!);
+    await user.click(screen.getByRole('button', { name: 'Yes, Proceed' }));
+    await waitFor(() => expect(backend.callsTo('editor/render', 'POST')).toHaveLength(1), { timeout: 10000 });
+    const { canvases } = backend.callsTo('editor/render', 'POST')[0].body as {
+      canvases: Array<{ surface_key: string; frames: Array<{ upload_id: string | null }> }>;
+    };
+    expect(canvases.map((c) => c.surface_key)).toEqual(['cover_front', 'default', 'default', 'cover_back']);
+    expect(canvases[0].frames).toHaveLength(2);
+    expect(canvases[0].frames.every((f) => f.upload_id)).toBe(true);
+    expect(canvases[3].frames.map((f) => f.upload_id)).toEqual([null]);
+    expect(backend.unexpected).toEqual([]);
+  });
+
   it('never loads holidays when the print has none', async () => {
     backend.layout = CALENDAR_NO_HOLIDAYS as unknown as Record<string, unknown>;
     renderEditor();

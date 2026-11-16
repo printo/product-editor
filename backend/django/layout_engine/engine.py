@@ -1148,6 +1148,58 @@ class LayoutEngine:
                 palette_name_override=palette_override,
             )
 
+            # Front / back cover sheets (services/calendar_covers.py). Their
+            # canvases ride the payload under their own surface keys and have
+            # their own frame counts, so they are taken out before the months
+            # are sliced; the month slicing below sees month canvases only.
+            from services import calendar_covers
+            cover_keys = calendar_covers.cover_keys_present(layout)
+            cover_payload = {}
+            if canvases_meta:
+                month_b, cover_payload = calendar_covers.split_payload(
+                    canvases_meta, image_paths, frame_transforms,
+                    overlays_per_canvas, backgrounds_per_canvas,
+                )
+                if cover_keys or any(b["meta"] for b in cover_payload.values()):
+                    image_paths = month_b["images"]
+                    frame_transforms = month_b["transforms"] or None
+                    overlays_per_canvas = month_b["overlays"] or None
+                    backgrounds_per_canvas = month_b["backgrounds"] or None
+                    cstate = {**cstate, "num_canvases": len(month_b["meta"])}
+            sheet_position = 0
+
+            def _render_cover(key):
+                nonlocal sheet_position
+                surface = calendar_covers.cover_surface(layout, key)
+                cw, ch = surface["canvas"]["width"], surface["canvas"]["height"]
+                surface["frames"] = self._normalize_frames(surface["frames"], cw, ch)
+                b = cover_payload.get(key)
+                images = b["images"] if b and b["meta"] else [""] * max(1, len(surface["frames"]))
+                label = calendar_covers.numbered_label(sheet_position, surface["displayLabel"])
+                sheet_position += 1
+                try:
+                    all_outputs.extend(
+                        self._generate_for_surface(
+                            surface, images, layout_name, key,
+                            fit_mode, export_format,
+                            (b["transforms"] or None) if b else None,
+                            overlays_per_canvas=(b["overlays"] or None) if b else None,
+                            uploaded_files=uploaded_files,
+                            display_label=label,
+                            backgrounds_per_canvas=(b["backgrounds"] or None) if b else None,
+                        )
+                    )
+                except (MemoryError, SystemExit, KeyboardInterrupt):
+                    self._cleanup_partial_outputs(all_outputs)
+                    raise
+                except Exception as exc:
+                    logger.exception("Calendar cover %s render failed", key)
+                    self._cleanup_partial_outputs(all_outputs)
+                    raise RuntimeError(f"Render failed on {surface['displayLabel']}: {exc}") from exc
+
+            if calendar_covers.COVER_FRONT in cover_keys:
+                _render_cover(calendar_covers.COVER_FRONT)
+
             # Customer per-day entries as ONE flat { iso_date: [override] } map
             # (Phase 2 item 6 — entries are keyed by globally-unique ISO dates,
             # so positional per-canvas association was never needed and broke
@@ -1247,6 +1299,11 @@ class LayoutEngine:
                 # human-readable displayLabel ("January 2026.png" etc.) per
                 # PRD §11.6, not the surface_key.
                 display_label = surface.get("displayLabel") or surface_key
+                if cover_keys:
+                    # A cover is on the order: number every sheet so an
+                    # alphabetical listing is print order ("01 January 2026").
+                    display_label = calendar_covers.numbered_label(sheet_position, display_label)
+                    sheet_position += 1
 
                 # ── Per-surface payload slicing (Phase 2 item 6c/6d) ────────
                 # Previously the FULL image_paths list went to every one of
@@ -1307,6 +1364,8 @@ class LayoutEngine:
                         f"Render failed on {display_label} "
                         f"(surface {surf_idx + 1} of {len(materialized)}): {exc}"
                     ) from exc
+            if calendar_covers.COVER_BACK in cover_keys:
+                _render_cover(calendar_covers.COVER_BACK)
             return all_outputs
 
         # Book product type (BOOK_LAYOUT_PRD.md §5.2 / §5.4). Mirrors the

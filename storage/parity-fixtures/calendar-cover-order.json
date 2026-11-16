@@ -1,0 +1,43 @@
+{
+  "description": "Printed sheets of a calendar in print order, with file labels. Numbered only when a cover exists. Python: services.calendar_covers.sheet_labels; TS: lib/calendar-covers.ts sheetLabels.",
+  "cases": [
+    {
+      "name": "no covers keeps plain month names",
+      "hasFront": false, "hasBack": false,
+      "months": ["January 2026", "February 2026"],
+      "expected": [
+        {"key": "month_01", "label": "January 2026"},
+        {"key": "month_02", "label": "February 2026"}
+      ]
+    },
+    {
+      "name": "front and back",
+      "hasFront": true, "hasBack": true,
+      "months": ["January 2026", "February 2026"],
+      "expected": [
+        {"key": "cover_front", "label": "00 Front Cover"},
+        {"key": "month_01", "label": "01 January 2026"},
+        {"key": "month_02", "label": "02 February 2026"},
+        {"key": "cover_back", "label": "03 Back Cover"}
+      ]
+    },
+    {
+      "name": "front only",
+      "hasFront": true, "hasBack": false,
+      "months": ["January 2026"],
+      "expected": [
+        {"key": "cover_front", "label": "00 Front Cover"},
+        {"key": "month_01", "label": "01 January 2026"}
+      ]
+    },
+    {
+      "name": "back only starts the months at 00",
+      "hasFront": false, "hasBack": true,
+      "months": ["January 2026"],
+      "expected": [
+        {"key": "month_01", "label": "00 January 2026"},
+        {"key": "cover_back", "label": "01 Back Cover"}
+      ]
+    }
+  ]
+}

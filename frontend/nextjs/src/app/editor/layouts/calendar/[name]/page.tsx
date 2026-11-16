@@ -18,6 +18,7 @@
  * rename path any more; edit displayName for anything customer-facing.
  */
 
+import { coverFromJson } from '@/components/CalendarCoversPanel';
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useHeader } from '@/context/HeaderContext';
@@ -53,6 +54,9 @@ interface ExistingLayoutJson {
   // or re-saving an existing layout would wipe all customisations. Holistic-
   // audit fix.
   surfaceOverrides?: import('@/types/calendar').SurfaceOverrideMap;
+  // Cover sheets must round-trip too, or re-saving would drop them.
+  frontCover?: unknown;
+  backCover?: unknown;
 }
 
 /** Preview holidays for one locale + year. A year with no file is a 404 — an
@@ -83,6 +87,8 @@ function existingToInitial(layout: ExistingLayoutJson): Partial<CalendarLayoutDr
     maskUrl: layout.maskUrl ?? null,
     maskOnExport: layout.maskOnExport ?? false,
     surfaceOverrides: layout.surfaceOverrides,
+    frontCover: coverFromJson(layout.frontCover),
+    backCover: coverFromJson(layout.backCover),
   };
 }
 
@@ -174,6 +180,7 @@ export default function CalendarLayoutEditorPage() {
     layoutJson: Record<string, unknown>,
     displayName: string,
     maskFile: File | null,
+    coverMaskFiles: Partial<Record<'frontCover' | 'backCover', File>> = {},
   ): Promise<Record<string, unknown> | undefined> {
     const name = String(layoutJson.name ?? routeName);
     if (!name) throw new Error('Layout name missing from serialised JSON.');
@@ -184,12 +191,15 @@ export default function CalendarLayoutEditorPage() {
     // A newly chosen mask goes up as multipart: the server stores the PNG
     // (S3 on prod) and sets maskUrl itself. JSON otherwise, as before.
     let init: RequestInit;
-    if (maskFile) {
+    if (maskFile || coverMaskFiles.frontCover || coverMaskFiles.backCover) {
       const form = new FormData();
       form.append('name', name);
       form.append('display_name', displayName);
       form.append('layout_data', JSON.stringify(layoutJson));
-      form.append('mask', maskFile);
+      if (maskFile) form.append('mask', maskFile);
+      // A cover's own mask goes up with it; the server sets that cover's maskUrl.
+      if (coverMaskFiles.frontCover) form.append('mask_frontCover', coverMaskFiles.frontCover);
+      if (coverMaskFiles.backCover) form.append('mask_backCover', coverMaskFiles.backCover);
       init = { method: 'POST', body: form };
     } else {
       init = {

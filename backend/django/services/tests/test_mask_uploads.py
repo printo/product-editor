@@ -193,6 +193,22 @@ def test_a_calendar_keeps_one_mask_and_refuses_the_slot_fields():
     assert "frameMaskUrl" not in cal
 
 
+def test_a_calendar_cover_mask_lands_on_that_cover_only():
+    cal = {"productType": "calendar", "canvas": {"width": 10, "height": 10},
+           "frontCover": {"canvas": {"width": 5, "height": 5}}, "backCover": {"canvas": {"width": 5, "height": 5}}}
+    with _LocalStore():
+        _store_uploaded_masks({"mask_frontCover": _png()}, "cal", cal)
+    assert cal["frontCover"]["maskUrl"] == f"/api/layouts/masks/cal_frontCover_mask_{FP}.png"
+    assert "maskUrl" not in cal["backCover"] and "maskUrl" not in cal
+
+
+def test_a_calendar_without_that_cover_rejects_its_mask():
+    cal = {"productType": "calendar", "canvas": {"width": 10, "height": 10}}
+    with _LocalStore() as st:
+        _raises(lambda: _store_uploaded_masks({"mask_backCover": _png()}, "cal", cal), "has no backCover")
+        assert not os.path.exists(os.path.join(st.root, "masks")) or st.masks() == []
+
+
 def test_mask_preview_is_a_temporary_redirect():
     """A 301 is cached indefinitely; the target here is a signed URL that expires."""
     from django.test import RequestFactory

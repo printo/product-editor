@@ -145,9 +145,14 @@ def count_placed_photos(canvases: Optional[Iterable[Mapping[str, Any]]]) -> int:
     """
     if not canvases:
         return 0
+    from services.calendar_covers import is_cover_key
+
     total = 0
     for canvas in canvases:
         if not isinstance(canvas, Mapping):
+            continue
+        # A calendar's cover sheets are not part of its photo count.
+        if is_cover_key(canvas.get('surface_key')):
             continue
         frames = canvas.get('frames')
         # list/tuple explicitly, not Iterable: this parses a JSON body, where

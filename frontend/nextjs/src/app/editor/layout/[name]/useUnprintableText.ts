@@ -1,5 +1,6 @@
 'use client';
 
+import { isCoverKey, sideCount } from '@/lib/calendar-covers';
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   checkedChars, coverageKey, fetchUnprintable, textNeedsCheck, unprintableGraphemes, withoutUnprintable,
@@ -55,7 +56,11 @@ export function useUnprintableText({ surfaceStates, canvases, editingCanvas, set
 
   const groups = useMemo(() => (
     surfaceStates.length > 1
-      ? surfaceStates.map(s => ({ surfaceKey: s.key as string | null, label: s.label || s.key, canvases: s.canvases }))
+      ? surfaceStates.map(s => ({
+          // A calendar's month surface is the page's own cards (key null); only a side or a cover is addressed by its key.
+          surfaceKey: (sideCount(surfaceStates) > 1 || isCoverKey(s.key) ? s.key : null) as string | null,
+          label: s.label || s.key, canvases: s.canvases,
+        }))
       : [{ surfaceKey: null as string | null, label: null as string | null, canvases }]
   ), [surfaceStates, canvases]);
 

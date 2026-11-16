@@ -4,6 +4,9 @@
  * /layout/[name]  —  Canvas editor page
  */
 
+import { CalendarCoverCard } from './CalendarCoverCard';
+import { useCalendarCovers } from './useCalendarCovers';
+import { isCoverKey, nonCoverSurfaces, sideCount } from '@/lib/calendar-covers';
 import React, {
   useState, useEffect, useMemo, useRef,
 } from 'react';
@@ -251,6 +254,9 @@ export default function LayoutEditorPage() {
     canvasesRef.current = canvases;
   }, [canvases]);
 
+  const frontCoverCanvases = surfaceStates.find(s => s.key === 'cover_front')?.canvases;
+  const backCoverCanvases = surfaceStates.find(s => s.key === 'cover_back')?.canvases;
+
   // A design restored from the copy the embedding company keeps (embed only,
   // and only when its page asked for it on the address). Before the autosave
   // hook because that hook's restore calls into this one.
@@ -271,6 +277,7 @@ export default function LayoutEditorPage() {
   } = useAutosaveAndRestore({
     layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
     canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
+    frontCoverCanvases, backCoverCanvases,
     setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
     isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
     calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
@@ -291,7 +298,7 @@ export default function LayoutEditorPage() {
   // component suppresses them.
   const intentionalDupesRef = useRef(new Set<string>());
   const duplicateFills = useMemo(() => {
-    const groups = surfaceStates.length > 1
+    const groups = sideCount(surfaceStates) > 1
       ? surfaceStates.map(s => ({ label: s.label || s.key, canvases: s.canvases }))
       : [{ label: 'your design', canvases }];
     return collectDuplicateFills(groups, intentionalDupesRef.current);
@@ -411,6 +418,10 @@ export default function LayoutEditorPage() {
     setUnsupportedWarning, templateRef: activeTemplateRef,
   });
 
+  const calendarCovers = useCalendarCovers({
+    surfaceStates, setSurfaceStates, generateCanvasesForLayout, serverHeicConvert, setError, setUploadWarning,
+  });
+
   // Restored photos with no design to put them back into go in as a pick does.
   useEffect(() => { placePhotosRef.current = (picked: File[]) => processSelectedFiles(picked); });
 
@@ -448,16 +459,18 @@ export default function LayoutEditorPage() {
   // under-reports the product-wide total (a 4-photo book read as "2"). Sum the
   // surfaces there; single-surface keeps reading `files` as before.
   const surfaceFileTotal = surfaceStates.reduce((acc, s) => acc + s.files.length, 0);
-  const totalUploadedCount = surfaceStates.length > 1
+  // A calendar's cover photos are not part of its photo count.
+  const monthSurfaceFileTotal = nonCoverSurfaces(surfaceStates).reduce((acc, s) => acc + s.files.length, 0);
+  const totalUploadedCount = sideCount(surfaceStates) > 1
     ? surfaceFileTotal
-    : (files.length > 0 ? files.length : surfaceFileTotal);
+    : (files.length > 0 && !isCoverKey(activeSurfaceKey) ? files.length : monthSurfaceFileTotal);
 
   // Ordered quantity as the upload box and pre-submit modals see it. They
   // compare against the LIVE placed count rather than the pick-time `qtyUnder`
   // banner state, which the customer can dismiss. 0 disables the notice: no qty
   // from the session or URL, or a multi-surface product — the same gate as
   // checkOrderQty.
-  const qtyNeeded = photoQty !== null && surfaceStates.length <= 1 ? photoQty : 0;
+  const qtyNeeded = photoQty !== null && sideCount(surfaceStates) <= 1 ? photoQty : 0;
 
   const {
     serverRenderLabel, includeUploads, setIncludeUploads, includeUploadsRef, disclaimerChecked, setDisclaimerChecked,
@@ -689,6 +702,13 @@ export default function LayoutEditorPage() {
 
           <RestoreNotice notice={restoreNotice} progress={restoreProgress} onDismiss={dismissRestoreNotice} />
 
+          {calendarCovers.front && (
+            <CalendarCoverCard
+              surface={calendarCovers.front} busy={calendarCovers.busyCover === 'cover_front'}
+              onAddPhotos={calendarCovers.addCoverPhotos} onEdit={openEditor}
+            />
+          )}
+
           <CanvasGrid
             canvases={canvases} surfaceStates={surfaceStates} layout={layout}
             dragOverIdx={dragOverIdx} setDragOverIdx={setDragOverIdx} repositionMode={repositionMode}
@@ -701,6 +721,13 @@ export default function LayoutEditorPage() {
             restoredPhotoStatus={restoredPhotoStatus} retryRestoredPhotos={retryRestoredPhotos} openingCard={openingCard}
             calendar={calendarCardsConfig}
           />
+
+          {calendarCovers.back && (
+            <CalendarCoverCard
+              surface={calendarCovers.back} busy={calendarCovers.busyCover === 'cover_back'}
+              onAddPhotos={calendarCovers.addCoverPhotos} onEdit={openEditor}
+            />
+          )}
 
           <CalendarSection
             isCalendarProduct={isCalendarProduct} showMonthTiles={!calendarCardsConfig} layout={layout}

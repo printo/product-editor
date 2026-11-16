@@ -1,5 +1,6 @@
 'use client';
 
+import { sideCount } from '@/lib/calendar-covers';
 import { displayLabelFor } from '@/lib/calendar';
 import { CanvasCard, SurfaceCard, type CardProps } from './CanvasCard';
 import { CalendarGridZone, CalendarRepeatCard, type CalendarCardsConfig } from './CalendarCards';
@@ -20,10 +21,10 @@ export function CanvasGrid({ canvases, surfaceStates, calendar, ...card }: CardP
     <>
       {canvases.length > 0 && (
         <section className="space-y-6 pt-0">
-          {surfaceStates.length > 1 ? (
+          {sideCount(surfaceStates) > 1 ? (
             <div className="flex gap-6 items-start justify-center overflow-x-auto pb-4 px-4 w-full custom-scrollbar">
               {surfaceStates.map((surface) => (
-                <SurfaceCard key={surface.key} surface={surface} sideCount={surfaceStates.length} {...card} />
+                <SurfaceCard key={surface.key} surface={surface} sideCount={sideCount(surfaceStates)} {...card} />
               ))}
             </div>
           ) : (

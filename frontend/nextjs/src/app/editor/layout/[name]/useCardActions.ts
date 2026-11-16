@@ -1,5 +1,6 @@
 'use client';
 
+import { isCoverKey, nonCoverSurfaces, sideCount } from '@/lib/calendar-covers';
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import type React from 'react';
 import { getCanvasSpec, getFrames, type NormalizedLayout } from '@/lib/layout-utils';
@@ -93,6 +94,7 @@ export function useCardActions({
   const closeEditor = () => {
     setActiveCanvasIdx(null);
     setEditingCanvas(null);
+
     const sp = new URLSearchParams(window.location.search);
     if (sp.has('canvas')) {
       sp.delete('canvas');
@@ -273,7 +275,7 @@ export function useCardActions({
       // Deleting can drop the placed count back under the order quantity —
       // re-run the same check processSelectedFiles does so the shortfall
       // banner reappears/updates instead of only ever reflecting upload-time.
-      const qtyVerdict = checkOrderQty(nextFiles.length, orderQty, surfaceStates.length);
+      const qtyVerdict = checkOrderQty(nextFiles.length, orderQty, sideCount(surfaceStates));
       setQtyUnder(qtyVerdict.status === 'under' ? { uploaded: qtyVerdict.uploaded, needed: qtyVerdict.needed } : null);
     }
     setDeleteConfirm(null);
@@ -325,6 +327,24 @@ export function useCardActions({
       }
     }
   }, [canvases, activeCanvasIdx, setActiveCanvasIdx, setEditingCanvas]);
+
+  // A cover is edited by making it the active surface. Once its editor is
+  // closed, hand the page back to the month surface, whose cards the grid
+  // draws. A separate step from closing, not part of it: the editor's save
+  // lands in `canvases` in the same batch as the close, and the page copies
+  // `canvases` into the active surface in an effect, so switching away in that
+  // batch would copy the cover's edit into the month surface instead.
+  // Only on the close of an editor that was open: between choosing a cover's
+  // card and its editor appearing the cover is active with no editor yet.
+  const wasEditingRef = useRef(false);
+  useEffect(() => {
+    if (activeCanvasIdx !== null) { wasEditingRef.current = true; return; }
+    if (!wasEditingRef.current) return;
+    wasEditingRef.current = false;
+    if (!isCoverKey(activeSurfaceKey)) return;
+    const main = nonCoverSurfaces(surfaceStates)[0];
+    if (main) setActiveSurfaceKey(main.key);
+  }, [activeCanvasIdx, activeSurfaceKey, surfaceStates, setActiveSurfaceKey]);
 
   const handleDrop = async (e: React.DragEvent, idx: number, surfaceKey: string | null = null) => {
     e.preventDefault();

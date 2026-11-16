@@ -1,5 +1,6 @@
 'use client';
 
+import { isCoverKey } from '@/lib/calendar-covers';
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import {
   saveFile, deleteFile, getFilesForOrder, pruneStaleOrders, pruneUnreferencedFiles,
@@ -45,6 +46,7 @@ export type FileIdOf = (file: File) => string | undefined;
 export function useAutosaveAndRestore({
   layout, layoutLoading, layoutName, orderId, apiBase, getAuthHeaders, normalizedLayoutState,
   canvases, setCanvases, setFiles, surfaceStatesRef, setSurfaceStates, activeSurfaceKey, activeSurfaceKeyRef, setActiveSurfaceKey,
+  frontCoverCanvases, backCoverCanvases,
   setGlobalFitMode, setGlobalBlurFill, getFileUrl, skipNextGenerateRef,
   isCalendarProduct, calendarTheme, setCalendarTheme, calendarType, setCalendarType, genzPalette, setGenzPalette,
   calendarCells, setCalendarCells, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPagesRef, setBookHiddenPages,
@@ -61,6 +63,9 @@ export function useAutosaveAndRestore({
   setCanvases: Setter<CanvasItem[]>;
   setFiles: Setter<File[]>;
   surfaceStatesRef: Ref<SurfaceState[]>;
+  /** A calendar's cover sheets' cards; a change saves the design (see the cover trigger). */
+  frontCoverCanvases?: CanvasItem[];
+  backCoverCanvases?: CanvasItem[];
   setSurfaceStates: Setter<SurfaceState[]>;
   activeSurfaceKey: string;
   activeSurfaceKeyRef: Ref<string>;
@@ -357,6 +362,17 @@ export function useAutosaveAndRestore({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calendarTheme, calendarType, genzPalette, calendarCells]);
 
+  // Trigger: a calendar's cover sheets. Their photos live beside the month
+  // surface, so an edit there never touches `canvases`; the writer reads them
+  // from surfaceStatesRef like everything else.
+  useEffect(() => {
+    if (!orderId || !layout || !restoreSettled) return;
+    if (!frontCoverCanvases && !backCoverCanvases) return;
+    scheduleAutosave();
+    return cancelAutosave;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frontCoverCanvases, backCoverCanvases]);
+
   // Trigger: the template choice. Picking one before any photo (the picker
   // is the first step on a fresh design) touches no canvas, so without this
   // a reload before the first photo would ask again. The writer reads the
@@ -517,15 +533,35 @@ export function useAutosaveAndRestore({
 
           // Merge saved canvas data into the surface states that were just
           // initialised from the layout definition.
+          // A calendar's cover sheets are never the active surface, so the
+          // active-surface path below never draws their previews: do it here,
+          // from each cover's own geometry, and only for a card still as it
+          // was restored (an edit or a new photo since must not be undone).
+          const coverHydrated: Record<string, CanvasItem[]> = {};
+          for (const ss of savedSurfaces) {
+            if (isCoverKey(ss.key) && ss.canvases?.length) coverHydrated[ss.key] = hydrate(ss.canvases);
+          }
           setSurfaceStates(prev => prev.map(s => {
             const saved = savedSurfaces.find(ss => ss.key === s.key);
             if (!saved || !saved.canvases?.length) return s;
             return {
               ...s,
-              canvases: hydrate(saved.canvases),
+              canvases: coverHydrated[s.key] ?? hydrate(saved.canvases),
               globalFitMode: saved.globalFitMode ?? s.globalFitMode,
             };
           }));
+          for (const [key, cards] of Object.entries(coverHydrated)) {
+            const def = normalizedLayoutState?.surfaces.find(sf => sf.key === key);
+            if (!def) continue;
+            const coverLayout = { ...layout, ...def };
+            void Promise.all(cards.map(async c => {
+              try { return { ...c, dataUrl: await renderCanvasCore(c, coverLayout, getFileUrl, { thumbnail: true }) }; } catch { return c; }
+            })).then(withPreviews => {
+              setSurfaceStates(prev => prev.map(s => (s.key !== key ? s : {
+                ...s, canvases: s.canvases.map((c, i) => (c === cards[i] ? withPreviews[i] : c)),
+              })));
+            });
+          }
 
           // Restore calendar state (theme, type, palette, cells) if present.
           const savedCalendar = editorState.calendarState;
@@ -547,7 +583,9 @@ export function useAutosaveAndRestore({
           }
 
           // Activate the surface that was open when the user last saved.
-          const savedActiveKey: string | undefined = editorState.activeSurfaceKey;
+          // (A cover is only ever the active surface while its editor is open,
+          // so a save made then must not reopen the page on it.)
+          const savedActiveKey: string | undefined = isCoverKey(editorState.activeSurfaceKey) ? undefined : editorState.activeSurfaceKey;
           if (savedActiveKey) setActiveSurfaceKey(savedActiveKey);
 
           // The saved design decides the template: its own, or none. The id

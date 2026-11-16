@@ -406,6 +406,50 @@ def validate_calendar_layout(layout_data: dict) -> None:
                     ovr.get('overlays'), f"surfaceOverrides['{surface_key}'].overlays"
                 )
 
+    validate_calendar_covers(layout_data)
+
+
+_CALENDAR_COVER_KEYS = ('frontCover', 'backCover')
+
+
+def validate_calendar_covers(layout_data: dict) -> None:
+    """
+    Optional `frontCover` / `backCover` blocks on a calendar layout: at most
+    one of each, so at most two cover sheets. Each is a plain generic-layout
+    block (own canvas, frames, overlays, mask), checked the way the generic
+    layout save checks one; a calendar grid is never drawn on a cover.
+    """
+    _eps = 1e-6
+    for name in _CALENDAR_COVER_KEYS:
+        block = layout_data.get(name)
+        if block is None:
+            continue
+        if not isinstance(block, dict):
+            raise ValidationError(f"{name} must be an object")
+        _validate_canvas_block(block.get('canvas'), name)
+        frames = block.get('frames')
+        if not isinstance(frames, list) or not frames:
+            raise ValidationError(f"{name}.frames must contain at least one photo frame")
+        for i, f in enumerate(frames):
+            if not isinstance(f, dict):
+                raise ValidationError(f"{name}.frames[{i}] must be an object")
+            vals = {}
+            for k in ('x', 'y', 'width', 'height'):
+                v = f.get(k)
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    raise ValidationError(f"{name}.frames[{i}].{k} must be a number")
+                vals[k] = float(v)
+            if vals['x'] < 0 or vals['y'] < 0 or vals['width'] <= 0 or vals['height'] <= 0:
+                raise ValidationError(
+                    f"{name}.frames[{i}] must have positive dimensions and a non-negative origin."
+                )
+            if vals['x'] + vals['width'] > 1.0 + _eps or vals['y'] + vals['height'] > 1.0 + _eps:
+                raise ValidationError(f"{name}.frames[{i}] extends past the canvas edge")
+        _check_overlays(block.get('overlays'), f"{name}.overlays")
+        mask_url = block.get('maskUrl')
+        if mask_url is not None and not isinstance(mask_url, str):
+            raise ValidationError(f"{name}.maskUrl must be a string")
+
 
 # ─── Book product layout validator (BOOK_LAYOUT_PRD.md §5, D1/D2/D2a/D5/D7) ──
 

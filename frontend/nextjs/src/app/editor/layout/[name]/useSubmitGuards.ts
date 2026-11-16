@@ -1,5 +1,6 @@
 'use client';
 
+import { isCoverKey, sideCount } from '@/lib/calendar-covers';
 import { useEffect, useMemo, useState } from 'react';
 import { collectLowDpiFrames, type LowDpiFrame } from '@/lib/dpi-utils';
 import { getImageSize } from '@/lib/image-utils';
@@ -57,7 +58,7 @@ export function useSubmitGuards({ layout, surfaceStates, canvases, isBookProduct
           ? surfaceStates.map(s => ({
               canvases: s.canvases,
               layoutDef: s.def,
-              surfaceKey: s.key,
+              surfaceKey: sideCount(surfaceStates) > 1 || isCoverKey(s.key) ? s.key : null,
               surfaceLabel: s.label || s.key,
             }))
           : [{ canvases, layoutDef: layout, surfaceKey: null }];
