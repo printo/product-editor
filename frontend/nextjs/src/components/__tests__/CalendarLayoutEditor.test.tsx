@@ -419,6 +419,23 @@ describe('CalendarLayoutEditor — cover pages', () => {
   });
 });
 
+// ─── Review step previews ─────────────────────────────────────────────────
+
+describe('CalendarLayoutEditor — review previews', () => {
+  it('draws the month grid to fill the calendar block, in the side preview and in every month tile', async () => {
+    setup();
+    await goToStep(4);
+    // Fill mode cuts the block up the way the print does; the default mode
+    // keeps square date cells and fixed type, so a wide, short block overflowed
+    // and only its first week or two showed.
+    const sidePreview = within(screen.getByTestId('live-preview')).getByTestId('month-tile-thumb');
+    expect(sidePreview).toHaveClass('flex-col');
+    const tiles = screen.getAllByRole('img', { name: /thumbnail$/ });
+    expect(tiles).toHaveLength(12);
+    for (const tile of tiles) expect(tile).toHaveClass('flex-col');
+  });
+});
+
 describe('CalendarLayoutEditor — style controls', () => {
   it('switches calendarType default via the dropdown', async () => {
     const { onSave } = setup();
