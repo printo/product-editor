@@ -37,6 +37,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/pia-auth';
 import { isDestructiveOpsPath, requiresOpsTier } from '@/lib/ops-guard';
+import { isSafeProxyPath } from '@/lib/proxy-path';
 import { canManageTemplates, isRegistrationActive } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
@@ -87,6 +88,9 @@ async function handler(
 
   // 2. Build upstream URL from the captured path segments + original querystring.
   const { path } = await params;
+  if (!isSafeProxyPath(path)) {
+    return NextResponse.json({ detail: 'Invalid path' }, { status: 400 });
+  }
   const upstreamPath = (path || []).join('/');
 
   // Preserve trailing slash if present in the original URL
