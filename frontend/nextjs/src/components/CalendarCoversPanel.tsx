@@ -33,6 +33,34 @@ export function defaultCover(base: { canvasWidthMm: number; canvasHeightMm: numb
   };
 }
 
+const WINDOW_GAP = 0.02;
+const MIN_WINDOW_HEIGHT = 0.1;
+
+/** The photo windows after adding one, placed so it never starts on top of an
+ *  existing window: straight below the last one (same left edge and width, its
+ *  height or what is left of the page). When there is no room below, which is
+ *  the case for a first window that fills the page, the last window is split
+ *  in two, top and bottom. Only when it is too short to split does the new one
+ *  go to the top-left, where ops can move it. */
+export function addWindow(frames: RectFrac[]): RectFrac[] {
+  const last = frames[frames.length - 1];
+  if (!last) return [{ x: 0.08, y: 0.08, width: 0.84, height: 0.84 }];
+  const y = last.y + last.height + WINDOW_GAP;
+  const room = 1 - y;
+  if (room >= MIN_WINDOW_HEIGHT) {
+    return [...frames, { x: last.x, y, width: last.width, height: Math.min(last.height, room) }];
+  }
+  const half = (last.height - WINDOW_GAP) / 2;
+  if (half >= MIN_WINDOW_HEIGHT) {
+    return [
+      ...frames.slice(0, -1),
+      { ...last, height: half },
+      { x: last.x, y: last.y + half + WINDOW_GAP, width: last.width, height: half },
+    ];
+  }
+  return [...frames, { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }];
+}
+
 export function coverToJson(c: CoverDraft): Record<string, unknown> {
   const out: Record<string, unknown> = {
     canvas: {
@@ -190,7 +218,7 @@ export function CalendarCoversPanel({ covers, onChange, maskFiles, onMaskFile, b
               <button
                 type="button"
                 data-testid={`cover-${id}-add-frame`}
-                onClick={() => patch({ frames: [...cover.frames, { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }] })}
+                onClick={() => patch({ frames: addWindow(cover.frames) })}
                 className="self-start rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
                 + Add photo window

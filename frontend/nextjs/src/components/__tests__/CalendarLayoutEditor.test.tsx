@@ -35,6 +35,7 @@ import {
   validateDraft,
   type CalendarLayoutDraft,
 } from '@/components/CalendarLayoutEditor';
+import { addWindow } from '@/components/CalendarCoversPanel';
 import { printedHolidayLocale } from '@/lib/calendar';
 import type { GenzPalette, HolidayEntry } from '@/types/calendar';
 
@@ -356,6 +357,24 @@ describe('CalendarLayoutEditor — cover pages', () => {
     expect(json).not.toHaveProperty('backCover');
   });
 
+  it('adds photo windows without starting on top of an existing one', async () => {
+    const { onSave } = setup();
+    await goToStep(2);
+    await userEvent.click(screen.getByTestId('cover-add-front'));
+    await userEvent.click(screen.getByTestId('cover-front-add-frame'));
+    await userEvent.click(screen.getByTestId('cover-front-add-frame'));
+    const [json] = await saveAndRead(onSave);
+    const f: Array<{ x: number; y: number; width: number; height: number }> = json.frontCover.frames;
+    expect(f).toHaveLength(3);
+    for (let i = 0; i < f.length; i++) {
+      expect(f[i].y + f[i].height).toBeLessThanOrEqual(1 + 1e-6);
+      for (let j = i + 1; j < f.length; j++) {
+        const apart = f[i].y + f[i].height <= f[j].y + 1e-6 || f[j].y + f[j].height <= f[i].y + 1e-6;
+        expect(apart).toBe(true);
+      }
+    }
+  });
+
   it('hands a cover mask to onSave under its own cover', async () => {
     const { onSave } = setup();
     await goToStep(2);
@@ -376,11 +395,44 @@ describe('CalendarLayoutEditor — cover pages', () => {
     expect(json.backCover.canvas).toMatchObject({ widthMm: 90, heightMm: 120 });
   });
 
+  it('addWindow stacks below, splits a full-page window, and falls back only when it cannot', () => {
+    expect(addWindow([])).toEqual([{ x: 0.08, y: 0.08, width: 0.84, height: 0.84 }]);
+    const below = addWindow([{ x: 0.1, y: 0.1, width: 0.8, height: 0.3 }]);
+    expect(below).toHaveLength(2);
+    expect(below[1]).toMatchObject({ x: 0.1, width: 0.8, height: 0.3 });
+    expect(below[1].y).toBeGreaterThanOrEqual(0.4);
+    // A first window that fills the page is split in two, with a gap between.
+    const split = addWindow([{ x: 0.08, y: 0.08, width: 0.84, height: 0.84 }]);
+    expect(split).toHaveLength(2);
+    expect(split[0].y + split[0].height).toBeLessThan(split[1].y);
+    expect(split[1].y + split[1].height).toBeLessThanOrEqual(0.92 + 1e-9);
+    // Too short to split and no room below: top-left fallback.
+    expect(addWindow([{ x: 0.1, y: 0.1, width: 0.8, height: 0.9 - 0.7 }, { x: 0.1, y: 0.8, width: 0.8, height: 0.19 }]).at(-1))
+      .toEqual({ x: 0.1, y: 0.1, width: 0.3, height: 0.3 });
+  });
+
   it('refuses a cover with no photo window, in words', () => {
     const draft = { ...defaultDraftFor(), frontCover: { ...coverBlock(), frames: [] } };
     expect(validateDraft(draft)).toMatch(/Front cover: add at least one photo window/);
     const off = { ...defaultDraftFor(), backCover: { ...coverBlock(), frames: [{ x: 0.6, y: 0.1, width: 0.6, height: 0.2 }] } };
     expect(validateDraft(off)).toMatch(/Back cover: photo window 1 goes past the page edge/);
+  });
+});
+
+// ─── Review step previews ─────────────────────────────────────────────────
+
+describe('CalendarLayoutEditor — review previews', () => {
+  it('draws the month grid to fill the calendar block, in the side preview and in every month tile', async () => {
+    setup();
+    await goToStep(4);
+    // Fill mode cuts the block up the way the print does; the default mode
+    // keeps square date cells and fixed type, so a wide, short block overflowed
+    // and only its first week or two showed.
+    const sidePreview = within(screen.getByTestId('live-preview')).getByTestId('month-tile-thumb');
+    expect(sidePreview).toHaveClass('flex-col');
+    const tiles = screen.getAllByRole('img', { name: /thumbnail$/ });
+    expect(tiles).toHaveLength(12);
+    for (const tile of tiles) expect(tile).toHaveClass('flex-col');
   });
 });
 
