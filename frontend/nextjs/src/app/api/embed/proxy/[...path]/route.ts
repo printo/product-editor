@@ -22,6 +22,7 @@
  *   Expired entries are lazily evicted on each cache miss to keep memory bounded.
  */
 
+import { isSafeProxyPath } from '@/lib/proxy-path';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -225,6 +226,9 @@ async function handler(
 
   // Build the upstream URL — join the path segments
   const { path } = await params;
+  if (!isSafeProxyPath(path)) {
+    return NextResponse.json({ detail: 'Invalid path' }, { status: 400 });
+  }
   const upstreamPath = (path || []).join('/');
 
   // Next's catch-all segments drop a trailing slash, but Django runs with
