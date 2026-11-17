@@ -31,7 +31,7 @@ MIN_IMAGE_DIMENSION = 50
 MAX_IMAGE_DIMENSION = settings.MAX_IMAGE_DIMENSION_PX
 # Total pixels a customer photo may have. A 16384 x 16384 photo passes the side
 # limit but decodes to about 1 GB of RGBA, and two render tasks run at once in a
-# 2 GB worker. 120 MP covers every phone camera (108 MP and below).
+# 2 GB worker. 200 MP covers the 200 MP phone modes; lower it if workers are killed.
 MAX_IMAGE_MEGAPIXELS = settings.MAX_PHOTO_MEGAPIXELS
 
 
