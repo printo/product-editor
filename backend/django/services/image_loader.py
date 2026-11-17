@@ -88,15 +88,36 @@ def _convert_to_srgb(img: Image.Image) -> Image.Image:
         return img.convert("RGBA")
 
 
-def open_source_rgba(path: str) -> Image.Image:
+#: A JPEG with more pixels than this is decoded at reduced size when the caller
+#: says how much it needs (`fit_to`). Below it the whole photo is decoded exactly
+#: as before, so every ordinary print is byte-for-byte unchanged. Above it a full
+#: decode plus the RGBA copy holds more than a gigabyte, and two such renders
+#: share one worker.
+REDUCED_DECODE_MIN_PIXELS = 60_000_000
+
+
+def open_source_rgba(path: str, fit_to: tuple[int, int] | None = None) -> Image.Image:
     """
     Open a customer source image the way every render path must:
     EXIF-orientation applied, colour-managed into sRGB, mode RGBA.
+
+    `fit_to` is the largest width and height the caller will use after turning
+    and shrinking the picture. For a JPEG over REDUCED_DECODE_MIN_PIXELS the
+    decoder then reads it at 1/2, 1/4 or 1/8 size, never below `fit_to` on
+    either side (the longer of the two is asked of both, so a quarter turn or an
+    EXIF orientation cannot leave it too small). Anything else is decoded whole.
 
     Raises OSError/ValueError like Image.open — callers keep their existing
     error handling.
     """
     with Image.open(path) as src:
+        if (
+            fit_to
+            and src.format == 'JPEG'
+            and src.width * src.height > REDUCED_DECODE_MIN_PIXELS
+        ):
+            side = max(1, int(max(fit_to)))
+            src.draft(None, (side, side))
         # Match the browser's display orientation (frame.rotation from the
         # editor is relative to the displayed-upright pixels).
         ImageOps.exif_transpose(src, in_place=True)
