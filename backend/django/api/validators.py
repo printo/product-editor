@@ -33,6 +33,9 @@ MAX_IMAGE_DIMENSION = settings.MAX_IMAGE_DIMENSION_PX
 # limit but decodes to about 1 GB of RGBA, and two render tasks run at once in a
 # 2 GB worker. 200 MP covers the 200 MP phone modes; lower it if workers are killed.
 MAX_IMAGE_MEGAPIXELS = settings.MAX_PHOTO_MEGAPIXELS
+# A JPEG is decoded at reduced size when it is very large (services/image_loader.py);
+# any other format is decoded whole at render time, so it gets a lower ceiling.
+MAX_NON_JPEG_MEGAPIXELS = min(MAX_IMAGE_MEGAPIXELS, settings.MAX_NON_JPEG_MEGAPIXELS)
 
 
 def validate_image_file(file_obj, max_size_mb=MAX_FILE_SIZE_MB):
@@ -79,6 +82,13 @@ def validate_image_file(file_obj, max_size_mb=MAX_FILE_SIZE_MB):
             raise ValidationError(
                 f"Image dimensions too large. Maximum {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION}px. "
                 f"Your image is {width}x{height}px"
+            )
+
+        if img.format != 'JPEG' and width * height > MAX_NON_JPEG_MEGAPIXELS * 1_000_000:
+            raise ValidationError(
+                f"Image has too many pixels for this format. Maximum {MAX_NON_JPEG_MEGAPIXELS} "
+                f"megapixels (save it as a JPEG for larger photos). "
+                f"Your image is {width * height / 1_000_000:.0f} megapixels"
             )
 
         if width * height > MAX_IMAGE_MEGAPIXELS * 1_000_000:

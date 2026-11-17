@@ -114,22 +114,44 @@ def _png(width: int, height: int) -> io.BytesIO:
     return buf
 
 
-def test_upload_validator_refuses_photos_over_the_pixel_cap():
+def _jpeg(width: int, height: int) -> io.BytesIO:
+    buf = io.BytesIO()
+    Image.new("L", (width, height)).save(buf, "JPEG")
+    buf.seek(0)
+    buf.name = "photo.jpg"
+    buf.size = len(buf.getvalue())
+    return buf
+
+
+def _refused(fn) -> str:
     from django.core.exceptions import ValidationError
 
-    from api.validators import MAX_IMAGE_MEGAPIXELS, validate_image_file
-
-    Image.MAX_IMAGE_PIXELS = 500_000_000  # as api/apps.py sets it at startup
-    side_ok = int((MAX_IMAGE_MEGAPIXELS * 1_000_000) ** 0.5) - 10
-    validate_image_file(_png(side_ok, side_ok))  # just under: accepted
-
-    side_bad = int((MAX_IMAGE_MEGAPIXELS * 1_000_000) ** 0.5) + 10
     try:
-        validate_image_file(_png(side_bad, side_bad))
+        fn()
     except ValidationError as exc:
-        assert "megapixels" in str(exc)
-    else:
-        raise AssertionError("an over-cap photo was accepted")
+        return str(exc)
+    return ""
+
+
+def test_upload_validator_refuses_photos_over_the_pixel_cap():
+    from api import validators
+
+    # Small stand-in limits so the test holds no big images: 2 MP for formats
+    # that are decoded whole at render time, 5 MP for a JPEG.
+    with mock.patch.object(validators, "MAX_NON_JPEG_MEGAPIXELS", 2), \
+            mock.patch.object(validators, "MAX_IMAGE_MEGAPIXELS", 5):
+        validators.validate_image_file(_png(1300, 1300))        # 1.7 MP PNG: under
+        validators.validate_image_file(_jpeg(2200, 2200))       # 4.8 MP JPEG: under
+        assert "for this format" in _refused(lambda: validators.validate_image_file(_png(1500, 1500)))
+        validators.validate_image_file(_jpeg(2200, 1800))       # a JPEG over the PNG limit is fine
+        assert "too many pixels" in _refused(lambda: validators.validate_image_file(_jpeg(2400, 2400)))
+
+
+def test_the_default_limits_suit_phone_cameras():
+    from api import validators
+
+    assert validators.MAX_IMAGE_MEGAPIXELS >= 200       # 200 MP phone modes (JPEG)
+    assert 100 <= validators.MAX_NON_JPEG_MEGAPIXELS <= validators.MAX_IMAGE_MEGAPIXELS
 
 
 if __name__ == "__main__":

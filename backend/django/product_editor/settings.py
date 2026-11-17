@@ -393,6 +393,7 @@ PHOTO_PREVIEW_PER_MINUTE = int(os.getenv("PHOTO_PREVIEW_PER_MINUTE", "1200"))
 # 16384² = 268 MP < 500 MP.
 MAX_IMAGE_DIMENSION_PX = int(os.getenv("MAX_IMAGE_DIMENSION_PX", "16384"))
 MAX_PHOTO_MEGAPIXELS = int(os.getenv("MAX_PHOTO_MEGAPIXELS", "200"))
+MAX_NON_JPEG_MEGAPIXELS = int(os.getenv("MAX_NON_JPEG_MEGAPIXELS", "100"))
 
 # Auto-orientation detection mode — see .env.example for the full block.
 # - "mediapipe": client-side BlazeFace only (recommended for ≤ 2 cores)

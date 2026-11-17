@@ -662,10 +662,6 @@ class LayoutEngine:
             src_path = batch[idx] if idx < len(batch) else ""
             if not src_path:
                 continue
-            # Colour-managed load: EXIF orientation + ICC→sRGB conversion so a
-            # Display-P3/AdobeRGB/CMYK-tagged photo prints the colours the
-            # browser preview showed (services/image_loader.py).
-            img = open_source_rgba(src_path)
             target_w = frame["width"]
             target_h = frame["height"]
 
@@ -684,6 +680,16 @@ class LayoutEngine:
             fill_style = tx.get('fill_style') or None
             caption_text = (tx.get('caption') or '').strip()
             caption_on = bool(tx.get('caption_enabled')) and bool(caption_text)
+
+            # Colour-managed load: EXIF orientation + ICC→sRGB conversion so a
+            # Display-P3/AdobeRGB/CMYK-tagged photo prints the colours the
+            # browser preview showed (services/image_loader.py). A very large
+            # JPEG is decoded at reduced size, never below the 2× zoomed frame
+            # target the smart downscale below keeps anyway.
+            zoom_mult = max(1.0, extra_scale)
+            keep_w = int(math.ceil(target_w * zoom_mult)) * 2
+            keep_h = int(math.ceil(target_h * zoom_mult)) * 2
+            img = open_source_rgba(src_path, fit_to=(keep_w, keep_h))
 
             # Rotate source image if needed (expand=True preserves all pixels).
             # Fast-path 90/180/270° rotations: transpose is an O(1) memory
@@ -707,7 +713,6 @@ class LayoutEngine:
             # 1/z of the source, so the pre-shrink must keep z× more pixels or
             # the 300 DPI print upsamples a pre-destroyed source (soft output
             # above 2× zoom). Zoom-out (scale < 1) keeps today's target.
-            zoom_mult = max(1.0, extra_scale)
             img = self._smart_downscale(
                 img,
                 int(math.ceil(target_w * zoom_mult)),
