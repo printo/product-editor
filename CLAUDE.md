@@ -890,6 +890,8 @@ Run only via the `backend` container. Current latest: `0029_rollback_safe_defaul
 | `PHOTO_FETCH_MAX_FILES_PER_ORDER` | `2000` | Stored files an order may hold before `upload/from-url` answers 429 |
 | `PHOTO_FETCH_MAX_ORDER_MB` | `10240` | Stored bytes an order may hold before `upload/from-url` answers 429 |
 | `PHOTO_FETCH_PER_MINUTE` | `600` | `upload/from-url` calls a minute, per key and order (a 200-photo design asks for all of them as it opens) |
+| `UPLOAD_INIT_PER_MINUTE` | `600` | `upload/init` calls a minute, per key and order (per key and client IP when no order is named); past it 429. An order also may not start an upload once it holds `PHOTO_FETCH_MAX_FILES_PER_ORDER` files or `PHOTO_FETCH_MAX_ORDER_MB` (`/api/upload/` is exempt from the per-IP limit) |
+| `ORIENTATION_DETECT_PER_MINUTE` | `600` | `orientation/detect` calls a minute, same scope; the endpoint also refuses a file over the upload ceiling (413) and a photo over `MAX_PHOTO_MEGAPIXELS` (400) before decoding |
 | `PHOTO_PREVIEW_PX` | `1600` | Long edge of the preview the editor draws a restored card from |
 | `PHOTO_PREVIEW_PER_MINUTE` | `1200` | `photos/<id>/preview` calls a minute, per key and order |
 | `MAX_IMAGE_DIMENSION_PX` | `16384` | Max image side at upload; total pixels capped by the 500 MP ceiling |
