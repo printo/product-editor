@@ -62,7 +62,7 @@ def test_the_render_engine_applies_the_same_ceiling():
     assert out == 'RESULT 500000000 500000000', out
 
 
-def test_upload_validation_accepts_a_photo_above_pillows_default_limit():
+def test_pillow_opens_a_photo_above_its_default_limit():
     # 14200 x 14200 = 201.6 MP: over Pillow's default refusal (~179 MP), under
     # 500 MP and the 16384 px side limit. A real all-black PNG, compressed row by
     # row so the test never holds the pixels in memory.
@@ -72,8 +72,8 @@ def test_upload_validation_accepts_a_photo_above_pillows_default_limit():
         import zlib
         import django
         django.setup()
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        from api.validators import validate_image_file
+        import io
+        from PIL import Image
 
         def chunk(kind, data):
             return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
@@ -85,7 +85,9 @@ def test_upload_validation_accepts_a_photo_above_pillows_default_limit():
         png = (b'\\x89PNG\\r\\n\\x1a\\n'
                + chunk(b'IHDR', struct.pack('>IIBBBBB', side, side, 8, 0, 0, 0, 0))
                + chunk(b'IDAT', idat) + chunk(b'IEND', b''))
-        validate_image_file(SimpleUploadedFile('big.png', png, content_type='image/png'))
+        # The upload validator now has its own, lower megapixel cap
+        # (test_render_input_caps); this checks only Pillow's ceiling.
+        assert Image.open(io.BytesIO(png)).size == (side, side)
         print('RESULT accepted', 'layout_engine.engine' in sys.modules)
     ''')
     assert out == 'RESULT accepted False', out

@@ -893,6 +893,7 @@ Run only via the `backend` container. Current latest: `0029_rollback_safe_defaul
 | `PHOTO_PREVIEW_PX` | `1600` | Long edge of the preview the editor draws a restored card from |
 | `PHOTO_PREVIEW_PER_MINUTE` | `1200` | `photos/<id>/preview` calls a minute, per key and order |
 | `MAX_IMAGE_DIMENSION_PX` | `16384` | Max image side at upload; total pixels capped by the 500 MP ceiling |
+| `MAX_PHOTO_MEGAPIXELS` | `200` | Max total pixels of a customer photo at upload; covers 200 MP phone modes. A 200 MP photo decodes to ~0.8 GB RGBA (more while converting), so two at once can strain a 2 GB worker: lower this or set `CELERY_CONCURRENCY=1` if workers die with signal 9 |
 | `DB_CONN_MAX_AGE` | `600` | `0` if PgBouncer is in front |
 | `CSP_REPORT_ONLY` | `True` | Read at runtime by Django but at **image build time** by the frontend — a flip reaches the editor only after `./deploy.sh` rebuilds |
 | `CELERY_CONCURRENCY` | unset | auto from CPU count |
