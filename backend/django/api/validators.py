@@ -29,6 +29,10 @@ MIN_IMAGE_DIMENSION = 50
 # engine smart-downscales sources, so this is a decompression-bomb guard, not a
 # print-quality limit.
 MAX_IMAGE_DIMENSION = settings.MAX_IMAGE_DIMENSION_PX
+# Total pixels a customer photo may have. A 16384 x 16384 photo passes the side
+# limit but decodes to about 1 GB of RGBA, and two render tasks run at once in a
+# 2 GB worker. 120 MP covers every phone camera (108 MP and below).
+MAX_IMAGE_MEGAPIXELS = settings.MAX_PHOTO_MEGAPIXELS
 
 
 def validate_image_file(file_obj, max_size_mb=MAX_FILE_SIZE_MB):
@@ -75,6 +79,12 @@ def validate_image_file(file_obj, max_size_mb=MAX_FILE_SIZE_MB):
             raise ValidationError(
                 f"Image dimensions too large. Maximum {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION}px. "
                 f"Your image is {width}x{height}px"
+            )
+
+        if width * height > MAX_IMAGE_MEGAPIXELS * 1_000_000:
+            raise ValidationError(
+                f"Image has too many pixels. Maximum {MAX_IMAGE_MEGAPIXELS} megapixels. "
+                f"Your image is {width * height / 1_000_000:.0f} megapixels"
             )
 
         # Reset position so callers can read the raw bytes after validation.

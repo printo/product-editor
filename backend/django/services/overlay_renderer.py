@@ -221,13 +221,42 @@ def layout_text(
     return placed
 
 
+# ── Size limits ─────────────────────────────────────────────────────────────
+#
+# An overlay arrives from the customer's browser, so its sizes are untrusted:
+# a text box, shape or image given a width of millions of percent would make
+# the worker allocate a strip or a resized image far past its memory cap. These
+# bounds sit well beyond anything the editor can produce (an overlay may hang
+# a little off the canvas, never four canvases wide) and only ever shrink.
+
+_MAX_SIDE_FACTOR = 4          # longest overlay side, in canvas long sides
+_MAX_AREA_FACTOR = 4          # overlay area, in canvas areas
+_MAX_AREA_PX = 100_000_000    # and never more than this, whatever the canvas
+_MAX_FONT_FACTOR = 2          # font size, in canvas long sides
+_MAX_STROKE_FACTOR = 0.25     # stroke width, in canvas long sides
+
+
+def _fit_box(w: float, h: float, cw: int, ch: int) -> tuple[float, float]:
+    """Shrink a w x h box (keeping its shape) to the limits above."""
+    if w <= 0 or h <= 0:
+        return w, h
+    side = _MAX_SIDE_FACTOR * max(cw, ch)
+    area = min(_MAX_AREA_FACTOR * cw * ch, _MAX_AREA_PX)
+    scale = min(1.0, side / max(w, h), math.sqrt(area / (w * h)))
+    return w * scale, h * scale
+
+
+def _cap(value: float, cw: int, ch: int, factor: float) -> float:
+    return min(value, factor * max(cw, ch))
+
+
 def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     """Render a `TextOverlay` onto canvas (assumed RGBA mode)."""
     text = str(o.get("text") or "")
     if not text:
         return
 
-    font_size_px = max(1, int(round(float(o.get("fontSize") or 14))))
+    font_size_px = max(1, int(round(_cap(float(o.get("fontSize") or 14), cw, ch, _MAX_FONT_FACTOR))))
     color = _parse_color(o.get("color") or "#000000")
 
     # The family the editor previewed (services/google_fonts.py); Inter when
@@ -248,6 +277,7 @@ def _draw_text(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     y_f = float(o.get("y") or 0) * ch / 100.0
     width_pct = o.get("width")
     box_width = float(width_pct if width_pct is not None else DEFAULT_TEXT_BOX_WIDTH_PCT) * cw / 100.0
+    box_width = _cap(box_width, cw, ch, _MAX_SIDE_FACTOR)
     # Both previews draw an absent textAlign as centre.
     align = str(o.get("textAlign") or "center").lower()
 
@@ -367,10 +397,11 @@ def _draw_shape(canvas: Image.Image, o: dict, cw: int, ch: int) -> None:
     sh = float(o.get("height") or 0) * ch / 100.0
     if sw <= 0 or sh <= 0:
         return
+    sw, sh = _fit_box(sw, sh, cw, ch)
 
     opacity = o.get("opacity")
     fill = _parse_color(o.get("fill") or "transparent", opacity)
-    stroke_w = float(o.get("strokeWidth") or 0)
+    stroke_w = _cap(float(o.get("strokeWidth") or 0), cw, ch, _MAX_STROKE_FACTOR)
     stroke = _parse_color(o.get("stroke") or "#000000", opacity) if stroke_w > 0 else None
     rotation = float(o.get("rotation") or 0.0)
 
@@ -444,8 +475,11 @@ def _paste_image(
 
     x_f = float(o.get("x") or 0) * cw / 100.0
     y_f = float(o.get("y") or 0) * ch / 100.0
-    w_px = max(1, int(float(o.get("width") or 0) * cw / 100.0))
-    h_px = max(1, int(float(o.get("height") or 0) * ch / 100.0))
+    w_f, h_f = _fit_box(
+        float(o.get("width") or 0) * cw / 100.0, float(o.get("height") or 0) * ch / 100.0, cw, ch,
+    )
+    w_px = max(1, int(w_f))
+    h_px = max(1, int(h_f))
     rotation = float(o.get("rotation") or 0.0)
     opacity = float(o.get("opacity") if o.get("opacity") is not None else 1.0)
     opacity = max(0.0, min(1.0, opacity))
