@@ -59,16 +59,20 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Standalone output: server.js + minimal node_modules at /app/.next/standalone/
-COPY --from=builder /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/standalone ./
 # Static assets live outside the standalone bundle
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
 
 # Prints the actual host-reachable URL before handing off to Next's server —
 # see the script for why (Next's own banner reports the container-internal
 # port, which is misleading once Docker Compose remaps it on the host).
-COPY frontend/nextjs/docker-entrypoint.sh ./
+COPY --chown=node:node frontend/nextjs/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
+
+# This container holds AUTH_SECRET, INTERNAL_API_KEY and EMBED_INTERNAL_SECRET,
+# so a code-execution bug must not land as root. The node image ships this user.
+USER node
 
 EXPOSE 3000
 ENTRYPOINT ["./docker-entrypoint.sh"]
