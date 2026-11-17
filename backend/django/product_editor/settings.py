@@ -15,7 +15,15 @@ if not DEBUG and (not SECRET_KEY or SECRET_KEY == "dev-secret-key"):
         "DJANGO_SECRET_KEY must be set to a strong unique value in production "
         "(DEBUG=0). Refusing to boot with the development default."
     )
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
+ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "*").split(",") if h.strip()]
+# Fail-fast: an unset ALLOWED_HOSTS falls back to "*", which turns off Django's
+# Host-header check. Same pattern as the DJANGO_SECRET_KEY guard above.
+if not DEBUG and "*" in ALLOWED_HOSTS:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "ALLOWED_HOSTS must list the real host names in production (DEBUG=0); "
+        "refusing to boot with the wildcard."
+    )
 if "backend" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("backend")
 

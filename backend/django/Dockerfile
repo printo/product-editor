@@ -51,6 +51,7 @@ COPY backend/django /app
 # its real DJANGO_SECRET_KEY from env_file, and the guard still refuses to serve
 # production traffic without one.
 RUN DJANGO_SECRET_KEY="build-time-collectstatic-not-used-at-runtime" \
+        ALLOWED_HOSTS="build-time-collectstatic-not-used-at-runtime" \
         python manage.py collectstatic --noinput \
     && chmod +x /app/entrypoint.sh \
     && sed -i 's/\r$//' /app/entrypoint.sh \
