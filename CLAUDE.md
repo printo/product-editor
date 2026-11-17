@@ -927,6 +927,8 @@ Run only via the `backend` container. Current latest: `0029_rollback_safe_defaul
 - **`order_id` is regex-validated**; don't relax it — it flows into headers, logs, file paths and lookups.
 - **An order id from the browser is never proof of ownership.** In the embed, read customer data by the session's order id (`X-Order-ID`), not by an id in the address or the path. A company's customers all share its API key.
 - **Never `requests.post` a customer URL directly** — `post_webhook_safely`.
+- **The SSRF guard requires `is_global`** (`services/url_safety.py::_is_public_ip`), which refuses the shared address space 100.64.0.0/10 and with it Alibaba's metadata address 100.100.100.200; the named private/loopback/link-local checks are kept alongside.
+- **Never send a presented bearer token to PIA by hand.** The AllowAny ops-write views (`FontsView`, `CalendarStylesView`, `HolidaysView`) take the caller from `request.user` (`_authenticated_user`), so DRF's own order applies (API key first, PIA after) and an API key, the internal one included, never reaches `pia.printo.in`. Pinned by `api/tests/test_ops_write_no_pia_forwarding.py`.
 - **Never `requests.get` a link that came from a browser.** `services.photo_fetch.fetch_photo` is the one way, and only for a host the API key's owner listed. The ops design import's artwork fetch (`services/design_import.py`) is a second caller of that function with the same per-key list, not a second way.
 
 ## Known Issues

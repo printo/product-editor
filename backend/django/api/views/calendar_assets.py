@@ -138,6 +138,19 @@ _OPS_GATE_RESPONSES = {
 }
 
 
+def _authenticated_user(request):
+    """
+    Who is calling, resolved by DRF with the configured classes in order (API
+    key first, then PIA). These views are AllowAny because their GET is public,
+    so the write handlers ask for the caller themselves. They used to run the
+    PIA check first by hand, which sent every presented bearer token to
+    pia.printo.in for verification, the internal API key included. A key now
+    resolves locally and never leaves the server.
+    """
+    user = getattr(request, 'user', None)
+    return user if user is not None and user.is_authenticated else None
+
+
 class FontsView(APIView):
     """
     GET  /api/fonts  — returns the list of enabled fonts (open to any authenticated user).
@@ -204,16 +217,7 @@ class FontsView(APIView):
     )
     def put(self, request):
         # Only ops team can modify fonts
-        from ..authentication import PIAAuthentication, BearerTokenAuthentication
-        user = None
-        for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
-            try:
-                result = auth_cls.authenticate(request)
-                if result:
-                    user = result[0]
-                    break
-            except Exception:
-                continue
+        user = _authenticated_user(request)
 
         if not user:
             return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -560,16 +564,7 @@ class CalendarStylesView(APIView):
             )
 
         # Ops-only mutation — mirror the FontsView gate.
-        from ..authentication import PIAAuthentication, BearerTokenAuthentication
-        user = None
-        for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
-            try:
-                result = auth_cls.authenticate(request)
-                if result:
-                    user = result[0]
-                    break
-            except Exception:
-                continue
+        user = _authenticated_user(request)
 
         if not user:
             return Response(
@@ -733,16 +728,7 @@ class HolidaysView(APIView):
 
     def _gate_ops(self, request):
         """Returns (user, None) on success or (None, Response) on auth failure."""
-        from ..authentication import PIAAuthentication, BearerTokenAuthentication
-        user = None
-        for auth_cls in [PIAAuthentication(), BearerTokenAuthentication()]:
-            try:
-                result = auth_cls.authenticate(request)
-                if result:
-                    user = result[0]
-                    break
-            except Exception:
-                continue
+        user = _authenticated_user(request)
         if not user:
             return None, Response(
                 {'detail': 'Authentication required'},
