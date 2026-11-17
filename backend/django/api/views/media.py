@@ -13,6 +13,53 @@ from ..permissions import IsAuthenticatedWithAPIKey
 logger = logging.getLogger(__name__)
 
 
+def _orientation_blocked(request, upload_file):
+    """
+    Refuse what the endpoint should never decode: more calls a minute than one
+    order makes, a file over the upload ceiling, or a photo with more pixels
+    than an upload may have (the header is read, nothing is decoded). The
+    editor treats any non-200 as "no opinion" and falls back to its heuristic.
+    """
+    from django.core.cache import cache
+    from PIL import Image
+    from ..middleware import _get_client_ip
+
+    api_key = getattr(request.user, 'api_key', None)
+    order_id = (request.headers.get('X-Order-ID') or '').strip()
+    scope = f'{getattr(api_key, "id", "x")}:{order_id or _get_client_ip(request)}'
+    try:
+        window = f'orientation_detect:{scope}'
+        cache.add(window, 0, 60)
+        if cache.incr(window) > settings.ORIENTATION_DETECT_PER_MINUTE:
+            response = Response(
+                {'detail': 'Too many orientation checks in the last minute.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            response['Retry-After'] = '60'
+            return response
+    except Exception:
+        pass
+
+    if upload_file.size > settings.MAX_UPLOAD_FILE_SIZE:
+        return Response(
+            {'detail': f'File exceeds {settings.MAX_UPLOAD_FILE_SIZE_MB} MB limit'},
+            status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+    try:
+        with Image.open(upload_file) as img:
+            pixels = img.width * img.height
+    except Exception:
+        pixels = 0  # unreadable: detect_rotation declines it as before
+    finally:
+        upload_file.seek(0)
+    if pixels > settings.MAX_PHOTO_MEGAPIXELS * 1_000_000:
+        return Response(
+            {'detail': 'Image has too many pixels.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
 class OrientationDetectView(APIView):
     """
     POST /api/orientation/detect  — synchronous server-side auto-orientation.
@@ -76,7 +123,9 @@ class OrientationDetectView(APIView):
                 },
             ),
             204: OpenApiResponse(description="No pose detected — no body. Apply your own heuristic."),
-            400: OpenApiResponse(description="No `file` field, or the image could not be read."),
+            400: OpenApiResponse(description="No `file` field, or the photo has more pixels than an upload may."),
+            413: OpenApiResponse(description="File over the upload size limit."),
+            429: OpenApiResponse(description="Too many orientation checks for this order in the last minute."),
             503: OpenApiResponse(description="Auto-orientation is switched off for this deployment."),
         },
     )
@@ -93,6 +142,10 @@ class OrientationDetectView(APIView):
                 {'detail': "Missing 'file' multipart field"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        blocked = _orientation_blocked(request, upload_file)
+        if blocked is not None:
+            return blocked
 
         # Write to a tempfile so the orientation service can mmap-read it.
         # NamedTemporaryFile + delete=False because we want to control

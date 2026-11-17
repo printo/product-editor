@@ -375,6 +375,11 @@ PHOTO_FETCH_MAX_ORDER_MB = int(os.getenv("PHOTO_FETCH_MAX_ORDER_MB", "10240"))
 # A restored design fetches every photo when it is opened, a few at a time, so
 # a 200-photo order makes 200 calls well inside a minute.
 PHOTO_FETCH_PER_MINUTE = int(os.getenv("PHOTO_FETCH_PER_MINUTE", "600"))
+# POST /api/upload/init and /api/orientation/detect are exempt from the per-IP
+# limit (a 200-photo order is ~600 calls a minute), so each keeps its own count:
+# per key and order when the embed proxy names one, else per key and client IP.
+UPLOAD_INIT_PER_MINUTE = int(os.getenv("UPLOAD_INIT_PER_MINUTE", "600"))
+ORIENTATION_DETECT_PER_MINUTE = int(os.getenv("ORIENTATION_DETECT_PER_MINUTE", "600"))
 # GET /api/photos/<upload_id>/preview: the small picture the editor draws a
 # restored card from, for a photo whose original is held here (`size=full`
 # returns the original when the card is opened). Long edge in pixels, and

@@ -39,6 +39,49 @@ UUID_GUARD = (
 )
 
 
+def _upload_init_blocked(request):
+    """
+    A 429 when this order (or, with no order, this client) has started too many
+    uploads in the last minute, or already holds as many photos as it may.
+
+    /api/upload/ is exempt from the per-IP limit, so without this one client
+    could start unlimited uploads and stage chunks until the disk was full.
+    The held-photo ceiling is the one the from-url fetch uses. Fails open when
+    the cache is unavailable, like the daily request cap.
+    """
+    from django.core.cache import cache
+    from django.db.models import Count, Sum
+    from ..middleware import _get_client_ip
+
+    api_key = getattr(request.user, 'api_key', None)
+    order_id = (request.headers.get('X-Order-ID') or '').strip()
+    scope = f'{getattr(api_key, "id", "x")}:{order_id or _get_client_ip(request)}'
+    try:
+        window = f'upload_init:{scope}'
+        cache.add(window, 0, 60)
+        if cache.incr(window) > settings.UPLOAD_INIT_PER_MINUTE:
+            response = Response(
+                {'detail': 'Too many uploads started in the last minute. Try again shortly.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            response['Retry-After'] = '60'
+            return response
+    except Exception:
+        pass
+
+    if order_id and api_key is not None:
+        held = UploadedFile.objects.filter(api_key=api_key, order_id=order_id, is_deleted=False).aggregate(
+            files=Count('id'), size=Sum('file_size_bytes'),
+        )
+        if (held['files'] or 0) >= settings.PHOTO_FETCH_MAX_FILES_PER_ORDER or \
+                (held['size'] or 0) >= settings.PHOTO_FETCH_MAX_ORDER_MB * 1024 * 1024:
+            return Response(
+                {'detail': 'This order already holds as many photos as it may.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+    return None
+
+
 class ChunkedUploadInitView(APIView):
     """
     POST /api/upload/init  — start a resumable upload session.
@@ -85,11 +128,16 @@ class ChunkedUploadInitView(APIView):
                 },
             ),
             400: OpenApiResponse(description="Missing field, file over the size limit, or an implausible total_chunks."),
+            429: OpenApiResponse(description="Too many uploads started for this order in the last minute, or the order already holds as many photos as it may."),
             507: OpenApiResponse(description="Not enough disk space to accept this upload."),
         },
     )
     def post(self, request):
         import uuid as _uuid
+
+        blocked = _upload_init_blocked(request)
+        if blocked is not None:
+            return blocked
 
         filename = request.data.get('filename')
         file_size = request.data.get('file_size')
