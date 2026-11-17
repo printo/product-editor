@@ -1129,7 +1129,7 @@ def garbage_collector_task():
         now, cutoff_date, under_pressure=retention_days < settings.EXPORT_RETENTION_DAYS,
     )
 
-    exports = gc_sweeps.sweep_expired_exports(due)
+    exports = gc_sweeps.sweep_expired_exports(due, now)
     uploads = gc_sweeps.sweep_expired_uploads(due)
     async_renders = gc_sweeps.sweep_async_render_files(now)
     canvas_deleted = gc_sweeps.sweep_expired_canvas_data(now)

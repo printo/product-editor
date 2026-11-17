@@ -314,6 +314,11 @@ EXPORT_RETENTION_DAYS = int(os.getenv("EXPORT_RETENTION_DAYS", "7"))
 #
 # Set it lower via env if you ever need the disk valve back, accepting that
 # expires_at becomes a best-effort date under pressure.
+# An order flagged for manual review (its webhook failed for good) keeps its
+# files and design past expiry so someone can look. The hold is bounded, or the
+# flag, which nothing ever clears, would keep a customer's data for ever: past
+# expires_at plus this many days the sweeps treat it like any other order.
+MANUAL_REVIEW_GRACE_DAYS = int(os.getenv("MANUAL_REVIEW_GRACE_DAYS", "14"))
 EXPORT_RETENTION_DAYS_UNDER_PRESSURE = int(
     os.getenv("EXPORT_RETENTION_DAYS_UNDER_PRESSURE", str(EXPORT_RETENTION_DAYS))
 )

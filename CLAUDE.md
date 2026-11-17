@@ -366,6 +366,7 @@ Retry: `self.retry()` with exponential backoff (2s → 4s → 8s), max 3; `Memor
 - The same endpoint carries a live `disk` block (`used_percent`, `free_gb`, `pressure` at >80%), read at request time.
 - **Orphaned export directories** (`services/orphan_exports.py`): the one sweep that deletes on the *absence* of a DB row. `GC_ORPHAN_SWEEP` = `off` | `dry_run` | `delete` (prod runs `delete`). Five conditions must all hold (`_classify`): UUID name, no `RenderJob`, no `ExportedResult` path, no `CanvasData.order_id`, mtime older than retention + 1 day. **Any new export-directory naming convention must be added there.** A DB failure keeps everything.
 - **Abandoned chunk staging** (`services/chunk_staging.py`): reclaims `UPLOADS_DIR/.chunks/<uuid>/` untouched for `CHUNK_STAGING_MAX_AGE_HOURS` (24), judged by the newest mtime of the directory *and its contents*. Deletes by default — part files are unusable without `/complete`.
+- **The mock preview (`<stem>_preview.jpg`) is on no row**: the export and async-render sweeps delete it beside its print file (`gc_sweeps._mock_sibling`). Until 2026-11-17 it stayed in the directory until the orphan sweep found it, about four days late. **Any new sidecar file the engine writes beside an output must be removed there too.**
 - Expired `EmbedSession` rows older than 30 days and `APIRequest` rows older than `API_AUDIT_RETENTION_DAYS` are swept here too. **Before adding a sweep, grep the whole of `garbage_collector_task`** — an existing one may report under an unexpected counter name.
 
 ### Celery and stale database connections
@@ -901,6 +902,7 @@ Run only via the `backend` container. Current latest: `0029_rollback_safe_defaul
 | `CSP_REPORT_ONLY` | `True` | Read at runtime by Django but at **image build time** by the frontend — a flip reaches the editor only after `./deploy.sh` rebuilds |
 | `CELERY_CONCURRENCY` | unset | auto from CPU count |
 | `GC_STALE_AFTER_HOURS` | `36` | |
+| `MANUAL_REVIEW_GRACE_DAYS` | `14` | How long past `expires_at` an order flagged `requires_manual_review` (its webhook failed for good) is still kept. Nothing clears the flag, so without this bound the order's files and editor/restore data were kept for ever; past it the sweeps treat it as any other order |
 | `GC_ORPHAN_SWEEP` | `dry_run` | prod runs `delete` |
 | `CHUNK_STAGING_MAX_AGE_HOURS` | `24` | |
 | `ICON_UPSTREAM_BUDGET` | `100` | requests this server may make to Iconify in any five minutes; past it an uncached icon answers 503 |

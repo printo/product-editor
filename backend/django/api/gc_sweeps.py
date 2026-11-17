@@ -61,13 +61,42 @@ def _is_manual_review_path(path_str: str, review_ids: set) -> bool:
     return bool(set(path_str.split(os.sep)) & review_ids)
 
 
-def sweep_expired_exports(due: Q) -> dict:
+def review_hold(now) -> Q:
+    """Canvases still held for manual review: flagged and not yet more than
+    MANUAL_REVIEW_GRACE_DAYS past their expiry. Past that the flag no longer
+    protects anything."""
+    return Q(
+        requires_manual_review=True,
+        expires_at__gt=now - timedelta(days=settings.MANUAL_REVIEW_GRACE_DAYS),
+    )
+
+
+def _mock_sibling(path: str) -> str:
+    """The customer-preview JPEG the engine writes beside a print file
+    (`<stem>_preview.jpg`). It is on no row, so the sweeps that delete a print
+    file by its row delete it with the print file or it outlives the expiry."""
+    return os.path.splitext(path)[0] + '_preview.jpg'
+
+
+def _remove_file(path: str):
+    """Remove a file; the bytes freed, or None when it was not there."""
+    if os.path.exists(path):
+        size = os.path.getsize(path)
+        os.remove(path)
+        return size
+    return None
+
+
+def sweep_expired_exports(due: Q, now=None) -> dict:
     """Delete expired export files and flag their rows. Files of orders flagged for
     manual review are skipped."""
     from api.models import CanvasData, ExportedResult
 
+    from django.utils import timezone
+
+    now = now or timezone.now()
     review_ids = set(
-        CanvasData.objects.filter(requires_manual_review=True).values_list('order_id', flat=True)
+        CanvasData.objects.filter(review_hold(now)).values_list('order_id', flat=True)
     )
     deleted_count = deleted_bytes = skipped_count = 0
     dirs_to_clean: set = set()
@@ -80,12 +109,14 @@ def sweep_expired_exports(due: Q) -> dict:
             logger.debug("GC: skipping manual-review file %s", export.export_file_path)
             continue
         try:
-            if os.path.exists(export.export_file_path):
-                size = os.path.getsize(export.export_file_path)
-                os.remove(export.export_file_path)
+            size = _remove_file(export.export_file_path)
+            if size is not None:
                 deleted_bytes += size
                 deleted_count += 1
                 dirs_to_clean.add(os.path.dirname(export.export_file_path))
+            preview_size = _remove_file(_mock_sibling(export.export_file_path))
+            if preview_size is not None:
+                deleted_bytes += preview_size
             deleted_ids.append(export.id)
             logger.info("GC: deleted expired file %s", export.export_file_path)
         except Exception as exc:
@@ -140,9 +171,12 @@ def sweep_async_render_files(now) -> dict:
             RenderJob.objects
             .filter(
                 canvas_data__expires_at__lt=now,
-                canvas_data__requires_manual_review=False,
                 output_paths__isnull=False,
                 created_at__lt=now - timedelta(days=1),
+            )
+            .exclude(
+                canvas_data__requires_manual_review=True,
+                canvas_data__expires_at__gt=now - timedelta(days=settings.MANUAL_REVIEW_GRACE_DAYS),
             )
             .exclude(output_paths=[])
             .select_related('canvas_data')
@@ -151,11 +185,14 @@ def sweep_async_render_files(now) -> dict:
             dirs_to_clean: set = set()
             for fpath in (job.output_paths or []):
                 try:
-                    if os.path.exists(fpath):
-                        size = os.path.getsize(fpath)
-                        os.remove(fpath)
+                    size = _remove_file(fpath)
+                    if size is not None:
                         bytes_deleted += size
                         files_deleted += 1
+                        dirs_to_clean.add(os.path.dirname(fpath))
+                    preview_size = _remove_file(_mock_sibling(fpath))
+                    if preview_size is not None:
+                        bytes_deleted += preview_size
                         dirs_to_clean.add(os.path.dirname(fpath))
                 except Exception as exc:
                     logger.error("GC: failed to delete async render file %s: %s", fpath, exc)
@@ -174,9 +211,7 @@ def sweep_expired_canvas_data(now) -> int:
 
     deleted = 0
     try:
-        deleted, _ = CanvasData.objects.filter(
-            expires_at__lt=now, requires_manual_review=False,
-        ).delete()
+        deleted, _ = CanvasData.objects.filter(expires_at__lt=now).exclude(review_hold(now)).delete()
         if deleted:
             logger.info("GC: deleted %d expired CanvasData records", deleted)
     except Exception as exc:
