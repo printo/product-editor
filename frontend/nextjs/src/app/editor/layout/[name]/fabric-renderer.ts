@@ -7,6 +7,7 @@ import { captionOverridesFromMm } from '@/lib/caption-layout';
 import { canvasText, loadOverlayFonts, overlayFontStack } from '@/lib/overlay-fonts';
 import { textBoxWidthPx, textOriginX } from '@/lib/overlay-text';
 import { ownIconUrl } from '@/lib/icon-source';
+import { makeCutAwayShade } from './frame-cut-shade';
 
 let picaInstance: any = null;
 
@@ -376,6 +377,10 @@ export async function renderCanvas(
       evented: false,
     });
     fabricCanvas.add(outlineRect);
+  }
+  for (const rect of frameRects) {
+    const shade = makeCutAwayShade(rect);
+    if (shade) fabricCanvas.add(shade);
   }
   } // end !isExport
 
