@@ -18,6 +18,7 @@ from ..permissions import IsAuthenticatedWithAPIKey, CanGenerateLayouts
 from ..authentication import APIKeyUser
 from ..validators import validate_image_files
 from ..models import UploadedFile, EmbedSession
+from ._common import is_valid_order_id
 from .layouts import _read_layout_def
 from ._common import is_safe_layout_name
 
@@ -97,6 +98,12 @@ class GenerateLayoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if not is_valid_order_id(str(order_id)):
+            return Response(
+                {"detail": "order_id may only contain letters, digits, '.', '_' and '-', up to 64 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         logger.info("Async generate: order_id=%s", order_id)
         return self._handle_async(request)
 
@@ -133,6 +140,12 @@ class GenerateLayoutView(APIView):
             if not order_id:
                 return Response(
                     {"detail": "order_id required for async mode"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not is_valid_order_id(str(order_id)):
+                return Response(
+                    {"detail": "order_id may only contain letters, digits, '.', '_' and '-', up to 64 characters."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -577,6 +590,11 @@ class EditorRenderView(APIView):
         if not order_id:
             return Response(
                 {'detail': 'order_id is required (send in body or via embed session).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not is_valid_order_id(order_id):
+            return Response(
+                {"detail": "order_id may only contain letters, digits, '.', '_' and '-', up to 64 characters."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

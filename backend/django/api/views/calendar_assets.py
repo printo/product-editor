@@ -829,6 +829,8 @@ class HolidaysView(APIView):
         from django.utils import timezone
         payload['year'] = year_int
         payload['locale'] = locale
+        if not isinstance(payload.get('_meta', {}), dict):
+            return Response({'detail': '_meta must be an object'}, status=status.HTTP_400_BAD_REQUEST)
         payload.setdefault('_meta', {})
         payload['_meta']['lastRefreshed'] = timezone.now().isoformat()
 
@@ -873,9 +875,9 @@ class HolidaysView(APIView):
             storage.delete_calendar_asset('holidays', asset_name)
             cache.delete(f"{_HOLIDAYS_CACHE_KEY}{locale}:{year_int}")
         except Exception as exc:
-            logger.error(f"Failed to delete holidays {locale}/{year_int}: {exc}")
+            logger.exception("Failed to delete holidays %s/%s", locale, year_int)
             return Response(
-                {'detail': f"Failed to delete holidays: {str(exc)}"},
+                {'detail': "Failed to delete holidays."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

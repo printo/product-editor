@@ -1010,6 +1010,24 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
             raise self.retry(exc=exc, countdown=delay)
 
 
+#: Failure texts the editor's own code writes and that are safe and useful to
+#: show a caller. Anything else is an exception's own message, which can carry
+#: file paths or library detail, so the caller gets a plain "Render failed";
+#: the full text stays on RenderJob.error_message.
+_PUBLIC_FAILURE_PREFIXES = (
+    'Render exceeded',
+    'Render timed out',
+    'Server storage is full',
+)
+
+
+def _public_failure_message(error_message) -> str:
+    text = str(error_message or '')
+    if text.startswith(_PUBLIC_FAILURE_PREFIXES):
+        return text[:500]
+    return 'Render failed'
+
+
 @shared_task(
     bind=True,
     max_retries=8,   # ~3 min total window (capped backoff below).
@@ -1044,7 +1062,7 @@ def notify_caller_render_failed_task(self, canvas_data_id: str, error_message: s
         'order_id':      canvas.order_id,
         'job_id':        job_id,
         'status':        'failed',
-        'error':         (error_message or 'Render failed')[:500],
+        'error':         _public_failure_message(error_message),
         'layout_name':   canvas.layout_name,
         'export_format': canvas.export_format,
     }
