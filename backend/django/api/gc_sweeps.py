@@ -219,6 +219,35 @@ def sweep_expired_canvas_data(now) -> int:
     return deleted
 
 
+def sweep_stale_download_archives(now) -> int:
+    """Remove ZIPs a download was building when its worker died. A download
+    builds its archive in EXPORTS_DIR and unlinks it when the response ends; a
+    process killed in between left it there for ever, on no row and in no job
+    folder, so no other sweep found it. Those carried Python's default `tmp`
+    prefix before 2026-11-18 and carry `download-` since. A day is far longer
+    than any download takes."""
+    from api.views.downloads import DOWNLOAD_ARCHIVE_PREFIX
+
+    cutoff = now.timestamp() - 86400
+    removed = 0
+    try:
+        for entry in os.scandir(settings.EXPORTS_DIR):
+            name = entry.name
+            if not (name.endswith('.zip') and name.startswith((DOWNLOAD_ARCHIVE_PREFIX, 'tmp'))):
+                continue
+            try:
+                if entry.is_file(follow_symlinks=False) and entry.stat().st_mtime < cutoff:
+                    os.remove(entry.path)
+                    removed += 1
+            except OSError as exc:
+                logger.error("GC: failed to remove stale download archive %s: %s", entry.path, exc)
+    except OSError as exc:
+        logger.error("GC: could not scan %s for stale download archives: %s", settings.EXPORTS_DIR, exc)
+    if removed:
+        logger.info("GC: removed %d stale download archive(s)", removed)
+    return removed
+
+
 def sweep_tombstones(cutoff) -> int:
     """Hard-delete flagged ExportedResult / UploadedFile rows older than the window.
     Deleting a file only flips is_deleted, and every sweep filters on

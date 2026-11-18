@@ -23,7 +23,7 @@ RESULT_KEYS = {
     'purge_ledger_trimmed', 'chunk_staging', 'orphan_exports', 'deleted_count',
     'deleted_bytes', 'skipped_count', 'upload_deleted_count', 'upload_deleted_bytes',
     'async_render_files_deleted', 'async_render_bytes_deleted', 'canvas_data_deleted',
-    'tombstones_deleted', 'audit_rows_deleted', 'embed_sessions_deleted',
+    'tombstones_deleted', 'stale_download_archives_deleted', 'audit_rows_deleted', 'embed_sessions_deleted',
     'disk_usage_percent',
 }
 
@@ -227,6 +227,22 @@ class GarbageCollectorTaskTest(TestCase):
 
         self.assertTrue(os.path.exists(out))
         self.assertEqual(result['async_render_files_deleted'], 0)
+
+    def test_a_download_archive_left_by_a_killed_worker_is_removed_after_a_day(self):
+        old = self._file(self.exports, 'download-abc.zip')
+        legacy = self._file(self.exports, 'tmpabc123.zip')
+        fresh = self._file(self.exports, 'download-fresh.zip')
+        other = self._file(self.exports, 'keep-me.zip')
+        for path in (old, legacy, other):
+            os.utime(path, (self.now.timestamp() - 3 * 86400,) * 2)
+
+        result = garbage_collector_task()
+
+        self.assertFalse(os.path.exists(old))
+        self.assertFalse(os.path.exists(legacy))
+        self.assertTrue(os.path.exists(fresh), 'a download that may still be streaming is kept')
+        self.assertTrue(os.path.exists(other), 'only download archives are swept')
+        self.assertEqual(result['stale_download_archives_deleted'], 2)
 
     def test_tombstones_older_than_the_window_are_hard_deleted(self):
         old_export = self._export('/nope/a', expires_in_days=-1, age_days=10)
