@@ -144,11 +144,21 @@ describe('requestRestore', () => {
     expect(w.listeners.size).toBe(0);
   });
 
-  it('accepts the parent whatever its origin when the browser does not report one', async () => {
+  it('where the browser reports no embedding origin, accepts the parent only at the origin the request went to', async () => {
     const w = fakeWindow();
     const pending = ask(w.win, { expectedOrigin: null });
-    w.deliver(reply(), { origin: 'https://anything.example.com' });
+    w.deliver(reply(), { origin: 'https://anything.example.com' });    // the parent window, navigated elsewhere
+    w.deliver(reply(), { origin: 'https://shop.example.com', source: { postMessage() {} } });   // right origin, not the parent
+    w.deliver(reply(), { origin: 'https://shop.example.com' });
     await expect(pending).resolves.toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  it('where the browser reports no embedding origin, a parent at another origin is never answered', async () => {
+    const w = fakeWindow();
+    const pending = ask(w.win, { expectedOrigin: null });
+    w.deliver(reply(), { origin: 'https://evil.example.com' });
+    jest.advanceTimersByTime(10_000);
+    await expect(pending).resolves.toEqual({ ok: false, reason: 'timeout' });
   });
 
   it('gives up after ten seconds of silence', async () => {

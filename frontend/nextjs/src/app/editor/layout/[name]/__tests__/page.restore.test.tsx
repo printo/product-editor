@@ -85,7 +85,9 @@ const earlierPhotos = [
 type Posted = { message: Record<string, any>; targetOrigin: string };
 
 /** Stands in for the page that embeds the editor: records what the editor
- *  posts to it and answers `pe:restore_request` with `answer` after `delayMs`. */
+ *  posts to it and answers `pe:restore_request` with `answer` after `delayMs`.
+ *  It answers from the origin the message was addressed to, as a real page
+ *  would: a window only receives messages posted to its own origin. */
 function embedInPage(answer: (request: Record<string, any>) => Record<string, unknown> | null, delayMs = 20) {
   const posted: Posted[] = [];
   const parent = {
@@ -95,7 +97,7 @@ function embedInPage(answer: (request: Record<string, any>) => Record<string, un
       const data = answer(message);
       if (!data) return;
       setTimeout(() => {
-        act(() => { window.dispatchEvent(new MessageEvent('message', { data, source: parent as unknown as Window, origin: 'https://shop.example.com' })); });
+        act(() => { window.dispatchEvent(new MessageEvent('message', { data, source: parent as unknown as Window, origin: targetOrigin })); });
       }, delayMs);
     },
   };
