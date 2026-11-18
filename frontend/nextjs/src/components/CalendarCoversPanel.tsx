@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { MmRectFields, type RectFrac } from '@/components/CalendarMmRectFields';
 import { NumberField } from '@/components/ui/NumberField';
 
@@ -114,22 +115,107 @@ export function validateCover(key: CoverKey, c: CoverDraft | null | undefined): 
   return null;
 }
 
-/** A to-scale sketch of the cover: the page and its photo windows. */
-function CoverSketch({ cover }: { cover: CoverDraft }) {
+/** A window moved by a drag of (dx, dy) in page fractions, kept on the page. */
+export function moveWindow(r: RectFrac, dx: number, dy: number): RectFrac {
+  return {
+    ...r,
+    x: Math.min(Math.max(0, r.x + dx), 1 - r.width),
+    y: Math.min(Math.max(0, r.y + dy), 1 - r.height),
+  };
+}
+
+/** A window resized from its bottom-right corner by (dx, dy), at least `min`
+ *  (a fraction of the page side) wide and tall and never past the page edge. */
+export function resizeWindow(r: RectFrac, dx: number, dy: number, minW = 0.02, minH = 0.02): RectFrac {
+  return {
+    ...r,
+    width: Math.min(Math.max(minW, r.width + dx), 1 - r.x),
+    height: Math.min(Math.max(minH, r.height + dy), 1 - r.y),
+  };
+}
+
+type Drag = { index: number; mode: 'move' | 'resize'; startX: number; startY: number; origin: RectFrac };
+
+/** The cover as a to-scale page. Drag a photo window to move it, drag its
+ *  corner square to resize it, or focus it and use the arrow keys (1 mm a
+ *  step, Shift for 10 mm). The millimetre fields below stay in step. */
+function CoverSketch({ cover, onFrame }: { cover: CoverDraft; onFrame: (i: number, next: RectFrac) => void }) {
   const ratio = cover.canvasWidthMm > 0 && cover.canvasHeightMm > 0 ? cover.canvasWidthMm / cover.canvasHeightMm : 0.7;
+  const pageRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<Drag | null>(null);
+  const [active, setActive] = useState<number | null>(null);
+
+  const begin = (e: PointerEvent<HTMLElement>, index: number, mode: Drag['mode']) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { index, mode, startX: e.clientX, startY: e.clientY, origin: cover.frames[index] };
+    setActive(index);
+  };
+  const update = (e: PointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    const box = pageRef.current?.getBoundingClientRect();
+    if (!d || !box || !(box.width > 0) || !(box.height > 0)) return;
+    const dx = (e.clientX - d.startX) / box.width;
+    const dy = (e.clientY - d.startY) / box.height;
+    onFrame(d.index, d.mode === 'move' ? moveWindow(d.origin, dx, dy) : resizeWindow(d.origin, dx, dy));
+  };
+  const end = (e: PointerEvent<HTMLElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    drag.current = null;
+  };
+  const nudge = (e: KeyboardEvent<HTMLElement>, index: number) => {
+    const step = e.shiftKey ? 10 : 1;
+    const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+    const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+    if (!dx && !dy) return;
+    e.preventDefault();
+    const f = cover.frames[index];
+    const mx = (dx * step) / cover.canvasWidthMm;
+    const my = (dy * step) / cover.canvasHeightMm;
+    onFrame(index, e.altKey ? resizeWindow(f, mx, my) : moveWindow(f, mx, my));
+  };
+
   return (
-    <div
-      className="relative mx-auto w-28 rounded-sm border border-zinc-300 bg-white shadow-sm"
-      style={{ aspectRatio: String(ratio) }}
-      aria-hidden
-    >
-      {cover.frames.map((f, i) => (
-        <div
-          key={i}
-          className="absolute rounded-[2px] border border-emerald-500 bg-emerald-200/70"
-          style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.width * 100}%`, height: `${f.height * 100}%` }}
-        />
-      ))}
+    <div className="flex flex-col items-center gap-1">
+      <div
+        ref={pageRef}
+        data-testid="cover-sketch"
+        className="relative w-48 touch-none select-none rounded-sm border border-zinc-300 bg-white shadow-sm"
+        style={{ aspectRatio: String(ratio) }}
+      >
+        {cover.frames.map((f, i) => (
+          <div
+            key={i}
+            role="group"
+            tabIndex={0}
+            data-testid={`cover-window-${i}`}
+            aria-label={`Photo window ${i + 1}. Drag to move, drag the corner to resize, or use the arrow keys.`}
+            onPointerDown={(e) => begin(e, i, 'move')}
+            onPointerMove={update}
+            onPointerUp={end}
+            onPointerCancel={end}
+            onKeyDown={(e) => nudge(e, i)}
+            onFocus={() => setActive(i)}
+            className={`absolute cursor-move rounded-[2px] border bg-emerald-200/70 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+              active === i ? 'border-emerald-600 bg-emerald-300/70' : 'border-emerald-500'
+            }`}
+            style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.width * 100}%`, height: `${f.height * 100}%` }}
+          >
+            <span className="pointer-events-none absolute left-0.5 top-0 text-[9px] font-semibold text-emerald-800">{i + 1}</span>
+            <div
+              data-testid={`cover-window-${i}-resize`}
+              aria-hidden
+              onPointerDown={(e) => begin(e, i, 'resize')}
+              onPointerMove={update}
+              onPointerUp={end}
+              onPointerCancel={end}
+              className="absolute -bottom-1 -right-1 h-3 w-3 cursor-nwse-resize rounded-[2px] border border-emerald-700 bg-white"
+            />
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-zinc-400">Drag a window to move it, its corner to resize.</p>
     </div>
   );
 }
@@ -188,7 +274,7 @@ export function CalendarCoversPanel({ covers, onChange, maskFiles, onMaskFile, b
                 ✕ Remove
               </button>
             </div>
-            <CoverSketch cover={cover} />
+            <CoverSketch cover={cover} onFrame={(i, next) => setFrame(i, next)} />
             <div className="grid grid-cols-2 gap-2">
               <NumberField label="Page width (mm)" value={cover.canvasWidthMm} step={0.5} min={1} onChange={(n) => patch({ canvasWidthMm: n })} />
               <NumberField label="Page height (mm)" value={cover.canvasHeightMm} step={0.5} min={1} onChange={(n) => patch({ canvasHeightMm: n })} />
