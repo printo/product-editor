@@ -44,6 +44,9 @@ def test_rejects_internal_ip_literals():
         'https://[::1]/x',
         'https://[fc00::1]/x',                         # unique-local IPv6
         'https://0.0.0.0/x',
+        'https://100.100.100.200/latest/meta-data',    # Alibaba metadata, shared address space
+        'https://100.64.0.1/x',                        # carrier-grade NAT, 100.64.0.0/10
+        'https://100.127.255.254/x',
     ):
         try:
             validate_public_https_url(url)
@@ -87,6 +90,14 @@ def test_accepts_public_hostname():
     with mock.patch('services.url_safety.socket.getaddrinfo', return_value=_addrinfo('93.184.216.34')):
         ips = validate_public_https_url('https://printo.in/api/internal/pe-callback')
         assert ips == ['93.184.216.34'], ips
+
+
+def test_the_edges_of_the_shared_address_space_are_judged_exactly():
+    from services.url_safety import _is_public_ip
+
+    assert not _is_public_ip('100.64.0.0') and not _is_public_ip('100.127.255.255')
+    assert _is_public_ip('100.63.255.255') and _is_public_ip('100.128.0.1')
+    assert not _is_public_ip('::ffff:100.100.100.200')  # mapped form is judged on the v4
 
 
 def test_accepts_public_ipv6():

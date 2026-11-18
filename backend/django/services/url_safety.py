@@ -34,7 +34,10 @@ def _is_public_ip(ip: str) -> bool:
     # IPv4-mapped IPv6 (::ffff:10.0.0.1) must be judged on the mapped v4.
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
         addr = addr.ipv4_mapped
-    return not (
+    # is_global is false for the shared address space 100.64.0.0/10 (carrier-grade
+    # NAT), which the denylist below does not name and which holds Alibaba
+    # Cloud's metadata address 100.100.100.200. Require both.
+    return addr.is_global and not (
         addr.is_private or addr.is_loopback or addr.is_link_local
         or addr.is_reserved or addr.is_multicast or addr.is_unspecified
     )
