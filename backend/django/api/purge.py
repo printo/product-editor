@@ -71,7 +71,7 @@ def _paths_kept_by_others(candidates: set, purged_ids: set) -> set:
 
     from django.db.models import Q
 
-    from api.models import CanvasData
+    from api.models import CanvasData, RenderJob
 
     kept: set[str] = set()
     paths = sorted(candidates)
@@ -83,6 +83,14 @@ def _paths_kept_by_others(candidates: set, purged_ids: set) -> set:
         for other in CanvasData.objects.exclude(id__in=purged_ids).filter(match).only('image_paths', 'render_state'):
             named = set(other.image_paths or []) | set((other.render_state or {}).get('image_paths') or [])
             kept.update(named & set(chunk))
+        # A job of another order still waiting to render reads its own snapshot.
+        job_match = reduce(or_, (Q(render_state__image_paths__contains=[p]) for p in chunk))
+        for snapshot in (
+            RenderJob.objects.exclude(canvas_data_id__in=purged_ids)
+            .filter(status__in=('queued', 'processing')).filter(job_match)
+            .values_list('render_state', flat=True)
+        ):
+            kept.update(set((snapshot or {}).get('image_paths') or []) & set(chunk))
     return kept
 
 
@@ -155,6 +163,10 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False, record_le
     for canvas in canvases:
         candidates.update(p for p in (canvas.image_paths or []) if p)
         candidates.update(p for p in ((canvas.render_state or {}).get('image_paths') or []) if p)
+    # Each job also keeps the design it was submitted with, which can name photos
+    # a later submit for the same order no longer does.
+    for snapshot in RenderJob.objects.filter(canvas_data__in=canvases).values_list('render_state', flat=True):
+        candidates.update(p for p in ((snapshot or {}).get('image_paths') or []) if p)
     candidates.update(p for p in order_uploads.values_list('file_path', flat=True) if p)
     if odir and os.path.isdir(odir):
         for root, _dirs, fnames in os.walk(odir):
@@ -191,6 +203,8 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False, record_le
             upload_paths = set(canvas.image_paths or [])
             rs = canvas.render_state or {}
             upload_paths |= set(rs.get('image_paths') or [])
+            for job in jobs:
+                upload_paths |= set((job.render_state or {}).get('image_paths') or [])
             deletable = [p for p in upload_paths if p and p not in keep_paths and _is_contained(p)]
             attempted_paths.update(deletable)
             d, f, e = _delete_files(deletable)
