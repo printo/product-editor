@@ -34,7 +34,12 @@ class SecureExportDownloadView(APIView):
         summary="Download exported file",
         description=(
             "Stream a generated export file (HQ PNG, imposition sheet, etc.) "
-            "back to the authenticated caller. Path traversal is prevented server-side."
+            "back to the authenticated caller, from disk in chunks. Path traversal is "
+            "prevented server-side.\n\n"
+            "**An API key reads only its own renders**: the first path segment must be a "
+            "job of that key (or the file one of its own synchronous exports). Anything "
+            "else answers **404**, the same as a file that is not there, so one company "
+            "cannot learn whether another's job exists. Staff and PIA users may read any export."
         ),
         parameters=[
             OpenApiParameter("file_path", OpenApiTypes.STR, OpenApiParameter.PATH, description="Relative path to the export file"),
@@ -42,7 +47,7 @@ class SecureExportDownloadView(APIView):
         responses={
             200: OpenApiResponse(description="Binary file stream"),
             403: OpenApiResponse(description="Path traversal attempt detected"),
-            404: OpenApiResponse(description="Export file not found"),
+            404: OpenApiResponse(description="Export file not found, or not one of this API key's own renders."),
         },
     )
     def get(self, request, file_path: str):

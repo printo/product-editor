@@ -74,7 +74,7 @@ class GenerateLayoutView(APIView):
                 },
             ),
             500: OpenApiResponse(description="The render job could not be enqueued."),
-            400: OpenApiResponse(description="Invalid request — missing images or bad layout"),
+            400: OpenApiResponse(description="Invalid request — missing images, bad layout, or an `order_id` that is not `^[A-Za-z0-9_.\\-]{1,64}$`."),
             408: OpenApiResponse(description="Timeout — generation exceeded 5 minutes"),
         },
     )
@@ -556,7 +556,7 @@ class EditorRenderView(APIView):
                     "queue": drf_serializers.CharField(),
                 },
             ),
-            400: OpenApiResponse(description="Missing order_id, unknown layout, empty canvases, an upload_id that resolves to no stored file, or more photos than the embed session's `qty`."),
+            400: OpenApiResponse(description="Missing order_id or one that is not `^[A-Za-z0-9_.\\-]{1,64}$` (header or body), unknown layout, empty canvases, an upload_id that resolves to no stored file, or more photos than the embed session's `qty`."),
             403: OpenApiResponse(description="This API key may not generate layouts."),
             507: OpenApiResponse(description="Insufficient disk space to accept the job."),
         },
