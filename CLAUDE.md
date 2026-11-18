@@ -926,6 +926,7 @@ Run only via the `backend` container. Current latest: `0029_rollback_safe_defaul
 - The `redirect` callback clamps `callbackUrl`; don't loosen it.
 - **Embed proxy is allowlist-only**, path and method, checked before token resolution.
 - **postMessage `targetOrigin` is never `'*'`.**
+- **Only the embed editor may be framed by another site.** `next.config.mjs` sends `X-Frame-Options: SAMEORIGIN` on every path except `/editor/layout/<name>`, which keeps its own `frame-ancestors` (printo.in). **Never add a second `Content-Security-Policy` rule for the other pages**: Next.js lets a later rule replace an earlier one with the same header name, which would overwrite the whole-app policy once `CSP_REPORT_ONLY` is off. Pinned by `lib/__tests__/next-config-framing.test.ts`. **Known, not changed:** the editor route's own `Content-Security-Policy` (frame-ancestors only) already replaces the whole-app policy there once enforcing, so flip CSP knowing the editor then carries no `script-src` etc.
 - **`order_id` is regex-validated**; don't relax it — it flows into headers, logs, file paths and lookups.
 - **An order id from the browser is never proof of ownership.** In the embed, read customer data by the session's order id (`X-Order-ID`), not by an id in the address or the path. A company's customers all share its API key.
 - **Never `requests.post` a customer URL directly** — `post_webhook_safely`.

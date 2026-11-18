@@ -110,6 +110,20 @@ const nextConfig = {
         ],
       },
       {
+        // Every page except the embed editor refuses to be framed by another
+        // site: the dashboard, the ops pages and /login sent no framing policy
+        // at all, so any site could frame them (clickjacking). The lookahead
+        // leaves /editor/layout/<name> to the rule below. X-Frame-Options, not
+        // a CSP frame-ancestors, on purpose: Next.js lets a later rule replace
+        // an earlier one with the same header name, so a second
+        // Content-Security-Policy here would overwrite the whole-app policy
+        // above once CSP_REPORT_ONLY is switched off.
+        source: '/((?!editor/layout/).*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
+      },
+      {
         // Embed editor entry — printo.in iframes /editor/layout/<name>?token=...
         // X-Frame-Options is the legacy fallback; modern browsers use CSP
         // frame-ancestors which lets us scope to printo.in (X-Frame-Options
