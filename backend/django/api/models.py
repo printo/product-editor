@@ -315,7 +315,7 @@ class EmbedSession(models.Model):
     # 'portrait' / 'landscape' as the caller's CMS chose for this product, or
     # blank for "serve the layout as authored" (every pre-existing session).
     # Anything else is dropped at creation, never stored.
-    orientation = models.CharField(max_length=16, blank=True, default='')
+    orientation = models.CharField(max_length=16, blank=True, default='', db_default='')
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_revoked = models.BooleanField(default=False)
@@ -530,7 +530,7 @@ class LayoutCatalogue(models.Model):
         ),
     )
     display_name = models.CharField(
-        max_length=255, blank=True, default='',
+        max_length=255, blank=True, default='', db_default='',
         help_text=(
             "Ops-editable customer-facing name, independent of `name`. Freely "
             "editable at any time, unlike the identifier. Blank means no one has "
@@ -715,7 +715,7 @@ class LayoutTemplate(models.Model):
     # placed for that geometry. A template is offered only where the customer's
     # layout faces the same way (api/views/templates.py::template_fits).
     orientation = models.CharField(
-        max_length=16, blank=True, default='',
+        max_length=16, blank=True, default='', db_default='',
         help_text=(
             "Which way the template faces: 'portrait' or 'landscape' turns the home layout "
             "a quarter turn when it is drawn the other way (as a customer order with that "

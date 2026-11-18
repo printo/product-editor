@@ -807,7 +807,7 @@ Smoke: `scripts/smoke-test-calendar.sh`. Benchmark: a 12-surface render was ~1.8
 
 ## Migrations
 
-Run only via the `backend` container. Current latest: `0030_renderjob_render_state`.
+Run only via the `backend` container. Current latest: `0031_rollback_safe_older_columns`.
 
 **A new column must be nullable or carry a database default (`db_default=`).** `deploy.sh` migrates before it swaps containers, and a rollback runs older code on the newer schema; either way code that predates the column INSERTs without it, and a NOT NULL column whose default lives only in Django makes Postgres refuse the row. `api/tests/test_rollback_safe_columns.py` fails on such a column; don't add to its grandfathered list.
 
@@ -841,6 +841,7 @@ Run only via the `backend` container. Current latest: `0030_renderjob_render_sta
 | 0027 | `APIKey.allowed_photo_hosts` (blank on every existing key, which keeps `POST /api/upload/from-url` off until an admin names a host) |
 | 0029 | Database defaults for `APIKey.allowed_photo_hosts` and `UploadedFile.source_key`, which 0027 and 0028 added NOT NULL with a Django-only default: a rollback that day would have failed every photo upload |
 | 0028 | `UploadedFile.source_key` (hash of the link a photo was fetched from; blank on ordinary uploads): a repeat fetch for the same order returns the copy held |
+| 0031 | Database defaults (`db_default=''`) for the three older NOT NULL columns whose default lived only in Django: `embed_sessions.orientation` (0023), `layout_catalogue.display_name` (0020), `layout_templates.orientation` (0025). A rollback to an image older than those would have refused a new embed session, a layout save and a template create. No data change; the test no longer grandfathers them (proved: without 0031 an older-style INSERT is refused, with it the row gets `''`) |
 | 0030 | `RenderJob.render_state` (nullable JSON, no backfill): the render contract as submitted with that job, so a later submit for the same order cannot change what an earlier queued job prints or what its webhook says |
 | 0022 | `APIKey.max_requests_per_day` → `PositiveIntegerField`, default blank (no cap), every existing unchosen value blanked; the field is enforced from here on |
 
