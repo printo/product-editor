@@ -17,6 +17,26 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/scripts/lib/print.sh"
 
+# Read KEY=VALUE lines from .env into this shell WITHOUT executing them. The old
+# `source .env` ran whatever a value contained ($(...), backticks, an unquoted
+# space), so one stray character could run commands as the deploying user or
+# abort the deploy. Quotes around a value are stripped; nothing is evaluated.
+load_env_safely() {
+  [ -f .env ] || return 0
+  local line key value
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    case "$value" in
+      \"*\") value="${value#\"}"; value="${value%\"}" ;;
+      \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    esac
+    export "$key=$value"
+  done < .env
+}
+
 # Usage information
 usage() {
   echo -e "${BLUE}Usage:${NC}"
@@ -1002,7 +1022,7 @@ run_backend_health_checks() {
     
     # Test layouts endpoint with API key
     if [ -f .env ]; then
-      source .env 2>/dev/null || true
+      load_env_safely
       if [ -n "$DIRECT_API_KEY" ]; then
         print_action "Testing layouts endpoint with API key..."
         LAYOUTS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $DIRECT_API_KEY" http://localhost:8000/api/layouts 2>/dev/null || echo "failed\n000")
@@ -1156,7 +1176,7 @@ else
   # path (frontend-only deploys, rollback), so read it here too before
   # reaching for DIRECT_API_KEY.
   if [ -f .env ]; then
-    source .env 2>/dev/null || true
+    load_env_safely
   fi
   run_smoke_tests
 fi
@@ -1275,7 +1295,7 @@ print_final_summary() {
 
   # Detect server hostname/IP
   if [ -f .env ]; then
-    source .env 2>/dev/null || true
+    load_env_safely
   fi
 
   # Determine the base URL
