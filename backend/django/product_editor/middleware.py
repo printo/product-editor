@@ -1,4 +1,4 @@
-import os
+from django.conf import settings
 from django.http import HttpResponseForbidden
 from django.utils.deprecation import MiddlewareMixin
 
@@ -25,8 +25,12 @@ class ProxyAuthenticationMiddleware(MiddlewareMixin):
     def process_request(self, request):
         # Check if this is an admin request
         if request.path.startswith(ADMIN_PATH_PREFIX):
-            # In production, require X-Forwarded-Proto header from proxy
-            if os.getenv("DEBUG", "1") == "0":  # Production mode
+            # In production, require X-Forwarded-Proto header from proxy.
+            # settings.DEBUG is the one reading of the switch: this used to read
+            # the environment with a default of "1" while settings defaults to
+            # off, so with DEBUG unset the app ran as production and this check
+            # was skipped.
+            if not settings.DEBUG:  # Production mode
                 forwarded_proto = request.META.get("HTTP_X_FORWARDED_PROTO")
                 forwarded_host = request.META.get("HTTP_X_FORWARDED_HOST")
 

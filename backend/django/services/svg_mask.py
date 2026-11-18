@@ -15,7 +15,12 @@ from PIL import Image
 MAX_SVG_BYTES = 5 * 1024 * 1024
 
 _DOCTYPE_RE = re.compile(rb"<!\s*(DOCTYPE|ENTITY)", re.I)
-_SCRIPT_RE = re.compile(rb"<\s*(script|foreignObject|iframe|embed|object)\b", re.I)
+# An optional namespace prefix (`<svg:script>`, `<x:foreignObject>`) is the same
+# element: the file declares the prefix itself, so a literal `<script` match alone
+# misses it.
+_SCRIPT_RE = re.compile(rb"<\s*(?:[\w.-]+:)?(script|foreignObject|iframe|embed|object|handler|listener)\b", re.I)
+_JS_URL_RE = re.compile(rb"javascript\s*:", re.I)
+_IMPORT_RE = re.compile(rb"@import\b", re.I)
 _EVENT_ATTR_RE = re.compile(rb"\son[a-z]+\s*=", re.I)
 _EXTERNAL_REF_RE = re.compile(rb"""(?:href|src)\s*=\s*["']\s*(?!data:image/|#)""", re.I)
 _URL_REF_RE = re.compile(rb"""url\(\s*["']?\s*(?!#)""", re.I)
@@ -40,9 +45,9 @@ def validate_svg_mask(data: bytes, what: str = "SVG masks") -> None:
         raise ValueError("That file is not a valid SVG.")
     if _DOCTYPE_RE.search(data):
         raise ValueError(f"{what} cannot contain a DOCTYPE or entity declarations.")
-    if _SCRIPT_RE.search(data) or _EVENT_ATTR_RE.search(data):
+    if _SCRIPT_RE.search(data) or _EVENT_ATTR_RE.search(data) or _JS_URL_RE.search(data):
         raise ValueError(f"{what} cannot contain scripts or embedded objects.")
-    if _EXTERNAL_REF_RE.search(data) or _URL_REF_RE.search(data):
+    if _EXTERNAL_REF_RE.search(data) or _URL_REF_RE.search(data) or _IMPORT_RE.search(data):
         raise ValueError(f"{what} cannot link to files outside themselves. Embed the artwork or remove the link.")
     tag = root.group(0)
     if not _VIEWBOX_RE.search(tag) and not (

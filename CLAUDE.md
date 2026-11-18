@@ -404,7 +404,7 @@ POST /upload/init               { filename, file_size, total_chunks }  → { upl
 PUT  /upload/{upload_id}/chunk?index=N   raw bytes                       → { chunk_index, received, total }
 POST /upload/{upload_id}/complete                                        → { file_path, filename, file_size }
 ```
-UUID v4 regex guard on chunk and complete; chunks staged in `UPLOADS_DIR/.chunks/{upload_id}/`, assembled with size + PIL validation; `UploadedFile.upload_session_id` maps `upload_id → file_path`. `total_chunks` is bounded, disk is pre-checked (507), each chunk body is capped at 2× `CHUNK_SIZE`.
+**`/complete` counts the part files on disk, not `_meta.json`'s list** (four chunks land in parallel and one can overwrite another's entry; the list is written whole by `os.replace`). UUID v4 regex guard on chunk and complete; chunks staged in `UPLOADS_DIR/.chunks/{upload_id}/`, assembled with size + PIL validation; `UploadedFile.upload_session_id` maps `upload_id → file_path`. `total_chunks` is bounded, disk is pre-checked (507), each chunk body is capped at 2× `CHUNK_SIZE`.
 
 ### POST /api/editor/render
 
@@ -714,6 +714,7 @@ What a generic layout prints is its **print sheet** (`services/print_sheet.py`; 
 
 - `S3Storage.read_calendar_asset`: a key ops deleted is a **tombstone** object (`x-amz-meta-pe-tombstone: 1`), never a removed key, so the seed cannot resurrect; a read S3 couldn't answer raises `CalendarAssetUnavailable` (503 uncached on previews, defaults uncached for fonts, retried render in the print) — never "no holidays". Only `NoSuchKey`/`AccessDenied` count as absent. Pinned by `test_calendar_assets_s3.py`.
 - Lists come from `list_calendar_assets` (seeds ∪ S3 − tombstones).
+- **The SVG check refuses a namespace-prefixed script element** (`<s:script>`, `<x:foreignObject>`), `javascript:` and `@import`, as well as the plain forms (`services/svg_mask.py`); it is a regex screen, so the sandbox CSP header on every served SVG stays the second line.
 - **Masks may be PNG or SVG.** An SVG is validated on upload (`services/svg_mask.py`: no scripts, DOCTYPE or external links; needs a viewBox) and drawn by resvg at the canvas's exact pixel size at print time, stretched like the preview; `_load_mask` takes the canvas size for that reason.
 - Masks print from S3 too: `_load_mask` reads local then S3, raises `FileNotFoundError`/`MaskUnavailable`, never prints without the mask (`test_mask_loading.py`). Uploaded masks and stickers are content-fingerprint named (`<layout>[_<target>]_mask_<sha256[:10]>.png` for the frame slot and the legacy `mask` field, `<layout>[_<target>]_artwork_mask_<sha256[:10]>.png` for the artwork slot, `sticker_<sha256[:16]>.png`) so the CDN never needs invalidation.
 - **Mask/sticker CDN:** `S3_CDN_DOMAIN=cdn-product-editor.printo.in` → CloudFront `product-editor-masks` (`E3C4UVH2TRZVQ`, OAC, `CORS-With-Preflight` response headers — `fabric-renderer.ts` loads masks `crossOrigin: 'anonymous'`), Cloudflare CNAME **DNS only**. Bucket `pia-oms-uploads` is **shared** with RiderPro/POPS/Wiki: edit its policy by *adding* statements (one for `product-editor/masks/*`, one for `product-editor/ops-config/stickers/*`), never replace it, never let CloudFront write it. `pia-oms-user` needs `s3:PutObject` on `product-editor/*` — check that grant first if ops saves start failing.

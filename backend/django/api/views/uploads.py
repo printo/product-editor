@@ -339,8 +339,12 @@ class ChunkedUploadChunkView(APIView):
         if chunk_index not in meta['received_chunks']:
             meta['received_chunks'].append(chunk_index)
             meta['received_chunks'].sort()
-            with open(meta_path, 'w') as f:
+            # Replaced whole, never rewritten in place: four chunks arrive at
+            # once and another request may be reading this file right now.
+            tmp_meta = f'{meta_path}.{os.getpid()}.{get_random_string(6)}.tmp'
+            with open(tmp_meta, 'w') as f:
                 json.dump(meta, f)
+            os.replace(tmp_meta, meta_path)
 
         return Response({
             'chunk_index': chunk_index,
@@ -423,8 +427,16 @@ class ChunkedUploadCompleteView(APIView):
         with open(meta_path, 'r') as f:
             meta = json.load(f)
 
+        # Which chunks arrived is what is on disk, not what _meta.json lists:
+        # chunks land in parallel, each reads the list, adds itself and writes
+        # it back, so one can overwrite another's entry while both files exist.
+        # The part file is written before the list is touched, so it is the
+        # authority.
         expected = set(range(meta['total_chunks']))
-        received = set(meta['received_chunks'])
+        received = {
+            idx for idx in expected
+            if os.path.isfile(os.path.join(staging_dir, f'{idx}.part'))
+        }
         missing = expected - received
         if missing:
             return Response(

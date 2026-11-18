@@ -54,6 +54,15 @@ def test_scripts_and_event_handlers_are_refused():
     _refused(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><foreignObject/></svg>', "scripts")
 
 
+def test_prefixed_elements_and_script_urls_are_refused():
+    ns = b'xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg" viewBox="0 0 1 1"'
+    _refused(b'<svg ' + ns + b'><s:script>x()</s:script></svg>', "scripts")
+    _refused(b'<svg ' + ns + b'><s:foreignObject/></svg>', "scripts")
+    _refused(b'<svg ' + ns + b'><a href="javascript:x()"><rect width="1" height="1"/></a></svg>', "scripts")
+    _refused(b'<svg ' + ns + b'><style>@import "x.css";</style></svg>', "outside")
+    validate_svg_mask(b'<svg ' + ns + b'><s:rect width="1" height="1"/></svg>')  # a prefix alone is fine
+
+
 def test_external_links_and_entities_are_refused():
     _refused(b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1 1"><image href="http://x/y.png"/></svg>', "outside")
     _refused(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect style="fill:url(http://x/g)"/></svg>', "outside")
