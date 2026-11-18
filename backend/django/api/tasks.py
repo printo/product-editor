@@ -1134,6 +1134,7 @@ def garbage_collector_task():
     async_renders = gc_sweeps.sweep_async_render_files(now)
     canvas_deleted = gc_sweeps.sweep_expired_canvas_data(now)
     tombstones_deleted = gc_sweeps.sweep_tombstones(cutoff_date)
+    stale_archives = gc_sweeps.sweep_stale_download_archives(now)
     audit_deleted = gc_sweeps.sweep_audit_trail(now)
 
     logger.info(
@@ -1163,6 +1164,7 @@ def garbage_collector_task():
         **async_renders,
         'canvas_data_deleted': canvas_deleted,
         'tombstones_deleted': tombstones_deleted,
+        'stale_download_archives_deleted': stale_archives,
         'audit_rows_deleted': audit_deleted,
         'embed_sessions_deleted': embed_sessions_deleted,
         'disk_usage_percent': usage_percent,

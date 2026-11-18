@@ -11,10 +11,15 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiRespon
 from drf_spectacular.types import OpenApiTypes
 from ..permissions import IsAuthenticatedWithAPIKey, CanAccessExports
 from ..authentication import APIKeyUser
-from ..models import UploadedFile
+from ..models import UploadedFile, RenderJob, ExportedResult
 from services.restore_manifest import MANIFEST_NAME
 
 logger = logging.getLogger(__name__)
+
+#: The name a ZIP being built for a download starts with. It is deleted when the
+#: response ends; one left behind by a killed worker is swept by the GC
+#: (`gc_sweeps.sweep_stale_download_archives`), which looks for this prefix.
+DOWNLOAD_ARCHIVE_PREFIX = 'download-'
 
 
 class SecureExportDownloadView(APIView):
@@ -72,22 +77,33 @@ class SecureExportDownloadView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Serve file with proper headers
-            with open(full_path, 'rb') as f:
-                file_content = f.read()
-            
-            import mimetypes
-            content_type, _ = mimetypes.guess_type(full_path)
-            response = Response(file_content)
-            response['Content-Type'] = content_type or 'application/octet-stream'
-            response['Content-Length'] = len(file_content)
-            response['Content-Disposition'] = f'attachment; filename="{os.path.basename(full_path)}"'
-            
-            # Log download
+            # An API key reads only its own renders. Every customer of a company
+            # shares one key, but two companies must never read each other's
+            # files, and the path alone (a job id) says nothing about whose it is.
+            # Staff and PIA users keep access to every export. A file that is not
+            # the caller's answers 404, the same as one that is not there.
             api_key = request.user.api_key if isinstance(request.user, APIKeyUser) else None
+            if api_key is not None and not self._owned_by(api_key, file_path, full_path):
+                return Response(
+                    {"detail": "File not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Streamed from disk in chunks, never read whole into memory: an
+            # export can be several hundred megabytes.
+            import mimetypes
+            from django.http import FileResponse
+            content_type, _ = mimetypes.guess_type(full_path)
+            response = FileResponse(
+                open(full_path, 'rb'),
+                as_attachment=True,
+                filename=os.path.basename(full_path),
+                content_type=content_type or 'application/octet-stream',
+            )
+
             if api_key:
                 logger.info(f"Export downloaded: {file_path} by {api_key.name}")
-            
+
             return response
         
         except Exception as e:
@@ -97,6 +113,18 @@ class SecureExportDownloadView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
+    @staticmethod
+    def _owned_by(api_key, file_path: str, full_path: str) -> bool:
+        """Is this export one of `api_key`'s own renders? Its first path segment
+        is the job id (async renders), or the file is a row of the key's own
+        sync exports."""
+        from services.fs_utils import is_uuid
+
+        first = file_path.split('/', 1)[0]
+        if is_uuid(first) and RenderJob.objects.filter(id=first, canvas_data__api_key=api_key).exists():
+            return True
+        return ExportedResult.objects.filter(api_key=api_key, export_file_path=full_path).exists()
+
     @staticmethod
     def _is_path_safe(file_path: str) -> bool:
         """
@@ -387,7 +415,7 @@ class RenderJobDownloadView(APIView):
         def arcname(folder: str, basename: str) -> str:
             return f'{folder}/{basename}' if content == 'all' else basename
         tmp = tempfile.NamedTemporaryFile(
-            mode='w+b', suffix='.zip', delete=False, dir=exports_root,
+            mode='w+b', prefix=DOWNLOAD_ARCHIVE_PREFIX, suffix='.zip', delete=False, dir=exports_root,
         )
         mock_count = 0
         try:
