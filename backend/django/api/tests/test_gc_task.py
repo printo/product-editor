@@ -159,6 +159,65 @@ class GarbageCollectorTaskTest(TestCase):
         self.assertFalse(RenderJob.objects.filter(pk=job.pk).exists())
         self.assertTrue(CanvasData.objects.filter(order_id='ORD-HELD').exists())
 
+    def test_the_mock_preview_beside_a_print_file_goes_with_it(self):
+        canvas = self._canvas('ORD-PREV', expires_in_days=-1)
+        job_dir = os.path.join(self.exports, str(uuid.uuid4()))
+        out = self._file(job_dir, 'front.png', size=40)
+        preview = self._file(job_dir, 'front_preview.jpg', size=5)
+        job = RenderJob.objects.create(canvas_data=canvas, queue_name='standard', output_paths=[out])
+        self._age(job, 3)
+
+        result = garbage_collector_task()
+
+        self.assertFalse(os.path.exists(out))
+        self.assertFalse(os.path.exists(preview), 'the preview must not outlive its print file')
+        self.assertFalse(os.path.isdir(job_dir))
+        self.assertEqual(result['async_render_bytes_deleted'], 45)
+
+    def test_the_mock_preview_beside_a_sync_export_goes_with_it(self):
+        job_dir = os.path.join(self.exports, str(uuid.uuid4()))
+        out = self._file(job_dir, 'a.png', size=20)
+        preview = self._file(job_dir, 'a_preview.jpg', size=3)
+        self._export(out, expires_in_days=-1)
+
+        garbage_collector_task()
+
+        self.assertFalse(os.path.exists(preview))
+        self.assertFalse(os.path.isdir(job_dir))
+
+    def test_a_manual_review_hold_ends_after_the_grace_period(self):
+        with self.settings(MANUAL_REVIEW_GRACE_DAYS=14):
+            inside = self._canvas('ORD-IN', expires_in_days=-13, review=True)
+            past = self._canvas('ORD-PAST', expires_in_days=-15, review=True)
+            past_dir = os.path.join(self.exports, str(uuid.uuid4()))
+            past_out = self._file(past_dir, 'out.png')
+            past_job = RenderJob.objects.create(canvas_data=past, queue_name='standard', output_paths=[past_out])
+            self._age(past_job, 20)
+            inside_dir = os.path.join(self.exports, str(uuid.uuid4()))
+            inside_out = self._file(inside_dir, 'out.png')
+            inside_job = RenderJob.objects.create(canvas_data=inside, queue_name='standard', output_paths=[inside_out])
+            self._age(inside_job, 20)
+
+            garbage_collector_task()
+
+        self.assertTrue(CanvasData.objects.filter(order_id='ORD-IN').exists())
+        self.assertTrue(os.path.exists(inside_out))
+        self.assertFalse(CanvasData.objects.filter(order_id='ORD-PAST').exists())
+        self.assertFalse(os.path.exists(past_out))
+
+    def test_an_export_of_a_review_order_past_the_grace_period_is_deleted(self):
+        with self.settings(MANUAL_REVIEW_GRACE_DAYS=14):
+            CanvasData.objects.create(
+                order_id='EXT-9', api_key=self.key, layout_name='l',
+                expires_at=self.now - timedelta(days=20), requires_manual_review=True,
+            )
+            path = self._file(os.path.join(self.exports, 'EXT-9'), 'a.png')
+            self._export(path, expires_in_days=-20)
+
+            garbage_collector_task()
+
+        self.assertFalse(os.path.exists(path))
+
     def test_a_job_under_a_day_old_keeps_its_files_even_on_an_expired_canvas(self):
         canvas = self._canvas('ORD-NEW', expires_in_days=-1)
         out = self._file(os.path.join(self.exports, str(uuid.uuid4())), 'out.png')
