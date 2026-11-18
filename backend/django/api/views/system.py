@@ -7,6 +7,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 import sentry_sdk
+from django.db import connection
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 
@@ -20,7 +21,11 @@ class HealthView(APIView):
     @extend_schema(
         tags=["health"],
         summary="Service health check",
-        description="Returns `ok` if the service and database are reachable. No authentication required.",
+        description=(
+            "Returns `ok` if the service and database are reachable. No authentication required. "
+            "Answers **503** with `database: unavailable` when Postgres cannot be reached, so the "
+            "deploy health gate and the load balancer see an unhealthy backend."
+        ),
         responses={
             200: inline_serializer(
                 name="HealthResponse",
@@ -29,15 +34,30 @@ class HealthView(APIView):
                     "database": drf_serializers.CharField(default="connected"),
                     "timestamp": drf_serializers.IntegerField(),
                 },
-            )
+            ),
+            503: inline_serializer(
+                name="HealthUnavailable",
+                fields={
+                    "status": drf_serializers.CharField(default="unavailable"),
+                    "database": drf_serializers.CharField(default="unavailable"),
+                    "timestamp": drf_serializers.IntegerField(),
+                },
+            ),
         },
     )
     def get(self, request):
-        return Response({
-            "status": "ok",
-            "database": "connected",
-            "timestamp": int(time.time() * 1000)
-        })
+        timestamp = int(time.time() * 1000)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+        except Exception:
+            logger.error("Health check: database unreachable", exc_info=True)
+            return Response(
+                {"status": "unavailable", "database": "unavailable", "timestamp": timestamp},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"status": "ok", "database": "connected", "timestamp": timestamp})
 
 
 class CSPReportView(APIView):
