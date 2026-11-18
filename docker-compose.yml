@@ -35,11 +35,13 @@ services:
       backend:
         condition: service_healthy
       frontend:
-        condition: service_started
+        condition: service_healthy
     networks:
       - web
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/nginx-health"]
       interval: 30s
@@ -65,6 +67,8 @@ services:
           memory: 128M
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -85,6 +89,8 @@ services:
           memory: 64M
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -134,6 +140,8 @@ services:
       retries: 5
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
 
   backend:
     build:
@@ -180,6 +188,10 @@ services:
           memory: 512M
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status == 200 else 1)"]
       interval: 30s
@@ -222,6 +234,10 @@ services:
       - web
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       # 127.0.0.1 (not localhost) — alpine wget resolves localhost to ::1
       # but the standalone Next.js server binds to 0.0.0.0 (IPv4 only).
@@ -293,6 +309,10 @@ services:
           memory: 512M
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # Ping the worker THROUGH the broker (Phase 4): also fails when the broker
     # connection is wedged. Visibility only — plain compose does not auto-heal
     # unhealthy containers; `docker compose ps` shows the state and deploy can
@@ -327,6 +347,10 @@ services:
       - web
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
 networks:
   web:
