@@ -63,7 +63,6 @@ GRANDFATHERED = frozenset({
     ('embed_sessions', 'include_uploads'),
     ('embed_sessions', 'is_revoked'),
     ('embed_sessions', 'order_id'),
-    ('embed_sessions', 'orientation'),
     ('embed_sessions', 'token'),
     ('exported_results', 'api_key_id'),
     ('exported_results', 'created_at'),
@@ -76,7 +75,6 @@ GRANDFATHERED = frozenset({
     ('layout_catalogue', 'category'),
     ('layout_catalogue', 'created_at'),
     ('layout_catalogue', 'definition'),
-    ('layout_catalogue', 'display_name'),
     ('layout_catalogue', 'imported_by'),
     ('layout_catalogue', 'is_deprecated'),
     ('layout_catalogue', 'is_public'),
@@ -95,7 +93,6 @@ GRANDFATHERED = frozenset({
     ('layout_templates', 'is_deleted'),
     ('layout_templates', 'layout_name'),
     ('layout_templates', 'layout_version'),
-    ('layout_templates', 'orientation'),
     ('layout_templates', 'status'),
     ('layout_templates', 'template_id'),
     ('layout_templates', 'thumbnail_url'),
@@ -158,6 +155,56 @@ class RollbackSafeColumnsTest(TestCase):
     def test_the_two_columns_from_2026_11_05_have_a_database_default(self):
         self.assertIsNotNone(_default_of('api_keys', 'allowed_photo_hosts'))
         self.assertIsNotNone(_default_of('uploaded_files', 'source_key'))
+
+    def test_the_three_older_columns_have_a_database_default(self):
+        for table, column in (
+            ('embed_sessions', 'orientation'),
+            ('layout_catalogue', 'display_name'),
+            ('layout_templates', 'orientation'),
+        ):
+            self.assertIsNotNone(_default_of(table, column), f'{table}.{column}')
+
+    def test_older_code_can_still_create_a_session_a_layout_and_a_template(self):
+        """INSERTs that name none of the three columns, as the images before them did."""
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO api_keys (name, key, description, is_active, is_ops_team, can_generate_layouts,
+                                      can_list_layouts, can_access_exports, created_at, updated_at)
+                VALUES ('older-code-key-2', 'older-code-key-value-2', '', true, false, true, true, true, now(), now())
+                RETURNING id
+                """
+            )
+            key_id = cur.fetchone()[0]
+            cur.execute(
+                """
+                INSERT INTO embed_sessions (api_key_id, token, order_id, callback_url, include_uploads,
+                                            is_revoked, created_at, expires_at)
+                VALUES (%s, '00000000-0000-4000-8000-000000000001', 'JOB-OLD', '', true, false, now(),
+                        now() + interval '1 hour')
+                RETURNING orientation
+                """,
+                [key_id],
+            )
+            self.assertEqual(cur.fetchone()[0], '')
+            cur.execute(
+                """
+                INSERT INTO layout_catalogue (name, category, definition, imported_by, is_deprecated, is_public,
+                                              product_type, version, created_at, updated_at)
+                VALUES ('older-code-layout', 'x', '{}', 'older-code', false, true, 'single_canvas', 1, now(), now())
+                RETURNING display_name
+                """
+            )
+            self.assertEqual(cur.fetchone()[0], '')
+            cur.execute(
+                """
+                INSERT INTO layout_templates (template_id, layout_name, layout_version, display_name, decoration,
+                                              thumbnail_url, status, is_deleted, created_at, updated_at)
+                VALUES ('t_older', 'older-code-layout', 1, 'Older', '{}', '', 'draft', false, now(), now())
+                RETURNING orientation
+                """
+            )
+            self.assertEqual(cur.fetchone()[0], '')
 
     def test_code_that_has_never_heard_of_them_can_still_insert(self):
         """What an older image does: an INSERT that names neither new column."""
