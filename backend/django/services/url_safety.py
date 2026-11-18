@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-import threading
 from urllib.parse import urlparse
 
 import requests
@@ -83,63 +82,87 @@ def validate_public_https_url(url: str) -> list[str]:
     return resolve_public_ips(host)
 
 
-# Serialise the getaddrinfo pin (below). Celery prefork workers run one task
-# per process so a collision is already unlikely, but the lock keeps it correct
-# even under a future threaded worker.
-_PIN_LOCK = threading.Lock()
+def _pinned_pool_class(allowed: list[str]):
+    """
+    An HTTPS connection pool class whose connections open their socket to one
+    of `allowed` and to nothing else, whatever the name in the URL resolves to
+    later. The hostname stays the connection's `host`, so SNI and certificate
+    verification still run against it. The pin lives on the connection class,
+    not on a process-wide patch of `socket.getaddrinfo`, so concurrent fetches
+    never wait for one another and nothing outside this call is affected.
+    """
+    from urllib3.connection import HTTPSConnection
+    from urllib3.connectionpool import HTTPSConnectionPool
+    from urllib3.exceptions import ConnectTimeoutError, NewConnectionError
+
+    ips = tuple(allowed)
+
+    class _PinnedConnection(HTTPSConnection):
+        def _new_conn(self):
+            last_error: Exception | None = None
+            for ip in ips:
+                sock = None
+                try:
+                    sock = socket.create_connection(
+                        (ip, self.port), self.timeout, source_address=self.source_address,
+                    )
+                    for level, option, value in (self.socket_options or ()):
+                        sock.setsockopt(level, option, value)
+                    return sock
+                except socket.timeout as exc:
+                    last_error = ConnectTimeoutError(self, f"Connection to {ip} timed out")
+                    last_error.__cause__ = exc
+                except OSError as exc:
+                    last_error = NewConnectionError(self, f"Failed to connect to {ip}: {exc}")
+                    last_error.__cause__ = exc
+                if sock is not None:
+                    sock.close()
+            raise last_error or NewConnectionError(self, "No validated address to connect to")
+
+    class _PinnedPool(HTTPSConnectionPool):
+        ConnectionCls = _PinnedConnection
+
+    return _PinnedPool
 
 
-def _pinned_resolver(host: str, allowed: list[str], real_getaddrinfo):
-    """A getaddrinfo that answers for `host` with the validated public IPs only
-    and passes every other name through."""
-    def _pinned_getaddrinfo(h, port, *args, **kwargs):
-        # Only redirect resolution of OUR target host; everything else resolves
-        # normally. Return EVERY validated public IP (each with its own family)
-        # so urllib3 keeps its multi-address fallback — e.g. a Cloudflare-fronted
-        # host that publishes several A/AAAA records stays reachable if the first
-        # is down — while guaranteeing every candidate is a vetted public address.
-        if isinstance(h, str) and h.lower() == host:
-            return [
-                (
-                    socket.AF_INET6 if ":" in ip else socket.AF_INET,
-                    socket.SOCK_STREAM,
-                    socket.IPPROTO_TCP,
-                    "",
-                    (ip, port),
-                )
-                for ip in allowed
-            ]
-        return real_getaddrinfo(h, port, *args, **kwargs)
-    return _pinned_getaddrinfo
+def _pinned_session(allowed: list[str]) -> requests.Session:
+    """A requests Session whose https connections go only to `allowed`.
+    Environment proxies are ignored: a proxy would be the one connecting."""
+    from requests.adapters import HTTPAdapter
+
+    class _PinnedAdapter(HTTPAdapter):
+        def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+            super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
+            self.poolmanager.pool_classes_by_scheme = {
+                **self.poolmanager.pool_classes_by_scheme,
+                'https': _pinned_pool_class(allowed),
+            }
+
+    session = requests.Session()
+    session.trust_env = False
+    session.mount('https://', _PinnedAdapter())
+    return session
 
 
 def post_webhook_safely(url: str, *, data: bytes, headers: dict, timeout: float) -> requests.Response:
     """
     POST to a customer webhook with full SSRF protection. Resolve+validate the
-    host to a public IP, then ACTUALLY PIN the connection to that IP for the
-    duration of the request by scoping socket.getaddrinfo — so urllib3's own
-    resolution at connect time cannot rebind to an internal address (the
-    TOCTOU a re-validate-then-delegate approach leaves open). TLS SNI/cert
-    verification still runs against the original hostname (the URL is
-    unchanged), and redirects are disabled so a public host can't 30x into an
-    internal target. Raises ValidationError if the URL is unsafe.
+    host to a public IP, then ACTUALLY PIN the connection to those IPs: the
+    socket is opened to a validated address directly, so no name is resolved at
+    connect time and DNS cannot rebind to an internal address (the TOCTOU a
+    re-validate-then-delegate approach leaves open). TLS SNI/cert verification
+    still runs against the original hostname (the URL is unchanged), and
+    redirects are disabled so a public host can't 30x into an internal target.
+    Raises ValidationError if the URL is unsafe.
     """
     allowed = validate_public_https_url(url)  # ordered list of validated public IPs
-    host = (urlparse(url).hostname or "").lower()
-
-    session = requests.Session()
-    with _PIN_LOCK:
-        # Capture the real resolver INSIDE the lock so a concurrent call (once
-        # workers are threaded) can never capture another call's pinned shim as
-        # its "real" and leave a stale host-pin installed process-wide.
-        real_getaddrinfo = socket.getaddrinfo
-        socket.getaddrinfo = _pinned_resolver(host, allowed, real_getaddrinfo)
-        try:
-            return session.post(
-                url, data=data, headers=headers, timeout=timeout, allow_redirects=False,
-            )
-        finally:
-            socket.getaddrinfo = real_getaddrinfo
+    session = _pinned_session(allowed)
+    try:
+        return session.post(
+            url, data=data, headers=headers, timeout=timeout, allow_redirects=False,
+        )
+    finally:
+        session.close()
 
 
 def open_public_get(url: str, *, headers: dict | None = None, timeout) -> requests.Response:
@@ -149,24 +172,16 @@ def open_public_get(url: str, *, headers: dict | None = None, timeout) -> reques
     (`stream=True`). The caller reads it in pieces, under its own size cap, and
     must close it.
 
-    The pin is held only until the response headers arrive. By then the socket
-    is connected to a validated public IP, redirects are off, and nothing
-    resolves a name again for this response, so the body can be read outside
-    the lock. That matters here in a way it does not for a small webhook POST:
-    the web workers are threaded, and holding a process-wide lock for a whole
-    photo download would queue every other fetch in the process behind it.
-    Raises ValidationError if the URL is unsafe.
+    The pin belongs to this response's own connection, so the body can be read
+    at the caller's pace while other fetches in the same process carry on:
+    nothing is shared between them. (It used to be a lock around a patch of
+    socket.getaddrinfo, which made every other fetch in a threaded worker wait
+    for the slowest connect.) Raises ValidationError if the URL is unsafe.
     """
     allowed = validate_public_https_url(url)
-    host = (urlparse(url).hostname or "").lower()
-
-    session = requests.Session()
-    with _PIN_LOCK:
-        real_getaddrinfo = socket.getaddrinfo
-        socket.getaddrinfo = _pinned_resolver(host, allowed, real_getaddrinfo)
-        try:
-            return session.get(
-                url, headers=headers or {}, timeout=timeout, allow_redirects=False, stream=True,
-            )
-        finally:
-            socket.getaddrinfo = real_getaddrinfo
+    # The session is not closed here: closing it would close the streamed
+    # response's connection. The caller closes the response, which releases it.
+    session = _pinned_session(allowed)
+    return session.get(
+        url, headers=headers or {}, timeout=timeout, allow_redirects=False, stream=True,
+    )
