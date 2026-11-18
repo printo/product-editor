@@ -20,10 +20,12 @@ import shutil
 import tempfile
 from datetime import timedelta
 
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from api.models import APIKey, EmbedSession, UploadedFile
+from api.models import APIKey, CanvasData, EmbedSession, UploadedFile
 from api.purge import purge_order_data
 
 
@@ -98,6 +100,36 @@ class OrderPurgeTest(TestCase):
         result = purge_order_data('ORD-5', api_key=self.storefront)
         self.assertGreater(result['matched'], 0, result)
         self.assertEqual(result['embed_rows_deleted'], 1)
+
+    def _design(self, api_key, order_id, paths, render_paths=()):
+        return CanvasData.objects.create(
+            order_id=order_id, api_key=api_key, layout_name='l', image_paths=list(paths),
+            render_state={'image_paths': list(render_paths)},
+            expires_at=timezone.now() + timedelta(days=3),
+        )
+
+    def test_a_photo_another_order_still_names_is_kept(self):
+        shared = self.upload(self.storefront, 'ORD-S', 'shared.jpg')
+        own = self.upload(self.storefront, 'ORD-S', 'own.jpg')
+        self._design(self.storefront, 'ORD-S', [shared, own])
+        self._design(self.storefront, 'ORD-OTHER', [], render_paths=[shared])
+
+        purge_order_data('ORD-S')
+
+        self.assertTrue(os.path.exists(shared), 'a photo a surviving order names is not erased')
+        self.assertFalse(os.path.exists(own))
+
+    def test_the_lookup_does_not_grow_with_the_number_of_other_orders(self):
+        def queries(extra_orders):
+            for n in range(extra_orders):
+                self._design(self.other, f'NOISE-{extra_orders}-{n}', [f'/nowhere/{extra_orders}-{n}.jpg'])
+            path = self.upload(self.storefront, f'ORD-Q{extra_orders}', 'a.jpg')
+            self._design(self.storefront, f'ORD-Q{extra_orders}', [path])
+            with CaptureQueriesContext(connection) as ctx:
+                purge_order_data(f'ORD-Q{extra_orders}')
+            return len([q for q in ctx.captured_queries if 'FROM "canvas_data"' in q['sql']])
+
+        self.assertEqual(queries(2), queries(40))
 
     def test_an_unknown_order_is_still_not_found(self):
         self.assertEqual(purge_order_data('NO-SUCH-ORDER')['matched'], 0)
