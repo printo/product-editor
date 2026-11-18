@@ -370,8 +370,9 @@ class ExternalLayoutDetailView(APIView):
 
             from .layout_tags import with_layout_tag_names
             return Response(with_legacy_mask_fields(with_layout_tag_names(data)))
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception:
+            logger.exception("Error reading layout")
+            return Response({"detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class MaskDownloadView(APIView):
@@ -488,9 +489,9 @@ class MaskDownloadView(APIView):
                     response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
                 return response
         except Exception as e:
-            logger.error(f"Error serving mask {filename}: {e}")
+            logger.exception("Error serving mask %s", filename)
             return Response(
-                {"detail": str(e)},
+                {"detail": "Internal server error."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

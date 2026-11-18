@@ -153,8 +153,9 @@ class LayoutManagementView(APIView):
                 response = Response(with_legacy_mask_fields(with_layout_tag_names(data)))
                 response['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=120'
                 return response
-            except Exception as e:
-                return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            except Exception:
+                logger.exception("Error reading layout %s", name)
+                return Response({"detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
             # Full list — server-side Django cache mirrors ListLayoutsView so
             # repeat hits skip the DB query; HTTP Cache-Control lets the
@@ -376,9 +377,9 @@ class LayoutManagementView(APIView):
             except ValueError as exc:
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
             except Exception as exc:
-                logger.error(f"Failed to upload mask: {exc}")
+                logger.exception("Failed to upload mask")
                 return Response(
-                    {"detail": f"Failed to upload mask: {str(exc)}"},
+                    {"detail": "Failed to upload mask."},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
@@ -465,9 +466,9 @@ class LayoutManagementView(APIView):
             })
         except json.JSONDecodeError:
             return Response({"detail": "Invalid JSON data"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error(f"Error saving layout {layout_name}: {str(e)}")
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception:
+            logger.exception("Error saving layout %s", layout_name)
+            return Response({"detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @extend_schema(
         tags=["ops"],
@@ -527,9 +528,9 @@ class LayoutManagementView(APIView):
             return Response({"status": "success", "detail": f"Layout {name} deleted"})
         except LayoutCatalogue.DoesNotExist:
             return Response({"detail": "Layout not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error(f"Error deleting layout {name}: {str(e)}")
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception:
+            logger.exception("Error deleting layout %s", name)
+            return Response({"detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 _MASK_TARGET_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')

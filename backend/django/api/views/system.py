@@ -14,6 +14,12 @@ from rest_framework import serializers as drf_serializers
 logger = logging.getLogger(__name__)
 
 
+def _log_safe(value, limit: int = 300) -> str:
+    """A value from an untrusted body, as one printable line of bounded length."""
+    text = value if isinstance(value, str) else ('' if value is None else str(type(value).__name__))
+    return ''.join(ch if ch.isprintable() else ' ' for ch in text)[:limit]
+
+
 class HealthView(APIView):
     """Health check endpoint - public access."""
     permission_classes = [AllowAny]
@@ -89,18 +95,23 @@ class CSPReportView(APIView):
         # Legacy report-uri format wraps the report in a "csp-report" key;
         # tolerate a bare report body too in case a browser ever sends one.
         report = payload.get("csp-report", payload) if isinstance(payload, dict) else {}
+        # A browser sends a dict, but anyone can POST here: a list or a string
+        # under "csp-report" used to raise on .get() and answer 500, and values
+        # went into the log line as sent, so a newline in one forged a log entry.
+        if not isinstance(report, dict):
+            report = {}
+        directive = _log_safe(report.get("violated-directive") or report.get("effective-directive"))
         logger.warning(
             "CSP violation: directive=%s blocked=%s document=%s",
-            report.get("violated-directive") or report.get("effective-directive"),
-            report.get("blocked-uri"),
-            report.get("document-uri"),
-            extra={"csp_report": report},
+            directive,
+            _log_safe(report.get("blocked-uri")),
+            _log_safe(report.get("document-uri")),
         )
         # No-ops safely if SENTRY_DSN isn't set (sentry_sdk.capture_message
         # returns None when no client is initialized) — see settings.py's
         # "Sentry Error Tracking Initialization" for the one-time init.
         sentry_sdk.capture_message(
-            f"CSP violation: {report.get('violated-directive') or report.get('effective-directive') or 'unknown'}",
+            f"CSP violation: {directive or 'unknown'}",
             level="warning",
         )
         # 204: browsers don't read the response body for report-uri deliveries.

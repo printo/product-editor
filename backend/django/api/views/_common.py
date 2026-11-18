@@ -6,6 +6,17 @@ be circular.
 """
 
 
+import re
+
+#: The one shape an order id may have. It flows into headers, logs, file paths
+#: and lookups, so a value outside it is refused wherever a render accepts one.
+ORDER_ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
+
+
+def is_valid_order_id(order_id) -> bool:
+    return isinstance(order_id, str) and bool(ORDER_ID_RE.match(order_id))
+
+
 def is_safe_layout_name(name: str) -> bool:
     """
     Is this name structurally safe to build a path from?
