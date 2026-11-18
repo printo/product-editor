@@ -795,6 +795,28 @@ class CanvasStateView(APIView):
             'updated_at': canvas.updated_at.isoformat() if canvas.updated_at else None,
         })
 
+    @staticmethod
+    def _owned_upload_paths(paths, api_key) -> list:
+        from ..models import UploadedFile
+
+        if not isinstance(paths, list):
+            return []
+        base = os.path.realpath(settings.UPLOADS_DIR)
+        inside = []
+        for p in paths[:2000]:
+            if not isinstance(p, str) or not p:
+                continue
+            real = os.path.realpath(p)
+            if real.startswith(base + os.sep):
+                inside.append(p)
+        if not inside:
+            return []
+        owned = set(
+            UploadedFile.objects.filter(api_key=api_key, file_path__in=inside)
+            .values_list('file_path', flat=True)
+        )
+        return [p for p in inside if p in owned]
+
     @extend_schema(
         tags=["canvas-state"],
         summary="Save editor state (upsert)",
@@ -834,28 +856,6 @@ class CanvasStateView(APIView):
             403: OpenApiResponse(description="Caller presented no API key — PIA sessions cannot own canvas state."),
         },
     )
-    @staticmethod
-    def _owned_upload_paths(paths, api_key) -> list:
-        from ..models import UploadedFile
-
-        if not isinstance(paths, list):
-            return []
-        base = os.path.realpath(settings.UPLOADS_DIR)
-        inside = []
-        for p in paths[:2000]:
-            if not isinstance(p, str) or not p:
-                continue
-            real = os.path.realpath(p)
-            if real.startswith(base + os.sep):
-                inside.append(p)
-        if not inside:
-            return []
-        owned = set(
-            UploadedFile.objects.filter(api_key=api_key, file_path__in=inside)
-            .values_list('file_path', flat=True)
-        )
-        return [p for p in inside if p in owned]
-
     def put(self, request, order_id: str):
         from api.models import CanvasData
         from datetime import timedelta

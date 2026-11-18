@@ -128,10 +128,12 @@ over the same rendered files.
   "order_id":    "PE-F5D6D769",
   "job_id":      "0c612ca1-465e-401f-9586-409f571580cd",
   "status":      "failed",
-  "error":       "Webhook delivery failed after retries",
+  "error":       "Render failed",
   "layout_name": "classic_4x6"
 }
 ```
+
+`error` is one of a few fixed texts and never an exception's own message: `Render failed` (the general case), `Render timed out after <n>s`, `Render exceeded … memory limit …`, or `Server storage is full …`. Treat it as a reason to show or log, not to parse. `job_id` always names the job this notice is about, **including when you submitted the same `order_id` again while the first job was still queued**: each job renders, and each notice describes, the design it was submitted with (since 2026-11-18). A notice for a job older than that change may name the order's latest job instead.
 
 **Expected response from your handler:** `200 OK` (or any 2xx). Anything else is treated as a delivery failure — Product Editor retries up to **6 attempts total** (1 initial + 5 retries) with exponential backoff `2^n` seconds: 1, 2, 4, 8, 16 s. Per `notify_caller_webhook_task` `max_retries=5` in [`backend/django/api/tasks.py`](../backend/django/api/tasks.py).
 
@@ -582,6 +584,8 @@ an order that has a `qty` set on its session.
 | Photos placed | Behaviour |
 |---|---|
 | More than `qty` | **Blocked, twice.** A modal offers *Keep first N* (trims the selection) or *Choose again* (discards it) — there is no way to proceed with more in the editor. And `POST /api/editor/render` independently rejects an over-count submission with **400** for that order_id, whether it's called through the editor or posted to directly. |
+
+`order_id` on `POST /api/editor/render` (header or body) and on `POST /api/layout/generate` must match `^[A-Za-z0-9_.\-]{1,64}$`, the same shape `POST /api/embed/session` has always required; anything else is a **400** (since 2026-11-18). The editor's own `PE-<hex>` ids qualify. |
 | Fewer than `qty` | **Allowed, with warnings.** A banner offers Auto-fill / pick-to-fill, and the pre-submit modal repeats the shortfall. The customer can still submit — they will receive fewer prints than ordered, and the server accepts it. |
 | Exactly `qty` | Nothing shown. |
 

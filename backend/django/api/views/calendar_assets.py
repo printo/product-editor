@@ -760,7 +760,7 @@ class HolidaysView(APIView):
         ),
         responses={
             200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="The holiday file as stored."),
-            400: OpenApiResponse(description="Malformed locale/year, body not a JSON object, or no `events` array."),
+            400: OpenApiResponse(description="Malformed locale/year, body not a JSON object, no `events` array, an invalid event, or a `_meta` that is not an object."),
             **_OPS_GATE_RESPONSES,
         },
         auth=OPS_WRITE_AUTH,

@@ -83,6 +83,17 @@ same thing in its own words.
 
 ---
 
+- **A customer-controlled size is bounded before a worker allocates for it** (2026-11-17): overlay width/height/font/stroke are clamped to a few canvas sizes (`overlay_renderer._fit_box`, `_cap`), a photo's total pixels are capped at upload (`MAX_PHOTO_MEGAPIXELS` 200, `MAX_NON_JPEG_MEGAPIXELS` 100), and a JPEG over 60 MP is decoded at reduced size (`open_source_rgba(fit_to=…)`). The render worker has 2 GB and runs two tasks.
+- **`/api/upload/` is exempt from the per-IP limit, so each of its endpoints keeps its own count**: `upload/init`, `orientation/detect`, `upload/from-url`, `photos/…/preview`. A new endpoint under an exempt prefix needs one too.
+- **A 500 never carries an exception's text, and the failure webhook sends only our own fixed texts.** `logger.exception` and "Internal server error."; `_PUBLIC_FAILURE_PREFIXES`.
+- **An API key reads only its own renders** — `GET /api/exports/<path>` (job of that key or its own sync export, else 404) as `GET /api/jobs/<id>/download/` always did.
+- **Never forward a presented bearer token to PIA by hand**; take the caller from `request.user` (API keys first). The internal key used to be posted to `pia.printo.in` on every ops write.
+- **The SSRF guard requires `is_global`** (the shared address space 100.64.0.0/10 holds Alibaba's metadata address), and the pin lives in the connection (`_pinned_session`), never in a process-wide patch or lock.
+- **A sweep must delete everything the engine writes beside an output** (the `_preview.jpg` mock, `download-*.zip`), and **a hold flag must expire** (`MANUAL_REVIEW_GRACE_DAYS`): a flag nothing clears keeps customer data for ever.
+- **`/api/health` checks Postgres and answers 503 without it.** Compose hardening: `no-new-privileges` everywhere, `cap_drop: ALL` on the four app services; `deploy.sh` reads `.env` with `load_env_safely`, never `source`.
+- **Only the embed editor may be framed** (`X-Frame-Options: SAMEORIGIN` elsewhere, as a header, never a second CSP rule that would replace the whole-app policy).
+- **Each render job keeps its own `render_state`** (migration 0030) and both webhook tasks take the job id: a resubmitted order must not change what an earlier queued job prints or says.
+
 ## Frontend Guardrails (Next.js/Fabric.js)
 
 - **Object Cleanup**: Always dispose of Fabric canvas instances and revoke Object URLs to prevent memory leaks.
@@ -103,5 +114,5 @@ same thing in its own words.
 - **Layouts live in Postgres (`LayoutCatalogue`), not disk** (as of 2026-09-04, PR #111) — `storage/layouts/` was deleted. A layout's identifier is the unique, case-sensitive `LayoutCatalogue.name` column, matching the former filename stem (`classic_A4.json` → `name='classic_A4'`). Queries use `name` directly now, never a filename. Any code instantiating `LayoutEngine` must query `LayoutCatalogue` first and pass `layout_definition=` — see "Layout Loading" above.
 - `metadata` in a layout's `definition` JSON must remain an object or array as expected by the management views.
 - Never add a new field to `CanvasData` without a corresponding migration. The current latest is in CLAUDE.md, under Migrations. Run migrations only from the `backend` (Gunicorn) container — never from a worker or beat container.
-- **Don't cross the `editor_state` / `render_state` streams** (post-`0008`): `editor_state` is frontend-owned, written ONLY by `CanvasStateView` (autosave). `render_state` is pipeline-owned, written ONLY by `EditorRenderView` at submit. They were one field, and the two writers clobbered each other — submit wiped the customer's autosaved design, and a post-submit autosave could strip a queued job's payload.
+- **Don't cross the `editor_state` / `render_state` streams** (post-`0008`): `editor_state` is frontend-owned, written ONLY by `CanvasStateView` (autosave). `render_state` is pipeline-owned (copied onto each `RenderJob` at submit since 0030 and read from the job's copy), written ONLY by `EditorRenderView` at submit. They were one field, and the two writers clobbered each other — submit wiped the customer's autosaved design, and a post-submit autosave could strip a queued job's payload.
 - **`CanvasStateView.put` must keep `image_paths` out of `update_or_create`'s `defaults`.** Writing `image_paths or []` there blanked recorded paths every 2 s, which is what made DPDP erasure report `files_deleted: 0` while photos stayed on disk (migration `0011`). The column carries a model-level `default=list` (`0013`) so INSERT still works — a model default applies on INSERT only, never UPDATE.
