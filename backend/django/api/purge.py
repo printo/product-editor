@@ -62,6 +62,30 @@ def _delete_files(paths) -> tuple[int, int, list[str]]:
     return deleted, freed, errors
 
 
+def _paths_kept_by_others(candidates: set, purged_ids: set) -> set:
+    """Those of `candidates` that a canvas outside `purged_ids` still names, in
+    its own file list or its submit snapshot. One filtered query per chunk of
+    paths, never a scan of every canvas."""
+    from functools import reduce
+    from operator import or_
+
+    from django.db.models import Q
+
+    from api.models import CanvasData
+
+    kept: set[str] = set()
+    paths = sorted(candidates)
+    for i in range(0, len(paths), 100):
+        chunk = paths[i:i + 100]
+        match = reduce(or_, (
+            Q(image_paths__contains=[p]) | Q(render_state__image_paths__contains=[p]) for p in chunk
+        ))
+        for other in CanvasData.objects.exclude(id__in=purged_ids).filter(match).only('image_paths', 'render_state'):
+            named = set(other.image_paths or []) | set((other.render_state or {}).get('image_paths') or [])
+            kept.update(named & set(chunk))
+    return kept
+
+
 def purge_order_data(order_id: str, api_key=None, force: bool = False, record_ledger: bool = True) -> dict:
     """
     Hard-delete all data for `order_id`. When `api_key` is given, scope to that
@@ -122,18 +146,20 @@ def purge_order_data(order_id: str, api_key=None, force: bool = False, record_le
     freed_bytes = 0
     keys_touched: dict[str, int] = {}
 
-    # Upload paths still referenced by a DIFFERENT, non-purged CanvasData of
-    # the same key must not be deleted (shared originals).
+    # Upload paths still referenced by a DIFFERENT, non-purged CanvasData must
+    # not be deleted (shared originals). Only the paths this purge could remove
+    # are looked up, not every other order's row: the table holds a design for
+    # every order of the retention window.
     purged_ids = {c.id for c in canvases}
-    keep_paths: set[str] = set()
-    for other in CanvasData.objects.exclude(id__in=purged_ids):
-        for p in (other.image_paths or []):
-            if p:
-                keep_paths.add(p)
-        rs = other.render_state or {}
-        for p in (rs.get('image_paths') or []):
-            if p:
-                keep_paths.add(p)
+    candidates: set[str] = set()
+    for canvas in canvases:
+        candidates.update(p for p in (canvas.image_paths or []) if p)
+        candidates.update(p for p in ((canvas.render_state or {}).get('image_paths') or []) if p)
+    candidates.update(p for p in order_uploads.values_list('file_path', flat=True) if p)
+    if odir and os.path.isdir(odir):
+        for root, _dirs, fnames in os.walk(odir):
+            candidates.update(os.path.join(root, fn) for fn in fnames)
+    keep_paths = _paths_kept_by_others(candidates, purged_ids)
 
     # Every path we intend to remove, so the sweep after the transaction can
     # confirm each one actually went. Deleting is not the same as having
