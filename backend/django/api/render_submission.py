@@ -116,6 +116,10 @@ class RenderSubmissionService:
                     canvas_data=canvas_obj,
                     status="queued",
                     queue_name=queue_name,
+                    # This submit's own contract: a later submit for the same
+                    # order replaces canvas_obj.render_state, and this job must
+                    # still print what it was submitted with.
+                    render_state=render_state,
                 )
 
                 # Capture variables for on_commit lambda (avoid late-binding)

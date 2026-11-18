@@ -457,6 +457,14 @@ class RenderJob(models.Model):
     # render_state while this job's files stay what they were. NULL for a job
     # rendered before this existed, or one with no customer photos to list.
     restore_manifest = models.JSONField(null=True, blank=True, default=None)
+    # The render contract as it stood when THIS job was submitted (the same
+    # snapshot CanvasData.render_state holds for the order's latest submit). A
+    # second submit for the same order replaces the order's render_state while
+    # an earlier job may still be queued; that job must print, and its webhook
+    # must describe, the design it was submitted with. NULL for a job submitted
+    # before this existed and for a direct-API job, which have no snapshot; the
+    # worker then reads the order's, as it always did.
+    render_state = models.JSONField(null=True, blank=True, default=None)
     
     # Timing
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

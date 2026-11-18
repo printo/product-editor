@@ -250,6 +250,21 @@ def _free_space_mb(path: str) -> float:
         return float('inf')  # can't stat — don't block the render on it
 
 
+def _use_job_snapshot(canvas_data, job) -> None:
+    """
+    Make `canvas_data.render_state` this job's own submit-time contract, in
+    memory only, so everything downstream (the render inputs, the orientation,
+    the restore manifest, the webhook payload) reads the design the job was
+    submitted with and not whatever a later submit for the same order wrote.
+
+    A job with no snapshot (submitted before RenderJob.render_state existed, or
+    a direct-API job, which has none) leaves the order's in place. The row is
+    never written back: every save of a CanvasData here names update_fields.
+    """
+    if job is not None and job.render_state is not None:
+        canvas_data.render_state = job.render_state
+
+
 def _resolve_render_inputs(canvas_data) -> tuple:
     """
     Pick the render contract source and image paths for a render job.
@@ -452,7 +467,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                 canvas_cb = CanvasData.objects.filter(id=canvas_data_id).first()
                 if canvas_cb and canvas_cb.callback_url:
                     notify_caller_render_failed_task.apply_async(
-                        args=[canvas_data_id, job.error_message],
+                        args=[canvas_data_id, job.error_message, str(job.id)],
                         queue=job.queue_name or 'standard',
                     )
             except Exception:
@@ -476,7 +491,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             canvas_cb = CanvasData.objects.filter(id=canvas_data_id).first()
             if canvas_cb and canvas_cb.callback_url:
                 notify_caller_render_failed_task.apply_async(
-                    args=[canvas_data_id, job.error_message],
+                    args=[canvas_data_id, job.error_message, str(job.id)],
                     queue=job.queue_name or 'standard',
                 )
         except Exception:
@@ -499,6 +514,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         from api.models import LayoutCatalogue
 
         canvas = CanvasData.objects.get(id=canvas_data_id)
+        _use_job_snapshot(canvas, job)
         storage = get_storage()
 
         # Load layout from LayoutCatalogue (Postgres). resolve_active follows
@@ -613,7 +629,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             # not stall forever waiting on a success webhook that never comes.
             if canvas.callback_url:
                 notify_caller_render_failed_task.apply_async(
-                    args=[str(canvas.id), error_msg], queue='standard', countdown=0,
+                    args=[str(canvas.id), error_msg, str(job.id)], queue='standard', countdown=0,
                 )
             return
 
@@ -627,7 +643,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             job.save(update_fields=['status', 'completed_at', 'error_message', 'retry_count'])
             if canvas.callback_url:
                 notify_caller_render_failed_task.apply_async(
-                    args=[str(canvas.id), error_msg], queue='standard', countdown=0,
+                    args=[str(canvas.id), error_msg, str(job.id)], queue='standard', countdown=0,
                 )
             return
 
@@ -709,7 +725,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
         # task entirely when no callback_url avoids a no-op worker slot.
         if canvas.callback_url:
             notify_caller_webhook_task.apply_async(
-                args=[str(canvas.id), output_paths],
+                args=[str(canvas.id), output_paths, str(job.id)],
                 queue='standard',
                 countdown=0,
             )
@@ -759,7 +775,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             _canvas = locals().get('canvas')
             if _canvas is not None and getattr(_canvas, 'callback_url', None):
                 notify_caller_render_failed_task.apply_async(
-                    args=[str(_canvas.id), str(exc)], queue='standard', countdown=0,
+                    args=[str(_canvas.id), str(exc), str(job.id)], queue='standard', countdown=0,
                 )
         else:
             job.status = 'queued'
@@ -779,7 +795,7 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
                      # callback outage doesn't permanently lose delivery.
     acks_late=True,
 )
-def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
+def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list, render_job_id: str = None):
     """
     Notify the embed caller (e.g. printo.in storefront) that rendering has
     completed, by POSTing a signed payload to ``canvas.callback_url``.
@@ -850,11 +866,19 @@ def notify_caller_webhook_task(self, canvas_data_id: str, output_paths: list):
 
     # Resolve the most recent completed RenderJob so the caller can fetch its
     # ZIP via the download URL.
-    rjob = (RenderJob.objects
-            .filter(canvas_data=canvas, status='completed')
-            .order_by('-completed_at')
-            .first())
+    # The job this notification is for. Newer dispatches name it; a task queued
+    # before that existed does not, and falls back to the order's most recent
+    # completed job, which is right unless the order was resubmitted since.
+    rjob = None
+    if render_job_id:
+        rjob = RenderJob.objects.filter(id=render_job_id, canvas_data=canvas).first()
+    if rjob is None:
+        rjob = (RenderJob.objects
+                .filter(canvas_data=canvas, status='completed')
+                .order_by('-completed_at')
+                .first())
     job_id = str(rjob.id) if rjob else None
+    _use_job_snapshot(canvas, rjob)
 
     # Where will the ZIP live? Prefer PUBLIC_HOST + https. Without it the
     # caller can't reach us anyway.
@@ -1033,7 +1057,7 @@ def _public_failure_message(error_message) -> str:
     max_retries=8,   # ~3 min total window (capped backoff below).
     acks_late=True,
 )
-def notify_caller_render_failed_task(self, canvas_data_id: str, error_message: str = ''):
+def notify_caller_render_failed_task(self, canvas_data_id: str, error_message: str = '', render_job_id: str = None):
     """
     Notify the embed caller that a RENDER failed, so their order flow does not
     stall forever waiting on the success webhook (which never fires on a failed
@@ -1055,8 +1079,13 @@ def notify_caller_render_failed_task(self, canvas_data_id: str, error_message: s
         logger.info("Skipping failure webhook for order %s — callback_url empty", canvas.order_id)
         return
 
-    rjob = RenderJob.objects.filter(canvas_data=canvas).order_by('-created_at').first()
+    rjob = None
+    if render_job_id:
+        rjob = RenderJob.objects.filter(id=render_job_id, canvas_data=canvas).first()
+    if rjob is None:
+        rjob = RenderJob.objects.filter(canvas_data=canvas).order_by('-created_at').first()
     job_id = str(rjob.id) if rjob else None
+    _use_job_snapshot(canvas, rjob)
 
     fail_payload = {
         'order_id':      canvas.order_id,
