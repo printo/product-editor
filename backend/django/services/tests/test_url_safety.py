@@ -106,65 +106,194 @@ def test_accepts_public_ipv6():
         assert ips and not ips[0].startswith('fc'), ips
 
 
-def test_pin_forces_connection_to_validated_ip():
-    """The pin must route the target host's resolution to the validated IP
-    (closing DNS-rebinding) and restore socket.getaddrinfo afterwards."""
+def test_the_pinned_connection_dials_the_validated_ip_and_never_resolves_the_name():
+    """A connection opens its socket to the validated address directly. The host
+    name is not looked up at connect time, so DNS cannot rebind it; `.invalid`
+    never resolves, and getaddrinfo is made to fail to prove nothing asks."""
+    import socket as _socket
+    import threading
+    from services import url_safety
+
+    listener = _socket.socket()
+    listener.bind(('127.0.0.1', 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    accepted = []
+    t = threading.Thread(target=lambda: accepted.append(listener.accept()[1]), daemon=True)
+    t.start()
+
+    real = _socket.getaddrinfo
+
+    def only_literals(host, *a, **kw):
+        # socket.create_connection itself asks about the IP literal; the host
+        # NAME must never be asked about.
+        assert host != 'pinned.invalid', 'the name was resolved'
+        return real(host, *a, **kw)
+
+    pool = url_safety._pinned_pool_class(['127.0.0.1'])('pinned.invalid', port=port)
+    with mock.patch('socket.getaddrinfo', only_literals):
+        conn = pool.ConnectionCls('pinned.invalid', port=port, timeout=5)
+        sock = conn._new_conn()
+    t.join(5)
+    sock.close()
+    listener.close()
+    assert accepted and accepted[0][0] == '127.0.0.1', accepted
+
+
+def test_the_pin_tries_each_validated_address_in_turn_and_never_another():
+    """A host with several public records stays reachable when the first is
+    down (the fallback the old resolver pin kept), and a connection that
+    exhausts them fails rather than dialling anything else."""
+    import socket as _socket
+    from urllib3.exceptions import NewConnectionError
+    from services import url_safety
+
+    dialled = []
+    good = mock.Mock()
+
+    def fake_create(address, timeout=None, source_address=None):
+        dialled.append(address[0])
+        if address[0] == '93.184.216.34':
+            raise ConnectionRefusedError('down')
+        return good
+
+    pool = url_safety._pinned_pool_class(['93.184.216.34', '104.16.132.229', '2606:2800:220:1:248:1893:25c8:1946'])('multi.example.com', port=443)
+    conn = pool.ConnectionCls('multi.example.com', port=443, timeout=5)
+    with mock.patch('socket.create_connection', fake_create):
+        assert conn._new_conn() is good
+    assert dialled == ['93.184.216.34', '104.16.132.229'], dialled
+
+    dialled.clear()
+    with mock.patch('socket.create_connection', side_effect=ConnectionRefusedError('all down')) as c:
+        try:
+            conn._new_conn()
+            raise AssertionError('a connection with no reachable address succeeded')
+        except NewConnectionError:
+            pass
+        assert [call.args[0][0] for call in c.call_args_list] == [
+            '93.184.216.34', '104.16.132.229', '2606:2800:220:1:248:1893:25c8:1946',
+        ]
+
+
+def test_the_pin_patches_nothing_process_wide():
+    """socket.getaddrinfo is the same object before, during and after a request,
+    so another thread's fetch is never waiting on, or redirected by, this one."""
     import socket as _socket
     from services import url_safety
 
     original = _socket.getaddrinfo
-    captured = {}
-
-    class _FakeResp:
-        status_code = 200
+    seen = {}
 
     def _fake_post(self, url, **kw):
-        # While the request is 'in flight', the target host must resolve ONLY
-        # to the validated public IP, regardless of what real DNS would say.
-        infos = _socket.getaddrinfo('printo.in', 443)
-        captured['ips'] = {info[4][0] for info in infos}
-        captured['allow_redirects'] = kw.get('allow_redirects')
-        return _FakeResp()
+        seen['during'] = _socket.getaddrinfo
+        seen['trust_env'] = self.trust_env
+        seen['redirects'] = kw.get('allow_redirects')
+        return mock.Mock(status_code=200)
 
-    with mock.patch('services.url_safety.socket.getaddrinfo', return_value=_addrinfo('93.184.216.34')):
+    with mock.patch('services.url_safety.socket.getaddrinfo', return_value=_addrinfo('93.184.216.34')) as resolver:
         with mock.patch('requests.Session.post', _fake_post):
-            resp = url_safety.post_webhook_safely(
-                'https://printo.in/hook', data=b'{}', headers={}, timeout=5,
-            )
-    assert resp.status_code == 200
-    assert captured['ips'] == {'93.184.216.34'}, captured
-    assert captured['allow_redirects'] is False
-    # getaddrinfo restored after the call.
+            url_safety.post_webhook_safely('https://printo.in/hook', data=b'{}', headers={}, timeout=5)
+        assert seen['during'] is resolver                  # untouched while the request is in flight
     assert _socket.getaddrinfo is original
+    assert not hasattr(url_safety, '_PIN_LOCK')
+    assert seen['trust_env'] is False and seen['redirects'] is False
 
 
-def test_streamed_get_is_pinned_only_until_the_headers_arrive():
-    """open_public_get pins like the POST does, refuses redirects, asks for a
-    streamed body, and has released the resolver by the time it returns: the
-    caller reads the body outside the pin."""
-    import socket as _socket
+def test_a_slow_fetch_does_not_hold_up_another():
+    """The old pin held one lock for the whole connect, so a host that was slow
+    to answer queued every other fetch in the process behind it."""
+    import threading
+    import time
     from services import url_safety
 
-    original = _socket.getaddrinfo
-    captured = {}
+    started, release = threading.Event(), threading.Event()
 
-    class _FakeResp:
-        status_code = 200
+    def slow_get(self, url, **kw):
+        started.set()
+        release.wait(5)
+        return mock.Mock(status_code=200)
 
-    def _fake_get(self, url, **kw):
-        infos = _socket.getaddrinfo('files.example.com', 443)
-        captured['ips'] = {info[4][0] for info in infos}
-        captured['kw'] = kw
-        return _FakeResp()
+    def fast_get(self, url, **kw):
+        return mock.Mock(status_code=200)
 
-    with mock.patch('services.url_safety.socket.getaddrinfo', return_value=_addrinfo('93.184.216.34')):
-        with mock.patch('requests.Session.get', _fake_get):
-            resp = url_safety.open_public_get('https://files.example.com/a.jpg', timeout=(5, 20))
-    assert resp.status_code == 200
-    assert captured['ips'] == {'93.184.216.34'}, captured
-    assert captured['kw']['allow_redirects'] is False and captured['kw']['stream'] is True
-    assert captured['kw']['timeout'] == (5, 20)
-    assert _socket.getaddrinfo is original
+    results = {}
+
+    def run(name, host):
+        with mock.patch('services.url_safety.validate_public_https_url', return_value=['93.184.216.34']):
+            results[name] = url_safety.open_public_get(f'https://{host}/a.jpg', timeout=5)
+
+    with mock.patch('requests.Session.get', lambda self, url, **kw: slow_get(self, url, **kw) if 'slow' in url else fast_get(self, url, **kw)):
+        slow = threading.Thread(target=run, args=('slow', 'slow.example.com'))
+        slow.start()
+        assert started.wait(5)
+        t0 = time.time()
+        run('fast', 'fast.example.com')
+        elapsed = time.time() - t0
+        release.set()
+        slow.join(5)
+    assert 'fast' in results and elapsed < 1.0, elapsed
+
+
+def test_a_real_request_reaches_the_pinned_address_over_tls():
+    """End to end with a real TLS server on 127.0.0.1: the URL names a host that
+    does not resolve, the connection goes to the pinned address, and the
+    certificate is still checked against the URL's host name."""
+    import shutil
+    import socket as _socket
+    import ssl
+    import subprocess
+    import tempfile
+    import threading
+    from services import url_safety
+
+    if not shutil.which('openssl'):
+        print('    (skipped: no openssl)')
+        return
+    tmp = tempfile.mkdtemp(prefix='pin-tls-')
+    key, crt = f'{tmp}/k.pem', f'{tmp}/c.pem'
+    subprocess.run([
+        'openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', crt, '-days', '1',
+        '-subj', '/CN=pinned.example.test', '-addext', 'subjectAltName=DNS:pinned.example.test',
+    ], check=True, capture_output=True)
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(crt, key)
+    server = _socket.socket()
+    server.bind(('127.0.0.1', 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    got = {}
+
+    def serve():
+        conn, _ = server.accept()
+        with ctx.wrap_socket(conn, server_side=True) as tls:
+            got['request'] = tls.recv(4096)
+            tls.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok')
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+
+    real_post = __import__('requests').Session.post
+
+    def post_trusting_our_cert(self, url, **kw):
+        kw['verify'] = crt
+        return real_post(self, url, **kw)
+
+    try:
+        _socket.getaddrinfo('pinned.example.test', port)
+        raise AssertionError('the test host name unexpectedly resolves')
+    except _socket.gaierror:
+        pass
+    with mock.patch('services.url_safety.validate_public_https_url', return_value=['127.0.0.1']):
+        with mock.patch('requests.Session.post', post_trusting_our_cert):
+            resp = url_safety.post_webhook_safely(
+                f'https://pinned.example.test:{port}/hook', data=b'{}', headers={}, timeout=5,
+            )
+    t.join(5)
+    server.close()
+    shutil.rmtree(tmp, ignore_errors=True)
+    assert resp.status_code == 200 and resp.content == b'ok'
+    assert b'POST /hook' in got['request'] and b'Host: pinned.example.test' in got['request']
 
 
 def test_streamed_get_refuses_an_unsafe_url_before_connecting():
@@ -188,46 +317,6 @@ def test_streamed_get_refuses_an_unsafe_url_before_connecting():
             except ValidationError:
                 pass
     assert called['n'] == 0
-
-
-def test_pin_preserves_all_validated_ips_for_fallback():
-    """When a host publishes several public records (e.g. Cloudflare-fronted
-    printo.in), the pin must expose ALL of them to urllib3 — each with the
-    correct family — so a dead first address falls back to the rest instead of
-    hard-failing. Every exposed address must still be a validated public IP."""
-    import socket as _socket
-    from services import url_safety
-
-    captured = {}
-
-    class _FakeResp:
-        status_code = 200
-
-    def _fake_post(self, url, **kw):
-        infos = _socket.getaddrinfo('multi.example.com', 443)
-        # (family, ip) pairs, so we can check each address carries its own family.
-        captured['pairs'] = [(info[0], info[4][0]) for info in infos]
-        return _FakeResp()
-
-    # Two public IPv4 + one public IPv6 all resolve for the host.
-    infos = _addrinfo('93.184.216.34') + _addrinfo('104.16.132.229') + _addrinfo('2606:2800:220:1:248:1893:25c8:1946')
-    with mock.patch('services.url_safety.socket.getaddrinfo', return_value=infos):
-        with mock.patch('requests.Session.post', _fake_post):
-            resp = url_safety.post_webhook_safely(
-                'https://multi.example.com/hook', data=b'{}', headers={}, timeout=5,
-            )
-    assert resp.status_code == 200
-    # All three validated IPs are exposed to the connection layer (order-agnostic;
-    # what matters is the fallback set is complete, not the sort order).
-    exposed_ips = {ip for _fam, ip in captured['pairs']}
-    assert exposed_ips == {
-        '93.184.216.34', '104.16.132.229', '2606:2800:220:1:248:1893:25c8:1946',
-    }, captured
-    # Each address carries the correct family (IPv6 → AF_INET6, IPv4 → AF_INET),
-    # so urllib3 can actually connect on the right socket type.
-    for fam, ip in captured['pairs']:
-        expected = _socket.AF_INET6 if ':' in ip else _socket.AF_INET
-        assert fam == expected, (fam, ip)
 
 
 def test_pin_raises_on_unsafe_url_before_sending():
