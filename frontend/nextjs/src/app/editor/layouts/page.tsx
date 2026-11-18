@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { readImportSession } from '@/lib/import-session';
@@ -389,7 +389,20 @@ export default function LayoutCreatorPage() {
   const [selectedLayout, setSelectedLayout] = useState<LayoutConfig | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [confirmMaskRemove, setConfirmMaskRemove] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpenState] = useState(false);
+  // Where the list was scrolled to when the editor opened. The page is held to
+  // the height under the header while the editor is open (see the root element),
+  // which clamps the scroll position to the top; it is put back on close.
+  const scrollBeforeModal = useRef(0);
+  const setIsModalOpen = useCallback((open: boolean) => {
+    if (open) scrollBeforeModal.current = window.scrollY;
+    setIsModalOpenState(open);
+  }, []);
+  const modalWasOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (!isModalOpen && modalWasOpen.current) window.scrollTo(0, scrollBeforeModal.current);
+    modalWasOpen.current = isModalOpen;
+  }, [isModalOpen]);
   // An import of an old design that is adjusting this layout before its
   // artwork is cut to it (components/ImportDesignDialog.tsx): the layout's
   // name, and the design's pictures to show behind the print areas.
@@ -404,15 +417,6 @@ export default function LayoutCreatorPage() {
     is_ops_team: session?.is_ops_team,
   });
   const { tags: tagList, error: tagListError } = useLayoutTags(status === 'authenticated');
-
-  useEffect(() => {
-    if (isModalOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
-    }
-    return () => { document.body.style.overflow = 'auto'; };
-  }, [isModalOpen]);
 
   const [selectedFonts, setSelectedFonts] = useState<string[]>([DEFAULT_OVERLAY_FONT]);
   const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
@@ -500,7 +504,7 @@ export default function LayoutCreatorPage() {
     // without it the dropdown would keep rendering the tag selected at mount.
     // The access flag likewise: the Holidays link is in that snapshot, so it
     // would stay hidden for an ops user whose session resolved after mount.
-  }, [isModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, tagList, selectedFonts.length, layouts.length, canManageHolidays]);
+  }, [isModalOpen, setIsModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, tagList, selectedFonts.length, layouts.length, canManageHolidays]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
 
@@ -1104,7 +1108,15 @@ export default function LayoutCreatorPage() {
   }
 
   return (
-    <div className="min-h-screen bg-transparent flex flex-col">
+    // While the full-screen editor is open the page behind it must not scroll.
+    // That used to be a write to document.body.style in an effect (which also put
+    // back 'auto' rather than whatever was there). Now the page is simply as tall
+    // as the space under the header and clips what overflows it, so the document
+    // has nothing to scroll; the modal itself is overscroll-contain.
+    <div
+      style={isModalOpen ? { height: `calc(100dvh - ${headerHeight}px)` } : undefined}
+      className={isModalOpen ? 'overflow-hidden bg-transparent flex flex-col' : 'min-h-screen bg-transparent flex flex-col'}
+    >
       <GoogleFontLinks fonts={fontsLoaded} />
       <main className="max-w-[1440px] mx-auto px-8 pt-3 pb-8 w-full">
 
@@ -1506,7 +1518,7 @@ export default function LayoutCreatorPage() {
 
       {/* Create / Edit Modal (Full Screen mode - sits under the persistent Header) */}
       {isModalOpen && (
-        <div style={{ top: headerHeight }} className="fixed inset-x-0 bottom-0 z-[1000] flex flex-col bg-white overflow-hidden animate-in fade-in duration-200">
+        <div style={{ top: headerHeight }} className="fixed inset-x-0 bottom-0 z-[1000] flex flex-col bg-white overflow-hidden overscroll-contain animate-in fade-in duration-200">
           <div className="flex-1 flex flex-col min-h-0">
             {/* Redundant local header removed — Titles now in global header */}
 
