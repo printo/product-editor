@@ -152,8 +152,9 @@ const parentOf = (win: RestoreWindow): PostTarget | null =>
  *
  *  A reply counts only when it comes from the window that embeds the editor
  *  (`event.source === window.parent`), never from a sibling frame or a pop-up,
- *  and when `expectedOrigin` is known (the browser reports the embedding
- *  page's origin) only from that origin. The request is posted to
+ *  only from `expectedOrigin` (the embedding page's origin as the browser
+ *  reports it) or, where the browser reports none, from `targetOrigin`, the
+ *  origin the request is posted to. The request is posted to
  *  `targetOrigin`, never to '*'. A message of another type, or from anyone
  *  else, is ignored and the wait goes on; the first `pe:restore_data` from the
  *  page settles it, valid or not. */
@@ -170,6 +171,13 @@ export function requestRestore({
 }): Promise<RestoreReply> {
   const parent = parentOf(win);
   if (!parent) return Promise.resolve({ ok: false, reason: 'not_embedded' });
+  // Where the reply may come from. The browser's own report of the embedding
+  // page when there is one (Chromium, Safari); otherwise the origin the request
+  // is posted to. Firefox reports none, and without this fallback only the
+  // sender window was checked. The fallback costs nothing that worked: a parent
+  // at any other origin never received the request, so a reply from it is not an
+  // answer to it.
+  const acceptedOrigin = expectedOrigin || targetOrigin;
 
   return new Promise<RestoreReply>((resolve) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -180,7 +188,7 @@ export function requestRestore({
     };
     function onMessage(event: MessageEvent) {
       if (event.source !== (parent as unknown)) return;
-      if (expectedOrigin && event.origin !== expectedOrigin) return;
+      if (event.origin !== acceptedOrigin) return;
       const data: unknown = event.data;
       if (!isRecord(data) || data.type !== RESTORE_DATA) return;
       finish(parseRestoreData(data, { orderId }));

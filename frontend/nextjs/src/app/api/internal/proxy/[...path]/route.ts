@@ -219,11 +219,10 @@ async function handler(
       headers: passthroughHeaders,
     });
   } catch (err: any) {
+    // The cause stays in the server log. The body says only that the proxy
+    // failed: an error message can name an internal host, port or address.
     console.error('[internal-proxy] upstream error:', err);
-    return NextResponse.json(
-      { detail: 'Proxy error', error: err.message },
-      { status: 502 }
-    );
+    return NextResponse.json({ detail: 'Proxy error' }, { status: 502 });
   }
 }
 
