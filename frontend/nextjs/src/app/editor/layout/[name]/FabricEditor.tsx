@@ -38,6 +38,7 @@ import {
   createGridLines,
   updateRelativeClipPath,
 } from '@/lib/fabric-utils';
+import { makeCutAwayShade } from './frame-cut-shade';
 
 // ─── Handle type exposed to parent ──────────────────────────────────────────
 
@@ -968,6 +969,12 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
       outlineRect.__outlineLayer = true;
       fc.add(outlineRect);
       fc.moveObjectTo(outlineRect, paperOverlayZ + 1);
+      const shade = makeCutAwayShade({ fx, fy, fw, fh, fr });
+      if (shade) {
+        shade.__outlineLayer = true;
+        fc.add(shade);
+        fc.moveObjectTo(shade, paperOverlayZ + 1);
+      }
     });
 
     // ── Overlays ──
