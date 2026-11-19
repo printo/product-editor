@@ -600,7 +600,7 @@ class LayoutCatalogue(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=Q(imported_by='') | Q(imported_by__isnull=False),
+                condition=Q(imported_by='') | Q(imported_by__isnull=False),
                 name='layout_catalogue_imported_by_consistency',
             ),
         ]

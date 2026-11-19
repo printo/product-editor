@@ -21,7 +21,7 @@ After code changes, refresh the graph with `$(cat graphify-out/.graphify_python)
 ## Technology Stack
 
 **Backend**
-- Django 5.0.6 + Django REST Framework
+- Django 5.2 LTS + Django REST Framework
 - PostgreSQL 16 (tuned: `shared_buffers=128MB`, `work_mem=8MB`, `effective_cache_size=384MB`, slow-query log at 1 s)
 - Pillow — high-resolution rendering at 300 DPI (PNG default, PDF alternate)
 - Celery 5 + Redis 7 — async render queue with priority/standard worker isolation; Redis split (broker on db `0`, Django cache on db `1`) so `allkeys-lru` eviction can't drop in-flight task messages
