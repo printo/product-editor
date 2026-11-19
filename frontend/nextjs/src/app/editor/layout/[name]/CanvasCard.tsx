@@ -137,8 +137,11 @@ export function SurfaceCard({
         // On a phone the sides are stacked, and a side as wide as a single
         // card filled the screen, hiding the next side below the fold: each
         // side is held to about half the screen's height, so the next side's
-        // heading and the top of its card show on the first screen.
-        className="shrink-0 flex flex-col gap-3 w-[min(86vw,24rem,calc(50dvh*var(--side-ratio)))] sm:w-[var(--card-w)]"
+        // heading and the top of its card show on the first screen. The
+        // limit is a max-width beside a plain width, so a browser that
+        // rejects it keeps the 86vw card instead of shrinking it to fit its
+        // heading (a single min() width did that on an iPhone).
+        className="shrink-0 flex flex-col gap-3 w-[86vw] max-w-[min(24rem,calc(50vh*var(--side-ratio)))] sm:max-w-none sm:w-[var(--card-w)]"
         style={{
           ...(fewSides ? surfaceCardStyle(cw, ch, sideCount) : { '--card-w': cw > ch ? '400px' : '280px' } as React.CSSProperties),
           '--side-ratio': (cw / ch).toFixed(4),
