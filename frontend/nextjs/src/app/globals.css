@@ -47,15 +47,18 @@
 
 /* Thin, subtle scrollbars for scrollable containers. The standard properties
    cover Firefox, Chrome 121+ and Safari 26.2+; the WebKit rules are only for
-   browsers without scrollbar-color. */
+   browsers without scrollbar-color. The thumb keeps at least 3:1 against
+   white, slate-50 and slate-100 (WCAG 1.4.11), so it shows how far a list
+   has scrolled; the old #cbd5e1 was 1.5:1 and barely visible. */
 .custom-scrollbar {
-  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb: #7c8aa0;
+  --scrollbar-thumb-hover: #64748b;
   --scrollbar-track: transparent;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 .custom-scrollbar:hover {
-  --scrollbar-thumb: #94a3b8;
+  --scrollbar-thumb: var(--scrollbar-thumb-hover);
 }
 @supports not (scrollbar-color: auto) {
   .custom-scrollbar {
@@ -73,6 +76,6 @@
     border-radius: 3px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+    background: var(--scrollbar-thumb-hover);
   }
 }
