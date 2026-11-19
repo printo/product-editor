@@ -134,8 +134,8 @@ export function SurfaceCard({
     const fewSides = sideCount <= FEW_CARDS;
     return (
       <div 
-        className={clsx('shrink-0 flex flex-col gap-3', fewSides && (cw > ch ? 'w-[400px]' : 'w-[280px]') + ' sm:w-[var(--card-w)]')}
-        style={fewSides ? surfaceCardStyle(cw, ch, sideCount) : { width: cw > ch ? '400px' : '280px' }}
+        className="shrink-0 flex flex-col gap-3 w-[86vw] max-w-sm sm:max-w-none sm:w-[var(--card-w)]"
+        style={fewSides ? surfaceCardStyle(cw, ch, sideCount) : { '--card-w': cw > ch ? '400px' : '280px' } as React.CSSProperties}
         draggable={!repositionMode}
         onDragStart={(e) => handleDragStart(e, 0, surface.key)}
         onDragOver={(e) => handleDragOver(e, 0, surface.key)}

@@ -194,12 +194,12 @@ For a layout or sizing change, check the *deployed* build, not only the local on
 
 ### Real-phone check (needs the user's phone)
 
-A desktop window narrowed under 640 px is **not** a phone: touch, the address-bar height, safe areas and the on-screen keyboard are not emulated. So before calling a change to the editor's phone layout (`<sm`: the 86vw `max-w-sm` card, the quick-action rail, the toolbar, the sideways-scrolling two-sided row, tap-to-swap, pinch) verified, **ask the user for a screenshot from a real phone with a short message**, and say exactly what to look at:
+A desktop window narrowed under 640 px is **not** a phone: touch, the address-bar height, safe areas and the on-screen keyboard are not emulated. So before calling a change to the editor's phone layout (`<sm`: the 86vw `max-w-sm` card, the quick-action rail, the toolbar, the two sides of a front/back product stacked top to bottom (a sideways row from `sm` up), tap-to-swap, pinch) verified, **ask the user for a screenshot from a real phone with a short message**, and say exactly what to look at:
 
 1. Send me a phone (iPhone Safari and/or Android Chrome) screenshot of the editor with **one photo** and then with **several**.
 2. Is the whole card visible without sideways scrolling, and is the quick-action rail (rotate, fit, blur, delete) fully on the card?
 3. Are Save & Continue / Download reachable without a zoom?
-4. For a front/back product, does the row scroll sideways with both sides reachable?
+4. For a front/back product, are the two sides stacked one under the other, each the full card width, with no sideways scrolling?
 
 To give the user something to open, create a session as above and send them `https://product-editor.printo.in/editor/layout/<name>?token=<token>` (valid about 2 hours) or have them use a real product page on `alpha.printo.in/product-editor`. Until a phone screenshot exists, report phone behaviour as **not verified on a device**. State of play (2026-10-23): the card-sizing rules (#285, #286, #289) change nothing below `sm` and were checked only in desktop windows down to 500 px.
 
