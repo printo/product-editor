@@ -15,7 +15,7 @@ item the old decoder cannot resolve an image at all and fails. Safari can fall
 back to Apple's system codec; **Chrome and Firefox ship no HEIC decoder**, so
 for most desktop customers such a photo is simply unusable.
 
-pillow-heif bundles a current libheif (1.19.x) which reads that structure
+pillow-heif bundles a current libheif (1.21.x) which reads that structure
 correctly, so this module is the backstop the browser cannot provide.
 
 Colour management

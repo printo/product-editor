@@ -11,7 +11,8 @@ No fixture file is committed: a multi-megabyte binary in the repo for one test
 is a poor trade, and pillow-heif can encode a HEIC at test time. That does mean
 these tests cover the decode/JPEG/ICC/limits contract rather than the exact
 `tmap` container — that specific file was verified by hand (IMG_1258.HEIC,
-5712x4284, iOS 18 gain-map HDR) against pillow-heif 0.22.0 / libheif 1.19.7.
+5712x4284, iOS 18 gain-map HDR) against pillow-heif 0.22.0 / libheif 1.19.7, and decodes to byte-identical JPEGs
+under pillow-heif 1.3.0 / libheif 1.21.2 (2026-11-19).
 
 Run stand-alone:
     cd backend/django && DJANGO_SETTINGS_MODULE=product_editor.settings DEBUG=1 \
