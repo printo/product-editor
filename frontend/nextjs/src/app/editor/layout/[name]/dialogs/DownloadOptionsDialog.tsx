@@ -29,7 +29,7 @@ export function DownloadOptionsDialog({
   const titleId = useId();
   const messageId = useId();
   return (
-    <div className="fixed inset-0 z-[2001] flex items-center justify-center p-6">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[2001] flex items-center justify-center p-6">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={onClose} />
       <div ref={dialogRef} className="relative w-full max-w-lg bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 overflow-hidden animate-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         {/* Header */}

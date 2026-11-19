@@ -72,7 +72,7 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
   })();
 
   return (
-    <div className="fixed inset-0 z-[2001] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[2001] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 p-4">
       <div
         ref={dialogRef}
         role="dialog"
@@ -126,7 +126,7 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
             </div>
           </div>
         ) : (
-          <div className="p-6 overflow-y-auto">
+          <div className="p-6 overflow-y-auto overscroll-contain">
             {templates.length === 0 ? (
               <p className="text-xs text-slate-500">No templates for this product yet.</p>
             ) : (

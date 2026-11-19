@@ -22,7 +22,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
   useModalA11y(dialogRef, null, true, closeRef);
   const id = useId();
   return (
-    <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[2001] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowImpositionModal(false)} />
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} className="relative w-full max-w-3xl bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 overflow-hidden flex flex-col md:flex-row max-h-[85vh] border border-slate-200">
         {/* Left: Preview */}
@@ -82,7 +82,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
         </div>
 
         {/* Right: Controls */}
-        <div className="flex-1 p-6 flex flex-col gap-5 bg-white overflow-y-auto custom-scrollbar">
+        <div className="flex-1 p-6 flex flex-col gap-5 bg-white overflow-y-auto overscroll-contain custom-scrollbar">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center">

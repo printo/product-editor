@@ -2,6 +2,7 @@
 
 import { useRef, type Dispatch, type SetStateAction } from 'react';
 import { useModalA11y } from '@/lib/use-modal-a11y';
+import { usePhotoThumbnails } from '@/lib/photo-thumbnail';
 import { clsx } from 'clsx';
 import { X, Check } from 'lucide-react';
 
@@ -25,8 +26,9 @@ export function AutoFillPickerDialog({
 }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalA11y(dialogRef, null);
+  const thumbs = usePhotoThumbnails(files);
   return (
-    <div className="fixed inset-0 z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div
         ref={dialogRef}
         role="dialog"
@@ -49,11 +51,13 @@ export function AutoFillPickerDialog({
           Tap up to {qtyUnder.needed - qtyUnder.uploaded} image{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''} to duplicate into the remaining
           slot{qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}. Pick fewer and the rest cycle through your photos.
         </p>
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 mb-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 mb-5 flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
           {files.map((f, i) => {
-            // Use the helper so the URL is tracked for cleanup; the bare
-            // URL.createObjectURL fallback used to leak in the qty-picker.
-            const url = getFileUrl(f);
+            // A small preview where the browser can make one; the original
+            // (through the helper, so its URL is tracked for cleanup) only
+            // when it cannot. Nothing is shown while the preview is made.
+            const thumb = thumbs.get(f);
+            const url = thumb === null ? getFileUrl(f) : thumb;
             const isSelected = pickerSelected.has(i);
             return (
               <button
@@ -66,7 +70,7 @@ export function AutoFillPickerDialog({
                 })}
                 className={clsx('relative aspect-square rounded-lg overflow-hidden border-2 transition-all active:scale-95', isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300')}
               >
-                <img src={url} alt={f.name} className="w-full h-full object-cover" />
+                {url ? <img src={url} alt={f.name} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : <span role="img" aria-label={f.name} className="block w-full h-full bg-slate-100" />}
                 {isSelected && (
                   <div className="absolute inset-0 bg-indigo-500/20 flex items-center justify-center">
                     <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-sm">

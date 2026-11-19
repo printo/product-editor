@@ -213,7 +213,7 @@ export function CalendarEditPanel({
         aria-hidden
         onClick={onClose}
         data-testid="calendar-edit-panel-backdrop"
-        className="md:hidden fixed inset-0 z-40 bg-zinc-900/40"
+        className="md:hidden fixed inset-0 overflow-hidden overscroll-contain z-40 bg-zinc-900/40"
       />
       <aside
         role="dialog"
@@ -223,7 +223,7 @@ export function CalendarEditPanel({
         data-cell-iso={iso}
         className="
           /* Mobile (default): bottom sheet */
-          fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto
+          fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto overscroll-contain
           rounded-t-2xl shadow-2xl
           /* md+: revert to in-flow side rail */
           md:relative md:inset-auto md:bottom-auto md:max-h-none md:overflow-visible
@@ -350,7 +350,7 @@ export function CalendarEditPanel({
               aria-label="New event text"
               data-testid="cell-editor-input"
               className="
-                flex-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm
+                flex-1 rounded-md border border-zinc-300 px-3 py-1.5 text-base md:text-sm
                 focus:outline-none focus:ring-2 focus:ring-zinc-900
                 disabled:bg-zinc-50 disabled:text-zinc-400
               "

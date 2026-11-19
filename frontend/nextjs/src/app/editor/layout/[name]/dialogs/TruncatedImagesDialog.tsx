@@ -14,7 +14,7 @@ export function TruncatedImagesDialog({ badFiles, onDecide }: {
   const titleId = useId();
   const messageId = useId();
   return (
-    <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div ref={dialogRef} className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         <p id={titleId} className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">
           {badFiles.length === 1 ? 'Incomplete image detected' : `${badFiles.length} incomplete images detected`}
@@ -22,7 +22,7 @@ export function TruncatedImagesDialog({ badFiles, onDecide }: {
         <p id={messageId} className="text-[10px] text-slate-500 leading-snug mb-3">
           {badFiles.length === 1 ? 'This file looks cut off (often from an interrupted download or transfer) and may print with a missing or grey edge:' : 'These files look cut off (often from an interrupted download or transfer) and may print with a missing or grey edge:'}
         </p>
-        <ul className="text-[10px] text-slate-700 font-semibold max-h-24 overflow-y-auto mb-4 space-y-0.5">
+        <ul className="text-[10px] text-slate-700 font-semibold max-h-24 overflow-y-auto overscroll-contain mb-4 space-y-0.5">
           {badFiles.map((f, i) => <li key={i} className="truncate">• {f.name}</li>)}
         </ul>
         <div className="flex items-center gap-2">

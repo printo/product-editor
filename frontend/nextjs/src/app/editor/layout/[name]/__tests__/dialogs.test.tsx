@@ -1,5 +1,5 @@
 import { useState, type ComponentProps, type ReactElement } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AutoFillPickerDialog } from '../dialogs/AutoFillPickerDialog';
 import { BookOverflowDialog } from '../dialogs/BookOverflowDialog';
 import { DeleteConfirmDialog } from '../dialogs/DeleteConfirmDialog';
@@ -33,11 +33,34 @@ describe('AutoFillPickerDialog', () => {
     );
   }
 
-  it('shows every photo and how many slots are left', () => {
+  it('shows every photo and how many slots are left', async () => {
     render(<Picker files={[photo('a.jpg'), photo('b.jpg')]} needed={5} uploaded={2} />);
     expect(screen.getByRole('dialog', { name: 'Choose images to repeat' }))
       .toHaveTextContent('Tap up to 3 images to duplicate into the remaining slots.');
-    expect(screen.getByRole('img', { name: 'a.jpg' })).toHaveAttribute('src', 'blob:a.jpg');
+    // No createImageBitmap here, so no preview can be made: the original shows.
+    await waitFor(() => expect(screen.getByRole('img', { name: 'a.jpg' })).toHaveAttribute('src', 'blob:a.jpg'));
+  });
+
+  it('shows a small preview instead of the original where the browser can make one', async () => {
+    const close = jest.fn();
+    const g = globalThis as { createImageBitmap?: unknown };
+    const saved = { bitmap: g.createImageBitmap, ctx: HTMLCanvasElement.prototype.getContext, toBlob: HTMLCanvasElement.prototype.toBlob, url: URL.createObjectURL };
+    const resize = jest.fn(async () => ({ width: 320, height: 240, close }));
+    g.createImageBitmap = resize;
+    HTMLCanvasElement.prototype.getContext = (() => ({ drawImage: jest.fn() })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) { cb(new Blob(['x'], { type: 'image/jpeg' })); };
+    URL.createObjectURL = () => 'blob:thumb';
+    try {
+      render(<Picker files={[photo('a.jpg')]} needed={2} uploaded={1} />);
+      await waitFor(() => expect(screen.getByRole('img', { name: 'a.jpg' })).toHaveAttribute('src', 'blob:thumb'));
+      expect(resize).toHaveBeenCalledWith(expect.any(File), expect.objectContaining({ resizeWidth: 320 }));
+      expect(close).toHaveBeenCalled();
+    } finally {
+      g.createImageBitmap = saved.bitmap;
+      HTMLCanvasElement.prototype.getContext = saved.ctx;
+      HTMLCanvasElement.prototype.toBlob = saved.toBlob;
+      URL.createObjectURL = saved.url;
+    }
   });
 
   it('says image and slot for a single remaining slot', () => {

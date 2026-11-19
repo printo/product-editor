@@ -13,7 +13,7 @@ export function RepickConfirmDialog({ losingCount, onDecide }: {
   const keepEditsRef = useRef<HTMLButtonElement>(null);
   useModalA11y(dialogRef, null, true, keepEditsRef);
   return (
-    <div className="fixed inset-0 z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div ref={dialogRef} className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm mx-4 p-7 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-label="Replacing photos will discard edits">
         <p className="text-sm font-black text-slate-900 uppercase tracking-tight mb-2">Replace photos?</p>
         <p className="text-xs text-slate-500 leading-relaxed mb-6">

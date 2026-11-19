@@ -194,7 +194,7 @@ export function EditorToolbar({
         <div className="flex items-center justify-center flex-nowrap gap-1 md:gap-3 w-full md:w-auto">
           <div className="flex items-center bg-slate-100/80 p-1 rounded-lg border border-slate-200/50 shrink-0">
             {(['contain', 'cover'] as FitMode[]).map(mode => (
-              <button key={mode} disabled={isProcessing} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('px-2 md:px-3 py-1.5 text-[9px] md:text-[10px] font-black rounded-lg transition-all uppercase disabled:opacity-50 disabled:cursor-not-allowed', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
+              <button key={mode} disabled={isProcessing} onClick={() => { if (mode !== globalFitMode) { fitModeUserToggledRef.current = true; setGlobalFitMode(mode); } }} className={clsx('touch-hit [--touch-hit:-9px_0px] px-2 md:px-3 py-1.5 text-[9px] md:text-[10px] font-black rounded-lg transition-all uppercase disabled:opacity-50 disabled:cursor-not-allowed', globalFitMode === mode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>{mode === 'contain' ? 'Fit' : 'Cover'}</button>
             ))}
           </div>
           {/* Both whole-design toggles rewrite every card, so they wait while

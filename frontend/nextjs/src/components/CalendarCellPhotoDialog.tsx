@@ -84,7 +84,7 @@ export function CalendarCellPhotoDialog({ src, placement, cellAspect = 1, dateLa
 
   return (
     <div
-      className="fixed inset-0 z-[200003] flex items-end justify-center bg-slate-900/50 sm:items-center sm:p-4"
+      className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-end justify-center bg-slate-900/50 sm:items-center sm:p-4"
       data-testid="cell-photo-dialog-backdrop"
     >
       <div
@@ -94,7 +94,7 @@ export function CalendarCellPhotoDialog({ src, placement, cellAspect = 1, dateLa
         aria-labelledby="cell-photo-dialog-title"
         tabIndex={-1}
         data-testid="cell-photo-dialog"
-        className="w-full max-h-[90vh] overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl ring-1 ring-slate-900/5 outline-none sm:max-w-md sm:rounded-xl"
+        className="w-full max-h-[90vh] overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-5 shadow-xl ring-1 ring-slate-900/5 outline-none sm:max-w-md sm:rounded-xl"
       >
         <header className="flex items-start justify-between gap-3">
           <div>

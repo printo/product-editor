@@ -314,7 +314,7 @@ export function CanvasEditorModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100000] bg-white flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-300"
+      className="fixed inset-0 overscroll-contain z-[100000] bg-white flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-300"
       role="dialog"
       aria-modal="true"
       aria-label="Canvas editor"
@@ -348,7 +348,7 @@ export function CanvasEditorModal({
           </div>
         )}
         {isMultiSurface && (
-          <div className="hidden md:flex absolute left-12 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-xl shadow-xl animate-in slide-in-from-left-8 duration-700 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          <div className="hidden md:flex absolute left-12 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-xl shadow-xl animate-in slide-in-from-left-8 duration-700 max-h-[70vh] overflow-y-auto overscroll-contain custom-scrollbar">
             {surfaceStates.map((s, idx) => {
               const isActive = s.key === activeSurfaceKey;
               return (
