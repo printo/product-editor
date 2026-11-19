@@ -2,7 +2,7 @@
 # (Enables BuildKit cache-mount syntax used in stages 1 and 2.)
 
 # ── Stage 1: Install dependencies with pnpm ──────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Enable corepack so pnpm is available without a separate install step
@@ -19,7 +19,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --config.package-import-method=copy
 
 # ── Stage 2: Build the Next.js app ───────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
@@ -51,7 +51,7 @@ RUN --mount=type=cache,id=next-build-cache,target=/app/.next/cache \
 # Uses Next.js `output: 'standalone'` — copies only the deps the app actually
 # imports, plus a tiny Node server (server.js). Drops ~200 MB vs shipping the
 # full node_modules; no pnpm in this stage.
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
