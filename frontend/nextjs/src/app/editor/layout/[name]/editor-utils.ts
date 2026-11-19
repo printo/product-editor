@@ -187,7 +187,8 @@ export const SIDE_GAP_REM = 1.5;
  *  than ~70% of the window's height or the window less ~16.5rem (a side's
  *  label row is taller than a single card's; see `canvasCardStyle`).
  *  Never narrower than the old fixed width (400px landscape, 280px portrait).
- *  Used from `sm` up; a phone keeps the fixed width and scrolls the row. */
+ *  Used from `sm` up; a phone stacks the sides, each at most 86vw wide and
+ *  about half the screen tall, so the next side shows below it. */
 export function surfaceCardStyle(canvasWidth: number, canvasHeight: number, sideCount: number): CSSProperties {
   const ratio = canvasWidth > 0 && canvasHeight > 0 ? canvasWidth / canvasHeight : 2 / 3;
   const n = Math.max(1, sideCount);

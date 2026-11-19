@@ -104,7 +104,7 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
   };
 
   return (
-    <div className="fixed inset-0 z-[310000] flex items-center justify-center p-6">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[310000] flex items-center justify-center p-6">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={handleCancel} />
       <div
         ref={containerRef}
@@ -142,7 +142,7 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
         <div className="mx-7 border-t border-slate-100 shrink-0" />
 
         {/* Body */}
-        <div className="px-7 py-5 overflow-y-auto custom-scrollbar flex-1">
+        <div className="px-7 py-5 overflow-y-auto overscroll-contain custom-scrollbar flex-1">
           {openError ? (
             <div className="flex flex-col items-center gap-3 py-8 text-center">
               <AlertTriangle className="w-8 h-8 text-rose-400" />

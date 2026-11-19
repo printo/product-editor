@@ -87,7 +87,7 @@ export function BookSpreadPreview({
     <>
       {/* ── Book: read-only spread preview (D6) ─────────────────────────── */}
       {showSpreadPreview && (
-        <div className="fixed inset-0 z-[200004] bg-black/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200">
+        <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200004] bg-black/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200">
           <div className="flex items-center justify-between px-6 py-4 bg-white/95 border-b border-slate-200 shrink-0">
             <div>
               <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight">Spread preview</h2>
@@ -101,7 +101,7 @@ export function BookSpreadPreview({
               <X className="w-5 h-5 text-slate-500" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-8">
+          <div className="flex-1 overflow-y-auto overscroll-contain p-6 flex flex-col items-center gap-8">
             {bookSpreads.length === 0 && !bookCoverPreview && !bookBackCoverPreview && (
               <p className="text-sm text-slate-400 mt-10">No pages to preview yet.</p>
             )}

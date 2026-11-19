@@ -26,7 +26,7 @@ export function ProcessingOverlay({
           render and a hung one look identical — which is exactly how a
           never-settling pica resize went unnoticed. */}
       {(isProcessing || isDownloading || isImposing) && renderProgress && (
-        <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
+        <div className="fixed inset-0 overflow-hidden overscroll-contain z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
           <div className="w-full max-w-sm bg-white p-8 rounded-xl shadow-xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-300">
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-1">
@@ -75,7 +75,7 @@ export function ProcessingOverlay({
       {/* No percentage: heic2any's WASM decoder doesn't report progress,
           and this step is usually well under a couple of seconds. */}
       {heicConverting && (
-        <div className="fixed inset-0 z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
+        <div className="fixed inset-0 overflow-hidden overscroll-contain z-[300001] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
           <div className="w-full max-w-sm bg-white p-8 rounded-xl shadow-xl border border-slate-100 space-y-3 animate-in zoom-in-95 duration-300 flex flex-col items-center">
             <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
             <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">

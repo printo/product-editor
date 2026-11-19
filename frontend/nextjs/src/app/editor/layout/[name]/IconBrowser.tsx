@@ -177,7 +177,7 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
         </div>
         <input type="text" value={query} onChange={e => handleInput(e.target.value)}
           placeholder="Search icons..." autoFocus
-          className="w-full pl-11 pr-4 py-3 text-[11px] font-medium bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-300 shadow-sm" />
+          className="w-full pl-11 pr-4 py-3 text-base md:text-[11px] font-medium bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-300 shadow-sm" />
       </div>
 
       {loading && (

@@ -22,7 +22,12 @@ export function CanvasGrid({ canvases, surfaceStates, calendar, ...card }: CardP
       {canvases.length > 0 && (
         <section className="space-y-6 pt-0">
           {sideCount(surfaceStates) > 1 ? (
-            <div className="flex gap-6 items-start justify-center overflow-x-auto pb-4 px-4 w-full custom-scrollbar">
+            // Phones stack the sides top to bottom: a sideways row showed only an
+            // edge of the back, easy to miss. From `sm` up the sides sit in a
+            // row, centred with auto margins rather than justify-center, so a
+            // row wider than the window scrolls from its first card instead of
+            // pushing it past the left edge where scrolling cannot reach.
+            <div className="flex flex-col items-center gap-6 pb-4 px-4 w-full sm:flex-row sm:items-start sm:overflow-x-auto custom-scrollbar sm:[&>*:first-child]:ml-auto sm:[&>*:last-child]:mr-auto">
               {surfaceStates.map((surface) => (
                 <SurfaceCard key={surface.key} surface={surface} sideCount={sideCount(surfaceStates)} {...card} />
               ))}

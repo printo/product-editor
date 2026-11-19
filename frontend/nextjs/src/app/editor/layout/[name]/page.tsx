@@ -642,7 +642,7 @@ export default function LayoutEditorPage() {
         />
       )}
       {submitted && !submittedJobId && (
-        <div className="fixed inset-0 z-[300000] flex items-center justify-center bg-white/80 backdrop-blur-sm">
+        <div className="fixed inset-0 overflow-hidden overscroll-contain z-[300000] flex items-center justify-center bg-white/80 backdrop-blur-sm">
           <div className="text-center p-10">
             <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" />
             <h2 className="text-xl font-bold text-slate-900">Design Submitted</h2>

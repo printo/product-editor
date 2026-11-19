@@ -283,7 +283,7 @@ function FlipWarningModal({
       aria-modal="true"
       aria-labelledby="flip-warning-title"
       data-testid="flip-warning-modal"
-      className="fixed inset-0 z-50 grid place-items-center bg-zinc-900/40 p-4"
+      className="fixed inset-0 overflow-hidden overscroll-contain z-50 grid place-items-center bg-zinc-900/40 p-4"
     >
       <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h2 id="flip-warning-title" className="text-lg font-semibold text-zinc-900">

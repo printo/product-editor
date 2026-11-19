@@ -134,8 +134,18 @@ export function SurfaceCard({
     const fewSides = sideCount <= FEW_CARDS;
     return (
       <div 
-        className={clsx('shrink-0 flex flex-col gap-3', fewSides && (cw > ch ? 'w-[400px]' : 'w-[280px]') + ' sm:w-[var(--card-w)]')}
-        style={fewSides ? surfaceCardStyle(cw, ch, sideCount) : { width: cw > ch ? '400px' : '280px' }}
+        // On a phone the sides are stacked, and a side as wide as a single
+        // card filled the screen, hiding the next side below the fold: each
+        // side is held to about half the screen's height, so the next side's
+        // heading and the top of its card show on the first screen. The
+        // limit is a max-width beside a plain width, so a browser that
+        // rejects it keeps the 86vw card instead of shrinking it to fit its
+        // heading (a single min() width did that on an iPhone).
+        className="shrink-0 flex flex-col gap-3 w-[86vw] max-w-[min(24rem,calc(50vh*var(--side-ratio)))] sm:max-w-none sm:w-[var(--card-w)]"
+        style={{
+          ...(fewSides ? surfaceCardStyle(cw, ch, sideCount) : { '--card-w': cw > ch ? '400px' : '280px' } as React.CSSProperties),
+          '--side-ratio': (cw / ch).toFixed(4),
+        } as React.CSSProperties}
         draggable={!repositionMode}
         onDragStart={(e) => handleDragStart(e, 0, surface.key)}
         onDragOver={(e) => handleDragOver(e, 0, surface.key)}
@@ -144,7 +154,7 @@ export function SurfaceCard({
       >
         <div className="flex items-center justify-between px-1">
           <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight truncate">{surface.label}</h3>
-          <button onClick={() => openEditor(0, surface.key)} className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wide">Edit</button>
+          <button onClick={() => openEditor(0, surface.key)} className="touch-hit [--touch-hit:-11px_-6px] text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wide">Edit</button>
         </div>
         <div className={clsx(
           "bg-white rounded-xl border-2 transition-all overflow-hidden cursor-pointer group/card relative",
@@ -217,13 +227,13 @@ export function SurfaceCard({
               </div>
             ))}
 
-            <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm">
-              <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
+            <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 [--touch-hit:-3px_-7px] bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm">
+              <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="touch-hit p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
                 <RotateCw className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(0, surface.key); }}
-                className="p-2 bg-emerald-50/80 text-emerald-600 rounded-lg hover:bg-emerald-100 hover:scale-105 transition-all"
+                className="touch-hit p-2 bg-emerald-50/80 text-emerald-600 rounded-lg hover:bg-emerald-100 hover:scale-105 transition-all"
                 title={surfaceCanvas?.frames.some(f => f.fitMode === 'contain')
                   ? 'Switch to Cover'
                   : 'Switch to Fit'}
@@ -234,7 +244,7 @@ export function SurfaceCard({
                   source in case it needs to come back. handleQuickSetBg itself
                   is untouched.
               <div className="relative">
-                <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="p-2 bg-amber-50/80 text-amber-600 rounded-lg hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
+                <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="touch-hit p-2 bg-amber-50/80 text-amber-600 rounded-lg hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
                   <Palette className="w-3.5 h-3.5" />
                 </button>
                 <input
@@ -248,7 +258,7 @@ export function SurfaceCard({
               */}
               <button
                 onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(0, surface.key); }}
-                className={clsx('p-2 rounded-lg hover:scale-105 transition-all',
+                className={clsx('touch-hit p-2 rounded-lg hover:scale-105 transition-all',
                   surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
                     ? 'bg-indigo-600 text-white'
                     : 'bg-cyan-50/80 text-cyan-600 hover:bg-cyan-100')}
@@ -265,7 +275,7 @@ export function SurfaceCard({
                     prev && prev.idx === 0 && prev.surfaceKey === surface.key ? null : { idx: 0, surfaceKey: surface.key }
                   );
                 }}
-                className={clsx('p-2 rounded-lg hover:scale-105 transition-all block md:hidden',
+                className={clsx('touch-hit p-2 rounded-lg hover:scale-105 transition-all block md:hidden',
                   swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key
                     ? 'bg-indigo-600 text-white'
                     : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
@@ -276,11 +286,11 @@ export function SurfaceCard({
               {/* Quick-download — hidden from the UI on request, kept in
                   source in case it needs to come back. handleQuickDownload
                   itself is untouched.
-              <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-lg hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
+              <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="touch-hit p-2 bg-slate-100/80 text-slate-700 rounded-lg hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
                 <Download className="w-3.5 h-3.5" />
               </button>
               */}
-              <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-lg hover:bg-rose-100 hover:scale-105 transition-all" title="Remove Photo">
+              <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="touch-hit p-2 bg-rose-50/80 text-rose-600 rounded-lg hover:bg-rose-100 hover:scale-105 transition-all" title="Remove Photo">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -439,13 +449,13 @@ export function CanvasCard({
           </div>
         ))}
 
-        <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm">
-          <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
+        <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 [--touch-hit:-3px_-7px] bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm">
+          <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="touch-hit p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 hover:scale-105 transition-all" title="Rotate 90°">
             <RotateCw className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(idx); }}
-            className="p-2 bg-emerald-50/80 text-emerald-600 rounded-lg hover:bg-emerald-100 hover:scale-105 transition-all"
+            className="touch-hit p-2 bg-emerald-50/80 text-emerald-600 rounded-lg hover:bg-emerald-100 hover:scale-105 transition-all"
             title={canvas.frames.some(f => f.fitMode === 'contain')
               ? 'Switch to Cover'
               : 'Switch to Fit'}
@@ -456,7 +466,7 @@ export function CanvasCard({
               source in case it needs to come back. handleQuickSetBg itself
               is untouched.
           <div className="relative">
-            <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="p-2 bg-amber-50/80 text-amber-600 rounded-lg hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
+            <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="touch-hit p-2 bg-amber-50/80 text-amber-600 rounded-lg hover:bg-amber-100 hover:scale-105 transition-all" title="Set Background Color">
               <Palette className="w-3.5 h-3.5" />
             </button>
             <input
@@ -469,13 +479,13 @@ export function CanvasCard({
           </div>
           */}
           {(layout.frames?.length || 1) === 1 && (
-            <button onClick={(e) => { e.stopPropagation(); requestReplacePhoto(idx, 0); }} className="p-2 bg-sky-50/80 text-sky-600 rounded-lg hover:bg-sky-100 hover:scale-105 transition-all" title="Replace Photo">
+            <button onClick={(e) => { e.stopPropagation(); requestReplacePhoto(idx, 0); }} className="touch-hit p-2 bg-sky-50/80 text-sky-600 rounded-lg hover:bg-sky-100 hover:scale-105 transition-all" title="Replace Photo">
               <ImagePlus className="w-3.5 h-3.5" />
             </button>
           )}
           <button
             onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(idx); }}
-            className={clsx('p-2 rounded-lg hover:scale-105 transition-all',
+            className={clsx('touch-hit p-2 rounded-lg hover:scale-105 transition-all',
               canvas.frames.some(f => f.fillStyle === 'blur')
                 ? 'bg-indigo-600 text-white'
                 : 'bg-cyan-50/80 text-cyan-600 hover:bg-cyan-100')}
@@ -492,7 +502,7 @@ export function CanvasCard({
                 prev && prev.idx === idx && prev.surfaceKey === null ? null : { idx, surfaceKey: null }
               );
             }}
-            className={clsx('p-2 rounded-lg hover:scale-105 transition-all block md:hidden',
+            className={clsx('touch-hit p-2 rounded-lg hover:scale-105 transition-all block md:hidden',
               swapSource?.idx === idx && swapSource?.surfaceKey === null
                 ? 'bg-indigo-600 text-white'
                 : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
@@ -503,11 +513,11 @@ export function CanvasCard({
           {/* Quick-download — hidden from the UI on request, kept in
               source in case it needs to come back. handleQuickDownload
               itself is untouched.
-          <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(idx); }} className="p-2 bg-slate-100/80 text-slate-700 rounded-lg hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
+          <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(idx); }} className="touch-hit p-2 bg-slate-100/80 text-slate-700 rounded-lg hover:bg-slate-200 hover:scale-105 transition-all" title="Download">
             <Download className="w-3.5 h-3.5" />
           </button>
           */}
-          <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(idx); }} className="p-2 bg-rose-50/80 text-rose-600 rounded-lg hover:bg-rose-100 hover:scale-105 transition-all" title="Remove Photo">
+          <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(idx); }} className="touch-hit p-2 bg-rose-50/80 text-rose-600 rounded-lg hover:bg-rose-100 hover:scale-105 transition-all" title="Remove Photo">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>

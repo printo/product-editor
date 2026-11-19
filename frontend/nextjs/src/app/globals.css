@@ -34,6 +34,15 @@
   .toggle-inactive {
     @apply text-slate-400 hover:text-slate-600;
   }
+
+  /* A fingertip needs about 44 px (WCAG 2.5.5). The editor's small card and
+     toolbar buttons keep their look and get a larger invisible hit area on
+     touch screens only. --touch-hit is how far it reaches past the button;
+     keep it inside half the gap to the next button so two never overlap. */
+  @media (pointer: coarse) {
+    .touch-hit { position: relative; }
+    .touch-hit::after { content: ""; position: absolute; inset: var(--touch-hit, -10px); }
+  }
 }
 
 @layer utilities {

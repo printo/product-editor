@@ -56,7 +56,7 @@ export function EmbedSubmittedOverlay({
   }, [jobId, apiBase, getAuthHeaders]);
 
   return (
-    <div className="fixed inset-0 z-[300000] flex items-center justify-center bg-white/85 backdrop-blur-sm" role="status" aria-live="polite">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[300000] flex items-center justify-center bg-white/85 backdrop-blur-sm" role="status" aria-live="polite">
       <div className="text-center p-10 max-w-md">
         {state.status === 'failed' ? (
           <>

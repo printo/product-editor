@@ -67,6 +67,39 @@ const ADD_TABS: { key: TabKey; label: string; icon: React.ElementType; activeCla
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
 
+/** A number box that lets the customer finish typing. The value is applied as
+ *  soon as it is a whole number within [min, max], and corrected into the range
+ *  only when the box loses focus or Enter is pressed: correcting it on every
+ *  keystroke turned "16" into 86 (the "1" was raised to the minimum first). */
+function DraftNumberInput({ value, min, max, onCommit, onFocus, className }: {
+  value: number; min: number; max: number;
+  onCommit: (v: number) => void; onFocus?: () => void; className?: string;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const finish = () => {
+    if (draft === null) return;
+    const n = parseInt(draft, 10);
+    if (Number.isFinite(n)) onCommit(Math.max(min, Math.min(max, n)));
+    setDraft(null);
+  };
+  return (
+    <input type="number" inputMode="numeric" min={min} max={max}
+      value={draft ?? String(value)}
+      onFocus={onFocus}
+      onChange={e => {
+        setDraft(e.target.value);
+        const n = parseInt(e.target.value, 10);
+        if (Number.isFinite(n) && n >= min && n <= max) onCommit(n);
+      }}
+      onBlur={finish}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(); }
+        else if (e.key === 'Escape' && draft !== null) { e.stopPropagation(); setDraft(null); }
+      }}
+      className={className} />
+  );
+}
+
 /** Rotation slider + 90deg increment + number input — Premium version */
 function RotationControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
@@ -87,9 +120,8 @@ function RotationControl({ value, onChange }: { value: number; onChange: (v: num
         </button>
         
         <div className="relative">
-          <input type="number" min="0" max="359" value={value}
-            onChange={e => onChange(((parseInt(e.target.value) || 0) % 360 + 360) % 360)}
-            className="w-11 h-8 px-0 text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
+          <DraftNumberInput min={0} max={359} value={value} onCommit={onChange}
+            className="w-11 h-8 px-0 text-base md:text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
           <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-300 pointer-events-none">°</span>
         </div>
       </div>
@@ -107,7 +139,7 @@ function ScaleControl({ label = "Zoom", width, height, onScale }: { label?: stri
       <div className="flex-1 relative h-6 flex items-center group">
         <div className="absolute inset-0 bg-slate-100 rounded-full h-1 my-auto" />
         <input type="range" min="5" max="250" step="1" value={Math.round(width)}
-          onMouseDown={() => { baseRef.current = { w: width, h: height }; }}
+          onPointerDown={() => { baseRef.current = { w: width, h: height }; }}
           onChange={e => {
             const newW = parseInt(e.target.value);
             const base = baseRef.current ?? { w: width, h: height };
@@ -118,15 +150,14 @@ function ScaleControl({ label = "Zoom", width, height, onScale }: { label?: stri
       </div>
       
       <div className="relative">
-        <input type="number" min="5" max="250" value={Math.round(width)}
-          onMouseDown={() => { baseRef.current = { w: width, h: height }; }}
-          onChange={e => {
-            const newW = parseInt(e.target.value) || 0;
+        <DraftNumberInput min={5} max={250} value={Math.round(width)}
+          onFocus={() => { baseRef.current = { w: width, h: height }; }}
+          onCommit={newW => {
             const base = baseRef.current ?? { w: width, h: height };
             const ratio = base.h / (base.w || 1);
-            onScale(Math.max(5, Math.min(250, newW)), Math.max(1, Math.min(250, Math.round(newW * ratio))));
+            onScale(newW, Math.max(1, Math.min(250, Math.round(newW * ratio))));
           }}
-          className="w-11 h-8 px-0 text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
+          className="w-11 h-8 px-0 text-base md:text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
         <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-300 pointer-events-none">%</span>
       </div>
     </div>
@@ -328,7 +359,7 @@ export function CanvasEditorSidebar({
                     debouncedRender({ ...editingCanvas, frames: updatedFrames });
                   }}
                   placeholder="Optional caption"
-                  className="min-h-[72px] w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                  className="min-h-[72px] w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-base md:text-[12px] text-slate-600 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                 />
                 <label className="flex items-center gap-2 text-[11px] text-slate-500">
                   <input
@@ -484,9 +515,9 @@ export function CanvasEditorSidebar({
                           <div className="flex items-center bg-white border border-slate-200 rounded-lg h-11 px-2 shadow-sm">
                             <button onClick={() => updateOverlay({ fontSize: Math.max(8, (overlay.fontSize || 24) - 2) })}
                               className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg"><Minus className="w-3.5 h-3.5" /></button>
-                            <input type="number" value={overlay.fontSize}
-                              onChange={e => updateOverlay({ fontSize: Math.max(8, parseInt(e.target.value) || 24) })}
-                              className="flex-1 text-center text-[11px] font-mono font-medium text-slate-700 bg-transparent border-none outline-none p-0" />
+                            <DraftNumberInput min={8} max={2000} value={overlay.fontSize || 24}
+                              onCommit={fontSize => updateOverlay({ fontSize })}
+                              className="flex-1 min-w-0 text-center text-base md:text-[11px] font-mono font-medium text-slate-700 bg-transparent border-none outline-none p-0" />
                             <button onClick={() => updateOverlay({ fontSize: (overlay.fontSize || 24) + 2 })}
                               className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg"><Plus className="w-3.5 h-3.5" /></button>
                           </div>
@@ -517,7 +548,7 @@ export function CanvasEditorSidebar({
                       <div className="space-y-3">
                         <label className="text-[11px] font-medium text-slate-500 uppercase">Content</label>
                         <textarea value={overlay.text} onChange={e => updateOverlay({ text: e.target.value })}
-                          className="w-full h-28 text-[12px] font-normal bg-white border border-slate-200 rounded-lg p-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all placeholder-slate-300 text-slate-700 resize-none shadow-sm leading-relaxed"
+                          className="w-full h-28 text-base md:text-[12px] font-normal bg-white border border-slate-200 rounded-lg p-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all placeholder-slate-300 text-slate-700 resize-none shadow-sm leading-relaxed"
                           placeholder="Type your message…" />
                         <UnprintableTextNote chars={unprintableFor?.(overlay) ?? []} removed={textRemoved} />
                       </div>
