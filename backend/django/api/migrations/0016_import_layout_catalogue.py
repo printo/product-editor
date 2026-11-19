@@ -162,7 +162,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='layoutcatalogue',
-            constraint=models.CheckConstraint(check=models.Q(('imported_by', ''), _connector='OR', _negated=False) | models.Q(('imported_by__isnull', False)), name='layout_catalogue_imported_by_consistency'),
+            constraint=models.CheckConstraint(condition=models.Q(('imported_by', ''), _connector='OR', _negated=False) | models.Q(('imported_by__isnull', False)), name='layout_catalogue_imported_by_consistency'),
         ),
         migrations.RunPython(
             import_layouts_from_filesystem,
