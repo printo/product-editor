@@ -187,6 +187,10 @@ export function CalendarEditPanel({
   const handleInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      // An input-method keyboard (Hindi/Tamil by sound, CJK) uses Enter to
+      // confirm a word; keyCode 229 covers Safari, where isComposing is
+      // already false by then.
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       handleAddClick();
     }
   };
