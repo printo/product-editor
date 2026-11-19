@@ -384,10 +384,29 @@ describe('CalendarEditPanel — mobile bottom-sheet', () => {
   });
 
   it('panel is keyed with role=dialog and aria-modal for screen-reader trapping', () => {
+    const realMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(max-width: 767px)', media: query, onchange: null,
+      addEventListener: () => {}, removeEventListener: () => {},
+      addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    try {
+      setup();
+      const panel = screen.getByTestId('calendar-edit-panel');
+      expect(panel.getAttribute('role')).toBe('dialog');
+      expect(panel.getAttribute('aria-modal')).toBe('true');
+      expect(document.activeElement).toBe(panel);
+    } finally {
+      window.matchMedia = realMatchMedia;
+    }
+  });
+
+  it('as a side rail it is a non-modal dialog that takes focus when it opens', () => {
     setup();
     const panel = screen.getByTestId('calendar-edit-panel');
     expect(panel.getAttribute('role')).toBe('dialog');
-    expect(panel.getAttribute('aria-modal')).toBe('true');
+    expect(panel.hasAttribute('aria-modal')).toBe(false);
+    expect(document.activeElement).toBe(panel);
   });
 });
 

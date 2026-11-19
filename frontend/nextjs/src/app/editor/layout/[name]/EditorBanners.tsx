@@ -65,7 +65,7 @@ export function EditorBanners({
             <span className="text-[14px] font-black">!</span>
           </div>
           <span className="flex-1 text-[10px] font-bold text-amber-900/80 uppercase tracking-tight leading-none">{uploadWarning}</span>
-          <button onClick={() => setUploadWarning(null)} className="p-2 hover:bg-amber-50 rounded-lg transition-all group-hover:rotate-90">
+          <button onClick={() => setUploadWarning(null)} aria-label="Dismiss upload warning" className="p-2 hover:bg-amber-50 rounded-lg transition-all group-hover:rotate-90">
             <X className="w-3.5 h-3.5 text-amber-400" />
           </button>
         </div>
@@ -79,7 +79,7 @@ export function EditorBanners({
             <p className="text-[10px] font-black text-orange-900/90 uppercase tracking-tight leading-none mb-1">CMYK → RGB colour shift</p>
             <p className="text-[10px] font-medium text-orange-800/70 leading-snug">{colorWarning}</p>
           </div>
-          <button onClick={() => setColorWarning(null)} className="p-2 mt-0.5 hover:bg-orange-50 rounded-lg transition-all shrink-0">
+          <button onClick={() => setColorWarning(null)} aria-label="Dismiss colour warning" className="p-2 mt-0.5 hover:bg-orange-50 rounded-lg transition-all shrink-0">
             <X className="w-3.5 h-3.5 text-orange-400" />
           </button>
         </div>
@@ -96,7 +96,7 @@ export function EditorBanners({
             <p className="text-[10px] font-black text-rose-900/90 uppercase tracking-tight leading-none mb-1">Unsupported file</p>
             <p className="text-[10px] font-medium text-rose-800/70 leading-snug">{unsupportedWarning}</p>
           </div>
-          <button onClick={() => setUnsupportedWarning(null)} className="p-2 mt-0.5 hover:bg-rose-50 rounded-lg transition-all shrink-0">
+          <button onClick={() => setUnsupportedWarning(null)} aria-label="Dismiss unsupported file warning" className="p-2 mt-0.5 hover:bg-rose-50 rounded-lg transition-all shrink-0">
             <X className="w-3.5 h-3.5 text-rose-400" />
           </button>
         </div>
@@ -174,7 +174,7 @@ export function ErrorBanner({ error, setError }: {
       {error && (
         <div className="fixed top-4 right-4 z-[200000] max-w-sm bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-lg shadow-lg flex items-center gap-3">
           <span className="flex-1">{error}</span>
-          <button onClick={() => setError(null)}><X className="w-4 h-4" /></button>
+          <button onClick={() => setError(null)} aria-label="Dismiss error"><X className="w-4 h-4" aria-hidden /></button>
         </div>
       )}
     </>

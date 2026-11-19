@@ -14,6 +14,11 @@ import { useEffect, useRef, type RefObject } from 'react';
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Open modals, innermost last. Only the innermost one handles Tab and
+ *  Escape: a dialog opened over the canvas editor sits outside the editor's
+ *  container, and the editor's trap would otherwise pull focus back out of it. */
+const openModals: symbol[] = [];
+
 export function useModalA11y(
   containerRef: RefObject<HTMLElement | null>,
   onClose: (() => void) | null,
@@ -29,6 +34,8 @@ export function useModalA11y(
 
   useEffect(() => {
     if (!active) return;
+    const token = Symbol('modal');
+    openModals.push(token);
     const container = containerRef.current;
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
@@ -40,6 +47,7 @@ export function useModalA11y(
     (first ?? container)?.focus?.();
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (openModals[openModals.length - 1] !== token) return;
       if (e.key === 'Escape') {
         const close = onCloseRef.current;
         if (!close) return;
@@ -53,6 +61,14 @@ export function useModalA11y(
       const firstEl = items[0];
       const lastEl = items[items.length - 1];
       const activeEl = document.activeElement;
+      // Focus outside the dialog (a click on the page behind it, or on plain
+      // text that left focus on <body>): Tab brings it back in, at the start
+      // (or the end, with Shift), instead of walking the page behind.
+      if (!container?.contains(activeEl)) {
+        e.preventDefault();
+        (e.shiftKey ? lastEl : firstEl).focus();
+        return;
+      }
       if (e.shiftKey && activeEl === firstEl) {
         e.preventDefault();
         lastEl.focus();
@@ -65,6 +81,8 @@ export function useModalA11y(
     document.addEventListener('keydown', onKeyDown, true);
     return () => {
       document.removeEventListener('keydown', onKeyDown, true);
+      const at = openModals.indexOf(token);
+      if (at !== -1) openModals.splice(at, 1);
       // Restore focus to whatever opened the modal.
       previouslyFocused?.focus?.();
     };

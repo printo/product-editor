@@ -1,6 +1,7 @@
 'use client';
 
-import type { Dispatch, SetStateAction } from 'react';
+import { useRef, type Dispatch, type SetStateAction } from 'react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 import { clsx } from 'clsx';
 import { Layout, X } from 'lucide-react';
 
@@ -83,14 +84,22 @@ export function BookSpreadPreview({
   bookBackCoverPreview: BookPreviewPage | null;
   bookSpineWidthMm: number | null;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, () => setShowSpreadPreview(false), showSpreadPreview);
   return (
     <>
       {/* ── Book: read-only spread preview (D6) ─────────────────────────── */}
       {showSpreadPreview && (
-        <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200004] bg-black/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="book-spread-preview-title"
+          className="fixed inset-0 overflow-hidden overscroll-contain z-[200004] bg-black/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200"
+        >
           <div className="flex items-center justify-between px-6 py-4 bg-white/95 border-b border-slate-200 shrink-0">
             <div>
-              <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight">Spread preview</h2>
+              <h2 id="book-spread-preview-title" className="text-sm font-black text-slate-900 uppercase tracking-tight">Spread preview</h2>
               <p className="text-[10px] text-slate-400 font-medium">Read-only — edit individual pages in the grid</p>
             </div>
             <button
