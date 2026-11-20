@@ -131,7 +131,7 @@ export function GenZPaletteSwatches({
             className={
               'grid grid-cols-2 grid-rows-2 overflow-hidden rounded-md ' +
               'h-9 w-9 shrink-0 cursor-pointer transition-transform ' +
-              'hover:-translate-y-0.5 ' +
+              'motion-safe:hover:-translate-y-0.5 ' +
               (selected ? 'ring-2 ring-zinc-900 ring-offset-1' : 'ring-1 ring-zinc-200')
             }
           >

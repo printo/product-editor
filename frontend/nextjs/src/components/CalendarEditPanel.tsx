@@ -268,7 +268,7 @@ export function CalendarEditPanel({
           onClick={onClose}
           aria-label="Close cell editor"
           data-testid="cell-editor-close"
-          className="text-zinc-400 hover:text-zinc-900 leading-none text-2xl"
+          className="text-zinc-500 hover:text-zinc-900 leading-none text-2xl"
         >
           ×
         </button>
@@ -281,7 +281,7 @@ export function CalendarEditPanel({
         <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
           Entries{' '}
           {!imageOverride && !hasHideOverride && (
-            <span className="text-zinc-400 font-normal">
+            <span className="text-zinc-500 font-normal">
               {totalVisibleCount}/{MAX_ENTRIES_PER_CELL}
             </span>
           )}
@@ -346,7 +346,7 @@ export function CalendarEditPanel({
                       }
                       aria-label={`Remove "${e.text}"`}
                       data-testid={`remove-entry-${displayIdx}`}
-                      className="text-zinc-400 hover:text-red-600 text-lg leading-none shrink-0"
+                      className="text-zinc-500 hover:text-red-600 text-lg leading-none shrink-0"
                     >
                       ×
                     </button>

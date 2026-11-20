@@ -45,7 +45,7 @@ export function DownloadOptionsDialog({
               <p id={messageId} className="text-sm text-slate-500 leading-relaxed">Please review and confirm before generating your print-ready files.</p>
             </div>
             <button onClick={onClose} aria-label="Close" className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
-              <X className="w-4 h-4 text-slate-400" />
+              <X className="w-4 h-4 text-slate-500" />
             </button>
           </div>
         </div>
@@ -106,7 +106,7 @@ export function DownloadOptionsDialog({
             </div>
             <div className="text-center">
               <div className="text-sm font-bold text-slate-800 tracking-tight">ZIP Archive</div>
-              <div className="text-xs text-slate-400 mt-0.5">All files packed</div>
+              <div className="text-xs text-slate-500 mt-0.5">All files packed</div>
             </div>
           </button>
           <button
@@ -119,7 +119,7 @@ export function DownloadOptionsDialog({
             </div>
             <div className="text-center">
               <div className="text-sm font-bold text-slate-800 tracking-tight">Imposition</div>
-              <div className="text-xs text-slate-400 mt-0.5">Print sheet layout</div>
+              <div className="text-xs text-slate-500 mt-0.5">Print sheet layout</div>
             </div>
           </button>
         </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 export interface SegmentedNavItem {
   href: string;
@@ -17,6 +17,8 @@ interface SegmentedNavProps {
  *  The active background slides (spring physics) between items instead of snapping. */
 export const SegmentedNav = ({ items }: SegmentedNavProps) => {
   const activeIndex = items.findIndex((item) => item.active);
+  // With "reduce motion" on, the pill moves straight to the chosen item.
+  const reduceMotion = useReducedMotion();
 
   return (
     <nav className="flex items-center bg-slate-100/80 p-1 rounded-lg border border-slate-200/40 shrink-0 shadow-inner overflow-hidden">
@@ -33,15 +35,16 @@ export const SegmentedNav = ({ items }: SegmentedNavProps) => {
               left: `${(activeIndex / items.length) * 100}%`,
               width: `${100 / items.length}%`,
             }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 30 }}
           />
         )}
         {items.map((item) => (
           <Link
             key={item.href}
             href={item.href}
+            aria-current={item.active ? 'page' : undefined}
             className={`relative z-10 flex-1 px-2 md:px-5 py-1.5 md:py-2.5 rounded-lg text-[9px] md:text-[13px] font-black uppercase tracking-tight md:tracking-wider transition-colors duration-300 min-w-[58px] md:min-w-[100px] text-center whitespace-nowrap ${
-              item.active ? 'text-white' : 'text-slate-400 hover:text-slate-600'
+              item.active ? 'text-white' : 'text-slate-500 hover:text-slate-600'
             }`}
           >
             {item.label}

@@ -158,7 +158,7 @@ export function CalendarDayPicker({
 
       <div className="grid grid-cols-7 gap-0.5 text-center" aria-hidden="true">
         {weekdays.map((w, i) => (
-          <span key={i} className="text-[10px] font-medium uppercase text-zinc-400 py-0.5">{w.slice(0, 2)}</span>
+          <span key={i} className="text-[10px] font-medium uppercase text-zinc-500 py-0.5">{w.slice(0, 2)}</span>
         ))}
       </div>
       <div

@@ -169,8 +169,8 @@ export function DeleteTemplateDialog({ template, onConfirm, onCancel }: DeleteTe
           Customers stop seeing it on every layout it is offered on. Designs that already use it keep their decoration.
         </p>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => onConfirm(template)} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-all active:scale-95">Delete</button>
-          <button type="button" onClick={onCancel} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95">Cancel</button>
+          <button type="button" onClick={() => onConfirm(template)} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-all motion-safe:active:scale-95">Delete</button>
+          <button type="button" onClick={onCancel} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95">Cancel</button>
         </div>
       </div>
     </div>

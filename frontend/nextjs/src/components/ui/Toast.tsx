@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, X } from 'lucide-react';
+import { useAnnounceWhen } from '@/lib/announcer';
 
 export type ToastTone = 'success' | 'error' | 'warning';
 
@@ -50,6 +51,11 @@ export const Toast = ({ message, tone, onDismiss, duration = 5000 }: ToastProps)
     dismissRef.current = onDismiss;
   }, [onDismiss]);
 
+  // Spoken through the page's announcer, which is in the page before the
+  // toast appears; a toast that mounts with its own live role is often not
+  // read out.
+  useAnnounceWhen(message, { assertive: tone === 'error' });
+
   useEffect(() => {
     if (!message) return;
     const timer = setTimeout(() => dismissRef.current(), duration);
@@ -61,8 +67,7 @@ export const Toast = ({ message, tone, onDismiss, duration = 5000 }: ToastProps)
 
   return (
     <div
-      role="status"
-      aria-live="polite"
+      data-testid="toast"
       className={`pointer-events-auto relative overflow-hidden w-[min(92vw,420px)] border rounded-xl shadow-lg animate-in fade-in slide-in-from-bottom-3 ${shell}`}
     >
       <div className="flex items-start gap-3 p-4 pr-10">

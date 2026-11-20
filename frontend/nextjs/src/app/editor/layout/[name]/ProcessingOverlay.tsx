@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import { useAnnounceWhen } from '@/lib/announcer';
 
 type Props = {
   isProcessing: boolean;
@@ -17,6 +18,14 @@ type Props = {
 export function ProcessingOverlay({
   isProcessing, isDownloading, isImposing, renderProgress, serverRenderLabel, heicConverting, embedToken,
 }: Props) {
+  const showProgress = (isProcessing || isDownloading || isImposing) && renderProgress;
+  const progressTitle = isDownloading
+    ? (embedToken ? 'Saving Your Design' : 'Preparing Download')
+    : 'Processing Your Design';
+  // The card's title is read out once when it appears; the percentage is on
+  // the progress bar for anyone who asks, not announced at every step.
+  useAnnounceWhen(showProgress ? progressTitle : null);
+  useAnnounceWhen(heicConverting ? 'Converting iPhone photo' : null);
   return (
     <>
       {/* ── Fixed Processing Overlay ────────────────────────────────────── */}
@@ -34,11 +43,9 @@ export function ProcessingOverlay({
                   {/* Only the SUBMIT pass (isDownloading) is reworded for
                       embed — this same overlay also covers canvas preview
                       generation after a photo pick, which is not a save. */}
-                  {isDownloading
-                    ? (embedToken ? 'Saving Your Design' : 'Preparing Download')
-                    : 'Processing Your Design'}
+                  {progressTitle}
                 </span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
                   {isDownloading
                     ? (embedToken ? 'This may take a moment' : 'Bundling high-res print files')
                     : 'Optimizing images for print'}
@@ -49,7 +56,14 @@ export function ProcessingOverlay({
               </span>
             </div>
 
-            <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden p-0.5">
+            <div
+              role="progressbar"
+              aria-label={progressTitle}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round((renderProgress.current / renderProgress.total) * 100)}
+              className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden p-0.5"
+            >
               <div
                 className="h-full bg-indigo-500 rounded-full transition-all duration-300 ease-out shadow-[0_0_12px_rgba(99,102,241,0.4)]"
                 style={{ width: `${Math.round((renderProgress.current / renderProgress.total) * 100)}%` }}
@@ -81,7 +95,7 @@ export function ProcessingOverlay({
             <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
               Converting iPhone Photo
             </span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
               Preparing HEIC image for editing
             </span>
           </div>

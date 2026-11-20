@@ -215,7 +215,7 @@ function CoverSketch({ cover, onFrame }: { cover: CoverDraft; onFrame: (i: numbe
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-zinc-400">Drag a window to move it, its corner to resize.</p>
+      <p className="text-[11px] text-zinc-500">Drag a window to move it, its corner to resize.</p>
     </div>
   );
 }
@@ -269,7 +269,7 @@ export function CalendarCoversPanel({ covers, onChange, maskFiles, onMaskFile, b
                 type="button"
                 data-testid={`cover-remove-${id}`}
                 onClick={() => { onMaskFile(key, null); onChange(key, null); }}
-                className="text-xs text-zinc-400 hover:text-red-600"
+                className="text-xs text-zinc-500 hover:text-red-600"
               >
                 ✕ Remove
               </button>
@@ -287,7 +287,7 @@ export function CalendarCoversPanel({ covers, onChange, maskFiles, onMaskFile, b
                     <button
                       type="button"
                       onClick={() => patch({ frames: cover.frames.filter((_, idx) => idx !== i) })}
-                      className="text-zinc-400 hover:text-red-600"
+                      className="text-zinc-500 hover:text-red-600"
                       aria-label={`Remove photo window ${i + 1} from the ${title.toLowerCase()}`}
                     >
                       ✕
@@ -337,7 +337,7 @@ export function CalendarCoversPanel({ covers, onChange, maskFiles, onMaskFile, b
                   <button
                     type="button"
                     onClick={() => { onMaskFile(key, null); patch({ maskUrl: null, maskOnExport: false }); }}
-                    className="self-start text-xs text-zinc-400 hover:text-red-600"
+                    className="self-start text-xs text-zinc-500 hover:text-red-600"
                   >
                     ✕ Remove mask
                   </button>

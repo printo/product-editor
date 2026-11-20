@@ -75,7 +75,7 @@ export function EmptyState({
             <p className="text-[13px] font-black text-slate-800 uppercase tracking-tight">
               No images selected
             </p>
-            <p className="text-[11px] text-slate-400 font-medium max-w-[240px]">
+            <p className="text-[11px] text-slate-500 font-medium max-w-[240px]">
               Drag and drop your photos here, or click to choose them
             </p>
           </div>

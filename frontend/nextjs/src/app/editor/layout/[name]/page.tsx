@@ -527,7 +527,7 @@ export default function LayoutEditorPage() {
   if (layoutLoading) return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-slate-50">
       <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Loading template…</p>
+      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Loading template…</p>
     </div>
   );
   if (!layout) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="text-center"><p className="text-slate-600 font-medium">Layout not found.</p></div></div>;

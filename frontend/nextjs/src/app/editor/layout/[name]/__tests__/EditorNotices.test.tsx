@@ -137,30 +137,30 @@ describe('TextRemovedToast', () => {
 
   it('shows nothing when the editor opens, whatever was removed before', () => {
     render(<TextRemovedToast removals={3} />);
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByTestId('toast')).toBeNull();
   });
 
   it('appears in the middle of the screen when characters are removed, pointing to the sidebar, and goes after fifteen seconds', () => {
     const { rerender } = render(<TextRemovedToast removals={0} />);
     rerender(<TextRemovedToast removals={1} />);
-    const toast = screen.getByRole('status');
+    const toast = screen.getByTestId('toast');
     expect(toast).toHaveTextContent(UNSUPPORTED_REMOVED);
     expect(toast).toHaveTextContent('Please choose another font, or use a clipart, image or icon from the sidebar. We also support Indian languages.');
     expect(toast.parentElement).toHaveClass('top-1/2', 'left-1/2', '-translate-x-1/2', '-translate-y-1/2');
     expect(TEXT_REMOVED_TOAST_MS).toBe(15000);
     act(() => { jest.advanceTimersByTime(14999); });
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toBeInTheDocument();
     act(() => { jest.advanceTimersByTime(1); });
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByTestId('toast')).toBeNull();
   });
 
   it('can be dismissed, and comes back for the next removal', () => {
     const { rerender } = render(<TextRemovedToast removals={0} />);
     rerender(<TextRemovedToast removals={1} />);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByTestId('toast')).toBeNull();
     rerender(<TextRemovedToast removals={2} />);
-    expect(screen.getByRole('status')).toHaveTextContent(UNSUPPORTED_REMOVED);
+    expect(screen.getByTestId('toast')).toHaveTextContent(UNSUPPORTED_REMOVED);
   });
 
   it('starts its fifteen seconds again when more is removed while it is showing', () => {
@@ -169,8 +169,8 @@ describe('TextRemovedToast', () => {
     act(() => { jest.advanceTimersByTime(10000); });
     rerender(<TextRemovedToast removals={2} />);
     act(() => { jest.advanceTimersByTime(10000); });
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toBeInTheDocument();
     act(() => { jest.advanceTimersByTime(5000); });
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByTestId('toast')).toBeNull();
   });
 });

@@ -117,14 +117,14 @@ function RotationControl({ value, onChange }: { value: number; onChange: (v: num
       
       <div className="flex items-center gap-2">
         <button onClick={() => onChange((value + 90) % 360)} aria-label="Rotate 90 degrees"
-          className="w-8 h-8 flex items-center justify-center bg-white text-slate-400 border border-slate-200 rounded-lg hover:text-indigo-600 hover:border-indigo-100 transition-all group/btn">
-          <RotateCw className="w-3.5 h-3.5 group-hover/btn:rotate-90 transition-transform duration-500" />
+          className="w-8 h-8 flex items-center justify-center bg-white text-slate-500 border border-slate-200 rounded-lg hover:text-indigo-600 hover:border-indigo-100 transition-all group/btn">
+          <RotateCw className="w-3.5 h-3.5 motion-safe:group-hover/btn:rotate-90 transition-transform duration-500" />
         </button>
         
         <div className="relative">
           <DraftNumberInput min={0} max={359} value={value} onCommit={onChange} label="Rotation in degrees"
             className="w-11 h-8 px-0 text-base md:text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
-          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-300 pointer-events-none">°</span>
+          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-500 pointer-events-none">°</span>
         </div>
       </div>
     </div>
@@ -161,7 +161,7 @@ function ScaleControl({ label = "Zoom", width, height, onScale }: { label?: stri
             onScale(newW, Math.max(1, Math.min(250, Math.round(newW * ratio))));
           }}
           className="w-11 h-8 px-0 text-base md:text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
-        <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-300 pointer-events-none">%</span>
+        <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-500 pointer-events-none">%</span>
       </div>
     </div>
   );
@@ -255,12 +255,12 @@ export function CanvasEditorSidebar({
   const addPhotoBlock = (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg text-rose-500 hover:bg-white hover:border-rose-200 transition-all cursor-pointer overflow-hidden shadow-sm">
-                    <div className="p-3 bg-rose-50 rounded-lg shadow-inner group-hover:scale-110 transition-all duration-500">
+                    <div className="p-3 bg-rose-50 rounded-lg shadow-inner motion-safe:group-hover:scale-110 transition-all duration-500">
                       <ImagePlus className="w-6 h-6" />
                     </div>
                     <div className="text-center">
                       <p className="text-[11px] font-medium uppercase">Add Photo</p>
-                      <p className="text-[10px] text-slate-400 uppercase tracking-tight opacity-80">Floating overlay</p>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-tight opacity-80">Floating overlay</p>
                     </div>
                     <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
                       onChange={async e => {
@@ -337,7 +337,7 @@ export function CanvasEditorSidebar({
                       className={clsx('flex-1 py-1.5 text-[10px] font-medium rounded-md transition-all uppercase',
                         frame.fitMode === mode 
                           ? 'bg-indigo-600 text-white shadow-sm' 
-                          : 'text-slate-400 hover:text-slate-600')}>
+                          : 'text-slate-500 hover:text-slate-600')}>
                       {mode === 'contain' ? 'Fit' : 'Cover'}
                     </button>
                   ))}
@@ -405,7 +405,7 @@ export function CanvasEditorSidebar({
                           }}
                           className={clsx(
                             'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-300',
-                            fillOn ? 'bg-indigo-600' : 'bg-slate-200',
+                            fillOn ? 'bg-indigo-600' : 'bg-slate-500',
                           )}
                         >
                           <span className={clsx(
@@ -414,7 +414,7 @@ export function CanvasEditorSidebar({
                           )} />
                         </button>
                       </div>
-                      <p className="text-[10px] leading-4 text-slate-400">Blur the photo behind it to fill empty space</p>
+                      <p className="text-[10px] leading-4 text-slate-500">Blur the photo behind it to fill empty space</p>
                     </div>
                   );
                 })()}
@@ -448,9 +448,9 @@ export function CanvasEditorSidebar({
                   className={clsx('flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-lg transition-all duration-300 relative overflow-hidden',
                     isActive 
                       ? 'bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-200' 
-                      : 'text-slate-400 hover:text-slate-600 scale-95')}>
-                  <Icon className={clsx('w-4 h-4 transition-all', isActive ? 'text-white' : 'text-slate-300')} />
-                  <span className={clsx('text-[9px] font-medium uppercase transition-all', isActive ? 'text-white' : 'text-slate-400')}>
+                      : 'text-slate-500 hover:text-slate-600 scale-95')}>
+                  <Icon className={clsx('w-4 h-4 transition-all', isActive ? 'text-white' : 'text-slate-500')} />
+                  <span className={clsx('text-[9px] font-medium uppercase transition-all', isActive ? 'text-white' : 'text-slate-500')}>
                     {tab.label}
                   </span>
                 </button>
@@ -467,7 +467,7 @@ export function CanvasEditorSidebar({
                 <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-lg shadow-sm hover:border-indigo-100 transition-all group">
                   <div className="space-y-0.5">
                     <p className="text-[11px] font-medium text-slate-800 uppercase">Background Colour</p>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-tight">Base canvas color</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-tight">Base canvas color</p>
                   </div>
                   <ColorPicker value={editingCanvas.bgColor || '#ffffff'} ariaLabel="Background colour"
                     onChange={color => {
@@ -494,10 +494,10 @@ export function CanvasEditorSidebar({
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                       <div className="flex flex-col">
                         <p className="text-[11px] font-medium text-slate-900 uppercase">Text Styling</p>
-                        <span className="text-[10px] text-slate-400 uppercase">Edit content & style</span>
+                        <span className="text-[10px] text-slate-500 uppercase">Edit content & style</span>
                       </div>
                       <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all active:scale-90">
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all motion-safe:active:scale-90">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -520,12 +520,12 @@ export function CanvasEditorSidebar({
                           <label className="text-[11px] font-medium text-slate-500 uppercase">Size</label>
                           <div className="flex items-center bg-white border border-slate-200 rounded-lg h-11 px-2 shadow-sm">
                             <button onClick={() => updateOverlay({ fontSize: Math.max(8, (overlay.fontSize || 24) - 2) })} aria-label="Smaller text"
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg"><Minus className="w-3.5 h-3.5" /></button>
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 transition-colors rounded-lg"><Minus className="w-3.5 h-3.5" /></button>
                             <DraftNumberInput min={8} max={2000} value={overlay.fontSize || 24} label="Font size"
                               onCommit={fontSize => updateOverlay({ fontSize })}
                               className="flex-1 min-w-0 text-center text-base md:text-[11px] font-mono font-medium text-slate-700 bg-transparent border-none outline-none p-0" />
                             <button onClick={() => updateOverlay({ fontSize: (overlay.fontSize || 24) + 2 })} aria-label="Larger text"
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg"><Plus className="w-3.5 h-3.5" /></button>
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 transition-colors rounded-lg"><Plus className="w-3.5 h-3.5" /></button>
                           </div>
                         </div>
                         <div className="space-y-3">
@@ -545,7 +545,7 @@ export function CanvasEditorSidebar({
                               className={clsx('flex-1 flex items-center justify-center h-full rounded-lg transition-all',
                               (overlay.textAlign ?? 'center') === key 
                                 ? 'bg-white text-indigo-600 shadow-sm border border-slate-200' 
-                                : 'text-slate-400 hover:text-slate-600')}>
+                                : 'text-slate-500 hover:text-slate-600')}>
                               <Icon className="w-4 h-4" />
                             </button>
                           ))}
@@ -555,7 +555,7 @@ export function CanvasEditorSidebar({
                       <div className="space-y-3">
                         <label htmlFor={`${fieldId}-content`} className="text-[11px] font-medium text-slate-500 uppercase">Content</label>
                         <textarea id={`${fieldId}-content`} value={overlay.text} onChange={e => updateOverlay({ text: e.target.value })}
-                          className="w-full h-28 text-base md:text-[12px] font-normal bg-white border border-slate-200 rounded-lg p-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all placeholder-slate-300 text-slate-700 resize-none shadow-sm leading-relaxed"
+                          className="w-full h-28 text-base md:text-[12px] font-normal bg-white border border-slate-200 rounded-lg p-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all placeholder-slate-500 text-slate-700 resize-none shadow-sm leading-relaxed"
                           placeholder="Type your message…" />
                         <UnprintableTextNote chars={unprintableFor?.(overlay) ?? []} removed={textRemoved} />
                       </div>
@@ -593,7 +593,7 @@ export function CanvasEditorSidebar({
                   const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
                   debouncedRender(updated);
                   setSelectedLayer({ type: 'text', index: updated.overlays.length - 1 });
-                }} className="w-full h-11 flex items-center justify-center gap-3 bg-indigo-600 text-white rounded-lg text-[11px] font-medium uppercase hover:bg-indigo-700 hover:shadow-lg transition-all active:scale-[0.98]">
+                }} className="w-full h-11 flex items-center justify-center gap-3 bg-indigo-600 text-white rounded-lg text-[11px] font-medium uppercase hover:bg-indigo-700 hover:shadow-lg transition-all motion-safe:active:scale-[0.98]">
                   <Type className="w-4 h-4" /> Add New Text
                 </button>
               );
@@ -619,11 +619,11 @@ export function CanvasEditorSidebar({
                         </div>
                         <div className="flex flex-col min-w-0">
                           <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
-                          <span className="text-[10px] text-slate-400 uppercase">Icon Overlay</span>
+                          <span className="text-[10px] text-slate-500 uppercase">Icon Overlay</span>
                         </div>
                       </div>
                       <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all active:scale-90">
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all motion-safe:active:scale-90">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -702,10 +702,10 @@ export function CanvasEditorSidebar({
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                       <div className="flex flex-col min-w-0 max-w-[70%]">
                         <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
-                        <span className="text-[10px] text-slate-400 uppercase">Image Overlay</span>
+                        <span className="text-[10px] text-slate-500 uppercase">Image Overlay</span>
                       </div>
                       <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all active:scale-90">
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all motion-safe:active:scale-90">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -844,8 +844,8 @@ export function CanvasEditorSidebar({
       {/* Safe-area padding keeps Save above the iOS home indicator. */}
       <div className="px-4 py-3 bg-white border-t border-slate-100 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
         <button onClick={handleSaveChanges}
-          className="w-full h-12 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-lg font-medium uppercase text-[11px] hover:shadow-lg hover:shadow-indigo-100 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
-          <CheckCircle2 className="w-4 h-4 transition-transform group-hover:scale-110" />
+          className="w-full h-12 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-lg font-medium uppercase text-[11px] hover:shadow-lg hover:shadow-indigo-100 motion-safe:active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
+          <CheckCircle2 className="w-4 h-4 transition-transform motion-safe:group-hover:scale-110" />
           Save Changes
         </button>
       </div>

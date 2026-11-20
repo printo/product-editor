@@ -335,7 +335,7 @@ export function CanvasEditorModal({
 
         {/* Floating close */}
         <button onClick={onClose} aria-label="Close editor"
-          className="absolute top-4 right-4 z-30 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-white rounded-full shadow-lg transition-all">
+          className="absolute top-4 right-4 z-30 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-white rounded-full shadow-lg transition-all">
           <X className="w-5 h-5" />
         </button>
 
@@ -369,10 +369,10 @@ export function CanvasEditorModal({
                     "px-4 py-3 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-500 whitespace-nowrap text-left flex items-center gap-3 group",
                     isActive 
                       ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200 translate-x-1" 
-                      : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50/50"
+                      : "text-slate-500 hover:text-indigo-600 hover:bg-indigo-50/50"
                   )}
                 >
-                  <span className={clsx("w-5 text-center transition-colors font-black", isActive ? "text-indigo-200" : "text-slate-300 group-hover:text-indigo-300")}>
+                  <span className={clsx("w-5 text-center transition-colors font-black", isActive ? "text-indigo-200" : "text-slate-500 group-hover:text-indigo-300")}>
                     {idx + 1}
                   </span>
                   {s.label}
@@ -394,14 +394,14 @@ export function CanvasEditorModal({
                 else onOpenCanvas(currentIdx - 1);
               }}
               aria-label={isMultiSurface ? 'Previous side' : 'Previous design'}
-              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 active:scale-90"
+              className="p-2 text-slate-500 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 motion-safe:active:scale-90"
             >
               <ChevronRight className="w-4 h-4 rotate-180" aria-hidden />
             </button>
 
             <span className="text-[10px] font-black text-slate-700 tabular-nums px-1 min-w-[48px] text-center uppercase tracking-tighter">
               {currentIdx + 1}
-              <span className="mx-1 text-slate-300">/</span>
+              <span className="mx-1 text-slate-500">/</span>
               {totalCount}
             </span>
 
@@ -412,7 +412,7 @@ export function CanvasEditorModal({
                 else onOpenCanvas(currentIdx + 1);
               }}
               aria-label={isMultiSurface ? 'Next side' : 'Next design'}
-              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 active:scale-90"
+              className="p-2 text-slate-500 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 motion-safe:active:scale-90"
             >
               <ChevronRight className="w-4 h-4" aria-hidden />
             </button>
@@ -421,20 +421,20 @@ export function CanvasEditorModal({
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-violet-200/50 p-1 rounded-xl shadow-lg">
               <button onClick={handleUndo} disabled={undoCount === 0}
-                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Undo (Ctrl+Z)" aria-label="Undo">
+                className="p-2 text-violet-600 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Undo (Ctrl+Z)" aria-label="Undo">
                 <Undo2 className="w-4 h-4" />
               </button>
               <button onClick={handleRedo} disabled={redoCount === 0}
-                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+                className="p-2 text-violet-600 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
                 <Redo2 className="w-4 h-4" />
               </button>
             </div>
             <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-cyan-200/50 p-1 rounded-xl shadow-lg w-[140px] justify-between">
-              <button onClick={() => setViewZoom(p => Math.max(0.3, p - 0.15))} aria-label="Zoom out" className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Minus className="w-4 h-4" /></button>
-              <button onClick={() => setViewZoom(1.0)} aria-label={`${(viewZoom * 100).toFixed(0)}%, reset zoom`} className="min-w-[48px] text-[10px] font-black text-cyan-500 uppercase tracking-tighter hover:text-cyan-700 transition-colors">
+              <button onClick={() => setViewZoom(p => Math.max(0.3, p - 0.15))} aria-label="Zoom out" className="p-1.5 text-cyan-600 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Minus className="w-4 h-4" /></button>
+              <button onClick={() => setViewZoom(1.0)} aria-label={`${(viewZoom * 100).toFixed(0)}%, reset zoom`} className="min-w-[48px] text-[10px] font-black text-cyan-700 uppercase tracking-tighter hover:text-cyan-700 transition-colors">
                 {(viewZoom * 100).toFixed(0)}%
               </button>
-              <button onClick={() => setViewZoom(p => Math.min(3, p + 0.15))} aria-label="Zoom in" className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Plus className="w-4 h-4" /></button>
+              <button onClick={() => setViewZoom(p => Math.min(3, p + 0.15))} aria-label="Zoom in" className="p-1.5 text-cyan-600 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Plus className="w-4 h-4" /></button>
             </div>
           </div>
         </div>

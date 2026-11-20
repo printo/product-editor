@@ -26,20 +26,20 @@ describe('EditorBanners', () => {
 
   it('tap-to-swap: says what to do and can be cancelled', () => {
     const { props } = setup({ swapSource: { idx: 0, surfaceKey: null } });
-    expect(screen.getByRole('status')).toHaveTextContent('Tap another photo to swap');
+    expect(screen.getByText('Tap another photo to swap')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel swap' }));
     expect(props.setSwapSource).toHaveBeenCalledWith(null);
   });
 
   it('storage: a blocked store and a full one read differently, and dismissing clears both', () => {
     const { props, unmount } = setup({ storageBlocked: true });
-    expect(screen.getByRole('status')).toHaveTextContent('Your browser is blocking local storage');
+    expect(screen.getByText(/Your browser is blocking local storage/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss storage warning' }));
     expect(props.setPersistDegraded).toHaveBeenCalledWith(false);
     expect(props.setStorageBlocked).toHaveBeenCalledWith(false);
     unmount();
     setup({ persistDegraded: true });
-    expect(screen.getByRole('status')).toHaveTextContent("This device's storage is full");
+    expect(screen.getByText(/This device's storage is full/)).toBeInTheDocument();
   });
 
   it('stacks the upload, colour and unsupported-file warnings top right, each dismissable', () => {
@@ -62,7 +62,7 @@ describe('EditorBanners', () => {
 
   it('under the ordered quantity: counts, a progress bar, and the two ways to fill the gap', () => {
     const { props, click } = setup({ qtyUnder: { uploaded: 3, needed: 12 } });
-    const banner = screen.getByRole('status');
+    const banner = screen.getByTestId('qty-under-banner');
     expect(banner).toHaveTextContent('3 of 12 images uploaded');
     expect(banner).toHaveTextContent('Upload 9 more photos, or repeat from the images already uploaded.');
     // Below both bars: the top bar and the toolbar, plus a gap.
@@ -79,7 +79,7 @@ describe('EditorBanners', () => {
 
   it('says "photo" for one missing', () => {
     setup({ qtyUnder: { uploaded: 11, needed: 12 } });
-    expect(screen.getByRole('status')).toHaveTextContent('Upload 1 more photo, or');
+    expect(screen.getByTestId('qty-under-banner')).toHaveTextContent('Upload 1 more photo, or');
   });
 });
 

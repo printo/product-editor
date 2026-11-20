@@ -18,14 +18,14 @@ export function DeleteConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => 
         <div className="flex items-center gap-3">
           <button
             onClick={onConfirm}
-            className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all active:scale-95"
+            className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all motion-safe:active:scale-95"
           >
             Remove
           </button>
           <button
             ref={cancelRef}
             onClick={onCancel}
-            className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95"
+            className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95"
           >
             Cancel
           </button>

@@ -28,13 +28,13 @@ export function TruncatedImagesDialog({ badFiles, onDecide }: {
         <div className="flex items-center gap-2">
           <button
             onClick={() => onDecide('remove')}
-            className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95"
+            className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all motion-safe:active:scale-95"
           >
             Remove {badFiles.length > 1 ? 'them' : 'it'}
           </button>
           <button
             onClick={() => onDecide('keep')}
-            className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95"
+            className="flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95"
           >
             Keep anyway
           </button>

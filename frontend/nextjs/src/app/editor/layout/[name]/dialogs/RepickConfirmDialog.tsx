@@ -24,14 +24,14 @@ export function RepickConfirmDialog({ losingCount, onDecide }: {
         <div className="flex items-center gap-3">
           <button
             onClick={() => onDecide(true)}
-            className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95"
+            className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all motion-safe:active:scale-95"
           >
             Replace anyway
           </button>
           <button
             ref={keepEditsRef}
             onClick={() => onDecide(false)}
-            className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95"
+            className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95"
           >
             Keep my edits
           </button>

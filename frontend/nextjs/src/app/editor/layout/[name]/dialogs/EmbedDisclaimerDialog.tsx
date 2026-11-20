@@ -41,7 +41,7 @@ export function EmbedDisclaimerDialog({
               <p id={messageId} className="text-sm text-slate-500 leading-relaxed">Please confirm before sending your design for production.</p>
             </div>
             <button onClick={onClose} aria-label="Close" className="mt-0.5 p-1.5 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
-              <X className="w-4 h-4 text-slate-400" />
+              <X className="w-4 h-4 text-slate-500" />
             </button>
           </div>
         </div>

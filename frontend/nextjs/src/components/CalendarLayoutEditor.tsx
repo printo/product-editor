@@ -675,7 +675,7 @@ function MonthOverrideModal({
             onClick={onClose}
             aria-label="Close month override modal"
             data-testid="month-override-close"
-            className="text-zinc-400 hover:text-zinc-900 text-2xl leading-none"
+            className="text-zinc-500 hover:text-zinc-900 text-2xl leading-none"
           >
             ×
           </button>
@@ -747,7 +747,7 @@ function MonthOverrideModal({
                         onClick={() => removeFrame(i)}
                         disabled={frames.length <= 1}
                         aria-label={`Remove frame ${i + 1}`}
-                        className="self-end mb-0.5 text-zinc-400 hover:text-red-600 text-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="self-end mb-0.5 text-zinc-500 hover:text-red-600 text-lg disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         ×
                       </button>
@@ -903,7 +903,7 @@ function StepIndicator({
                 ? 'bg-zinc-900 text-white shadow'
                 : done
                   ? 'bg-zinc-200 text-zinc-600 hover:bg-zinc-300'
-                  : 'bg-zinc-100 text-zinc-400 hover:bg-zinc-200',
+                  : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200',
             ].join(' ')}
           >
             <span
@@ -1305,7 +1305,7 @@ export function CalendarLayoutEditor({
                       embed for real because their iframe URL hardcodes it. Edit
                       Display name above instead. */}
                   {isExistingLayout && (
-                    <span className="text-[11px] text-zinc-400">Cannot be changed once created — edit Display name instead.</span>
+                    <span className="text-[11px] text-zinc-500">Cannot be changed once created — edit Display name instead.</span>
                   )}
                 </label>
                 <div className="text-xs text-zinc-500">
@@ -1451,7 +1451,7 @@ export function CalendarLayoutEditor({
                             disabled={draft.frames.length <= 1}
                             aria-label={`Remove frame ${i + 1}`}
                             data-testid={`remove-frame-${i}`}
-                            className="text-zinc-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none">
+                            className="text-zinc-500 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none">
                             ×
                           </button>
                         </div>
@@ -1551,7 +1551,7 @@ export function CalendarLayoutEditor({
               {/* Paper mask */}
               <section data-testid="mask-section">
                 <h2 className="text-sm font-semibold text-zinc-900 mb-1">
-                  Paper mask <span className="text-zinc-400 font-normal">(optional)</span>
+                  Paper mask <span className="text-zinc-500 font-normal">(optional)</span>
                 </h2>
                 <p className="text-xs text-zinc-500 mb-1.5">
                   A PNG or SVG the size of the canvas, transparent where the photo and calendar show. An SVG stays sharp at any print size. Every month uses the same mask.
@@ -1587,7 +1587,7 @@ export function CalendarLayoutEditor({
                       type="button"
                       data-testid="mask-clear-btn"
                       onClick={() => { setMaskFile(null); patch({ maskUrl: null, maskOnExport: false }); }}
-                      className="text-xs text-zinc-400 hover:text-red-500 shrink-0 px-1"
+                      className="text-xs text-zinc-500 hover:text-red-500 shrink-0 px-1"
                       title="Remove mask"
                     >
                       ✕ Remove
@@ -1626,7 +1626,7 @@ export function CalendarLayoutEditor({
                     ? 'Canvas — drag the green frames'
                     : 'Canvas — drag the teal calendar block'}
                 </h3>
-                <div className="flex items-center gap-3 text-xs text-zinc-400">
+                <div className="flex items-center gap-3 text-xs text-zinc-500">
                   <span>
                     <span className="inline-block w-3 h-3 rounded-sm bg-emerald-200 border border-emerald-500 mr-1" />Frame
                     <span className="inline-block w-3 h-3 rounded-sm bg-sky-200 border border-sky-400 ml-3 mr-1" />Calendar
@@ -1658,7 +1658,7 @@ export function CalendarLayoutEditor({
                 snapGrid={snapGrid}
               />
               </div>
-              <p className="mt-2 text-xs text-zinc-400">
+              <p className="mt-2 text-xs text-zinc-500">
                 The {layoutTab === 'frames' ? 'calendar block is' : 'photo frames are'} locked while this tab is open.
                 Switch tabs to move {layoutTab === 'frames' ? 'it' : 'them'}.
               </p>
@@ -1808,7 +1808,7 @@ export function CalendarLayoutEditor({
                           <p className="text-[9px] font-bold uppercase tracking-wide text-zinc-600 whitespace-nowrap truncate leading-tight">
                             {tile.label.replace(/\s+\d{4}$/, '')}
                           </p>
-                          <p className="text-[9px] font-medium text-zinc-400 leading-tight">
+                          <p className="text-[9px] font-medium text-zinc-500 leading-tight">
                             {tile.label.match(/\d{4}$/)?.[0] ?? ''}
                           </p>
                         </div>

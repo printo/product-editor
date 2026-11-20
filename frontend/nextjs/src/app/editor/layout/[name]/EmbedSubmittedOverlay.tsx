@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, X } from 'lucide-react';
 import { formatWait } from './editor-utils';
+import { useAnnounceWhen } from '@/lib/announcer';
 
 /** Embed post-submit status panel (Phase 3 — no more dead-end): polls
  *  render-status through the embed proxy and surfaces queued / rendering /
@@ -20,6 +21,15 @@ export function EmbedSubmittedOverlay({
     waitSeconds: number | null;
     error: string | null;
   }>({ status: 'queued', waitSeconds: null, error: null });
+
+  // Spoken once per stage, not per poll: the queue estimate changes every few
+  // seconds and would be read out each time.
+  useAnnounceWhen({
+    queued: 'Design submitted. It is queued for printing files.',
+    processing: 'Preparing your print files.',
+    completed: 'Your design is ready.',
+    failed: 'Something went wrong preparing your design. Your design is safe; you can go back and submit again.',
+  }[state.status], { assertive: state.status === 'failed' });
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +66,7 @@ export function EmbedSubmittedOverlay({
   }, [jobId, apiBase, getAuthHeaders]);
 
   return (
-    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[300000] flex items-center justify-center bg-white/85 backdrop-blur-sm" role="status" aria-live="polite">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[300000] flex items-center justify-center bg-white/85 backdrop-blur-sm">
       <div className="text-center p-10 max-w-md">
         {state.status === 'failed' ? (
           <>

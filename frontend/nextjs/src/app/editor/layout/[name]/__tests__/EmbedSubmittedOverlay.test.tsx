@@ -50,7 +50,7 @@ describe('EmbedSubmittedOverlay', () => {
     renderOverlay();
     await wait(0);
     expect(fetchMock).toHaveBeenCalledWith(`${API_BASE}/render-status/${JOB_ID}/`, { headers: { 'X-Embed-Token': 'tok' } });
-    expect(screen.getByRole('status')).toHaveTextContent('Design submitted — queued…');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Design submitted — queued…');
   });
 
   it('shows the queue wait, then the ready state, and stops polling', async () => {

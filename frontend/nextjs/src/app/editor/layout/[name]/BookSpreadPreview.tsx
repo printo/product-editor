@@ -33,7 +33,7 @@ export function BookPageCount({ isBookProduct, bookPageBounds, bookPageCount, ha
         <div className="flex items-center justify-between gap-4 bg-white rounded-xl border-2 border-slate-100 px-4 py-3 mx-4">
           <div>
             <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight">Pages</p>
-            <p className="text-[10px] text-slate-400 font-medium">
+            <p className="text-[10px] text-slate-500 font-medium">
               {bookPageBounds[0]}–{bookPageBounds[1]} pages, in steps of {bookPageBounds[2]}
             </p>
           </div>
@@ -100,7 +100,7 @@ export function BookSpreadPreview({
           <div className="flex items-center justify-between px-6 py-4 bg-white/95 border-b border-slate-200 shrink-0">
             <div>
               <h2 id="book-spread-preview-title" className="text-sm font-black text-slate-900 uppercase tracking-tight">Spread preview</h2>
-              <p className="text-[10px] text-slate-400 font-medium">Read-only — edit individual pages in the grid</p>
+              <p className="text-[10px] text-slate-500 font-medium">Read-only — edit individual pages in the grid</p>
             </div>
             <button
               onClick={() => setShowSpreadPreview(false)}
@@ -112,7 +112,7 @@ export function BookSpreadPreview({
           </div>
           <div className="flex-1 overflow-y-auto overscroll-contain p-6 flex flex-col items-center gap-8">
             {bookSpreads.length === 0 && !bookCoverPreview && !bookBackCoverPreview && (
-              <p className="text-sm text-slate-400 mt-10">No pages to preview yet.</p>
+              <p className="text-sm text-slate-500 mt-10">No pages to preview yet.</p>
             )}
 
             {/* ── Cover wrap: back · spine · front, joined edge-to-edge as one
@@ -159,7 +159,7 @@ export function BookSpreadPreview({
                       )}
                     </div>
                   </div>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">
                     Cover wrap — back · spine
                     {bookSpineWidthMm != null ? ` (~${bookSpineWidthMm.toFixed(1)}mm)` : ''} · front
                   </p>
@@ -187,7 +187,7 @@ export function BookSpreadPreview({
                     </div>
                   ))}
                 </div>
-                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">
+                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">
                   {spread.map(p => p.label).join(' · ')}
                 </p>
               </div>

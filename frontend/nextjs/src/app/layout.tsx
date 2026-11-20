@@ -4,6 +4,7 @@ import type { Viewport } from "next"
 import { AuthProvider } from "@/components/AuthProvider"
 import { AppWrapper } from "@/components/AppWrapper"
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration"
+import { AnnouncerProvider } from "@/lib/announcer"
 import { auth } from "@/pia-auth"
 
 // viewportFit:'cover' makes env(safe-area-inset-*) live on notched phones —
@@ -43,9 +44,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body className="min-h-screen bg-white text-slate-900 antialiased" suppressHydrationWarning>
         <ServiceWorkerRegistration />
         <AuthProvider session={session}>
-          <AppWrapper>
-            {children}
-          </AppWrapper>
+          <AnnouncerProvider>
+            <AppWrapper>
+              {children}
+            </AppWrapper>
+          </AnnouncerProvider>
         </AuthProvider>
       </body>
     </html>

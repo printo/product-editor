@@ -88,3 +88,10 @@
     background: var(--scrollbar-thumb-hover);
   }
 }
+
+/* With "reduce motion" on, a loading spinner still turns, slowly: it is the
+   only sign something is happening, so it is slowed rather than stopped.
+   Outside any @layer so it comes after Tailwind's animate-spin utility. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin { animation-duration: 3s; }
+}
