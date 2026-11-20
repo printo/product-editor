@@ -158,7 +158,7 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-4">
         <div className="flex flex-col">
           <p className="text-[11px] font-medium text-slate-900 uppercase">

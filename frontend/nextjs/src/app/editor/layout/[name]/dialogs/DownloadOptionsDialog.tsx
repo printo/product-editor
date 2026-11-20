@@ -31,7 +31,7 @@ export function DownloadOptionsDialog({
   return (
     <div className="fixed inset-0 overflow-hidden overscroll-contain z-[2001] flex items-center justify-center p-6">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={onClose} />
-      <div ref={dialogRef} className="relative w-full max-w-lg bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 overflow-hidden animate-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
+      <div ref={dialogRef} className="relative w-full max-w-lg bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 overflow-hidden" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         {/* Header */}
         <div className="px-7 pt-7 pb-5">
           <div className="flex items-start justify-between gap-4">

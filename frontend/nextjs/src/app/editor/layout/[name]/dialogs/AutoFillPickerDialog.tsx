@@ -28,13 +28,13 @@ export function AutoFillPickerDialog({
   useModalA11y(dialogRef, null);
   const thumbs = usePhotoThumbnails(files);
   return (
-    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Choose images to repeat"
-        className="bg-white w-full sm:max-w-lg sm:mx-4 rounded-t-2xl sm:rounded-xl shadow-xl ring-1 ring-slate-900/5 p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[88vh] sm:max-h-[80vh] flex flex-col animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
+        className="bg-white w-full sm:max-w-lg sm:mx-4 rounded-t-2xl sm:rounded-xl shadow-xl ring-1 ring-slate-900/5 p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[88vh] sm:max-h-[80vh] flex flex-col"
       >
         <div className="sm:hidden w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4 shrink-0" />
         <div className="flex items-start justify-between gap-3 shrink-0">

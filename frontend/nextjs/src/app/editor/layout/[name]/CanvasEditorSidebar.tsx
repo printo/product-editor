@@ -242,7 +242,7 @@ export function CanvasEditorSidebar({
   // otherwise: until 2026-10-13 selecting an icon or sticker hid them, so a
   // second one could only be added after selecting some other layer.
   const addIconBlock = (
-                <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
+                <div className="w-full">
                   <IconBrowser apiBase={apiBase} getAuthHeaders={getAuthHeaders} onAddImage={imgOverlay => {
                     pushUndo(editingCanvas, true);
                     const newOverlay: Overlay = { type: 'image', ...imgOverlay };
@@ -253,7 +253,7 @@ export function CanvasEditorSidebar({
                 </div>
   );
   const addPhotoBlock = (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                <div>
                   <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg text-rose-500 hover:bg-white hover:border-rose-200 transition-all cursor-pointer overflow-hidden shadow-sm">
                     <div className="p-3 bg-rose-50 rounded-lg shadow-inner motion-safe:group-hover:scale-110 transition-all duration-500">
                       <ImagePlus className="w-6 h-6" />
@@ -305,7 +305,7 @@ export function CanvasEditorSidebar({
           const frame = editingCanvas.frames[fIdx];
           if (!frame) return null;
           return (
-            <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-500">
+            <div className="space-y-3">
               {/* Fit */}
               <div className="flex items-center gap-4 py-2 bg-transparent">
                 <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">Fit Mode</label>
@@ -459,11 +459,11 @@ export function CanvasEditorSidebar({
           </div>
 
           {/* Tab content */}
-          <div className="min-h-[80px] animate-in fade-in slide-in-from-bottom-2 duration-300 w-full">
+          <div className="min-h-[80px] w-full">
 
             {/* ── Background tab ────────────────────────────────────────── */}
             {activeAddTab === 'background' && (
-              <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-lg shadow-sm hover:border-indigo-100 transition-all group">
                   <div className="space-y-0.5">
                     <p className="text-[11px] font-medium text-slate-800 uppercase">Background Colour</p>
@@ -490,7 +490,7 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as Overlay[] });
                 };
                 return (
-                  <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="space-y-5">
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                       <div className="flex flex-col">
                         <p className="text-[11px] font-medium text-slate-900 uppercase">Text Styling</p>
@@ -611,7 +611,7 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays as Overlay[] });
                 };
                 return (
-                  <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="space-y-5">
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                       <div className="flex items-center gap-4 min-w-0">
                         <div className="w-11 h-11 bg-slate-50 rounded-lg p-2 border border-slate-100 flex items-center justify-center shrink-0 shadow-sm">
@@ -698,7 +698,7 @@ export function CanvasEditorSidebar({
                   debouncedRender({ ...editingCanvas, overlays: newOverlays });
                 };
                 return (
-                  <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="space-y-5">
                     <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                       <div className="flex flex-col min-w-0 max-w-[70%]">
                         <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
