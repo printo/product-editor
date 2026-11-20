@@ -5,6 +5,7 @@ import Script from 'next/script';
 import { Lock, User, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { safeCallbackPath } from '@/lib/callback-url';
+import { useAnnounceWhen } from '@/lib/announcer';
 import { loginAction, googleLoginAction } from '@/app/actions/auth';
 
 // Public OAuth client ID for printo.in's Google project — safe to expose to the
@@ -31,6 +32,8 @@ const LoginForm = () => {
       ? 'This account is no longer active. Please contact HR or your administrator.'
       : null,
   );
+
+  useAnnounceWhen(error, { assertive: true });
 
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const [gsiReady, setGsiReady] = useState(false);
@@ -132,11 +135,15 @@ const LoginForm = () => {
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <User className="h-5 w-5 text-slate-400" />
+                <User className="h-5 w-5 text-slate-500" aria-hidden="true" />
               </div>
               <input
                 type="text"
                 id="username"
+                name="username"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
                 required
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm text-slate-900"
                 placeholder="Enter your username"
@@ -152,11 +159,13 @@ const LoginForm = () => {
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Lock className="h-5 w-5 text-slate-400" />
+                <Lock className="h-5 w-5 text-slate-500" aria-hidden="true" />
               </div>
               <input
                 type={showPassword ? 'text' : 'password'}
                 id="password"
+                name="password"
+                autoComplete="current-password"
                 required
                 className="block w-full pl-10 pr-10 py-2 border border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm text-slate-900"
                 placeholder="Enter your password"
@@ -166,20 +175,23 @@ const LoginForm = () => {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none"
+                aria-label="Show password"
+                aria-pressed={showPassword}
+                aria-controls="password"
+                className="absolute inset-y-0 right-0 px-3 flex items-center rounded-lg text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 {showPassword ? (
-                  <EyeOff className="h-5 w-5" />
+                  <EyeOff className="h-5 w-5" aria-hidden="true" />
                 ) : (
-                  <Eye className="h-5 w-5" />
+                  <Eye className="h-5 w-5" aria-hidden="true" />
                 )}
               </button>
             </div>
           </div>
 
           {error && (
-            <div className="flex items-center p-3 text-sm text-rose-600 bg-rose-50 rounded-lg">
-              <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0" />
+            <div className="flex items-center p-3 text-sm text-rose-700 bg-rose-50 rounded-lg">
+              <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0" aria-hidden="true" />
               {error}
             </div>
           )}
@@ -198,7 +210,7 @@ const LoginForm = () => {
             <div className="w-full border-t border-slate-200" />
           </div>
           <div className="relative flex justify-center">
-            <span className="bg-white px-3 text-xs font-medium uppercase tracking-wider text-slate-400">
+            <span className="bg-white px-3 text-xs font-medium uppercase tracking-wider text-slate-500">
               or
             </span>
           </div>
