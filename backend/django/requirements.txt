@@ -48,7 +48,10 @@ pillow-heif==1.3.0
 # 0.10.x held at 4.25. Needs libegl1 in the image. Re-run the cx-sample
 # orientation check (docs/HISTORY.md) on any bump.
 mediapipe==1.2.3
-boto3>=1.26.0
+# Pinned (was >=1.26.0, so every image build pulled whatever was newest). Production
+# runs STORAGE_BACKEND=s3: masks, stickers, fonts, ops-config and the icon cache.
+# On a bump re-run services/tests/test_calendar_assets_s3.py and test_mask_loading.py.
+boto3==1.44.7
 
 # ── Annual holiday refresh (manage.py refresh_holidays) ─────────────────────
 # Offline public-holiday tables, incl. India's gazetted festivals, which
