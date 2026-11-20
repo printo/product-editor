@@ -63,7 +63,7 @@ describe('LowDpiWarning', () => {
     render(<LowDpiWarning frames={[lowDpi(0, 0, 142.6, 'Front'), lowDpi(2, 1, 88.2)]} />);
     expect(screen.getByText('Some photos are below print resolution')).toBeInTheDocument();
     expect(screen.getByText('Front, photo 1 — ~143 DPI')).toBeInTheDocument();
-    expect(screen.getByText('Canvas 3, photo 2 — ~88 DPI')).toBeInTheDocument();
+    expect(screen.getByText('Image 3, photo 2 — ~88 DPI')).toBeInTheDocument();
   });
 
   it('shows three and counts the rest', () => {
@@ -124,9 +124,9 @@ describe('UnprintableTextWarning', () => {
   });
 
   it('names the cards; a single-card side needs no card number', () => {
-    render(<UnprintableTextWarning texts={[{ where: 'Canvas 2', chars: ['\u{1F57A}'] }, { where: 'Back', chars: ['\u{1F3B6}'] }]} />);
+    render(<UnprintableTextWarning texts={[{ where: 'Image 2', chars: ['\u{1F57A}'] }, { where: 'Back', chars: ['\u{1F3B6}'] }]} />);
     expect(screen.getByText('Some of your text won’t print')).toBeInTheDocument();
-    expect(screen.getByText('Canvas 2, Back')).toBeInTheDocument();
+    expect(screen.getByText('Image 2, Back')).toBeInTheDocument();
     expect(screen.getByText(UNPRINTABLE_HELP)).toBeInTheDocument();
   });
 });

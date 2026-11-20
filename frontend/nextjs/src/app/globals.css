@@ -95,3 +95,18 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-spin { animation-duration: 3s; }
 }
+
+/* Editor toolbar product name on phones: the slot takes the width the upload
+   box leaves, and the name is hidden when that is too narrow to read more than
+   a letter or two. Desktop keeps the name's own width (no container there). */
+@media (max-width: 767.98px) {
+  .toolbar-title-slot {
+    flex: 1 1 0;
+    container: toolbar-title / inline-size;
+  }
+}
+@container toolbar-title (max-width: 6rem) {
+  .toolbar-title {
+    display: none;
+  }
+}

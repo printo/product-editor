@@ -223,10 +223,10 @@ describe('DownloadOptionsDialog', () => {
   it('lists text the print cannot draw, and still lets the download go ahead', () => {
     const { props } = setup({
       disclaimerChecked: true,
-      unprintableTexts: [{ where: 'Canvas 3', chars: ['\u{1F57A}', '\u{1F3B6}'] }],
+      unprintableTexts: [{ where: 'Image 3', chars: ['\u{1F57A}', '\u{1F3B6}'] }],
     });
     expect(screen.getByText('Some of your text won’t print')).toBeInTheDocument();
-    expect(screen.getByText('Canvas 3')).toBeInTheDocument();
+    expect(screen.getByText('Image 3')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /ZIP Archive/ }));
     expect(props.onDownloadZip).toHaveBeenCalledTimes(1);
   });
@@ -274,13 +274,13 @@ describe('EmbedDisclaimerDialog', () => {
     const { props } = setup({
       disclaimerChecked: true,
       unprintableTexts: [
-        { where: 'Canvas 1', chars: ['\u{1F57A}'] }, { where: 'Canvas 2', chars: ['\u{1F3B6}'] },
-        { where: 'Canvas 3', chars: ['\u2764\uFE0F'] }, { where: 'Canvas 4', chars: ['\u{1F525}'] },
+        { where: 'Image 1', chars: ['\u{1F57A}'] }, { where: 'Image 2', chars: ['\u{1F3B6}'] },
+        { where: 'Image 3', chars: ['\u2764\uFE0F'] }, { where: 'Image 4', chars: ['\u{1F525}'] },
       ],
     });
     expect(screen.getByText('Some of your text won’t print')).toBeInTheDocument();
-    expect(screen.getByText('Canvas 1, Canvas 2, Canvas 3 and 1 more')).toBeInTheDocument();
-    expect(screen.queryByText(/Canvas 4/)).toBeNull();
+    expect(screen.getByText('Image 1, Image 2, Image 3 and 1 more')).toBeInTheDocument();
+    expect(screen.queryByText(/Image 4/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Yes, Proceed' }));
     expect(props.onProceed).toHaveBeenCalledTimes(1);
   });
