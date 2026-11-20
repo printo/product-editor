@@ -1,6 +1,7 @@
 'use client';
 
 import type { Dispatch, RefObject, SetStateAction } from 'react';
+import { useAnnounceWhen } from '@/lib/announcer';
 import { clsx } from 'clsx';
 import { AlertTriangle, ArrowLeftRight, ImagePlus, X } from 'lucide-react';
 
@@ -26,6 +27,9 @@ type Props = {
   uploadInputRef: RefObject<HTMLInputElement | null>;
 };
 
+const STORAGE_BLOCKED_TEXT = "Your browser is blocking local storage — your photos stay safe in this tab, but refreshing will remove them. Finish and submit in one session.";
+const STORAGE_FULL_TEXT = "This device's storage is full, so your photos can't be backed up for recovery. Don't refresh or close this tab before submitting.";
+
 /** The floating notices at the top of the editor: tap-to-swap, storage,
  *  upload, colour and unsupported-file warnings, and the under-quantity banner. */
 export function EditorBanners({
@@ -33,10 +37,19 @@ export function EditorBanners({
   uploadWarning, setUploadWarning, colorWarning, setColorWarning, unsupportedWarning, setUnsupportedWarning,
   qtyUnder, setQtyUnder, headerHeight, toolbarHeight, setShowAutoFillPicker, setPickerSelected, uploadInputRef,
 }: Props) {
+  // Read out by the page's announcer (lib/announcer.tsx): a banner that mounts
+  // with its words already in it is often not spoken, so none of them carries
+  // a live role of its own.
+  useAnnounceWhen(swapSource ? 'Tap another photo to swap' : null);
+  useAnnounceWhen(storageBlocked ? STORAGE_BLOCKED_TEXT : persistDegraded ? STORAGE_FULL_TEXT : null);
+  useAnnounceWhen(uploadWarning);
+  useAnnounceWhen(colorWarning ? `CMYK to RGB colour shift. ${colorWarning}` : null);
+  useAnnounceWhen(unsupportedWarning ? `Unsupported file. ${unsupportedWarning}` : null);
+  useAnnounceWhen(qtyUnder ? `${qtyUnder.uploaded} of ${qtyUnder.needed} images uploaded. Upload ${qtyUnder.needed - qtyUnder.uploaded} more photo${qtyUnder.needed - qtyUnder.uploaded !== 1 ? 's' : ''}, or repeat from the images already uploaded.` : null);
   return (
     <>
       {swapSource && (
-        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200000] bg-indigo-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300" role="status">
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200000] bg-indigo-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
           <ArrowLeftRight className="w-4 h-4" />
           <span className="text-xs font-semibold">Tap another photo to swap</span>
           <button onClick={() => setSwapSource(null)} className="p-1 hover:bg-white/20 rounded-lg transition-all" aria-label="Cancel swap">
@@ -45,14 +58,12 @@ export function EditorBanners({
         </div>
       )}
       {(persistDegraded || storageBlocked) && (
-        <div className="fixed bottom-6 right-8 z-[200000] max-w-sm bg-white/90 backdrop-blur-2xl border border-amber-300/60 p-1.5 pl-4 rounded-xl shadow-2xl shadow-amber-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group" role="status" aria-live="polite">
+        <div className="fixed bottom-6 right-8 z-[200000] max-w-sm bg-white/90 backdrop-blur-2xl border border-amber-300/60 p-1.5 pl-4 rounded-xl shadow-2xl shadow-amber-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
           <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0 mt-1">
             <AlertTriangle className="w-3.5 h-3.5" />
           </div>
           <span className="flex-1 text-[10px] font-bold text-amber-900/80 tracking-tight leading-snug py-1.5">
-            {storageBlocked
-              ? "Your browser is blocking local storage — your photos stay safe in this tab, but refreshing will remove them. Finish and submit in one session."
-              : "This device's storage is full, so your photos can't be backed up for recovery. Don't refresh or close this tab before submitting."}
+            {storageBlocked ? STORAGE_BLOCKED_TEXT : STORAGE_FULL_TEXT}
           </span>
           <button onClick={() => { setPersistDegraded(false); setStorageBlocked(false); }} className="p-2 hover:bg-amber-50 rounded-lg transition-all" aria-label="Dismiss storage warning">
             <X className="w-3.5 h-3.5 text-amber-400" />
@@ -108,8 +119,7 @@ export function EditorBanners({
           centred card from `sm` up. */}
       {qtyUnder && (
         <div
-          role="status"
-          aria-live="polite"
+          data-testid="qty-under-banner"
           style={{ top: headerHeight + toolbarHeight + 12 }}
           className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 z-[200002] bg-white/95 backdrop-blur-2xl border border-indigo-200/60 rounded-xl shadow-2xl shadow-indigo-900/10 p-4 sm:p-5 animate-in fade-in slide-in-from-top-4 duration-400"
         >
@@ -169,6 +179,7 @@ export function ErrorBanner({ error, setError }: {
   error: string | null;
   setError: Dispatch<SetStateAction<string | null>>;
 }) {
+  useAnnounceWhen(error, { assertive: true });
   return (
     <>
       {error && (
