@@ -60,6 +60,7 @@ usage() {
   echo -e "${BLUE}Environment overrides:${NC}"
   echo "  ALLOW_STALE_DEPLOY=1   deploy the current checkout even if git pull fails"
   echo "  SKIP_SMOKE_TESTS=1     skip the post-deploy smoke tests"
+  echo "  SKIP_DEPENDENCY_AUDIT=1 skip the report-only pip-audit / pnpm audit"
   echo "  SMOKE_TESTS=\"embed\"       which smoke tests to run (default: embed calendar book)"
   echo "  ROLLBACK_YES=1         skip the rollback confirmation prompt"
   echo "  READY_TIMEOUT=240      seconds to wait for containers to report ready"
@@ -1179,6 +1180,13 @@ else
     load_env_safely
   fi
   run_smoke_tests
+fi
+
+# Known-vulnerability report for the installed packages. Report only: the
+# script always exits 0 and `|| true` keeps it from ever failing a deploy.
+if [[ "$MODE" != "rollback" && "${SKIP_DEPENDENCY_AUDIT:-0}" != "1" ]]; then
+  print_header "Dependency Audit (report only)"
+  ./scripts/dependency-audit.sh both || true
 fi
 
 # Show API keys
