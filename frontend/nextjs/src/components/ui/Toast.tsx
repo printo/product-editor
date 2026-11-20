@@ -68,7 +68,7 @@ export const Toast = ({ message, tone, onDismiss, duration = 5000 }: ToastProps)
   return (
     <div
       data-testid="toast"
-      className={`pointer-events-auto relative overflow-hidden w-[min(92vw,420px)] border rounded-xl shadow-lg animate-in fade-in slide-in-from-bottom-3 ${shell}`}
+      className={`pointer-events-auto relative overflow-hidden w-[min(92vw,420px)] border rounded-xl shadow-lg ${shell}`}
     >
       <div className="flex items-start gap-3 p-4 pr-10">
         <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${icon}`} />

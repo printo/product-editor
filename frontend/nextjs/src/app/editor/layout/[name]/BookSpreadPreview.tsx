@@ -95,7 +95,7 @@ export function BookSpreadPreview({
           role="dialog"
           aria-modal="true"
           aria-labelledby="book-spread-preview-title"
-          className="fixed inset-0 overflow-hidden overscroll-contain z-[200004] bg-black/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200"
+          className="fixed inset-0 overflow-hidden overscroll-contain z-[200004] bg-black/60 backdrop-blur-sm flex flex-col"
         >
           <div className="flex items-center justify-between px-6 py-4 bg-white/95 border-b border-slate-200 shrink-0">
             <div>

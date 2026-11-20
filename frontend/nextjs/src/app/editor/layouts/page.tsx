@@ -241,7 +241,7 @@ function MaskSlotRow({ title, hint, slot, inputRef, warning, onPick, onRemove }:
         </button>
       )}
       {warning && (
-        <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+        <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5 shrink-0" />
           {warning}
         </div>
@@ -1518,7 +1518,7 @@ export default function LayoutCreatorPage() {
 
       {/* Create / Edit Modal (Full Screen mode - sits under the persistent Header) */}
       {isModalOpen && (
-        <div style={{ top: headerHeight }} className="fixed inset-x-0 bottom-0 z-[1000] flex flex-col bg-white overflow-hidden overscroll-contain animate-in fade-in duration-200">
+        <div style={{ top: headerHeight }} className="fixed inset-x-0 bottom-0 z-[1000] flex flex-col bg-white overflow-hidden overscroll-contain">
           <div className="flex-1 flex flex-col min-h-0">
             {/* Redundant local header removed — Titles now in global header */}
 
@@ -1860,14 +1860,14 @@ export default function LayoutCreatorPage() {
                     </div>
 
                     {validationError && (
-                      <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                      <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2">
                         <AlertCircle className="w-3.5 h-3.5" />
                         {validationError}
                       </div>
                     )}
 
                     {showGridGen && (
-                      <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex items-end gap-3 animate-in fade-in slide-in-from-top-2">
+                      <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex items-end gap-3">
                         <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Rows</label><input type="number" min="1" value={rows} onChange={e => setRows(Number(e.target.value))} className="w-16 px-2 py-1.5 text-sm rounded border border-slate-200" /></div>
                         <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Cols</label><input type="number" min="1" value={cols} onChange={e => setCols(Number(e.target.value))} className="w-16 px-2 py-1.5 text-sm rounded border border-slate-200" /></div>
                         <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pad ({unit})</label><input type="number" min="0" step={lengthStep} value={mmToUnit(padding, unit)} onChange={e => setPadding(round2(unitToMm(Number(e.target.value), unit)))} className="w-20 px-2 py-1.5 text-sm rounded border border-slate-200" /></div>
@@ -2045,8 +2045,8 @@ export default function LayoutCreatorPage() {
 
       {confirmMaskRemove && (
         <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-label="Remove frame picture">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setConfirmMaskRemove(false)} />
-          <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setConfirmMaskRemove(false)} />
+          <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6">
             <div className="flex flex-col items-center text-center">
               <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
                 <Trash2 className="w-6 h-6" />
@@ -2080,8 +2080,8 @@ export default function LayoutCreatorPage() {
       {/* Compact Delete Confirmation Modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setDeleteConfirm(null)} />
-          <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setDeleteConfirm(null)} />
+          <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6">
             <div className="flex flex-col items-center text-center">
               <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
                 <Trash2 className="w-6 h-6" />
@@ -2117,7 +2117,7 @@ export default function LayoutCreatorPage() {
           {selectedLayout && (
             <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6">
               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLayout(null)} />
-              <div className="relative bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col border border-slate-800 animate-in zoom-in-95 duration-200">
+              <div className="relative bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col border border-slate-800">
                 <div className="flex items-center justify-between p-6 border-b border-slate-800">
                   <h2 className="text-xl font-bold text-white">JSON Specification</h2>
                   <div className="flex items-center gap-2">

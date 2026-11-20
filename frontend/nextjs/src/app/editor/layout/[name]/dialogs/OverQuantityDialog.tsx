@@ -15,13 +15,13 @@ export function OverQuantityDialog({ orderQty, selectedCount, onDecide }: {
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalA11y(dialogRef, null);
   return (
-    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm">
       <div
         ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-label="More images than ordered"
-        className="bg-white w-full sm:max-w-md sm:mx-4 rounded-t-2xl sm:rounded-xl shadow-xl ring-1 ring-slate-900/5 p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
+        className="bg-white w-full sm:max-w-md sm:mx-4 rounded-t-2xl sm:rounded-xl shadow-xl ring-1 ring-slate-900/5 p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6"
       >
         <div className="sm:hidden w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4" />
         <div className="flex items-start gap-3 sm:gap-4">

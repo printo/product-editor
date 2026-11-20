@@ -49,7 +49,7 @@ export function EditorBanners({
   return (
     <>
       {swapSource && (
-        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200000] bg-indigo-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200000] bg-indigo-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3">
           <ArrowLeftRight className="w-4 h-4" />
           <span className="text-xs font-semibold">Tap another photo to swap</span>
           <button onClick={() => setSwapSource(null)} className="p-1 hover:bg-white/20 rounded-lg transition-all" aria-label="Cancel swap">
@@ -58,7 +58,7 @@ export function EditorBanners({
         </div>
       )}
       {(persistDegraded || storageBlocked) && (
-        <div className="fixed bottom-6 right-8 z-[200000] max-w-sm bg-white/90 backdrop-blur-2xl border border-amber-300/60 p-1.5 pl-4 rounded-xl shadow-2xl shadow-amber-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
+        <div className="fixed bottom-6 right-8 z-[200000] max-w-sm bg-white/90 backdrop-blur-2xl border border-amber-300/60 p-1.5 pl-4 rounded-xl shadow-2xl shadow-amber-900/10 flex items-start gap-3 group">
           <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0 mt-1">
             <AlertTriangle className="w-3.5 h-3.5" />
           </div>
@@ -71,7 +71,7 @@ export function EditorBanners({
         </div>
       )}
       {uploadWarning && (
-        <div className="fixed top-24 right-8 z-[200000] max-w-xs bg-white/80 backdrop-blur-2xl border border-amber-200/50 p-1.5 pl-4 rounded-xl shadow-2xl shadow-amber-900/5 flex items-center gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group">
+        <div className="fixed top-24 right-8 z-[200000] max-w-xs bg-white/80 backdrop-blur-2xl border border-amber-200/50 p-1.5 pl-4 rounded-xl shadow-2xl shadow-amber-900/5 flex items-center gap-3 group">
           <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
             <span className="text-[14px] font-black">!</span>
           </div>
@@ -82,7 +82,7 @@ export function EditorBanners({
         </div>
       )}
       {colorWarning && (
-        <div className={`fixed ${uploadWarning ? 'top-44' : 'top-24'} right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-orange-300/60 p-1.5 pl-4 rounded-xl shadow-2xl shadow-orange-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group`}>
+        <div className={`fixed ${uploadWarning ? 'top-44' : 'top-24'} right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-orange-300/60 p-1.5 pl-4 rounded-xl shadow-2xl shadow-orange-900/10 flex items-start gap-3 group`}>
           <div className="w-7 h-7 mt-0.5 rounded-lg bg-orange-500/10 text-orange-600 flex items-center justify-center shrink-0">
             <span className="text-[13px] font-black">⚠</span>
           </div>
@@ -97,7 +97,7 @@ export function EditorBanners({
       )}
       {unsupportedWarning && (
         <div className={clsx(
-          'fixed right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-rose-300/60 p-1.5 pl-4 rounded-xl shadow-2xl shadow-rose-900/10 flex items-start gap-3 animate-in fade-in slide-in-from-right-8 duration-500 group',
+          'fixed right-8 z-[200001] max-w-sm bg-white/90 backdrop-blur-2xl border border-rose-300/60 p-1.5 pl-4 rounded-xl shadow-2xl shadow-rose-900/10 flex items-start gap-3 group',
           ['top-24', 'top-44', 'top-64'][(uploadWarning ? 1 : 0) + (colorWarning ? 1 : 0)],
         )}>
           <div className="w-7 h-7 mt-0.5 rounded-lg bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
@@ -121,7 +121,7 @@ export function EditorBanners({
         <div
           data-testid="qty-under-banner"
           style={{ top: headerHeight + toolbarHeight + 12 }}
-          className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 z-[200002] bg-white/95 backdrop-blur-2xl border border-indigo-200/60 rounded-xl shadow-2xl shadow-indigo-900/10 p-4 sm:p-5 animate-in fade-in slide-in-from-top-4 duration-400"
+          className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 z-[200002] bg-white/95 backdrop-blur-2xl border border-indigo-200/60 rounded-xl shadow-2xl shadow-indigo-900/10 p-4 sm:p-5"
         >
           <div className="flex items-start gap-3 sm:gap-4">
             <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">

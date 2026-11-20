@@ -14,8 +14,8 @@ export function BookOverflowDialog({ overflow, pageCount, onDecide }: {
   const titleId = useId();
   const messageId = useId();
   return (
-    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div ref={dialogRef} className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm mx-4 p-5 animate-in zoom-in-95 duration-200" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
+    <div className="fixed inset-0 overflow-hidden overscroll-contain z-[200003] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div ref={dialogRef} className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm mx-4 p-5" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         <p id={titleId} className="text-[12px] font-black text-slate-900 uppercase tracking-tight mb-1">
           {overflow.files.length} photos won&apos;t fit on {pageCount} pages
         </p>
