@@ -37,14 +37,17 @@ sentry-sdk==2.13.0
 # blur, masks, text and PDF that the 2026-11-19 move to Pillow 13 was checked with.
 pillow-heif==1.3.0
 
-# ── Server-side auto-orientation (MediaPipe Pose Landmarker) ────────────────
+# ── Server-side auto-orientation (MediaPipe Pose Landmarker + face detector) ─
 # Loaded lazily by services/orientation.py when the gunicorn backend container
 # handles POST /api/orientation/detect (synchronous, inline). Celery workers
 # share the same Dockerfile so they also have it installed but they never
 # import the module — the orientation endpoint only runs on backend.
-# Pulls in tflite-runtime + opencv-python-headless + numpy + protobuf;
-# ~200 MB total docker layer cost. Apache 2.0 throughout.
-mediapipe==0.10.18
+# Pulls in opencv-contrib-python, numpy and matplotlib; Apache 2.0 throughout. 1.x dropped `mp.solutions` and the bundled face model (the face
+# detector now runs through the Tasks API on services/ml_models/
+# face_detection_short_range.tflite) and no longer pins protobuf < 5, which
+# 0.10.x held at 4.25. Needs libegl1 in the image. Re-run the cx-sample
+# orientation check (docs/HISTORY.md) on any bump.
+mediapipe==1.2.3
 boto3>=1.26.0
 
 # ── Annual holiday refresh (manage.py refresh_holidays) ─────────────────────
