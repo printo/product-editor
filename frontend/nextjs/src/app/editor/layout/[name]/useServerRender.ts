@@ -196,7 +196,9 @@ export function useServerRender({
       const lostFrames: string[] = [];
       const lostImages: string[] = [];
       allCanvases.forEach((c, ci) => {
-        const page = allCanvases.length > 1 ? `page ${ci + 1}, ` : '';
+        // A single-sided design names its cards "Image N" on screen.
+        const page = allCanvases.length <= 1 ? ''
+          : sideCount(surfaceStates) > 1 ? `page ${ci + 1}, ` : `Image ${ci + 1}, `;
         c.frames.forEach((frame, fi) => {
           if ((frame.fileId || frame.fileName) && !frame.originalFile) {
             lostFrames.push(`${page}photo ${fi + 1}`);

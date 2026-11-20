@@ -300,7 +300,7 @@ export default function LayoutEditorPage() {
   const duplicateFills = useMemo(() => {
     const groups = sideCount(surfaceStates) > 1
       ? surfaceStates.map(s => ({ label: s.label || s.key, canvases: s.canvases }))
-      : [{ label: 'your design', canvases }];
+      : [{ canvases }];
     return collectDuplicateFills(groups, intentionalDupesRef.current);
   }, [surfaceStates, canvases]);
 

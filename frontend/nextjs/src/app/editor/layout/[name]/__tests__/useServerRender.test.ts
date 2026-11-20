@@ -211,7 +211,7 @@ describe('useServerRender — what stops a submit', () => {
   it('a photo that could not be loaded blocks the submit and is named', async () => {
     const { result } = setup({ canvases: [canvas([frame(photo('a.jpg'))]), canvas([frame(null, { fileName: 'b.jpg' })])] });
     await run(() => result.current.executeBatchDownload());
-    expect(result.current.error).toBe('1 photo could not be loaded (page 2, photo 1). Please add it again here before continuing so your print matches your design.');
+    expect(result.current.error).toBe('1 photo could not be loaded (Image 2, photo 1). Please add it again here before continuing so your print matches your design.');
     expect(uploadFiles).not.toHaveBeenCalled();
     expect(result.current.isDownloading).toBe(false);
   });
@@ -222,7 +222,7 @@ describe('useServerRender — what stops a submit', () => {
     const lost = { type: 'image', source: 'local', fileId: 'idb-1', src: 'blob:dead', label: 'logo.png' } as unknown as Overlay;
     const { result } = setup({ canvases: [canvas([frame(photo('a.jpg'))]), canvas([frame(photo('b.jpg'))], { overlays: [lost] })] });
     await run(() => result.current.executeBatchDownload());
-    expect(result.current.error).toBe('1 added image could not be loaded (page 2, "logo.png"). Please add it again here before continuing so your print matches your design.');
+    expect(result.current.error).toBe('1 added image could not be loaded (Image 2, "logo.png"). Please add it again here before continuing so your print matches your design.');
     expect(uploadFiles).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
   });
