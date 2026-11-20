@@ -227,12 +227,60 @@ export async function pruneStaleOrders(currentOrderId: string): Promise<void> {
   }
 }
 
+// ── Stored photos are copies, and are checked when read back ───────────────
+// Every browser on an iPhone runs Apple's WebKit, Chrome included. Storing the
+// File that came from the photo picker kept a reference to the picker's
+// temporary file rather than the photo's bytes; once iOS removed that file the
+// record read back as nothing, and after a refresh every card was drawn white
+// with the photo still counted as placed (seen 2026-11-20, Chrome on iPhone,
+// confirmed blank in the canvas editor too). So the bytes are copied into a
+// Blob of their own before they are stored, two photos at a time so a large
+// pick does not hold every photo in memory at once, and a record that cannot
+// be read is left out on restore: its card then says the photo is not on this
+// device, and the submit names it, instead of printing nothing.
+const COPY_SLOTS = 2;
+let copiesRunning = 0;
+const copyQueue: Array<() => void> = [];
+
+async function withCopySlot<T>(fn: () => Promise<T>): Promise<T> {
+  while (copiesRunning >= COPY_SLOTS) {
+    await new Promise<void>(resolve => copyQueue.push(resolve));
+  }
+  copiesRunning += 1;
+  try {
+    return await fn();
+  } finally {
+    copiesRunning -= 1;
+    copyQueue.shift()?.();
+  }
+}
+
+/** The photo's bytes in a Blob of their own; the File itself if it cannot be
+ *  read now (it is then stored as before, and the read-back check decides). */
+async function ownCopy(file: File): Promise<Blob> {
+  try {
+    return await withCopySlot(async () => new Blob([await file.arrayBuffer()], { type: file.type }));
+  } catch {
+    return file;
+  }
+}
+
+/** Whether a stored photo can still be read: one byte is enough to tell. */
+async function isReadable(blob: Blob | undefined): Promise<boolean> {
+  if (!blob || blob.size === 0) return false;
+  try {
+    return (await blob.slice(0, 1).arrayBuffer()).byteLength === 1;
+  } catch {
+    return false;
+  }
+}
+
 export async function saveFile(orderId: string, file: File): Promise<string> {
   const fileId = makeFileId();
   const record: FileRecord = {
     fileId,
     orderId,
-    blob: file,
+    blob: await ownCopy(file),
     name: file.name,
     type: file.type,
     lastModified: file.lastModified,
@@ -275,28 +323,35 @@ function recordToFile(rec: FileRecord): File {
   return new File([rec.blob], rec.name, { type: rec.type, lastModified: rec.lastModified });
 }
 
+/** This order's stored photos that can still be read (see `isReadable`). */
 export async function getFilesForOrder(orderId: string): Promise<Map<string, File>> {
-  const out = new Map<string, File>();
+  const records: FileRecord[] = [];
   memFiles.forEach(rec => {
-    if (rec.orderId === orderId) out.set(rec.fileId, recordToFile(rec));
+    if (rec.orderId === orderId) records.push(rec);
   });
   try {
     const store = await tx("readonly");
-    return await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const idx = store.index("orderId");
       const req = idx.openCursor(IDBKeyRange.only(orderId));
       req.onsuccess = () => {
         const cursor = req.result;
-        if (!cursor) return resolve(out);
-        const rec = cursor.value as FileRecord;
-        out.set(rec.fileId, recordToFile(rec));
+        if (!cursor) return resolve();
+        records.push(cursor.value as FileRecord);
         cursor.continue();
       };
       req.onerror = () => reject(req.error);
     });
   } catch {
-    return out; // memory-mode: whatever this session holds
+    // memory-mode: whatever this session holds
   }
+  // Checked after the cursor is done: awaiting inside it would end the transaction.
+  const readable = await Promise.all(records.map(rec => isReadable(rec.blob)));
+  const out = new Map<string, File>();
+  records.forEach((rec, i) => {
+    if (readable[i]) out.set(rec.fileId, recordToFile(rec));
+  });
+  return out;
 }
 
 export async function deleteOrder(orderId: string): Promise<void> {
