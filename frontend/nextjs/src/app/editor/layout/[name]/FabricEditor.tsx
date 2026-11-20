@@ -23,7 +23,7 @@ import {
 } from 'fabric';
 import type { CanvasItem, FrameState } from './types';
 import { ARTWORK_LABEL } from './template-authoring';
-import { buildFrameFill, buildFrameCaption, rotatedBounds, frameBaseScale } from './frame-fill';
+import { buildFrameFill, buildFrameCaption, rotatedBounds, frameBaseScale, nearestQuarterTurn } from './frame-fill';
 import { captionOverridesFromMm } from '@/lib/caption-layout';
 import type { LayerSelection } from './LayersPanel';
 import { getShapeDef } from '@/lib/shape-catalog';
@@ -667,7 +667,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         const img = frameObjs.find((o: any) => o.__frameIdx === idx) as FabricImage;
         if (!img) return;
 
-        const clip = img.__clipRect as { fx: number; fy: number; fw: number; fh: number };
+        const clip = img.__clipRect;
         if (!clip) return;
 
         const imgW = img.width!;
@@ -702,6 +702,26 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
         });
         updateRelativeClipPath(img, clip.fx, clip.fy, clip.fw, clip.fh);
         img.setCoords();
+
+        // The fill is a picture of the photo at the quarter turn nearest to
+        // how it stood when it was drawn. Turning the photo past the next one
+        // redraws it, as the thumbnail and the print do.
+        const fillTurn = nearestQuarterTurn(frameState.rotation || 0);
+        const oldFill = objs.find(o => o.__fabricEditor === 'frameFill' && o.__frameIdx === idx);
+        if (oldFill && oldFill.__fillRotation !== fillTurn) {
+          const newFill = buildFrameFill(
+            frameState, { fx: clip.fx, fy: clip.fy, fw: clip.fw, fh: clip.fh, fr: clip.fr ?? 0 }, imgW, imgH,
+            img.getElement() as CanvasImageSource, editingCanvas.paperColor,
+          );
+          fc.remove(oldFill);
+          if (newFill) {
+            newFill.__fabricEditor = 'frameFill';
+            newFill.__frameIdx = idx;
+            newFill.__fillRotation = fillTurn;
+            fc.add(newFill);
+            fc.moveObjectTo(newFill, fc.getObjects().indexOf(img));
+          }
+        }
       });
 
       fc.requestRenderAll();
@@ -887,9 +907,11 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           frameState, _geom, imgW, imgH,
           img.getElement() as CanvasImageSource, editingCanvas.paperColor,
         );
+        img.__clipRect = { fx, fy, fw, fh, fr };
         if (fillObj) {
           fillObj.__fabricEditor = 'frameFill';
           fillObj.__frameIdx = frameIdx;
+          fillObj.__fillRotation = nearestQuarterTurn(frameState.rotation || 0);
           fc.add(fillObj);
         }
         const _capPxPerMm = canvasW / (layout?.canvas?.widthMm || layout?.surfaces?.[0]?.canvas?.widthMm || 1);

@@ -66,7 +66,10 @@ declare module 'fabric' {
     __layoutPreview?: boolean
 
     /** Frame's clip rectangle in canvas-space px. Set by FabricEditor when an image is fitted into a frame; consumed during pan/zoom math. Not the same as Fabric's `clipPath`. */
-    __clipRect?: { fx: number; fy: number; fw: number; fh: number }
+    __clipRect?: { fx: number; fy: number; fw: number; fh: number; fr?: number }
+
+    /** On a frame's fill (`__fabricEditor: 'frameFill'`): the quarter turn of the photo it was drawn for, so the live editor redraws it when the photo is turned past the next one. */
+    __fillRotation?: number
   }
 
   interface Canvas {

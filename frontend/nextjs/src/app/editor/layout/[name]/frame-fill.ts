@@ -103,11 +103,13 @@ export function buildFrameFill(
 
   // imageEl is the RAW source element — Fabric applies the sharp photo's
   // `angle` at render time without ever rotating the underlying pixels. Rotate
-  // into an intermediate canvas first so the blurred fill matches the same
-  // orientation as the rotated photo on top (mirrors engine.py, which rotates
-  // before painting the fill — see _paint_frame_fill).
+  // into an intermediate canvas first so the blurred fill stands the way the
+  // photo on top does. Only to the nearest quarter turn: a photo turned to any
+  // other angle has empty corners around it, and stretched over the frame
+  // those left the frame's corners unfilled (engine.py does the same, see
+  // _quarter_turned_fill_source).
   let blurSource: CanvasImageSource = imageEl;
-  const rot = ((fs.rotation || 0) % 360 + 360) % 360;
+  const rot = nearestQuarterTurn(fs.rotation || 0);
   if (rot !== 0) {
     const rad = (rot * Math.PI) / 180;
     const sinA = Math.abs(Math.sin(rad));
@@ -131,8 +133,12 @@ export function buildFrameFill(
   blurCanvas.height = Math.max(1, Math.round(fh));
   const ctx = blurCanvas.getContext('2d');
   if (ctx) {
-    ctx.filter = 'blur(18px)';
-    ctx.drawImage(blurSource, 0, 0, blurCanvas.width, blurCanvas.height);
+    if ('filter' in ctx) {
+      ctx.filter = 'blur(18px)';
+      ctx.drawImage(blurSource, 0, 0, blurCanvas.width, blurCanvas.height);
+    } else {
+      drawSoftened(ctx, blurSource, blurCanvas.width, blurCanvas.height);
+    }
   }
   return new FabricImage(blurCanvas, {
     left: fx + fw / 2, top: fy + fh / 2,
@@ -145,6 +151,40 @@ export function buildFrameFill(
       originX: 'center', originY: 'center', rx: fr, ry: fr,
     }),
   });
+}
+
+/** The quarter turn (0, 90, 180, 270) nearest to an angle in degrees; a tie
+ *  goes up. Twin of `_nearest_quarter_turn` in engine.py. */
+export function nearestQuarterTurn(deg: number): number {
+  return (((Math.floor(deg / 90 + 0.5) * 90) % 360) + 360) % 360;
+}
+
+/** The blur for a browser whose canvas has no `filter` (Safari, so every
+ *  iPhone browser): there the assignment is ignored and the fill came out as
+ *  a sharp, stretched copy of the photo. The picture is halved four times and
+ *  doubled back, each step smoothed by the browser, which softens it about as
+ *  much; one big shrink and stretch left a scalloped edge. */
+function drawSoftened(ctx: CanvasRenderingContext2D, source: CanvasImageSource, w: number, h: number) {
+  const scaled = (from: CanvasImageSource, step: number): HTMLCanvasElement | null => {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w / 2 ** step));
+    c.height = Math.max(1, Math.round(h / 2 ** step));
+    const cctx = c.getContext('2d');
+    if (!cctx) return null;
+    cctx.imageSmoothingEnabled = true;
+    cctx.imageSmoothingQuality = 'high';
+    cctx.drawImage(from, 0, 0, c.width, c.height);
+    return c;
+  };
+  let current: CanvasImageSource = source;
+  for (const step of [1, 2, 3, 4, 3, 2, 1]) {
+    const next = scaled(current, step);
+    if (!next) break;
+    current = next;
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(current, 0, 0, w, h);
 }
 
 /**

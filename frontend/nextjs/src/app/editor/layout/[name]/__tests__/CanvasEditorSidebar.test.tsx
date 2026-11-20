@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { CanvasEditorSidebar, type CanvasEditorSidebarProps } from '../CanvasEditorSidebar';
+import { CanvasEditorSidebar, addedPhotoBox, type CanvasEditorSidebarProps } from '../CanvasEditorSidebar';
 import type { LayerSelection } from '../LayersPanel';
 import type { CanvasItem, Overlay } from '../types';
 
@@ -76,5 +76,69 @@ describe('CanvasEditorSidebar — the add controls stay with an image selected',
     fireEvent.click(screen.getByRole('button', { name: 'Icons' }));
     expect(screen.getByText('Icon Overlay')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add New Icon' })).toBeInTheDocument();
+  });
+});
+
+describe('CanvasEditorSidebar — the phone sheet', () => {
+  const realMatchMedia = window.matchMedia;
+  beforeEach(() => {
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('max-width: 767px'), media: query,
+      addEventListener: jest.fn(), removeEventListener: jest.fn(),
+    })) as unknown as typeof window.matchMedia;
+  });
+  afterEach(() => { window.matchMedia = realMatchMedia; });
+
+  it('opens on the photo’s controls, Zoom included, with every tab in one row and no Save of its own', () => {
+    setup([], { type: 'frame', index: 0 });
+    for (const name of ['Photo', 'BG', 'Text', 'Icons', 'Uploads', 'Layers']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: 'Photo' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Zoom')).toBeInTheDocument();
+    expect(screen.getByText('Photo Alignment')).toBeInTheDocument();
+    expect(screen.queryByText('Save Changes')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add New Text' })).toBeNull();
+  });
+
+  it('shows one section at a time', () => {
+    setup([], { type: 'frame', index: 0 });
+    fireEvent.click(screen.getByRole('button', { name: 'Text' }));
+    expect(screen.getByRole('button', { name: 'Add New Text' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Zoom')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Layers' }));
+    expect(screen.getByText('Base Layer')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add New Text' })).toBeNull();
+  });
+
+  it('the Photo tab selects the photo when something else was selected', () => {
+    const props = setup([{ ...lost, originalFile: new File(['x'], 'logo.png') } as Overlay]);
+    expect(screen.getByRole('button', { name: 'Uploads' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Photo' }));
+    expect(props.setSelectedLayer).toHaveBeenCalledWith({ type: 'frame', index: 0 });
+    expect(screen.getByLabelText('Zoom')).toBeInTheDocument();
+  });
+});
+
+describe('addedPhotoBox — a photo added on top keeps its own shape', () => {
+  // Percent of the canvas on each axis, so the shape on screen is
+  // (width% x canvasW) : (height% x canvasH).
+  const shape = (box: { width: number; height: number }, cw: number, ch: number) => (box.width * cw) / (box.height * ch);
+
+  it('a landscape photo on a portrait canvas is not squeezed into the canvas’s shape', () => {
+    const box = addedPhotoBox(1600, 1200, 1200, 1800);
+    expect(box.width).toBe(30);
+    expect(shape(box, 1200, 1800)).toBeCloseTo(1600 / 1200, 2);
+  });
+
+  it('a tall photo is made smaller, not cut, when it would pass 60% of the height', () => {
+    const box = addedPhotoBox(500, 3000, 1800, 1200);
+    expect(box.height).toBe(60);
+    expect(shape(box, 1800, 1200)).toBeCloseTo(500 / 3000, 2);
+  });
+
+  it('falls back to the old box when a size is unknown', () => {
+    expect(addedPhotoBox(0, 0, 1200, 1800)).toEqual({ width: 30, height: 30 });
   });
 });

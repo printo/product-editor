@@ -154,16 +154,23 @@ export const FEW_CARDS = 3;
 /** Root classes of a card in the canvas row (`CanvasCard`, `CalendarRepeatCard`).
  *  The row is a centred, wrapping flex row, so a short row (one card, or the
  *  last few) sits in the middle instead of hugging the left edge. On mobile
- *  the card is a fixed 86vw, centred. From `sm` up:
+ *  the card is 86vw, centred (see `PHONE_STACKED_CARD`). From `sm` up:
  *  - a few cards take the width `canvasCardStyle` gives (`--card-w`); a share
  *    of the row made a lone card a seventh of a wide monitor;
  *  - many cards take the share a column of the 2/3/4/5/7-column grid had, less
  *    the row's gap (`sm:gap-3.5` = 0.875rem), so a full row still fills the
  *    width edge to edge. */
+// A phone stacks the cards, and a tall card as wide as the screen hid the next
+// one below the fold: with more than one card each is held to about half the
+// screen's height (`--card-ratio` comes from `canvasCardStyle`), the rule the
+// sides of a front/back product already follow. A max-width beside a plain
+// width, so a browser that rejects it keeps the 86vw card.
+const PHONE_STACKED_CARD = 'w-[86vw] max-w-[min(24rem,calc(50vh*var(--card-ratio)))]';
+
 export function canvasCardWidthClass(cardCount: number): string {
   return cardCount <= FEW_CARDS
-    ? 'w-[86vw] max-w-sm sm:max-w-none sm:w-[var(--card-w)]'
-    : 'w-[86vw] max-w-sm sm:max-w-none sm:w-[calc((100%-0.875rem)/2)] md:w-[calc((100%-2*0.875rem)/3)] lg:w-[calc((100%-3*0.875rem)/4)] xl:w-[calc((100%-4*0.875rem)/5)] 2xl:w-[calc((100%-6*0.875rem)/7)]';
+    ? `${cardCount > 1 ? PHONE_STACKED_CARD : 'w-[86vw] max-w-sm'} sm:max-w-none sm:w-[var(--card-w)]`
+    : `${PHONE_STACKED_CARD} sm:max-w-none sm:w-[calc((100%-0.875rem)/2)] md:w-[calc((100%-2*0.875rem)/3)] lg:w-[calc((100%-3*0.875rem)/4)] xl:w-[calc((100%-4*0.875rem)/5)] 2xl:w-[calc((100%-6*0.875rem)/7)]`;
 }
 
 /** The width of a "few cards" card: as large as the window comfortably holds.
@@ -175,7 +182,10 @@ export function canvasCardWidthClass(cardCount: number): string {
  *  narrower than 12rem. */
 export function canvasCardStyle(canvasWidth: number, canvasHeight: number): CSSProperties {
   const ratio = canvasWidth > 0 && canvasHeight > 0 ? canvasWidth / canvasHeight : 2 / 3;
-  return { '--card-w': `min(100%, 70vw, max(12rem, calc(min(75vh, 100vh - 15.5rem) * ${ratio.toFixed(4)})))` } as CSSProperties;
+  return {
+    '--card-w': `min(100%, 70vw, max(12rem, calc(min(75vh, 100vh - 15.5rem) * ${ratio.toFixed(4)})))`,
+    '--card-ratio': ratio.toFixed(4),
+  } as CSSProperties;
 }
 
 /** Gap between the sides of a multi-side product, in rem (`gap-6`). */

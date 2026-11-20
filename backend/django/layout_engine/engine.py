@@ -456,6 +456,31 @@ class LayoutEngine:
         holes.close()
         mat.close()
 
+    @staticmethod
+    def _nearest_quarter_turn(rotation: float) -> int:
+        """The quarter turn (0, 90, 180, 270) nearest to an angle in degrees;
+        a tie goes up. Twin of nearestQuarterTurn in frame-fill.ts."""
+        return int(math.floor(rotation / 90.0 + 0.5)) * 90 % 360
+
+    def _quarter_turned_fill_source(
+        self, img: Image.Image, rotation: float, target_w: int, target_h: int,
+    ) -> Image.Image:
+        """A small copy of the photo at the quarter turn nearest `rotation`,
+        for the blurred fill of a photo turned to some other angle."""
+        small = img.copy()
+        small.thumbnail((max(target_w, target_h),) * 2, Image.Resampling.BILINEAR)
+        turn = self._nearest_quarter_turn(rotation)
+        if turn == 90:
+            turned = small.transpose(Image.Transpose.ROTATE_270)
+        elif turn == 180:
+            turned = small.transpose(Image.Transpose.ROTATE_180)
+        elif turn == 270:
+            turned = small.transpose(Image.Transpose.ROTATE_90)
+        else:
+            return small
+        small.close()
+        return turned
+
     def _paint_frame_fill(
         self,
         layer: Image.Image,
@@ -696,6 +721,14 @@ class LayoutEngine:
             # shuffle, vs the O(N) BICUBIC convolution `rotate` performs. Most
             # retro_polaroid renders use 90/180/270 — this collapses ~30% of
             # the surface render time for those layouts.
+            # A photo turned to anything but a quarter turn has empty corners
+            # around it, so the blurred fill is taken from a copy at the
+            # nearest quarter turn, before the photo is turned.
+            odd_angle = bool(rotation) and not (rotation == int(rotation) and int(rotation) % 90 == 0)
+            fill_src = None
+            if odd_angle and frame_fit == "contain" and fill_style and fill_style != 'border':
+                fill_src = self._quarter_turned_fill_source(img, rotation, target_w, target_h)
+
             if rotation:
                 norm = int(rotation) % 360
                 if rotation == norm and norm in (90, 180, 270):
@@ -741,12 +774,24 @@ class LayoutEngine:
             if frame_fit == "contain":
                 rel_x = (target_w - new_w) // 2 + int(pan_x)
                 rel_y = (target_h - new_h) // 2 + int(pan_y)
-                # Fill sides: a contained photo leaves whitespace whenever its
-                # aspect ratio differs from the frame's. If the customer picked a
-                # fill style, paint it behind the photo (border colour or blurred
-                # photo) so the frame reads edge-to-edge, matching the editor.
-                if fill_style and (new_w < target_w or new_h < target_h):
-                    self._paint_frame_fill(layer, img, fill_style, target_w, target_h, paper_color)
+                # Fill: a contained photo leaves the frame showing wherever it
+                # does not reach, because its shape differs from the frame's or
+                # because it was made smaller, moved or turned. If the customer
+                # picked a fill style, paint it behind the photo (border colour
+                # or blurred photo) so the frame reads edge-to-edge, matching
+                # the editor. Skipped only when the photo, standing at a
+                # quarter turn, covers the whole frame.
+                covers = (
+                    rel_x <= 0 and rel_y <= 0
+                    and rel_x + new_w >= target_w and rel_y + new_h >= target_h
+                )
+                if fill_style and (odd_angle or not covers):
+                    self._paint_frame_fill(
+                        layer, fill_src if fill_src is not None else img,
+                        fill_style, target_w, target_h, paper_color,
+                    )
+                if fill_src is not None:
+                    fill_src.close()
                 layer.paste(img, (rel_x, rel_y), img)
             else:
                 # Cover: crop to frame, then shift by editor pan offset.

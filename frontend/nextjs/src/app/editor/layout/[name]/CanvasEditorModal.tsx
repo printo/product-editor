@@ -3,13 +3,14 @@
 import { sideCount } from '@/lib/calendar-covers';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { X, Minus, Undo2, Redo2, Plus, ChevronRight } from 'lucide-react';
+import { X, Minus, Undo2, Redo2, Plus, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { clsx } from 'clsx';
 // FabricImage is used only inside an async callback — imported lazily at call-site below
 import type { CanvasItem, FitMode, Overlay, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { getImageMetadata } from '@/lib/image-utils';
 import { useModalA11y } from '@/lib/use-modal-a11y';
+import { useIsPhone } from '@/lib/use-is-phone';
 import { type LayerSelection } from './LayersPanel';
 // Type-only import: erased at compile time, zero bundle impact
 import type { FabricEditorHandle } from './FabricEditor';
@@ -83,6 +84,7 @@ export function CanvasEditorModal({
   // it while editing text), so onClose is null.
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalA11y(dialogRef, null, true, dialogRef);
+  const isPhone = useIsPhone();
 
   // ── Local state (editor-only) ──────────────────────────────────────────────
   const [viewZoom, setViewZoom] = useState(1.0); // 1.0 = fit to viewport
@@ -320,6 +322,73 @@ export function CanvasEditorModal({
     : activeCanvasIdx;
   const totalCount = isMultiSurface ? surfaceStates.length : canvases.length;
 
+  const closeButton = (
+    <button onClick={onClose} aria-label="Close editor"
+      className={clsx('p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-white rounded-full transition-all',
+        isPhone ? 'shrink-0' : 'absolute top-4 right-4 z-30 shadow-lg')}>
+      <X className="w-5 h-5" />
+    </button>
+  );
+
+  // Navigation Hub (Simple Arrows + Numeric Counter)
+  const navHub = (
+    <div className={clsx('flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-slate-200/50 p-1 rounded-xl justify-between',
+      isPhone ? 'shrink-0' : 'shadow-lg w-[140px]')}>
+      <button
+        disabled={currentIdx === 0}
+        onClick={() => {
+          if (isMultiSurface) onOpenCanvas(0, surfaceStates[currentIdx - 1].key);
+          else onOpenCanvas(currentIdx - 1);
+        }}
+        aria-label={isMultiSurface ? 'Previous side' : 'Previous design'}
+        className="p-2 text-slate-500 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 motion-safe:active:scale-90"
+      >
+        <ChevronRight className="w-4 h-4 rotate-180" aria-hidden />
+      </button>
+
+      <span className={clsx('text-[10px] font-black text-slate-700 tabular-nums px-1 text-center uppercase tracking-tighter', isPhone ? 'min-w-[36px]' : 'min-w-[48px]')}>
+        {currentIdx + 1}
+        <span className="mx-1 text-slate-500">/</span>
+        {totalCount}
+      </span>
+
+      <button
+        disabled={currentIdx === totalCount - 1}
+        onClick={() => {
+          if (isMultiSurface) onOpenCanvas(0, surfaceStates[currentIdx + 1].key);
+          else onOpenCanvas(currentIdx + 1);
+        }}
+        aria-label={isMultiSurface ? 'Next side' : 'Next design'}
+        className="p-2 text-slate-500 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 motion-safe:active:scale-90"
+      >
+        <ChevronRight className="w-4 h-4" aria-hidden />
+      </button>
+    </div>
+  );
+
+  const undoRedo = (
+    <div className={clsx('flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-violet-200/50 p-1 rounded-xl', isPhone ? 'shrink-0' : 'shadow-lg')}>
+      <button onClick={handleUndo} disabled={undoCount === 0}
+        className="p-2 text-violet-600 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Undo (Ctrl+Z)" aria-label="Undo">
+        <Undo2 className="w-4 h-4" />
+      </button>
+      <button onClick={handleRedo} disabled={redoCount === 0}
+        className="p-2 text-violet-600 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+        <Redo2 className="w-4 h-4" />
+      </button>
+    </div>
+  );
+
+  const zoomPill = (
+    <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-cyan-200/50 p-1 rounded-xl shadow-lg w-[140px] justify-between">
+      <button onClick={() => setViewZoom(p => Math.max(0.3, p - 0.15))} aria-label="Zoom out" className="p-1.5 text-cyan-600 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Minus className="w-4 h-4" /></button>
+      <button onClick={() => setViewZoom(1.0)} aria-label={`${(viewZoom * 100).toFixed(0)}%, reset zoom`} className="min-w-[48px] text-[10px] font-black text-cyan-700 uppercase tracking-tighter hover:text-cyan-700 transition-colors">
+        {(viewZoom * 100).toFixed(0)}%
+      </button>
+      <button onClick={() => setViewZoom(p => Math.min(3, p + 0.15))} aria-label="Zoom in" className="p-1.5 text-cyan-600 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Plus className="w-4 h-4" /></button>
+    </div>
+  );
+
   return (
     <div
       ref={dialogRef}
@@ -333,30 +402,43 @@ export function CanvasEditorModal({
       {/* Workspace — Fabric.js editor */}
       <div className="flex-1 bg-slate-100 flex flex-col overflow-hidden relative">
 
-        {/* Floating close */}
-        <button onClick={onClose} aria-label="Close editor"
-          className="absolute top-4 right-4 z-30 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-white rounded-full shadow-lg transition-all">
-          <X className="w-5 h-5" />
-        </button>
-
-        {/* Left Surface Rail — Vertical floating list for Multi-surface layouts */}
-        {/* Mobile surface chips — the vertical rail is unreachable on phones */}
-        {isMultiSurface && (
-          <div className="flex md:hidden absolute top-3 left-3 right-16 z-20 gap-1.5 overflow-x-auto p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-xl shadow-lg">
-            {surfaceStates.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => onOpenCanvas(0, s.key)}
-                className={clsx(
-                  "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
-                  s.key === activeSurfaceKey ? "bg-indigo-600 text-white" : "text-slate-500 bg-slate-50"
-                )}
-              >
-                {s.label || s.key}
-              </button>
-            ))}
+        {/* Phone: one row above the canvas holds what used to float over the
+            photo, plus Save, which the bottom sheet no longer carries. */}
+        {isPhone && (
+          <div className="relative z-20 flex items-center gap-1.5 px-2 py-2 bg-white/80 border-b border-slate-200/60 touch-none">
+            {isMultiSurface ? (
+              <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto">
+                {surfaceStates.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => onOpenCanvas(0, s.key)}
+                    aria-pressed={s.key === activeSurfaceKey}
+                    className={clsx(
+                      "px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
+                      s.key === activeSurfaceKey ? "bg-indigo-600 text-white" : "text-slate-500 bg-slate-50"
+                    )}
+                  >
+                    {s.label || s.key}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                {navHub}
+                <div className="flex-1" />
+              </>
+            )}
+            {undoRedo}
+            <button onClick={handleSaveChanges} aria-label="Save changes"
+              className="h-10 px-3 shrink-0 flex items-center gap-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-lg font-medium uppercase text-[11px] motion-safe:active:scale-[0.98] transition-all">
+              <CheckCircle2 className="w-4 h-4 hidden min-[380px]:block" aria-hidden />
+              Save
+            </button>
+            {closeButton}
           </div>
         )}
+
+        {/* Left Surface Rail — Vertical floating list for Multi-surface layouts */}
         {isMultiSurface && (
           <div className="hidden md:flex absolute left-12 top-1/2 -translate-y-1/2 z-20 flex-col gap-2 p-1.5 bg-white/80 backdrop-blur-xl border border-indigo-100/50 rounded-xl shadow-xl max-h-[70vh] overflow-y-auto overscroll-contain custom-scrollbar">
             {surfaceStates.map((s, idx) => {
@@ -382,62 +464,21 @@ export function CanvasEditorModal({
           </div>
         )}
 
-        {/* Floating Controls — Gen-Z pill style */}
-        <div className="absolute bottom-6 right-6 z-20 flex flex-col items-end gap-3">
-          
-          {/* Navigation Hub (Simple Arrows + Numeric Counter) */}
-          <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-slate-200/50 p-1 rounded-xl shadow-lg w-[140px] justify-between">
-            <button 
-              disabled={currentIdx === 0} 
-              onClick={() => {
-                if (isMultiSurface) onOpenCanvas(0, surfaceStates[currentIdx - 1].key);
-                else onOpenCanvas(currentIdx - 1);
-              }}
-              aria-label={isMultiSurface ? 'Previous side' : 'Previous design'}
-              className="p-2 text-slate-500 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 motion-safe:active:scale-90"
-            >
-              <ChevronRight className="w-4 h-4 rotate-180" aria-hidden />
-            </button>
-
-            <span className="text-[10px] font-black text-slate-700 tabular-nums px-1 min-w-[48px] text-center uppercase tracking-tighter">
-              {currentIdx + 1}
-              <span className="mx-1 text-slate-500">/</span>
-              {totalCount}
-            </span>
-
-            <button 
-              disabled={currentIdx === totalCount - 1} 
-              onClick={() => {
-                if (isMultiSurface) onOpenCanvas(0, surfaceStates[currentIdx + 1].key);
-                else onOpenCanvas(currentIdx + 1);
-              }}
-              aria-label={isMultiSurface ? 'Next side' : 'Next design'}
-              className="p-2 text-slate-500 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 motion-safe:active:scale-90"
-            >
-              <ChevronRight className="w-4 h-4" aria-hidden />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-violet-200/50 p-1 rounded-xl shadow-lg">
-              <button onClick={handleUndo} disabled={undoCount === 0}
-                className="p-2 text-violet-600 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Undo (Ctrl+Z)" aria-label="Undo">
-                <Undo2 className="w-4 h-4" />
-              </button>
-              <button onClick={handleRedo} disabled={redoCount === 0}
-                className="p-2 text-violet-600 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
-                <Redo2 className="w-4 h-4" />
-              </button>
+        {isPhone ? (
+          <div className="absolute bottom-3 right-3 z-20">{zoomPill}</div>
+        ) : (
+          <>
+            {closeButton}
+            {/* Floating Controls — Gen-Z pill style */}
+            <div className="absolute bottom-6 right-6 z-20 flex flex-col items-end gap-3">
+              {navHub}
+              <div className="flex items-center gap-2">
+                {undoRedo}
+                {zoomPill}
+              </div>
             </div>
-            <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-cyan-200/50 p-1 rounded-xl shadow-lg w-[140px] justify-between">
-              <button onClick={() => setViewZoom(p => Math.max(0.3, p - 0.15))} aria-label="Zoom out" className="p-1.5 text-cyan-600 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Minus className="w-4 h-4" /></button>
-              <button onClick={() => setViewZoom(1.0)} aria-label={`${(viewZoom * 100).toFixed(0)}%, reset zoom`} className="min-w-[48px] text-[10px] font-black text-cyan-700 uppercase tracking-tighter hover:text-cyan-700 transition-colors">
-                {(viewZoom * 100).toFixed(0)}%
-              </button>
-              <button onClick={() => setViewZoom(p => Math.min(3, p + 0.15))} aria-label="Zoom in" className="p-1.5 text-cyan-600 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Plus className="w-4 h-4" /></button>
-            </div>
-          </div>
-        </div>
+          </>
+        )}
 
         {/* Fabric.js Canvas Editor — fills workspace */}
         <FabricEditor
