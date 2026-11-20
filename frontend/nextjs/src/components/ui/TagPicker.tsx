@@ -38,7 +38,7 @@ export const TagPicker = ({ tags, value, onChange, label = 'Tags', error }: TagP
                   className={`inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md text-[11px] font-bold ${off ? 'bg-slate-100 text-slate-500' : 'bg-indigo-50 text-indigo-700'}`}
                 >
                   {tagName(tags, key)}
-                  {off && <span className="text-[9px] uppercase text-slate-400">off</span>}
+                  {off && <span className="text-[9px] uppercase text-slate-500">off</span>}
                   <button
                     type="button"
                     aria-label={`Remove tag ${tagName(tags, key)}`}
@@ -67,7 +67,7 @@ export const TagPicker = ({ tags, value, onChange, label = 'Tags', error }: TagP
           />
         )}
         {(full || offered.length === 0) && (
-          <p className="text-xs text-slate-400 px-3 py-2.5">
+          <p className="text-xs text-slate-500 px-3 py-2.5">
             {full
               ? `At most ${MAX_TAGS_PER_LAYOUT} tags.`
               : tags.length

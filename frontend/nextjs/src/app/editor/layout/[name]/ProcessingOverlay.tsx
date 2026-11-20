@@ -45,7 +45,7 @@ export function ProcessingOverlay({
                       generation after a photo pick, which is not a save. */}
                   {progressTitle}
                 </span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
                   {isDownloading
                     ? (embedToken ? 'This may take a moment' : 'Bundling high-res print files')
                     : 'Optimizing images for print'}
@@ -95,7 +95,7 @@ export function ProcessingOverlay({
             <span className="text-[12px] font-black text-slate-900 uppercase tracking-tight">
               Converting iPhone Photo
             </span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
               Preparing HEIC image for editing
             </span>
           </div>

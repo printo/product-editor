@@ -43,7 +43,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
               forever without the scene ever finishing a render. */}
           <div ref={impositionPreviewBoxRef} className="relative flex-1 w-full min-h-[220px] overflow-hidden">
             {sheetCount === 0 ? (
-              <p className="absolute inset-0 flex items-center justify-center text-xs text-slate-400 text-center px-4">
+              <p className="absolute inset-0 flex items-center justify-center text-xs text-slate-500 text-center px-4">
                 {impositionResult.noUsableArea
                   ? 'The margin leaves no printable area on this sheet.'
                   : 'No canvas fits inside this sheet size.'}
@@ -133,7 +133,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
                       onChange={e => setImpositionSettings(s => ({ ...s, widthIn: Math.max(1, Number(e.target.value) || 0) }))}
                       className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
                     />
-                    <span className="text-xs text-slate-400">in</span>
+                    <span className="text-xs text-slate-500">in</span>
                   </div>
                 </div>
                 <div className="space-y-1.5">
@@ -148,7 +148,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
                       onChange={e => setImpositionSettings(s => ({ ...s, heightIn: Math.max(1, Number(e.target.value) || 0) }))}
                       className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
                     />
-                    <span className="text-xs text-slate-400">in</span>
+                    <span className="text-xs text-slate-500">in</span>
                   </div>
                 </div>
               </div>
@@ -188,7 +188,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
                     onChange={e => setImpositionSettings(s => ({ ...s, gutterMm: Number(e.target.value) }))}
                     className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
                   />
-                  <span className="text-xs text-slate-400">mm</span>
+                  <span className="text-xs text-slate-500">mm</span>
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -201,7 +201,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
                     onChange={e => setImpositionSettings(s => ({ ...s, marginMm: Number(e.target.value) }))}
                     className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full"
                   />
-                  <span className="text-xs text-slate-400">mm</span>
+                  <span className="text-xs text-slate-500">mm</span>
                 </div>
               </div>
             </div>
@@ -243,7 +243,7 @@ export function ImpositionModal({ imposition }: { imposition: Imposition }) {
                     aria-label="Crop mark length"
                     className="bg-transparent text-sm font-medium text-slate-900 outline-none w-full disabled:cursor-not-allowed"
                   />
-                  <span className="text-xs text-slate-400">mm</span>
+                  <span className="text-xs text-slate-500">mm</span>
                 </div>
               </div>
               {impositionSettings.cropMarksEnabled && impositionResult.cropMarks.shortened && impositionResult.cropMarks.maxLenIn > 0 && (

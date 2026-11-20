@@ -298,7 +298,7 @@ export function SurfaceCard({
             </div>
           </div>
           <div className="px-3 py-2 flex items-center justify-between bg-white border-t border-slate-50">
-            <span className="text-[10px] font-bold text-slate-400">{surface.def.canvas?.widthMm}×{surface.def.canvas?.heightMm}mm</span>
+            <span className="text-[10px] font-bold text-slate-500">{surface.def.canvas?.widthMm}×{surface.def.canvas?.heightMm}mm</span>
           </div>
         </div>
       </div>
@@ -340,7 +340,7 @@ export function CanvasCard({
           {title ?? `Image ${idx + 1}`}
         </h3>
         {subtitle && (
-          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-400">{subtitle}</span>
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">{subtitle}</span>
         )}
       </div>
       <div

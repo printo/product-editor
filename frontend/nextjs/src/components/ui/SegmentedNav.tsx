@@ -44,7 +44,7 @@ export const SegmentedNav = ({ items }: SegmentedNavProps) => {
             href={item.href}
             aria-current={item.active ? 'page' : undefined}
             className={`relative z-10 flex-1 px-2 md:px-5 py-1.5 md:py-2.5 rounded-lg text-[9px] md:text-[13px] font-black uppercase tracking-tight md:tracking-wider transition-colors duration-300 min-w-[58px] md:min-w-[100px] text-center whitespace-nowrap ${
-              item.active ? 'text-white' : 'text-slate-400 hover:text-slate-600'
+              item.active ? 'text-white' : 'text-slate-500 hover:text-slate-600'
             }`}
           >
             {item.label}

@@ -44,7 +44,7 @@ export function AutoFillPickerDialog({
             aria-label="Close"
             className="p-2 -mt-1 -mr-1 hover:bg-slate-100 rounded-lg transition-all shrink-0"
           >
-            <X className="w-4 h-4 text-slate-400" />
+            <X className="w-4 h-4 text-slate-500" />
           </button>
         </div>
         <p className="text-[12px] text-slate-500 leading-relaxed mt-1.5 mb-4 shrink-0">

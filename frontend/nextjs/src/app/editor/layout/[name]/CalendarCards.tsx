@@ -90,7 +90,7 @@ export function CalendarRepeatCard({ page, sourceDataUrl, aspectRatio, calendar,
     <div className={canvasCardWidthClass(cardCount)} style={canvasCardStyle(...aspectParts(aspectRatio))} data-testid="calendar-repeat-card">
       <div className="px-1 py-1.5 flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">{label}</h3>
-        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">
           Repeats image {page.canvasIdx + 1}
         </span>
       </div>

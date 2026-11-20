@@ -99,7 +99,7 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
               Start blank
             </button>
           ) : (
-            <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+            <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors">
               <X className="w-4 h-4" />
             </button>
           )}
@@ -152,14 +152,14 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
                             <img src={t.thumbnailUrl} alt="" className="max-w-full max-h-full object-contain p-2" loading="lazy" />
                           ) : (
                             <span className="w-3/4 h-3/4 rounded-md border border-slate-200 flex items-center justify-center" style={{ backgroundColor: bgColor }}>
-                              <TemplateIcon className="w-6 h-6 text-slate-400" />
+                              <TemplateIcon className="w-6 h-6 text-slate-500" />
                             </span>
                           )}
                         </div>
                         <p className={nameClass}>
                           {active && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />}
                           <span>{t.displayName}</span>
-                          {active && cardCount > 0 && <RefreshCw className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" aria-label="Apply to all cards" />}
+                          {active && cardCount > 0 && <RefreshCw className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" aria-label="Apply to all cards" />}
                         </p>
                       </button>
                     </li>

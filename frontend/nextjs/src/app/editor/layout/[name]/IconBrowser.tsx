@@ -164,32 +164,32 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
           <p className="text-[11px] font-medium text-slate-900 uppercase">
             {searched ? 'Detected Icons' : 'Premium Library'}
           </p>
-          <span className="text-[10px] text-slate-400 uppercase opacity-60">Icon library</span>
+          <span className="text-[10px] text-slate-500 uppercase opacity-60">Icon library</span>
         </div>
-        <button onClick={() => setExpanded(false)} aria-label="Close icon library" className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all">
+        <button onClick={() => setExpanded(false)} aria-label="Close icon library" className="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all">
           <X className="w-4 h-4" />
         </button>
       </div>
 
       <div className="relative group">
         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-          <Search className="w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+          <Search className="w-4 h-4 text-slate-500 group-focus-within:text-indigo-600 transition-colors" />
         </div>
         <input type="text" value={query} onChange={e => handleInput(e.target.value)}
           placeholder="Search icons..." autoFocus
-          className="w-full pl-11 pr-4 py-3 text-base md:text-[11px] font-medium bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-300 shadow-sm" />
+          className="w-full pl-11 pr-4 py-3 text-base md:text-[11px] font-medium bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-500 shadow-sm" />
       </div>
 
       {loading && (
         <div className="flex flex-col items-center justify-center py-6 gap-2">
           <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
-          <p className="text-[10px] font-medium text-slate-400 uppercase">Searching...</p>
+          <p className="text-[10px] font-medium text-slate-500 uppercase">Searching...</p>
         </div>
       )}
 
       {!loading && results.length === 0 && (
         <div className="py-6 text-center">
-          <p className="text-[10px] text-slate-400 uppercase">
+          <p className="text-[10px] text-slate-500 uppercase">
             {busy ? 'Icon search is busy. Please try again in a minute.' : 'No icons found.'}
           </p>
         </div>
@@ -206,7 +206,7 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
                 className="aspect-square bg-slate-50 border border-slate-100 rounded-lg hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all p-2.5 group relative motion-safe:active:scale-90 disabled:opacity-50 disabled:hover:shadow-none disabled:hover:border-slate-100 disabled:hover:bg-slate-50 disabled:active:scale-100">
                 {item.isLocal && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white shadow-sm z-10" />}
                 {broken ? (
-                  <ImageOff className="w-full h-full p-1.5 text-slate-300" aria-label={`${item.name} could not be loaded`} />
+                  <ImageOff className="w-full h-full p-1.5 text-slate-500" aria-label={`${item.name} could not be loaded`} />
                 ) : (
                   <img src={ownIconUrl(item.svgUrl)} alt={item.name} loading="lazy"
                     onError={() => setFailed(prev => new Set(prev).add(key))}

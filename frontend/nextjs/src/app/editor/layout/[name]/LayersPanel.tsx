@@ -59,10 +59,10 @@ export function LayersPanel({
           <Layers className="w-4 h-4 text-red-500" />
           <p className="text-[11px] font-bold text-slate-800 uppercase tracking-tight">
             Layers
-            <span className="text-[9px] text-slate-500 ml-1.5 tabular-nums font-medium">({totalLayers})</span>
+            <span className="text-[9px] text-slate-600 ml-1.5 tabular-nums font-medium">({totalLayers})</span>
           </p>
         </div>
-        <ChevronUp className={clsx('w-3.5 h-3.5 text-slate-400 transition-transform duration-500', expanded ? '' : 'rotate-180')} />
+        <ChevronUp className={clsx('w-3.5 h-3.5 text-slate-500 transition-transform duration-500', expanded ? '' : 'rotate-180')} />
       </button>
 
       <div className={clsx('overflow-y-auto transition-all duration-500 custom-scrollbar', expanded ? 'max-h-52 mt-0.5' : 'max-h-0')}>
@@ -87,7 +87,7 @@ export function LayersPanel({
                 )}
               >
                 <div className={clsx('shrink-0 flex items-center justify-center transition-all', 
-                  isSelected ? 'text-indigo-600' : 'text-slate-400')}>
+                  isSelected ? 'text-indigo-600' : 'text-slate-500')}>
                   {overlay.type === 'text' && <Type className="w-3 h-3" />}
                   {overlay.type === 'shape' && <Hexagon className="w-3 h-3" />}
                   {overlay.type === 'image' && (lost
@@ -109,7 +109,7 @@ export function LayersPanel({
                       <button
                         disabled={oIdx === overlays.length - 1}
                         onClick={e => { e.stopPropagation(); handleMoveLayer(oIdx, 'up'); }}
-                        className="w-5.5 h-5.5 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-10"
+                        className="w-5.5 h-5.5 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-10"
                         title="Move Up"
                       >
                         <ChevronUp className="w-3 h-3" />
@@ -117,7 +117,7 @@ export function LayersPanel({
                       <button
                         disabled={oIdx === 0}
                         onClick={e => { e.stopPropagation(); handleMoveLayer(oIdx, 'down'); }}
-                        className="w-5.5 h-5.5 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-10"
+                        className="w-5.5 h-5.5 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-10"
                         title="Move Down"
                       >
                         <ChevronDown className="w-3 h-3" />
@@ -153,11 +153,11 @@ export function LayersPanel({
                 )}
               >
                 <div className={clsx('shrink-0 flex items-center justify-center transition-all', 
-                  isSelected ? 'text-indigo-600' : 'text-slate-300')}>
+                  isSelected ? 'text-indigo-600' : 'text-slate-500')}>
                   <Lock className="w-3 h-3" />
                 </div>
                 <span className={clsx('text-[10px] font-bold truncate flex-1 uppercase tracking-tight', 
-                  isSelected ? 'text-indigo-600' : 'text-slate-400 italic')}>
+                  isSelected ? 'text-indigo-600' : 'text-slate-500 italic')}>
                   {frames.length > 1 ? `Slot ${fIdx + 1}` : (frame.originalFile?.name || 'Base Layer')}
                 </span>
                 

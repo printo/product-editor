@@ -105,7 +105,7 @@ export function CalendarCellPhotoDialog({ src, placement, cellAspect = 1, dateLa
             type="button"
             onClick={cancel}
             aria-label="Close without saving"
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+            className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
           >
             <X className="h-5 w-5" aria-hidden />
           </button>
@@ -169,7 +169,7 @@ export function CalendarCellPhotoDialog({ src, placement, cellAspect = 1, dateLa
           </button>
         </div>
         <div className="mt-3 flex items-center gap-2" role="group" aria-label="Move photo">
-          <span className={clsx('mr-1 text-sm', filling ? 'text-slate-700' : 'text-slate-400')}>
+          <span className={clsx('mr-1 text-sm', filling ? 'text-slate-700' : 'text-slate-500')}>
             Move {!filling && <span className="text-xs">(with Fill)</span>}
           </span>
           {MOVES.map(({ key, label, Icon, axis, by }) => {
@@ -190,7 +190,7 @@ export function CalendarCellPhotoDialog({ src, placement, cellAspect = 1, dateLa
             );
           })}
         </div>
-        <label className={clsx('mt-3 flex items-center gap-2 text-sm', placement.fit === 'contain' ? 'cursor-pointer text-slate-700' : 'text-slate-400')}>
+        <label className={clsx('mt-3 flex items-center gap-2 text-sm', placement.fit === 'contain' ? 'cursor-pointer text-slate-700' : 'text-slate-500')}>
           <input
             type="checkbox"
             checked={placement.blur}
