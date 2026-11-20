@@ -107,7 +107,7 @@ export function EditorToolbar({
         {/* Desktop: the heading and the Add Photos box give up width (and
             truncate) before the action buttons do, so Save & Continue stays
             on screen in a narrow embed iframe. */}
-        <div className="flex items-center gap-3 min-w-0 md:flex-initial">
+        <div className="flex items-center gap-3 min-w-0 flex-1 md:flex-initial">
           {/* Embed only — the iframe has no "Back to Layouts" destination to
               push to (that's dashboard-only, see the HeaderContext effect
               above). Deliberately NOT router.back()/history.back(): a nested
@@ -131,16 +131,24 @@ export function EditorToolbar({
             </button>
           )}
           <img src="/printo-logo.webp" alt="Printo" width={148} height={56} className="h-10 md:h-12 w-auto shrink-0" />
-          <div className="w-px h-8 md:h-10 bg-slate-200 shrink-0" />
           {/* Layout name display — hidden per CEO request (2026-09-09), restored per
               management feedback (2026-09-15): the original ask was to drop the raw
               technical identifier (e.g. "retro_polaroid_-_4.2x3.5_in"), not the name
               entirely. Prefer the ops-curated displayName (2026-09-16) — a real field
               ops can write a clean product name into — over formatLayoutDisplayName(),
               which is only a mechanical fallback for a layout that predates the field. */}
-          <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter truncate">
-            {layout?.displayName || formatLayoutDisplayName(layout?.name || layoutName)}
-          </h1>
+          {/* On a phone the name gets whatever width the upload box leaves; when
+              that is too little to read (the wide "10 of 10 images uploaded"
+              box left a lone "(") it is hidden rather than cut to a fragment.
+              `.toolbar-title-slot` in globals.css. */}
+          <div className="toolbar-title-slot min-w-0">
+            <div className="toolbar-title flex items-center gap-3 min-w-0">
+              <div className="w-px h-8 md:h-10 bg-slate-200 shrink-0" />
+              <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter truncate">
+                {layout?.displayName || formatLayoutDisplayName(layout?.name || layoutName)}
+              </h1>
+            </div>
+          </div>
         </div>
         {/* Top upload section — hidden when empty (empty state shows primary upload
             area only); revealed once user uploads at least one photo (secondary "Add more" action).
@@ -159,7 +167,8 @@ export function EditorToolbar({
                   <Check className="w-3.5 h-3.5 md:w-4 md:h-4" />
                 </div>
                 <p className="flex-1 min-w-0 truncate text-[10px] md:text-[11px] font-black text-emerald-700/80 uppercase tracking-tight">
-                  {`${totalUploadedCount} of ${qtyNeeded} images uploaded`}
+                  <span className="md:hidden">{`Uploaded (${totalUploadedCount}/${qtyNeeded})`}</span>
+                  <span className="hidden md:inline">{`${totalUploadedCount} of ${qtyNeeded} images uploaded`}</span>
                 </p>
               </div>
             ) : (

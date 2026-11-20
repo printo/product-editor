@@ -153,7 +153,7 @@ export function LowDpiWarning({ frames }: { frames: LowDpiFrame[] }) {
       <ul className="text-xs mt-1.5 space-y-0.5 font-medium">
         {shown.map((f, i) => (
           <li key={i}>
-            {f.surfaceLabel ?? `Canvas ${f.canvasIdx + 1}`}, photo {f.frameIdx + 1} — ~{Math.round(f.dpi)} DPI
+            {f.surfaceLabel ?? `Image ${f.canvasIdx + 1}`}, photo {f.frameIdx + 1} — ~{Math.round(f.dpi)} DPI
           </li>
         ))}
         {rest > 0 && <li>…and {rest} more</li>}

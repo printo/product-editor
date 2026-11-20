@@ -382,7 +382,7 @@ export function CanvasCard({
         >
           {photoZone ? (
             <>
-              {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+              {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Image ${idx + 1}`} />}
               <div
                 className={clsx(
                   'absolute group/photo transition-shadow',
@@ -401,7 +401,7 @@ export function CanvasCard({
             </>
           ) : (
             <div className="absolute inset-0 group/photo">
-              {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Canvas ${idx + 1}`} />}
+              {canvas.dataUrl && <LazyImg src={canvas.dataUrl} className="absolute inset-0 w-full h-full object-fill" alt={`Image ${idx + 1}`} />}
               {!repositionMode && <EditHint placement={children ? 'top' : 'center'} />}
             </div>
           )}

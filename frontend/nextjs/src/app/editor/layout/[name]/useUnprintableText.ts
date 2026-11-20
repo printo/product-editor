@@ -13,7 +13,7 @@ const RETRY_DELAYS_MS = [1000, 3000, 8000];
 
 /** A card whose text holds characters the print will leave out. */
 export interface UnprintableText {
-  /** "Canvas 3", or the side's label on a multi-sided product. */
+  /** "Image 3", or the side's label on a multi-sided product. */
   where: string;
   /** The pieces that won't print, as the customer reads them. */
   chars: string[];
@@ -170,7 +170,7 @@ export function useUnprintableText({ surfaceStates, canvases, editingCanvas, set
         if (chars.length === 0) return;
         // Same key as lowDpiByCard, so the card looks both up the same way.
         byCard.set(`${g.surfaceKey ?? ''}:${idx}`, chars);
-        const page = g.canvases.length > 1 || !g.label ? `Canvas ${idx + 1}` : '';
+        const page = g.canvases.length > 1 || !g.label ? `Image ${idx + 1}` : '';
         texts.push({ where: [g.label, page].filter(Boolean).join(', '), chars });
       });
     }

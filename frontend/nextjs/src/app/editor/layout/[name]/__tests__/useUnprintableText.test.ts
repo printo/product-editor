@@ -49,7 +49,7 @@ describe('useUnprintableText', () => {
     expect(ask.mock.calls[0][2]).toEqual([{ text: [NOTES, MAN_DANCING].sort().join(''), fontFamily: 'Pacifico' }]);
     expect(result.current.unprintableFor(caption)).toEqual([MAN_DANCING, NOTES]);
     expect([...result.current.unprintableByCard]).toEqual([[':1', [MAN_DANCING, NOTES]]]);
-    expect(result.current.unprintableTexts).toEqual([{ where: 'Canvas 2', chars: [MAN_DANCING, NOTES] }]);
+    expect(result.current.unprintableTexts).toEqual([{ where: 'Image 2', chars: [MAN_DANCING, NOTES] }]);
   });
 
   it('answers the text being typed in the canvas editor before it is saved to a card', async () => {
