@@ -48,3 +48,31 @@ describe('deleteFile', () => {
     expect(left.has(b)).toBe(true);
   });
 });
+
+describe('photos stored for a refresh', () => {
+  it('are stored as a copy of the bytes, not the picked File itself', async () => {
+    const order = 'ORD-COPY-1';
+    const original = new File(['photo bytes'], 'copy.jpg', { type: 'image/jpeg', lastModified: 7 });
+    const id = await saveFile(order, original);
+    const back = (await getFilesForOrder(order)).get(id)!;
+    expect(back).not.toBe(original);
+    expect(back.name).toBe('copy.jpg');
+    expect(back.type).toBe('image/jpeg');
+    expect(back.lastModified).toBe(7);
+    expect(await back.text()).toBe('photo bytes');
+  });
+
+  it('a stored photo that can no longer be read is left out, so its card says it is missing', async () => {
+    const order = 'ORD-UNREADABLE-1';
+    // What iOS left behind: a File whose bytes are gone.
+    const gone = new File(['x'], 'gone.jpg', { type: 'image/jpeg' });
+    const fail = () => Promise.reject(new DOMException('The file is gone', 'NotReadableError'));
+    Object.defineProperty(gone, 'arrayBuffer', { value: fail });
+    Object.defineProperty(gone, 'slice', { value: () => ({ arrayBuffer: fail }) });
+    const goneId = await saveFile(order, gone);
+    const fineId = await saveFile(order, photo('fine.jpg'));
+    const back = await getFilesForOrder(order);
+    expect(back.has(goneId)).toBe(false);
+    expect(back.has(fineId)).toBe(true);
+  });
+});
