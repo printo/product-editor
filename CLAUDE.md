@@ -201,7 +201,18 @@ A desktop window narrowed under 640 px is **not** a phone: touch, the address-ba
 3. Are Save & Continue / Download reachable without a zoom?
 4. For a front/back product, are the two sides stacked one under the other, each the full card width, with no sideways scrolling?
 
-To give the user something to open, create a session as above and send them `https://product-editor.printo.in/editor/layout/<name>?token=<token>` (valid about 2 hours) or have them use a real product page on `alpha.printo.in/product-editor`. Until a phone screenshot exists, report phone behaviour as **not verified on a device**. State of play (2026-10-23): the card-sizing rules (#285, #286, #289) change nothing below `sm` and were checked only in desktop windows down to 500 px.
+To give the user something to open, create a session as above and send them `https://product-editor.printo.in/editor/layout/<name>?token=<token>` (valid about 2 hours) or have them use a real product page on `alpha.printo.in/product-editor`. Until a phone screenshot exists, report phone behaviour as **not verified on a device**. State of play (2026-11-21, after PR #387 went live):
+
+| What | Seen on a real phone? |
+|---|---|
+| Main page inside printo.in (production): with several photos each card is held to about half the screen and the next card shows; Blur Effect is a real blur behind a Fit photo | **Yes**, Kannan's iPhone, on printo.in, 2026-11-21 |
+| The phone canvas editor (top row with Save, tabbed sheet, Text / Icons / Uploads / Layers tabs, typing with the keyboard open, no flicker when the sheet is dragged) | **Yes on the same iPhone, but only on a local dev server**, not inside printo.in's page |
+| The canvas editor inside printo.in's page, including where the storefront's WhatsApp bubble sits against the sheet (on the main page it floats over the cards' lower right) | **No** |
+| Android Chrome, any of it | **No** |
+| A front/back product and a calendar on a phone since #387 | **No** |
+| The blur change on paper (a rotated photo, Fit, Blur on) | **No**; a real render was read pixel by pixel, nothing was printed |
+
+The desktop card-sizing rules (#285, #286, #289) change nothing below `sm` and were checked only in desktop windows down to 500 px.
 
 **The unbuilt branch on the user's own phone** (how the phone canvas editor was checked, 2026-11-21): run the worktree's `pnpm dev` and open it from the phone by the Mac's address on the network they share (`ipconfig getifaddr en0`; on a mobile-data hotspot the Mac may have only an IPv6 address, which goes in the link in square brackets and is reachable from the phone giving the hotspot). `next dev` refuses its own scripts to an address it does not know, so add that address to `allowedDevOrigins` in `next.config.mjs` **locally, never committed**, and restart the dev server. Put `&order_id=<the session's id>` on the link. The page is plain http there, so anything that needs a secure page behaves differently from production; say so when reporting. This shows the editor on its own, without printo.in's page around it, and the local backend prints with whatever image it was last built from.
 
