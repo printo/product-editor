@@ -1,7 +1,7 @@
 """
 Server-side auto-orientation detection via MediaPipe (Apache 2.0, Google):
-the Pose Landmarker first, and the bundled short-range face detector as a
-second opinion when no usable pose is found.
+the Pose Landmarker first, and the short-range face detector as a second
+opinion when no usable pose is found.
 
 Why server-side: a customer on a slow phone shouldn't get worse rotation
 correction than one on a fast laptop. Centralising the inference keeps the
@@ -27,13 +27,15 @@ heuristic (`shouldAutoRotate90` in `editor/layout/[name]/editor-utils.ts`).
 
 Singleton model loaders: the pose .task file is ~5–9 MB and the warm-up
 takes ~1–2 s. We load it once per worker process and reuse. The face model
-ships inside the mediapipe wheel (no download, no file in the repo).
+(BlazeFace short range, Apache 2.0) is `ml_models/face_detection_short_range.tflite`,
+the file the mediapipe 0.10 wheel bundled; mediapipe 1.x no longer ships it.
 
 Concurrency: PoseLandmarker is thread-safe because each `.detect()` call is
 independent and MediaPipe handles GIL release internally for the inference
 loop. A single PoseLandmarker instance per process is the recommended
-pattern. The legacy face-detection solution is not documented thread-safe,
-so its `.process()` runs under a lock (~15 ms per turn).
+pattern. The face detector's `.detect()` runs under a lock all the same
+(~15 ms per turn): it was never documented thread-safe and nothing here
+needs it to be.
 """
 from __future__ import annotations
 
@@ -96,11 +98,10 @@ _MODELS_DIR = Path(__file__).resolve().parent / "ml_models"
 # Measured 2026-10-25 on 14 real customer photos (docs/HISTORY.md): the pose
 # model read 5 of them, declining every close-up selfie (shoulders out of
 # frame → "not perpendicular") and every small subject ("keypoints too
-# close"). BlazeFace short-range, bundled with the mediapipe wheel, found
-# the faces in 7. Its *score* is not an orientation signal — it rates a
-# sideways face at 0.86–0.92 — but its eye/mouth keypoints are coherent
-# only on an upright face, so the quarter turn in which the best face
-# stands upright is the answer. Letting every turn vote was tried and
+# close"). BlazeFace short-range found the faces in 7. Its *score* is not an
+# orientation signal — it rates a sideways face at 0.86–0.92 — but its
+# eye/mouth keypoints are coherent only on an upright face, so the quarter
+# turn in which the best face stands upright is the answer. Letting every turn vote was tried and
 # rejected: keypoints on the three wrong turns are noise and outvote the
 # right one.
 _FACE_MIN_SCORE = 0.8          # a turn counts only with a face this confident
@@ -108,13 +109,14 @@ _FACE_MAX_TILT_DEG = 25        # the best face must stand this upright in the ch
 _FACE_AMBIGUOUS_TILT_DEG = 45  # a second turn this upright → decline
 _FACE_AGREE_TILT_DEG = 40      # every confident face in the chosen turn must agree
 _FACE_SOURCE = "face-short"
+_FACE_MODEL_FILE = "face_detection_short_range.tflite"
 
 _FACE_DETECTOR = None
 _FACE_LOAD_LOCK = threading.Lock()
 _FACE_RUN_LOCK = threading.Lock()
 _FACE_LOAD_FAILED = False
 
-# BlazeFace keypoint order in the legacy solution's `relative_keypoints`.
+# BlazeFace keypoint order in the detector's `keypoints`.
 _RIGHT_EYE = 0
 _LEFT_EYE = 1
 _MOUTH = 3
@@ -216,7 +218,7 @@ def _get_landmarker():
 
 
 def _get_face_detector():
-    """Lazy-load the bundled BlazeFace short-range detector; None if unavailable."""
+    """Lazy-load the BlazeFace short-range detector; None if unavailable."""
     global _FACE_DETECTOR, _FACE_LOAD_FAILED
 
     if _FACE_LOAD_FAILED:
@@ -230,14 +232,20 @@ def _get_face_detector():
         if _FACE_LOAD_FAILED:
             return None
         try:
-            import mediapipe as mp  # type: ignore
+            from mediapipe.tasks import python as mp_python  # type: ignore
+            from mediapipe.tasks.python import vision as mp_vision  # type: ignore
 
-            _FACE_DETECTOR = mp.solutions.face_detection.FaceDetection(
-                # Short range: faces within ~2 m, i.e. the selfies the pose
-                # model drops. The full-range variant found nothing on the
-                # same photos.
-                model_selection=0,
-                min_detection_confidence=0.5,
+            _FACE_DETECTOR = mp_vision.FaceDetector.create_from_options(
+                mp_vision.FaceDetectorOptions(
+                    # Short range: faces within ~2 m, i.e. the selfies the pose
+                    # model drops. The full-range variant found nothing on the
+                    # same photos.
+                    base_options=mp_python.BaseOptions(
+                        model_asset_path=str(_MODELS_DIR / _FACE_MODEL_FILE)
+                    ),
+                    running_mode=mp_vision.RunningMode.IMAGE,
+                    min_detection_confidence=0.5,
+                )
             )
             logger.info("Auto-orientation: loaded MediaPipe short-range face detector")
         except Exception as e:
@@ -345,6 +353,7 @@ def _face_rotation(rgb, tag: str) -> Optional[RotationSuggestion]:
         return None
     try:
         import numpy as np  # type: ignore
+        import mediapipe as mp  # type: ignore
     except ImportError:
         return None
 
@@ -355,17 +364,18 @@ def _face_rotation(rgb, tag: str) -> Optional[RotationSuggestion]:
             # Fabric's clockwise angle, the one the editor would apply.
             turned = rgb if turn == 0 else rgb.rotate(-turn, expand=True)
             arr = np.ascontiguousarray(np.asarray(turned, dtype=np.uint8))
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=arr)
             with _FACE_RUN_LOCK:
-                result = detector.process(arr)
+                result = detector.detect(mp_image)
             faces: List[Tuple[float, float]] = []
             for det in (result.detections or []):
-                kp = det.location_data.relative_keypoints
+                kp = det.keypoints
                 tilt = _up_angle(
                     (kp[_RIGHT_EYE].x, kp[_RIGHT_EYE].y),
                     (kp[_LEFT_EYE].x, kp[_LEFT_EYE].y),
                     (kp[_MOUTH].x, kp[_MOUTH].y),
                 )
-                faces.append((float(det.score[0]), tilt))
+                faces.append((float(det.categories[0].score), tilt))
             frames[turn] = faces
     except Exception as e:
         logger.warning("[orientation] %s: face detector raised: %s", tag, e)

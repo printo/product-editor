@@ -26,14 +26,18 @@ ENV DJANGO_SETTINGS_MODULE=product_editor.settings
 ENV PORT=8000
 
 # libpq5 covers any psycopg2 (non-binary) fallback; psycopg2-binary bundles its own.
-# libgl1 + libglib2.0-0 are required by opencv-python (vendored inside mediapipe);
-# without them `import mediapipe` fails with "libGL.so.1: cannot open shared
-# object file" and the orientation service silently disables itself.
+# libgl1 + libglib2.0-0 are required by opencv (pulled in by mediapipe) and
+# libegl1 + libgles2 by mediapipe 1.x itself; without any of them
+# `import mediapipe` fails with "libGL.so.1 / libEGL.so.1 / libGLESv2.so.2:
+# cannot open shared object file" and the orientation service silently
+# disables itself (every photo answers "declined", nothing errors).
 # libfribidi0 switches on the Raqm shaping library Pillow's wheel carries, which
 # Hindi, Tamil and the other Indian scripts need to print correctly spelt.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         libgl1 \
+        libegl1 \
+        libgles2 \
         libglib2.0-0 \
         libfribidi0 \
     && rm -rf /var/lib/apt/lists/*
