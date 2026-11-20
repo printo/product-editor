@@ -1,5 +1,6 @@
 'use client';
 
+import { randomId } from '@/lib/random-id';
 import React, { useState, useRef, useCallback } from 'react';
 import { ImageOff, Search, Loader2, Sparkles, X } from 'lucide-react';
 import { iconifyUrl, ownIconUrl } from '@/lib/icon-source';
@@ -7,6 +8,8 @@ import type { ImageOverlay } from './types';
 
 interface IconBrowserProps {
   onAddImage: (overlay: ImageOverlay) => void;
+  /** Raise this number to open the search from outside (the phone sheet's Add icon button). */
+  openSignal?: number;
   /** The page's API proxy and its auth headers, for the search. Without
    *  them only the starter icons show. */
   apiBase?: string;
@@ -78,8 +81,15 @@ async function searchIcons(
   }
 }
 
-export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowserProps) {
+export function IconBrowser({ onAddImage, apiBase, getAuthHeaders, openSignal = 0 }: IconBrowserProps) {
   const [expanded, setExpanded] = useState(false);
+  // Opened from outside: a change of `openSignal` opens the search (the
+  // "adjust state when a prop changes" pattern, no effect).
+  const [seenSignal, setSeenSignal] = useState(openSignal);
+  if (openSignal !== seenSignal) {
+    setSeenSignal(openSignal);
+    setExpanded(true);
+  }
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<IconResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -136,7 +146,7 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
 
   const handleAdd = (item: IconResult) => {
     const overlay: ImageOverlay = {
-      id: crypto.randomUUID(),
+      id: randomId(),
       src: item.svgUrl,
       source: 'icon',
       label: item.isLocal ? item.name : `${item.prefix}:${item.name}`,
@@ -196,7 +206,7 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
       )}
 
       {!loading && results.length > 0 && (
-        <div className="grid grid-cols-4 gap-2.5 p-3 bg-white border border-slate-100 rounded-xl shadow-sm max-h-72 overflow-y-auto custom-scrollbar">
+        <div className="grid grid-cols-4 gap-2.5 p-3 bg-white border border-slate-100 rounded-xl shadow-sm md:max-h-72 md:overflow-y-auto custom-scrollbar">
           {results.map(item => {
             const key = `${item.prefix}:${item.name}`;
             const broken = failed.has(key);

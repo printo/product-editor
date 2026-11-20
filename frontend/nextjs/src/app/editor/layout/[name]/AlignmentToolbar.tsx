@@ -40,11 +40,11 @@ export function AlignmentToolbar({ onHAlign, onVAlign, activeH, activeV, suffix 
         {H_ITEMS.map(({ key, icon: Icon, tip }) => (
           <button key={key} title={tip}
             onClick={() => onHAlign(key)}
-            className={clsx('p-1.5 rounded-md transition-all',
+            className={clsx('p-2 md:p-1.5 rounded-md transition-all',
               activeH === key
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-indigo-600 hover:bg-white')}>
-            <Icon className="w-3.5 h-3.5" />
+            <Icon className="w-4 h-4 md:w-3.5 md:h-3.5" />
           </button>
         ))}
       </div>
@@ -52,11 +52,11 @@ export function AlignmentToolbar({ onHAlign, onVAlign, activeH, activeV, suffix 
         {V_ITEMS.map(({ key, icon: Icon, tip }) => (
           <button key={key} title={tip}
             onClick={() => onVAlign(key)}
-            className={clsx('p-1.5 rounded-md transition-all',
+            className={clsx('p-2 md:p-1.5 rounded-md transition-all',
               activeV === key
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-indigo-600 hover:bg-white')}>
-            <Icon className="w-3.5 h-3.5" />
+            <Icon className="w-4 h-4 md:w-3.5 md:h-3.5" />
           </button>
         ))}
       </div>

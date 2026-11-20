@@ -1,3 +1,4 @@
+import { randomId } from './random-id';
 /**
  * IndexedDB-backed File persistence for the editor.
  *
@@ -120,16 +121,7 @@ function tx(mode: IDBTransactionMode): Promise<IDBObjectStore> {
   return openDb().then(db => db.transaction(STORE, mode).objectStore(STORE));
 }
 
-function makeFileId(): string {
-  // crypto.randomUUID is supported in all browsers we target (Chrome 92+,
-  // Safari 15.4+, Firefox 95+). Falls back to a hand-rolled UUID v4 if absent.
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return Array.from({ length: 16 }, () => Math.floor(Math.random() * 256))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+const makeFileId = randomId;
 
 /** Thrown when persistence is genuinely out of space (after one prune+retry).
  *  Callers surface a "photos can't be backed up on this device" notice. */

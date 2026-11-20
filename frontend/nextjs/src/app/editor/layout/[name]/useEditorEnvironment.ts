@@ -1,5 +1,6 @@
 'use client';
 
+import { randomId } from '@/lib/random-id';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
@@ -85,7 +86,7 @@ export function useEditorEnvironment() {
     let id = sp.get('order_id');
     if (!id) {
       // Generate PE-XXXXXXXX (8 uppercase hex chars)
-      const hex = crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+      const hex = randomId().replace(/-/g, '').slice(0, 8).toUpperCase();
       id = `PE-${hex}`;
     }
     return id;

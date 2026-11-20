@@ -1,5 +1,6 @@
 'use client';
 
+import { randomId } from '@/lib/random-id';
 import { COVER_BACK, COVER_FRONT, isCoverKey, nonCoverSurfaces, sideCount } from '@/lib/calendar-covers';
 import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { CalendarTheme, CalendarType } from '@/types/calendar';
@@ -386,7 +387,7 @@ export function useServerRender({
         const idFor = (file: File): string => {
           let id = fileIds.get(file);
           if (!id) {
-            id = fileIdByFileRef?.current.get(file) ?? crypto.randomUUID();
+            id = fileIdByFileRef?.current.get(file) ?? randomId();
             fileIds.set(file, id);
           }
           return id;

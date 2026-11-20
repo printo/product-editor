@@ -21,12 +21,21 @@ interface LayersPanelProps {
   onReorderOverlays: (overlays: Overlay[]) => void;
   onClearFrame: (idx: number) => void;
   onMoveFrameToOverlay: (fIdx: number, targetOIdx: number) => void;
+  /** The phone sheet's Layers tab: no collapsing header, and rows and their
+   *  buttons sized for a finger and always shown (a phone has no hover). */
+  alwaysOpen?: boolean;
 }
 
 export function LayersPanel({
   editingCanvas, selected, onSelect, onDeleteOverlay, onReorderOverlays, onClearFrame, onMoveFrameToOverlay,
+  alwaysOpen = false,
 }: LayersPanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const open = alwaysOpen || expanded;
+  const rowPad = alwaysOpen ? 'py-2' : 'py-0.5';
+  const actionsClass = clsx('flex items-center gap-0.5 transition-opacity', alwaysOpen ? 'gap-1' : 'opacity-0 group-hover:opacity-100');
+  const actionSize = alwaysOpen ? 'w-8 h-8' : 'w-5.5 h-5.5';
+  const actionIcon = alwaysOpen ? 'w-4 h-4' : 'w-3 h-3';
 
   const overlays = editingCanvas.overlays;
   const frames = editingCanvas.frames;
@@ -51,7 +60,7 @@ export function LayersPanel({
 
   return (
     <div className="bg-transparent flex flex-col overflow-hidden">
-      <button
+      {!alwaysOpen && <button
         onClick={() => setExpanded(prev => !prev)}
         className="w-full py-1.5 flex items-center justify-between transition-all group"
       >
@@ -63,9 +72,9 @@ export function LayersPanel({
           </p>
         </div>
         <ChevronUp className={clsx('w-3.5 h-3.5 text-slate-500 transition-transform duration-500', expanded ? '' : 'rotate-180')} />
-      </button>
+      </button>}
 
-      <div className={clsx('overflow-y-auto transition-all duration-500 custom-scrollbar', expanded ? 'max-h-52 mt-0.5' : 'max-h-0')}>
+      <div className={clsx('overflow-y-auto transition-all duration-500 custom-scrollbar', alwaysOpen ? '' : open ? 'max-h-52 mt-0.5' : 'max-h-0')}>
         <div className="flex flex-col gap-0.5 py-1">
           {/* Overlays (Text, Shape, Image) - Rendered in reverse (top-most first) */}
           {[...overlays].reverse().map((overlay, revIdx) => {
@@ -80,7 +89,7 @@ export function LayersPanel({
                 onClick={() => onSelect({ type: overlay.type, index: oIdx })}
                 title={lost ? "Couldn't be loaded on this device — re-upload or delete it" : undefined}
                 className={clsx(
-                  'flex items-center gap-1.5 px-2 py-0.5 cursor-pointer transition-all group rounded-lg border',
+                  'flex items-center gap-1.5 px-2 cursor-pointer transition-all group rounded-lg border', rowPad,
                   isSelected 
                     ? 'bg-white border-indigo-100 shadow-sm' 
                     : 'bg-transparent border-transparent hover:bg-white/40'
@@ -103,33 +112,33 @@ export function LayersPanel({
                   {lost && ' — missing'}
                 </span>
 
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className={actionsClass}>
                   {canMove && (
                     <>
                       <button
                         disabled={oIdx === overlays.length - 1}
                         onClick={e => { e.stopPropagation(); handleMoveLayer(oIdx, 'up'); }}
-                        className="w-5.5 h-5.5 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-10"
+                        className={clsx(actionSize, 'flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-10')}
                         title="Move Up"
                       >
-                        <ChevronUp className="w-3 h-3" />
+                        <ChevronUp className={actionIcon} />
                       </button>
                       <button
                         disabled={oIdx === 0}
                         onClick={e => { e.stopPropagation(); handleMoveLayer(oIdx, 'down'); }}
-                        className="w-5.5 h-5.5 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-10"
+                        className={clsx(actionSize, 'flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-10')}
                         title="Move Down"
                       >
-                        <ChevronDown className="w-3 h-3" />
+                        <ChevronDown className={actionIcon} />
                       </button>
                     </>
                   )}
                   <button
                     onClick={e => { e.stopPropagation(); onDeleteOverlay(oIdx); }}
-                    className="w-5.5 h-5.5 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                    className={clsx(actionSize, 'flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all')}
                     title="Delete"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className={actionIcon} />
                   </button>
                 </div>
               </div>
@@ -146,7 +155,7 @@ export function LayersPanel({
                 key={`frame-${frame.id}`}
                 onClick={() => onSelect({ type: 'frame', index: fIdx })}
                 className={clsx(
-                  'flex items-center gap-1.5 px-2 py-0.5 cursor-pointer transition-all group rounded-lg border',
+                  'flex items-center gap-1.5 px-2 cursor-pointer transition-all group rounded-lg border', rowPad,
                   isSelected 
                     ? 'bg-white border-indigo-100 shadow-sm' 
                     : 'bg-transparent border-transparent hover:bg-white/40 opacity-60 grayscale-[0.5]'
@@ -161,22 +170,22 @@ export function LayersPanel({
                   {frames.length > 1 ? `Slot ${fIdx + 1}` : (frame.originalFile?.name || 'Base Layer')}
                 </span>
                 
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className={actionsClass}>
                   {frame.originalFile && hasOverlays && (
                     <button
                       onClick={e => { e.stopPropagation(); handleMoveFrameToTop(fIdx); }}
-                      className="w-5.5 h-5.5 flex items-center justify-center text-emerald-500 hover:bg-emerald-50 rounded-md transition-all"
+                      className={clsx(actionSize, 'flex items-center justify-center text-emerald-500 hover:bg-emerald-50 rounded-md transition-all')}
                       title="Bring to Top"
                     >
-                      <ChevronUp className="w-3 h-3" />
+                      <ChevronUp className={actionIcon} />
                     </button>
                   )}
                   <button
                     onClick={e => { e.stopPropagation(); onClearFrame(fIdx); }}
-                    className="w-5.5 h-5.5 flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all"
+                    className={clsx(actionSize, 'flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all')}
                     title="Clear"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className={actionIcon} />
                   </button>
                 </div>
               </div>
