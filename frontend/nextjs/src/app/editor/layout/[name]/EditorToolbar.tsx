@@ -130,7 +130,7 @@ export function EditorToolbar({
               <ArrowLeft className="w-4 h-4 md:w-5 md:h-5" />
             </button>
           )}
-          <img src="/printo-logo.webp" alt="Printo" className="h-10 md:h-12 w-auto shrink-0" />
+          <img src="/printo-logo.webp" alt="Printo" width={148} height={56} className="h-10 md:h-12 w-auto shrink-0" />
           <div className="w-px h-8 md:h-10 bg-slate-200 shrink-0" />
           {/* Layout name display — hidden per CEO request (2026-09-09), restored per
               management feedback (2026-09-15): the original ask was to drop the raw
