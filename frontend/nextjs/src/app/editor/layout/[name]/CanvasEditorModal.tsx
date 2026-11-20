@@ -394,7 +394,7 @@ export function CanvasEditorModal({
                 else onOpenCanvas(currentIdx - 1);
               }}
               aria-label={isMultiSurface ? 'Previous side' : 'Previous design'}
-              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 active:scale-90"
+              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 motion-safe:active:scale-90"
             >
               <ChevronRight className="w-4 h-4 rotate-180" aria-hidden />
             </button>
@@ -412,7 +412,7 @@ export function CanvasEditorModal({
                 else onOpenCanvas(currentIdx + 1);
               }}
               aria-label={isMultiSurface ? 'Next side' : 'Next design'}
-              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 active:scale-90"
+              className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 motion-safe:active:scale-90"
             >
               <ChevronRight className="w-4 h-4" aria-hidden />
             </button>

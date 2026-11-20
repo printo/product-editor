@@ -68,7 +68,7 @@ export function AutoFillPickerDialog({
                   if (isSelected) next.delete(i); else next.add(i);
                   return next;
                 })}
-                className={clsx('relative aspect-square rounded-lg overflow-hidden border-2 transition-all active:scale-95', isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300')}
+                className={clsx('relative aspect-square rounded-lg overflow-hidden border-2 transition-all motion-safe:active:scale-95', isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300')}
               >
                 {url ? <img src={url} alt={f.name} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : <span role="img" aria-label={f.name} className="block w-full h-full bg-slate-100" />}
                 {isSelected && (

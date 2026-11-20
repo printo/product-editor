@@ -25,7 +25,7 @@ export function useDashboardHeader(embedToken: string | null, router: { push(hre
         title="Back to Layouts"
         className="text-[11px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 p-2.5 md:px-4 md:py-2 rounded-full md:rounded-lg border-2 border-indigo-100/50 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center gap-2 group shadow-sm shadow-indigo-100/50"
       >
-        <ArrowLeft className="w-4 h-4 md:w-3.5 md:h-3.5 group-hover:-translate-x-1 transition-transform" />
+        <ArrowLeft className="w-4 h-4 md:w-3.5 md:h-3.5 motion-safe:group-hover:-translate-x-1 transition-transform" />
         <span className="hidden md:inline">Back to Layouts</span>
       </button>
     );

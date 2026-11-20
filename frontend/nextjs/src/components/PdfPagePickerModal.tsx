@@ -197,7 +197,7 @@ export function PdfPagePickerModal({ file, maxSelectable, onConfirm, onCancel }:
                       }}
                       className={clsx(
                         'relative aspect-square rounded-lg overflow-hidden border-2 bg-slate-50 transition-all',
-                        rasterizing ? 'cursor-not-allowed opacity-60' : 'cursor-pointer active:scale-95',
+                        rasterizing ? 'cursor-not-allowed opacity-60' : 'cursor-pointer motion-safe:active:scale-95',
                         isSelected ? 'border-indigo-500 shadow-md shadow-indigo-200' : 'border-slate-200 hover:border-indigo-300',
                       )}
                     >

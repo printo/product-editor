@@ -565,12 +565,12 @@ export function ImportDesignDialog({ sizeGroups = [], takenNames, takenTemplateI
             <div className="flex items-center gap-3">
               <button
                 type="button" onClick={read} disabled={step === 'reading' || !raw.trim()}
-                className="flex-1 flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all motion-safe:active:scale-95 disabled:opacity-50"
               >
                 {step === 'reading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardPaste className="w-4 h-4" />}
                 {step === 'reading' ? progress : 'Read the design'}
               </button>
-              <button type="button" onClick={onClose} disabled={step === 'reading'} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={onClose} disabled={step === 'reading'} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95 disabled:opacity-50">Cancel</button>
             </div>
           </>
         )}
@@ -699,13 +699,13 @@ export function ImportDesignDialog({ sizeGroups = [], takenNames, takenTemplateI
             <div className="flex items-center gap-3">
               <button
                 type="button" onClick={apply} disabled={step === 'applying' || nameProblem !== null || blocked.length > 0 || countMismatch}
-                className="flex-[2] flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
+                className="flex-[2] flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all motion-safe:active:scale-95 disabled:opacity-50"
               >
                 {step === 'applying' && <Loader2 className="w-4 h-4 animate-spin" />}
                 {step === 'applying' ? progress : onLayout ? 'Continue to the template editor' : createdLayout ? 'Try again' : 'Create the layout and adjust it'}
               </button>
-              <button type="button" onClick={() => { setError(null); setStep('paste'); }} disabled={step === 'applying' || createdLayout !== null} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50">Back</button>
-              <button type="button" onClick={onClose} disabled={step === 'applying'} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={() => { setError(null); setStep('paste'); }} disabled={step === 'applying' || createdLayout !== null} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95 disabled:opacity-50">Back</button>
+              <button type="button" onClick={onClose} disabled={step === 'applying'} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95 disabled:opacity-50">Cancel</button>
             </div>
           </>
         )}
@@ -725,8 +725,8 @@ export function ImportDesignDialog({ sizeGroups = [], takenNames, takenTemplateI
                   The layout{layoutName ? <> <span className="font-mono">{layoutName}</span></> : ''} is saved. Nothing else was created.
                 </p>
                 <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => void finish()} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95">Try again</button>
-                  <button type="button" onClick={onClose} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95">Close</button>
+                  <button type="button" onClick={() => void finish()} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all motion-safe:active:scale-95">Try again</button>
+                  <button type="button" onClick={onClose} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95">Close</button>
                 </div>
               </>
             )}
@@ -741,7 +741,7 @@ export function ImportDesignDialog({ sizeGroups = [], takenNames, takenTemplateI
             </p>
             <div className="flex items-center gap-3">
               <Link href="/editor/layouts" className="flex-1 py-3 text-center text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all">Go to Layouts</Link>
-              <button type="button" onClick={onClose} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95">Close</button>
+              <button type="button" onClick={onClose} className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95">Close</button>
             </div>
           </>
         )}

@@ -38,13 +38,13 @@ export function OverQuantityDialog({ orderQty, selectedCount, onDecide }: {
         <div className="mt-5 flex flex-col sm:flex-row items-stretch gap-2">
           <button
             onClick={() => onDecide(true)}
-            className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95"
+            className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all motion-safe:active:scale-95"
           >
             Keep first {orderQty}
           </button>
           <button
             onClick={() => onDecide(false)}
-            className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95"
+            className="flex-1 min-h-[44px] px-4 py-3 text-[11px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95"
           >
             Choose again
           </button>

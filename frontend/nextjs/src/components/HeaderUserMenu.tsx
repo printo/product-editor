@@ -36,7 +36,7 @@ export const HeaderUserMenu = ({ name, roleLabel, roleHref, onSignOut }: HeaderU
       </div>
       <button
         onClick={onSignOut}
-        className="p-1.5 px-2.5 text-rose-500 hover:bg-rose-50 rounded-md border border-transparent hover:border-rose-100 transition-all hover:scale-105 active:scale-95 shrink-0"
+        className="p-1.5 px-2.5 text-rose-500 hover:bg-rose-50 rounded-md border border-transparent hover:border-rose-100 transition-all motion-safe:hover:scale-105 motion-safe:active:scale-95 shrink-0"
         title="Sign Out"
       >
         <LogOut className="w-4 h-4" />

@@ -150,8 +150,8 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
   if (!expanded) {
     return (
       <button onClick={() => setExpanded(true)}
-        className="w-full h-11 flex items-center justify-center gap-3 bg-white border border-slate-200 rounded-lg text-[11px] font-medium uppercase hover:bg-slate-50 transition-all active:scale-[0.98] group shadow-sm">
-        <Sparkles className="w-4 h-4 text-indigo-600 transition-transform group-hover:rotate-12" /> 
+        className="w-full h-11 flex items-center justify-center gap-3 bg-white border border-slate-200 rounded-lg text-[11px] font-medium uppercase hover:bg-slate-50 transition-all motion-safe:active:scale-[0.98] group shadow-sm">
+        <Sparkles className="w-4 h-4 text-indigo-600 transition-transform motion-safe:group-hover:rotate-12" /> 
         Add New Icon
       </button>
     );
@@ -203,14 +203,14 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
             return (
               <button key={key} onClick={() => handleAdd(item)} title={broken ? `${item.name} could not be loaded` : item.name}
                 disabled={broken}
-                className="aspect-square bg-slate-50 border border-slate-100 rounded-lg hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all p-2.5 group relative active:scale-90 disabled:opacity-50 disabled:hover:shadow-none disabled:hover:border-slate-100 disabled:hover:bg-slate-50 disabled:active:scale-100">
+                className="aspect-square bg-slate-50 border border-slate-100 rounded-lg hover:border-indigo-200 hover:bg-white hover:shadow-md transition-all p-2.5 group relative motion-safe:active:scale-90 disabled:opacity-50 disabled:hover:shadow-none disabled:hover:border-slate-100 disabled:hover:bg-slate-50 disabled:active:scale-100">
                 {item.isLocal && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white shadow-sm z-10" />}
                 {broken ? (
                   <ImageOff className="w-full h-full p-1.5 text-slate-300" aria-label={`${item.name} could not be loaded`} />
                 ) : (
                   <img src={ownIconUrl(item.svgUrl)} alt={item.name} loading="lazy"
                     onError={() => setFailed(prev => new Set(prev).add(key))}
-                    className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300" />
+                    className="w-full h-full object-contain motion-safe:group-hover:scale-110 transition-transform duration-300" />
                 )}
               </button>
             );

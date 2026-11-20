@@ -118,7 +118,7 @@ function RotationControl({ value, onChange }: { value: number; onChange: (v: num
       <div className="flex items-center gap-2">
         <button onClick={() => onChange((value + 90) % 360)} aria-label="Rotate 90 degrees"
           className="w-8 h-8 flex items-center justify-center bg-white text-slate-400 border border-slate-200 rounded-lg hover:text-indigo-600 hover:border-indigo-100 transition-all group/btn">
-          <RotateCw className="w-3.5 h-3.5 group-hover/btn:rotate-90 transition-transform duration-500" />
+          <RotateCw className="w-3.5 h-3.5 motion-safe:group-hover/btn:rotate-90 transition-transform duration-500" />
         </button>
         
         <div className="relative">
@@ -255,7 +255,7 @@ export function CanvasEditorSidebar({
   const addPhotoBlock = (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <label className="group relative w-full flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg text-rose-500 hover:bg-white hover:border-rose-200 transition-all cursor-pointer overflow-hidden shadow-sm">
-                    <div className="p-3 bg-rose-50 rounded-lg shadow-inner group-hover:scale-110 transition-all duration-500">
+                    <div className="p-3 bg-rose-50 rounded-lg shadow-inner motion-safe:group-hover:scale-110 transition-all duration-500">
                       <ImagePlus className="w-6 h-6" />
                     </div>
                     <div className="text-center">
@@ -497,7 +497,7 @@ export function CanvasEditorSidebar({
                         <span className="text-[10px] text-slate-400 uppercase">Edit content & style</span>
                       </div>
                       <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all active:scale-90">
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all motion-safe:active:scale-90">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -593,7 +593,7 @@ export function CanvasEditorSidebar({
                   const updated = { ...editingCanvas, overlays: [...editingCanvas.overlays, newOverlay] };
                   debouncedRender(updated);
                   setSelectedLayer({ type: 'text', index: updated.overlays.length - 1 });
-                }} className="w-full h-11 flex items-center justify-center gap-3 bg-indigo-600 text-white rounded-lg text-[11px] font-medium uppercase hover:bg-indigo-700 hover:shadow-lg transition-all active:scale-[0.98]">
+                }} className="w-full h-11 flex items-center justify-center gap-3 bg-indigo-600 text-white rounded-lg text-[11px] font-medium uppercase hover:bg-indigo-700 hover:shadow-lg transition-all motion-safe:active:scale-[0.98]">
                   <Type className="w-4 h-4" /> Add New Text
                 </button>
               );
@@ -623,7 +623,7 @@ export function CanvasEditorSidebar({
                         </div>
                       </div>
                       <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all active:scale-90">
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all motion-safe:active:scale-90">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -705,7 +705,7 @@ export function CanvasEditorSidebar({
                         <span className="text-[10px] text-slate-400 uppercase">Image Overlay</span>
                       </div>
                       <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all active:scale-90">
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all motion-safe:active:scale-90">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -844,8 +844,8 @@ export function CanvasEditorSidebar({
       {/* Safe-area padding keeps Save above the iOS home indicator. */}
       <div className="px-4 py-3 bg-white border-t border-slate-100 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
         <button onClick={handleSaveChanges}
-          className="w-full h-12 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-lg font-medium uppercase text-[11px] hover:shadow-lg hover:shadow-indigo-100 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
-          <CheckCircle2 className="w-4 h-4 transition-transform group-hover:scale-110" />
+          className="w-full h-12 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-lg font-medium uppercase text-[11px] hover:shadow-lg hover:shadow-indigo-100 motion-safe:active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
+          <CheckCircle2 className="w-4 h-4 transition-transform motion-safe:group-hover:scale-110" />
           Save Changes
         </button>
       </div>

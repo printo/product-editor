@@ -112,14 +112,14 @@ export function TemplatePickerDialog({ templates, activeTemplate, cardCount, fir
               <button
                 onClick={() => choose(pending.template)}
                 disabled={busy}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all motion-safe:active:scale-95 disabled:opacity-50"
               >
                 {busy ? 'Applying…' : pending.template ? 'Apply to all cards' : 'Remove template'}
               </button>
               <button
                 onClick={() => setPending(null)}
                 disabled={busy}
-                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all active:scale-95"
+                className="flex-1 py-3 text-xs font-black uppercase tracking-widest bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all motion-safe:active:scale-95"
               >
                 Go back
               </button>
