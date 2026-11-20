@@ -77,7 +77,7 @@ describe('collectDuplicateFills', () => {
     const b = new File(['x'.repeat(a.size)], 'same.jpg', { type: 'image/jpeg' });
     Object.defineProperty(b, 'lastModified', { value: a.lastModified });
     const out = collectDuplicateFills(
-      [{ label: 'your design', canvases: [canvasOf(frame(a)), canvasOf(frame(b))] }],
+      [{ canvases: [canvasOf(frame(a)), canvasOf(frame(b))] }],
       new Set(),
     );
     expect(out).toHaveLength(1);
@@ -86,16 +86,24 @@ describe('collectDuplicateFills', () => {
   it('deliberate qty auto-fill duplicates are exempt', () => {
     const a = makeFile('cycled.jpg');
     const out = collectDuplicateFills(
-      [{ label: 'your design', canvases: [canvasOf(frame(a)), canvasOf(frame(a))] }],
+      [{ canvases: [canvasOf(frame(a)), canvasOf(frame(a))] }],
       new Set([duplicateFingerprint(a)]),
     );
     expect(out).toEqual([]);
   });
 
+  it('names a single-sided design\'s cards "Image N", as on screen', () => {
+    const a = makeFile('twice.jpg');
+    const out = collectDuplicateFills(
+      [{ canvases: [canvasOf(frame(a)), canvasOf(frame(makeFile('x.jpg'))), canvasOf(frame(a))] }],
+      new Set(),
+    );
+    expect(out).toEqual([{ fileName: 'twice.jpg', placements: ['Image 1', 'Image 3'] }]);
+  });
+
   it('three distinct photos → nothing to report', () => {
     const out = collectDuplicateFills(
       [{
-        label: 'your design',
         canvases: [canvasOf(frame(makeFile('1.jpg'))), canvasOf(frame(makeFile('2.jpg'))), canvasOf(frame(makeFile('3.jpg')))],
       }],
       new Set(),

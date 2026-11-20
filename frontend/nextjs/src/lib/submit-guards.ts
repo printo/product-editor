@@ -43,7 +43,7 @@ export function collectEmptySurfaces(surfaces: ReadonlyArray<SurfaceLike>): Empt
 
 export interface DuplicateFill {
   fileName: string;
-  placements: string[];   // human labels, e.g. "Front" or "page 3, photo 1"
+  placements: string[];   // human labels, e.g. "Front" or "Image 3, photo 1"
 }
 
 /** Fingerprint used to mark deliberate duplication (qty auto-fill). */
@@ -56,7 +56,9 @@ export function duplicateFingerprint(f: File): string {
  * duplicated deliberately (qty auto-fill / fill-with-picked mark them).
  */
 export function collectDuplicateFills(
-  groups: ReadonlyArray<{ label: string; canvases: ReadonlyArray<CanvasLike> }>,
+  // A group without a label is the one design of a single-sided product: its
+  // cards are named "Image N" on screen, so the warning names them the same.
+  groups: ReadonlyArray<{ label?: string; canvases: ReadonlyArray<CanvasLike> }>,
   intentional: ReadonlySet<string>,
 ): DuplicateFill[] {
   const seen = new Map<string, { fileName: string; placements: string[] }>();
@@ -66,9 +68,12 @@ export function collectDuplicateFills(
         if (!f.originalFile) return;
         const key = fileFingerprint(f.originalFile);
         if (intentional.has(key)) return;
-        const placement = group.canvases.length > 1
-          ? `${group.label}, page ${ci + 1}${c.frames.length > 1 ? `, photo ${fi + 1}` : ''}`
-          : `${group.label}${c.frames.length > 1 ? `, photo ${fi + 1}` : ''}`;
+        const photo = c.frames.length > 1 ? `, photo ${fi + 1}` : '';
+        const placement = !group.label
+          ? `Image ${ci + 1}${photo}`
+          : group.canvases.length > 1
+            ? `${group.label}, page ${ci + 1}${photo}`
+            : `${group.label}${photo}`;
         const entry = seen.get(key);
         if (entry) entry.placements.push(placement);
         else seen.set(key, { fileName: f.originalFile.name, placements: [placement] });
