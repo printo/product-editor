@@ -25,7 +25,8 @@
  *   Financial → today.month >= 4 ? today.year : today.year − 1
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 import { clsx } from 'clsx';
 import {
   MONTH_NAMES_EN,
@@ -277,8 +278,12 @@ function FlipWarningModal({
   const otherTypeLabel =
     nextCalendarType === 'financial' ? 'English' : 'Financial';
   const nextLabel = nextCalendarType === 'financial' ? 'Financial year' : 'English calendar';
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useModalA11y(dialogRef, onCancel, true, cancelRef);
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="flip-warning-title"
@@ -299,6 +304,7 @@ function FlipWarningModal({
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <button
+            ref={cancelRef}
             type="button"
             onClick={onCancel}
             className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900"

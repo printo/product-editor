@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useId, useState, useRef } from 'react';
 import { Minus, Plus, AlignLeft, AlignCenter, AlignRight, Trash2, Type, ImagePlus, Image, Sparkles, RotateCw, AlignCenterHorizontal, AlignCenterVertical, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ColorPicker } from '@/components/ColorPicker';
@@ -71,9 +71,9 @@ const ADD_TABS: { key: TabKey; label: string; icon: React.ElementType; activeCla
  *  soon as it is a whole number within [min, max], and corrected into the range
  *  only when the box loses focus or Enter is pressed: correcting it on every
  *  keystroke turned "16" into 86 (the "1" was raised to the minimum first). */
-function DraftNumberInput({ value, min, max, onCommit, onFocus, className }: {
+function DraftNumberInput({ value, min, max, onCommit, onFocus, className, label }: {
   value: number; min: number; max: number;
-  onCommit: (v: number) => void; onFocus?: () => void; className?: string;
+  onCommit: (v: number) => void; onFocus?: () => void; className?: string; label: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const finish = () => {
@@ -86,6 +86,7 @@ function DraftNumberInput({ value, min, max, onCommit, onFocus, className }: {
     <input type="number" inputMode="numeric" min={min} max={max}
       value={draft ?? String(value)}
       onFocus={onFocus}
+      aria-label={label}
       onChange={e => {
         setDraft(e.target.value);
         const n = parseInt(e.target.value, 10);
@@ -102,25 +103,26 @@ function DraftNumberInput({ value, min, max, onCommit, onFocus, className }: {
 
 /** Rotation slider + 90deg increment + number input — Premium version */
 function RotationControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const sliderId = useId();
   return (
     <div className="flex items-center gap-4 py-2 bg-transparent">
-      <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">Rotate</label>
+      <label htmlFor={sliderId} className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">Rotate</label>
       
       <div className="flex-1 relative h-6 flex items-center group">
         <div className="absolute inset-0 bg-slate-100 rounded-full h-1 my-auto" />
-        <input type="range" min="0" max="359" step="1" value={value}
+        <input id={sliderId} type="range" min="0" max="359" step="1" value={value} aria-valuetext={`${value} degrees`}
           onChange={e => onChange(parseInt(e.target.value))}
           className="w-full relative z-10 appearance-none bg-transparent cursor-pointer accent-indigo-500" />
       </div>
       
       <div className="flex items-center gap-2">
-        <button onClick={() => onChange((value + 90) % 360)}
+        <button onClick={() => onChange((value + 90) % 360)} aria-label="Rotate 90 degrees"
           className="w-8 h-8 flex items-center justify-center bg-white text-slate-400 border border-slate-200 rounded-lg hover:text-indigo-600 hover:border-indigo-100 transition-all group/btn">
           <RotateCw className="w-3.5 h-3.5 group-hover/btn:rotate-90 transition-transform duration-500" />
         </button>
         
         <div className="relative">
-          <DraftNumberInput min={0} max={359} value={value} onCommit={onChange}
+          <DraftNumberInput min={0} max={359} value={value} onCommit={onChange} label="Rotation in degrees"
             className="w-11 h-8 px-0 text-base md:text-[11px] font-mono font-medium text-center border border-slate-200 rounded-lg bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" />
           <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-300 pointer-events-none">°</span>
         </div>
@@ -132,13 +134,14 @@ function RotationControl({ value, onChange }: { value: number; onChange: (v: num
 /** Proportional scale slider + number input — Premium version */
 function ScaleControl({ label = "Zoom", width, height, onScale }: { label?: string; width: number; height: number; onScale: (w: number, h: number) => void }) {
   const baseRef = useRef<{ w: number; h: number } | null>(null);
+  const sliderId = useId();
   return (
     <div className="flex items-center gap-4 py-2 bg-transparent">
-      <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">{label}</label>
+      <label htmlFor={sliderId} className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">{label}</label>
       
       <div className="flex-1 relative h-6 flex items-center group">
         <div className="absolute inset-0 bg-slate-100 rounded-full h-1 my-auto" />
-        <input type="range" min="5" max="250" step="1" value={Math.round(width)}
+        <input id={sliderId} type="range" min="5" max="250" step="1" value={Math.round(width)} aria-valuetext={`${Math.round(width)} percent`}
           onPointerDown={() => { baseRef.current = { w: width, h: height }; }}
           onChange={e => {
             const newW = parseInt(e.target.value);
@@ -150,7 +153,7 @@ function ScaleControl({ label = "Zoom", width, height, onScale }: { label?: stri
       </div>
       
       <div className="relative">
-        <DraftNumberInput min={5} max={250} value={Math.round(width)}
+        <DraftNumberInput min={5} max={250} value={Math.round(width)} label={`${label} in percent`}
           onFocus={() => { baseRef.current = { w: width, h: height }; }}
           onCommit={newW => {
             const base = baseRef.current ?? { w: width, h: height };
@@ -208,6 +211,7 @@ export function CanvasEditorSidebar({
   // (https://react.dev/learn/you-might-not-need-an-effect).
   const selectionKey = `${selectedLayer.type}:${selectedLayer.index}`;
   const [lastSelectionKey, setLastSelectionKey] = useState(selectionKey);
+  const fieldId = useId();
   if (selectionKey !== lastSelectionKey) {
     setLastSelectionKey(selectionKey);
     const tab = tabForSelection(selectedLayer);
@@ -350,8 +354,9 @@ export function CanvasEditorSidebar({
                   default so it never appears on a product it wasn't designed for. */}
               {Boolean(layout?.frameCaptionsEnabled) && (
               <div className="space-y-2 pt-4 border-t border-slate-50">
-                <label className="text-[11px] font-medium text-slate-500 uppercase">Caption</label>
+                <label htmlFor={`${fieldId}-caption`} className="text-[11px] font-medium text-slate-500 uppercase">Caption</label>
                 <textarea
+                  id={`${fieldId}-caption`}
                   value={frame.caption || ''}
                   onChange={(e) => {
                     pushUndo(editingCanvas, true);
@@ -439,7 +444,7 @@ export function CanvasEditorSidebar({
               const isActive = activeAddTab === tab.key;
               const Icon = tab.icon;
               return (
-                <button key={tab.key} onClick={() => setActiveAddTab(tab.key)}
+                <button key={tab.key} onClick={() => setActiveAddTab(tab.key)} aria-pressed={isActive}
                   className={clsx('flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-lg transition-all duration-300 relative overflow-hidden',
                     isActive 
                       ? 'bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-200' 
@@ -464,7 +469,7 @@ export function CanvasEditorSidebar({
                     <p className="text-[11px] font-medium text-slate-800 uppercase">Background Colour</p>
                     <p className="text-[10px] text-slate-400 uppercase tracking-tight">Base canvas color</p>
                   </div>
-                  <ColorPicker value={editingCanvas.bgColor || '#ffffff'}
+                  <ColorPicker value={editingCanvas.bgColor || '#ffffff'} ariaLabel="Background colour"
                     onChange={color => {
                       pushUndo(editingCanvas, true);
                       debouncedRender({ ...editingCanvas, bgColor: color });
@@ -499,8 +504,9 @@ export function CanvasEditorSidebar({
 
                     <div className="space-y-4">
                       <div className="space-y-3">
-                        <label className="text-[11px] font-medium text-slate-500 uppercase">Font Family</label>
+                        <label id={`${fieldId}-font`} className="text-[11px] font-medium text-slate-500 uppercase">Font Family</label>
                         <Dropdown
+                          labelledBy={`${fieldId}-font`}
                           value={overlayFontFamily(overlay.fontFamily)}
                           onChange={(f) => { loadGoogleFont(f); updateOverlay({ fontFamily: f }); }}
                           options={selectedFonts.map(f => ({ value: f, label: fontOptionLabel(f, fontLanguages), labelStyle: { fontFamily: f } }))}
@@ -513,30 +519,31 @@ export function CanvasEditorSidebar({
                         <div className="space-y-3">
                           <label className="text-[11px] font-medium text-slate-500 uppercase">Size</label>
                           <div className="flex items-center bg-white border border-slate-200 rounded-lg h-11 px-2 shadow-sm">
-                            <button onClick={() => updateOverlay({ fontSize: Math.max(8, (overlay.fontSize || 24) - 2) })}
+                            <button onClick={() => updateOverlay({ fontSize: Math.max(8, (overlay.fontSize || 24) - 2) })} aria-label="Smaller text"
                               className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg"><Minus className="w-3.5 h-3.5" /></button>
-                            <DraftNumberInput min={8} max={2000} value={overlay.fontSize || 24}
+                            <DraftNumberInput min={8} max={2000} value={overlay.fontSize || 24} label="Font size"
                               onCommit={fontSize => updateOverlay({ fontSize })}
                               className="flex-1 min-w-0 text-center text-base md:text-[11px] font-mono font-medium text-slate-700 bg-transparent border-none outline-none p-0" />
-                            <button onClick={() => updateOverlay({ fontSize: (overlay.fontSize || 24) + 2 })}
+                            <button onClick={() => updateOverlay({ fontSize: (overlay.fontSize || 24) + 2 })} aria-label="Larger text"
                               className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg"><Plus className="w-3.5 h-3.5" /></button>
                           </div>
                         </div>
                         <div className="space-y-3">
                           <label className="text-[11px] font-medium text-slate-500 uppercase">Color</label>
                           <div className="bg-white border border-slate-200 rounded-lg h-11 flex items-center justify-center shadow-sm">
-                            <ColorPicker value={overlay.color || '#000000'} showHex={false} onChange={color => updateOverlay({ color })} />
+                            <ColorPicker value={overlay.color || '#000000'} showHex={false} ariaLabel="Text colour" onChange={color => updateOverlay({ color })} />
                           </div>
                         </div>
                       </div>
 
                       <div className="space-y-3">
-                        <label className="text-[11px] font-medium text-slate-500 uppercase">Alignment</label>
-                        <div className="flex items-center bg-slate-50 rounded-lg h-11 p-1 shadow-inner border border-slate-100">
+                        <span id={`${fieldId}-align`} className="block text-[11px] font-medium text-slate-500 uppercase">Alignment</span>
+                        <div role="group" aria-labelledby={`${fieldId}-align`} className="flex items-center bg-slate-50 rounded-lg h-11 p-1 shadow-inner border border-slate-100">
                           {[{ key: 'left' as const, icon: AlignLeft }, { key: 'center' as const, icon: AlignCenter }, { key: 'right' as const, icon: AlignRight }].map(({ key, icon: Icon }) => (
                             <button key={key} onClick={() => updateOverlay({ textAlign: key })}
+                              aria-label={`Align ${key}`} aria-pressed={(overlay.textAlign ?? 'center') === key}
                               className={clsx('flex-1 flex items-center justify-center h-full rounded-lg transition-all',
-                              overlay.textAlign === key 
+                              (overlay.textAlign ?? 'center') === key 
                                 ? 'bg-white text-indigo-600 shadow-sm border border-slate-200' 
                                 : 'text-slate-400 hover:text-slate-600')}>
                               <Icon className="w-4 h-4" />
@@ -546,8 +553,8 @@ export function CanvasEditorSidebar({
                       </div>
 
                       <div className="space-y-3">
-                        <label className="text-[11px] font-medium text-slate-500 uppercase">Content</label>
-                        <textarea value={overlay.text} onChange={e => updateOverlay({ text: e.target.value })}
+                        <label htmlFor={`${fieldId}-content`} className="text-[11px] font-medium text-slate-500 uppercase">Content</label>
+                        <textarea id={`${fieldId}-content`} value={overlay.text} onChange={e => updateOverlay({ text: e.target.value })}
                           className="w-full h-28 text-base md:text-[12px] font-normal bg-white border border-slate-200 rounded-lg p-4 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all placeholder-slate-300 text-slate-700 resize-none shadow-sm leading-relaxed"
                           placeholder="Type your message…" />
                         <UnprintableTextNote chars={unprintableFor?.(overlay) ?? []} removed={textRemoved} />
@@ -628,6 +635,7 @@ export function CanvasEditorSidebar({
                       </div>
                       <input type="range" min="0" max="100" step="5" value={Math.round(imgOverlay.opacity * 100)}
                         onChange={e => updateImage({ opacity: parseInt(e.target.value) / 100 })}
+                        aria-label="Opacity" aria-valuetext={`${Math.round(imgOverlay.opacity * 100)} percent`}
                         className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-emerald-500" />
                     </div>
 
@@ -726,6 +734,7 @@ export function CanvasEditorSidebar({
                       </div>
                       <input type="range" min="0" max="100" step="5" value={Math.round(imgOverlay.opacity * 100)}
                         onChange={e => updateImage({ opacity: parseInt(e.target.value) / 100 })}
+                        aria-label="Opacity" aria-valuetext={`${Math.round(imgOverlay.opacity * 100)} percent`}
                         className="w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-rose-500" />
                     </div>
                     <div className="space-y-5 pt-5 border-t border-slate-100">

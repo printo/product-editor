@@ -29,7 +29,20 @@
  * existing canvas-state save path.
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useModalA11y } from '@/lib/use-modal-a11y';
+
+/** Below `md` the panel is a bottom sheet over a backdrop (a modal); from
+ *  `md` up it is a side rail beside the calendar (not a modal). */
+const SHEET_QUERY = '(max-width: 767px)';
+function subscribeSheet(onChange: () => void) {
+  const mq = window.matchMedia(SHEET_QUERY);
+  mq.addEventListener('change', onChange);
+  return () => mq.removeEventListener('change', onChange);
+}
+function useIsSheet(): boolean {
+  return useSyncExternalStore(subscribeSheet, () => window.matchMedia(SHEET_QUERY).matches, () => false);
+}
 import { Pencil } from 'lucide-react';
 import {
   MAX_ENTRIES_PER_CELL,
@@ -138,6 +151,17 @@ export function CalendarEditPanel({
   isImageUploading = false,
   dateNavigation,
 }: CalendarEditPanelProps) {
+  // Keyboard focus moves into the panel when a date is opened. As a phone's
+  // bottom sheet it is a modal: focus stays in it, Escape closes it, and focus
+  // returns to the date afterwards. As a side rail it only takes focus.
+  const panelRef = useRef<HTMLElement>(null);
+  const isSheet = useIsSheet();
+  useModalA11y(panelRef, onClose, isSheet, panelRef);
+  // Only when it opens: moving between dates with the panel's own arrows
+  // must leave focus on the arrow.
+  useEffect(() => {
+    if (!isSheet) panelRef.current?.focus();
+  }, [isSheet]);
   const [inputText, setInputText] = useState('');
   // A half-typed event belongs to the date it was typed on: moving to
   // another date clears it rather than letting Add file it there.
@@ -216,8 +240,10 @@ export function CalendarEditPanel({
         className="md:hidden fixed inset-0 overflow-hidden overscroll-contain z-40 bg-zinc-900/40"
       />
       <aside
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
-        aria-modal="true"
+        aria-modal={isSheet ? 'true' : undefined}
         aria-labelledby="cell-editor-title"
         data-testid="calendar-edit-panel"
         data-cell-iso={iso}
@@ -229,7 +255,7 @@ export function CalendarEditPanel({
           md:relative md:inset-auto md:bottom-auto md:max-h-none md:overflow-visible
           md:rounded-none md:shadow-none
           w-full md:max-w-sm bg-white border-zinc-200 md:border-l
-          p-5 flex flex-col gap-5
+          p-5 flex flex-col gap-5 outline-none
         "
       >
       {/* Header */}

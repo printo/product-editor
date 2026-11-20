@@ -6,6 +6,8 @@ interface ColorPickerProps {
   value: string;
   onChange: (color: string) => void;
   label?: string;
+  /** Name read out for the colour input when there is no visible `label`. */
+  ariaLabel?: string;
   /** Show hex code next to swatch (default true) */
   showHex?: boolean;
   className?: string;
@@ -15,6 +17,7 @@ export function ColorPicker({
   value,
   onChange,
   label,
+  ariaLabel,
   showHex = true,
   className = '',
 }: ColorPickerProps) {
@@ -31,6 +34,7 @@ export function ColorPicker({
             type="color"
             value={value}
             onChange={e => onChange(e.target.value)}
+            aria-label={label ?? ariaLabel ?? 'Colour'}
             className="absolute inset-0 w-full h-full scale-150 cursor-pointer opacity-0"
           />
           <div 

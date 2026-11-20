@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 import type { CanvasItem, FitMode, Overlay, SurfaceState } from './types';
 import { renderCanvas as renderCanvasCore, calculateSmartCropOffsets } from './fabric-renderer';
 import { getImageMetadata } from '@/lib/image-utils';
+import { useModalA11y } from '@/lib/use-modal-a11y';
 import { type LayerSelection } from './LayersPanel';
 // Type-only import: erased at compile time, zero bundle impact
 import type { FabricEditorHandle } from './FabricEditor';
@@ -75,6 +76,13 @@ export function CanvasEditorModal({
   getFileUrl, loadGoogleFont, expandPdfPages, serverHeicConvert, unprintableFor, textRemovals = 0,
   apiBase, getAuthHeaders,
 }: CanvasEditorModalProps) {
+  // Keyboard focus moves into the editor when it opens, stays in it, and
+  // returns to the card that opened it. The editor itself takes focus, not
+  // its first button: that is the close button, and Space (held to pan) or
+  // Enter would close the editor. Escape stays the editor's own (Fabric uses
+  // it while editing text), so onClose is null.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, null, true, dialogRef);
 
   // ── Local state (editor-only) ──────────────────────────────────────────────
   const [viewZoom, setViewZoom] = useState(1.0); // 1.0 = fit to viewport
@@ -314,7 +322,9 @@ export function CanvasEditorModal({
 
   return (
     <div
-      className="fixed inset-0 overscroll-contain z-[100000] bg-white flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-300"
+      ref={dialogRef}
+      tabIndex={-1}
+      className="fixed inset-0 overscroll-contain z-[100000] bg-white flex flex-col md:flex-row overflow-hidden outline-none animate-in fade-in duration-300"
       role="dialog"
       aria-modal="true"
       aria-label="Canvas editor"
@@ -383,9 +393,10 @@ export function CanvasEditorModal({
                 if (isMultiSurface) onOpenCanvas(0, surfaceStates[currentIdx - 1].key);
                 else onOpenCanvas(currentIdx - 1);
               }}
+              aria-label={isMultiSurface ? 'Previous side' : 'Previous design'}
               className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 active:scale-90"
             >
-              <ChevronRight className="w-4 h-4 rotate-180" />
+              <ChevronRight className="w-4 h-4 rotate-180" aria-hidden />
             </button>
 
             <span className="text-[10px] font-black text-slate-700 tabular-nums px-1 min-w-[48px] text-center uppercase tracking-tighter">
@@ -400,29 +411,30 @@ export function CanvasEditorModal({
                 if (isMultiSurface) onOpenCanvas(0, surfaceStates[currentIdx + 1].key);
                 else onOpenCanvas(currentIdx + 1);
               }}
+              aria-label={isMultiSurface ? 'Next side' : 'Next design'}
               className="p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-all rounded-lg hover:bg-slate-50 active:scale-90"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4" aria-hidden />
             </button>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-violet-200/50 p-1 rounded-xl shadow-lg">
               <button onClick={handleUndo} disabled={undoCount === 0}
-                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Undo (Ctrl+Z)">
+                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Undo (Ctrl+Z)" aria-label="Undo">
                 <Undo2 className="w-4 h-4" />
               </button>
               <button onClick={handleRedo} disabled={redoCount === 0}
-                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)">
+                className="p-2 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-20" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
                 <Redo2 className="w-4 h-4" />
               </button>
             </div>
             <div className="flex items-center gap-1 bg-white/80 backdrop-blur-xl border border-cyan-200/50 p-1 rounded-xl shadow-lg w-[140px] justify-between">
-              <button onClick={() => setViewZoom(p => Math.max(0.3, p - 0.15))} className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Minus className="w-4 h-4" /></button>
-              <button onClick={() => setViewZoom(1.0)} className="min-w-[48px] text-[10px] font-black text-cyan-500 uppercase tracking-tighter hover:text-cyan-700 transition-colors">
+              <button onClick={() => setViewZoom(p => Math.max(0.3, p - 0.15))} aria-label="Zoom out" className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Minus className="w-4 h-4" /></button>
+              <button onClick={() => setViewZoom(1.0)} aria-label={`${(viewZoom * 100).toFixed(0)}%, reset zoom`} className="min-w-[48px] text-[10px] font-black text-cyan-500 uppercase tracking-tighter hover:text-cyan-700 transition-colors">
                 {(viewZoom * 100).toFixed(0)}%
               </button>
-              <button onClick={() => setViewZoom(p => Math.min(3, p + 0.15))} className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Plus className="w-4 h-4" /></button>
+              <button onClick={() => setViewZoom(p => Math.min(3, p + 0.15))} aria-label="Zoom in" className="p-1.5 text-cyan-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"><Plus className="w-4 h-4" /></button>
             </div>
           </div>
         </div>

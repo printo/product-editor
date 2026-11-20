@@ -114,4 +114,36 @@ describe('useModalA11y', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(closes).toEqual([1]);
   });
+
+  it('Tab brings focus back into the dialog when it has left it', () => {
+    render(<><button>Page button</button><Modal onClose={null} /></>);
+    screen.getByText('Page button').focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(screen.getByText('First'));
+    screen.getByText('Page button').focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByText('Last'));
+  });
+
+  it('only the innermost of two open dialogs handles Tab and Escape', () => {
+    const outerClose = jest.fn();
+    const innerClose = jest.fn();
+    function Inner() {
+      const ref = useRef<HTMLDivElement>(null);
+      useModalA11y(ref, innerClose);
+      return <div ref={ref} role="dialog"><button>Inner first</button><button>Inner last</button></div>;
+    }
+    const { rerender } = render(<><Modal onClose={outerClose} /><Inner /></>);
+    // The inner dialog sits outside the outer one's container, as a dialog
+    // opened over the canvas editor does: the outer trap must leave it alone.
+    screen.getByText('Inner last').focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(screen.getByText('Inner first'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(innerClose).toHaveBeenCalledTimes(1);
+    expect(outerClose).not.toHaveBeenCalled();
+    rerender(<Modal onClose={outerClose} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(outerClose).toHaveBeenCalledTimes(1);
+  });
 });

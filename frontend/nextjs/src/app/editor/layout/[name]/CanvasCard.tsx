@@ -258,6 +258,7 @@ export function SurfaceCard({
               */}
               <button
                 onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(0, surface.key); }}
+                aria-label="Blur effect" aria-pressed={surfaceCanvas?.frames.some(f => f.fillStyle === 'blur') ?? false}
                 className={clsx('touch-hit p-2 rounded-lg hover:scale-105 transition-all',
                   surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
                     ? 'bg-indigo-600 text-white'
@@ -279,6 +280,7 @@ export function SurfaceCard({
                   swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key
                     ? 'bg-indigo-600 text-white'
                     : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
+                aria-pressed={swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key}
                 title="Swap Photo"
               >
                 <ArrowLeftRight className="w-3.5 h-3.5" />
@@ -485,6 +487,7 @@ export function CanvasCard({
           )}
           <button
             onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(idx); }}
+            aria-label="Blur effect" aria-pressed={canvas.frames.some(f => f.fillStyle === 'blur')}
             className={clsx('touch-hit p-2 rounded-lg hover:scale-105 transition-all',
               canvas.frames.some(f => f.fillStyle === 'blur')
                 ? 'bg-indigo-600 text-white'
@@ -506,6 +509,7 @@ export function CanvasCard({
               swapSource?.idx === idx && swapSource?.surfaceKey === null
                 ? 'bg-indigo-600 text-white'
                 : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
+            aria-pressed={swapSource?.idx === idx && swapSource?.surfaceKey === null}
             title="Swap Photo"
           >
             <ArrowLeftRight className="w-3.5 h-3.5" />

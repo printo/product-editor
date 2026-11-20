@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useId } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 export interface DropdownOption {
@@ -23,6 +23,9 @@ interface DropdownProps {
   optionClassName?: string;
   disabled?: boolean;
   testId?: string;
+  /** Id of the visible label for this dropdown; the trigger is then named
+   *  by that label followed by the chosen option ("Font Family, Inter"). */
+  labelledBy?: string;
 }
 
 /** Reusable dropdown that replaces a native <select> wherever the SELECTED
@@ -41,7 +44,9 @@ export const Dropdown = ({
   optionClassName = 'text-sm',
   disabled = false,
   testId,
+  labelledBy,
 }: DropdownProps) => {
+  const triggerId = useId();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selected = options.find(o => o.value === value);
@@ -65,6 +70,8 @@ export const Dropdown = ({
         onClick={() => setIsOpen(o => !o)}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        id={triggerId}
+        aria-labelledby={labelledBy ? `${labelledBy} ${triggerId}` : undefined}
         data-testid={testId}
         className={`flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${triggerClassName}`}
       >

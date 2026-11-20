@@ -166,7 +166,7 @@ export function IconBrowser({ onAddImage, apiBase, getAuthHeaders }: IconBrowser
           </p>
           <span className="text-[10px] text-slate-400 uppercase opacity-60">Icon library</span>
         </div>
-        <button onClick={() => setExpanded(false)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all">
+        <button onClick={() => setExpanded(false)} aria-label="Close icon library" className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all">
           <X className="w-4 h-4" />
         </button>
       </div>
