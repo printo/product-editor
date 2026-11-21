@@ -69,7 +69,7 @@ cp .env.example .env
 # generation commands)
 ```
 
-**First-time-only step:** the nginx `proxy` service bind-mounts a TLS cert that's gitignored, so a bare `docker-compose up -d` on a fresh clone will crash-loop `proxy` until one exists. Either let `./deploy.sh` bootstrap a self-signed one, or generate it yourself:
+**First-time-only step:** the nginx `proxy` service bind-mounts a TLS cert that's gitignored, so a bare `docker compose up -d` on a fresh clone will crash-loop `proxy` until one exists. Either let `./deploy.sh` bootstrap a self-signed one, or generate it yourself:
 
 ```bash
 mkdir -p proxy/nginx/certs
@@ -82,8 +82,8 @@ chmod 600 proxy/nginx/certs/origin.key
 Then bring the stack up:
 
 ```bash
-docker-compose up -d
-docker-compose exec backend python manage.py migrate
+docker compose up -d
+docker compose exec backend python manage.py migrate
 ```
 
 | Endpoint | URL |
@@ -93,14 +93,14 @@ docker-compose exec backend python manage.py migrate
 | Django Admin | http://localhost:8000/django-admin/ |
 | API Docs (Scalar) | http://localhost:8000/docs/api/ |
 
-> **Note:** `.env.local` in `frontend/nextjs/` overrides docker-compose env vars. Always set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) when running inside Docker. If `5004`/`8000`/`5432` conflict with other projects on your machine, override `FRONTEND_HOST_PORT` / `BACKEND_HOST_PORT` / `POSTGRES_HOST_PORT` in `.env`.
+> **Note:** `.env.local` in `frontend/nextjs/` overrides docker compose env vars. Always set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) when running inside Docker. If `5004`/`8000`/`5432` conflict with other projects on your machine, override `FRONTEND_HOST_PORT` / `BACKEND_HOST_PORT` / `POSTGRES_HOST_PORT` in `.env`.
 
 ### Alternative: frontend outside Docker (faster iteration)
 
 Run the backend + infra in Docker, but the Next.js dev server on the host for hot reload:
 
 ```bash
-docker-compose up -d backend db redis redis-cache celery-worker-standard
+docker compose up -d backend db redis redis-cache celery-worker-standard
 cd frontend/nextjs
 pnpm install
 pnpm dev         # http://localhost:3000
@@ -151,8 +151,8 @@ pnpm test:parity
 Backend tests are standalone modules under `backend/django/services/tests/` and are usually run through the backend container because the host Python environment often lacks Django/Pillow:
 
 ```bash
-docker-compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
-docker-compose run --rm --entrypoint bash backend -c 'for f in services/tests/test_*.py; do /opt/venv/bin/python -m "services.tests.$(basename "$f" .py)" || echo "FAIL $f"; done'
+docker compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
+docker compose run --rm --entrypoint bash backend -c 'for f in services/tests/test_*.py; do /opt/venv/bin/python -m "services.tests.$(basename "$f" .py)" || echo "FAIL $f"; done'
 ```
 
 If you already have a local virtualenv with `requirements.txt` installed, set `DEBUG=1` before running the backend tests directly so Django's production secret-key guard does not abort startup.
@@ -232,15 +232,15 @@ chmod 600 proxy/nginx/certs/origin.key
 ### 4. Deploy
 
 ```bash
-docker-compose up -d
-docker-compose logs -f backend   # watch for migration output
+docker compose up -d
+docker compose logs -f backend   # watch for migration output
 ```
 
 ### 5. Scale workers for peak load
 
 ```bash
 # Add more standard workers during festival seasons
-docker-compose up -d --scale celery-worker-standard=4
+docker compose up -d --scale celery-worker-standard=4
 ```
 
 ---
@@ -387,13 +387,13 @@ Key behaviours:
 
 ```bash
 # Backup
-docker-compose exec db pg_dump -U postgres product_editor > backup_$(date +%Y%m%d).sql
+docker compose exec db pg_dump -U postgres product_editor > backup_$(date +%Y%m%d).sql
 
 # Restore
-cat backup.sql | docker-compose exec -T db psql -U postgres product_editor
+cat backup.sql | docker compose exec -T db psql -U postgres product_editor
 
 # Run migrations after code update
-docker-compose exec backend python manage.py migrate
+docker compose exec backend python manage.py migrate
 ```
 
 Current migrations (latest: `0020_layoutcatalogue_display_name`):
@@ -427,10 +427,10 @@ Current migrations (latest: `0020_layoutcatalogue_display_name`):
 
 ```bash
 # Service status
-docker-compose ps
+docker compose ps
 
 # Live logs
-docker-compose logs -f celery-worker-standard
+docker compose logs -f celery-worker-standard
 
 # Queue depth + worker stats (ops key required)
 curl https://product-editor.printo.in/api/celery/monitor/ \
@@ -446,8 +446,8 @@ docker stats product-editor-celery-worker-standard-1
 
 | Symptom | Check | Fix |
 |---|---|---|
-| Jobs stuck in `queued` | `docker-compose ps celery-worker-*` | Restart workers; verify Redis is reachable |
-| Worker exits immediately | `docker-compose logs celery-worker-*` | Check Redis connection; verify migrations ran |
+| Jobs stuck in `queued` | `docker compose ps celery-worker-*` | Restart workers; verify Redis is reachable |
+| Worker exits immediately | `docker compose logs celery-worker-*` | Check Redis connection; verify migrations ran |
 | `ClientFetchError` on frontend login | `frontend/nextjs/.env.local` | Set `INTERNAL_API_URL=http://backend:8000/api` (not `localhost`) |
 | Dashboard shows empty / 500 | Missing `INTERNAL_API_KEY` env var | Add `INTERNAL_API_KEY=<same as INTERNAL_API_KEY in the root .env>` to `.env.local` — the internal proxy refuses to forward without it |
 | Dashboard/editor returns 401 after long idle | Session token expired | `pia-auth.ts` refresh flow kicks in automatically; if PIA is unreachable the user is redirected to `/login` |

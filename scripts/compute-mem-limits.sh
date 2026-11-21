@@ -7,8 +7,8 @@
 # boot rather than reusing a number written down for an old spec.
 #
 # Nothing here is persisted — it's recomputed fresh on every run. deploy.sh
-# evals this before any `docker-compose up`; for a manual local
-# `docker-compose up`, eval it yourself first:
+# evals this before any `docker compose up`; for a manual local
+# `docker compose up`, eval it yourself first:
 #   eval "$(./scripts/compute-mem-limits.sh)"
 # Skip it entirely and docker-compose.yml's `${VAR:-2G}` fallback keeps
 # today's fixed 2G behavior.

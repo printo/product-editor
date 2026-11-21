@@ -14,8 +14,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-DC="docker-compose"
-command -v docker-compose >/dev/null 2>&1 || DC="docker compose"
+DC="docker compose"
 
 DEST="backups/daily"
 SEL="${1:-latest}"
@@ -85,5 +84,5 @@ fi
 echo "[restore] starting containers…"
 $DC up -d
 
-echo "[restore] done. Verify: docker-compose exec db psql -U $PG_USER -d $PG_DB -c \\"
+echo "[restore] done. Verify: docker compose exec db psql -U $PG_USER -d $PG_DB -c \\"
 echo "  \"SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY relname;\""

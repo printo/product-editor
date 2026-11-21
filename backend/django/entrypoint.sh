@@ -5,7 +5,7 @@ set -e
 # Running migrate inside celery-beat would race with the backend container on
 # startup; running it inside celery-worker is also unnecessary and slow.
 if [ "$1" = "celery-worker" ]; then
-    # If CELERY_CONCURRENCY is explicitly set (via .env or docker-compose
+    # If CELERY_CONCURRENCY is explicitly set (via .env or docker compose
     # environment), respect it. Otherwise pass no --concurrency flag so Celery
     # auto-detects based on the number of available CPUs — which fully utilises
     # the server without an artificial cap.

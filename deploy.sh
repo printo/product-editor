@@ -130,7 +130,7 @@ wait_for_healthy() {
   while :; do
     pending=""
     for svc in "$@"; do
-      cid=$(docker-compose ps -q "$svc" 2>/dev/null | head -n 1) || true
+      cid=$(docker compose ps -q "$svc" 2>/dev/null | head -n 1) || true
       if [ -z "$cid" ]; then
         pending="${pending} ${svc}(no container)"
         continue
@@ -247,7 +247,7 @@ fi
 # api/tasks.py, api/views/, models, settings, etc. needs ALL of these
 # images rebuilt for workers to see the new code. The `backend` and
 # `workers` modes both rebuild this set; `both` does it implicitly via
-# `docker-compose build` with no args.
+# `docker compose build` with no args.
 WORKER_SERVICES="celery-worker-standard celery-beat"
 BACKEND_SERVICES="backend $WORKER_SERVICES"
 
@@ -351,11 +351,11 @@ do_rollback() {
   fi
 
   print_action "Recreating containers on the restored image(s)..."
-  if docker-compose up -d --force-recreate "${services[@]}"; then
+  if docker compose up -d --force-recreate "${services[@]}"; then
     print_status "Containers recreated"
   else
     fail "Failed to recreate containers during rollback"
-    docker-compose logs --tail=30 "${services[@]}" || true
+    docker compose logs --tail=30 "${services[@]}" || true
   fi
 }
 
@@ -424,7 +424,7 @@ fi
 # ── Use ONLY docker-compose.yml (never merge the dev override) ──────────────
 # docker-compose.override.yml (when present) remaps ports and runs services in
 # dev mode — all of which break production. Exporting COMPOSE_FILE guarantees
-# every docker-compose call in this script ignores the override.
+# every docker compose call in this script ignores the override.
 export COMPOSE_FILE=docker-compose.yml
 
 # ── Monitoring is NOT this repo's job ───────────────────────────────────────
@@ -438,7 +438,7 @@ export COMPOSE_FILE=docker-compose.yml
 # The four containers were still running on prod when this landed, matching no
 # service in docker-compose.yml. The `up -d --remove-orphans` near the end of
 # this script swept all four — VERIFIED on the prod host 2026-09-07, on
-# docker-compose 2.37.1, on the deploy that pulled 8430d8d. Worth recording
+# docker compose 2.37.1, on the deploy that pulled 8430d8d. Worth recording
 # because the previous version of this comment existed precisely because
 # orphan/profile handling had already differed between the binaries on that
 # box; for genuinely absent services it does the right thing.
@@ -451,7 +451,7 @@ export COMPOSE_FILE=docker-compose.yml
 #
 # If you ever need to re-check this, ask the DAEMON, not compose:
 #   docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -Ei 'grafana|loki'
-# `docker-compose ps` filters to services defined in the compose file, so it
+# `docker compose ps` filters to services defined in the compose file, so it
 # reports nothing for a container that is no longer a service — which reads
 # identically whether the container was removed or is still running. That
 # ambiguity is why the check above is the daemon-level one.
@@ -547,7 +547,7 @@ echo ""
 # effect on the next deploy with no docker-compose.yml edit. Mirrors
 # CELERY_CONCURRENCY being left unset so Celery re-detects CPU count at every
 # worker boot. See scripts/compute-mem-limits.sh for the formula; exported
-# here so every docker-compose invocation below picks it up via
+# here so every docker compose invocation below picks it up via
 # docker-compose.yml's ${BACKEND_MEM_LIMIT:-2G} / ${CELERY_MEM_LIMIT:-2G}.
 eval "$(bash ./scripts/compute-mem-limits.sh)"
 print_info "Backend memory limit: ${BACKEND_MEM_LIMIT}"
@@ -586,7 +586,7 @@ print_header "Stopping Services"
 if [[ "$MODE" == "both" ]]; then
   # Nothing is stopped here any more, and that is the point.
   #
-  # This used to run `docker-compose down --remove-orphans` BEFORE the image
+  # This used to run `docker compose down --remove-orphans` BEFORE the image
   # build. Since the build is the slow part, the outage was not the container
   # swap — it was the entire build, minutes of it, with the site down the whole
   # time. It also took Postgres and Redis down (stock images a deploy never
@@ -604,7 +604,7 @@ if [[ "$MODE" == "both" ]]; then
   print_info "Leaving current containers serving; they are swapped after the build."
 elif [[ "$MODE" == "backend" ]]; then
   print_action "Stopping backend + celery worker containers..."
-  docker-compose stop $BACKEND_SERVICES 2>&1 | grep -v "^$" || true
+  docker compose stop $BACKEND_SERVICES 2>&1 | grep -v "^$" || true
   print_status "Backend + workers stopped"
   print_action "Removing containers..."
   for svc in $BACKEND_SERVICES; do
@@ -615,7 +615,7 @@ elif [[ "$MODE" == "backend" ]]; then
   ensure_port_free "${BACKEND_HOST_PORT:-8000}" || true
 elif [[ "$MODE" == "workers" ]]; then
   print_action "Stopping celery worker containers..."
-  docker-compose stop $WORKER_SERVICES 2>&1 | grep -v "^$" || true
+  docker compose stop $WORKER_SERVICES 2>&1 | grep -v "^$" || true
   print_status "Workers stopped"
   print_action "Removing worker containers..."
   for svc in $WORKER_SERVICES; do
@@ -651,7 +651,7 @@ if [[ "$MODE" == "backend" ]]; then
   # a renamed task under its old name and processing in-flight messages
   # against deleted code paths).
   print_action "Building backend + worker images (output below)..."
-  if docker-compose build $BACKEND_SERVICES; then
+  if docker compose build $BACKEND_SERVICES; then
     print_status "Backend + worker images built successfully"
   else
     print_error "Backend/worker build FAILED — aborting deployment"
@@ -659,7 +659,7 @@ if [[ "$MODE" == "backend" ]]; then
   fi
 elif [[ "$MODE" == "workers" ]]; then
   print_action "Building worker images (output below)..."
-  if docker-compose build $WORKER_SERVICES; then
+  if docker compose build $WORKER_SERVICES; then
     print_status "Worker images built successfully"
   else
     print_error "Worker build FAILED — aborting deployment"
@@ -667,7 +667,7 @@ elif [[ "$MODE" == "workers" ]]; then
   fi
 elif [[ "$MODE" == "frontend" ]]; then
   print_action "Building frontend image (output below)..."
-  if docker-compose build frontend; then
+  if docker compose build frontend; then
     print_status "Frontend image built successfully"
   else
     print_error "Frontend build FAILED — aborting deployment"
@@ -675,7 +675,7 @@ elif [[ "$MODE" == "frontend" ]]; then
   fi
 elif [[ "$MODE" == "both" ]]; then
   print_action "Building all images (output below)..."
-  if docker-compose build; then
+  if docker compose build; then
     print_status "All images built successfully"
   else
     print_error "Image build FAILED — aborting deployment"
@@ -694,7 +694,7 @@ fi
 # they are still serving, so the deploy stops and nothing is swapped.
 if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
   print_header "Queue Check (freshly built image, before anything changes)"
-  docker-compose up -d redis
+  docker compose up -d redis
   QUEUE_CHECK='
 import sys
 from product_editor.celery import app
@@ -708,7 +708,7 @@ except Exception as exc:
 print("queue reachable")
 '
   for svc in backend celery-worker-standard; do
-    if docker-compose run --rm -T --no-deps --entrypoint /opt/venv/bin/python "$svc" -c "$QUEUE_CHECK"; then
+    if docker compose run --rm -T --no-deps --entrypoint /opt/venv/bin/python "$svc" -c "$QUEUE_CHECK"; then
       print_status "The new ${svc} image can reach the queue"
     else
       print_error "The new ${svc} image CANNOT reach the queue — aborting before anything is swapped (old code still running)"
@@ -730,14 +730,14 @@ fi
 if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
   print_header "Database Migrations (before container swap)"
   print_action "Ensuring db is up..."
-  docker-compose up -d db redis
+  docker compose up -d db redis
   print_action "Running migrations with the freshly built image..."
   # --entrypoint bypasses entrypoint.sh here on PURPOSE. The web entrypoint
   # ignores its "$@" and always ends in `exec gunicorn`, so a plain
   # `run ... backend python manage.py migrate` starts a full server that never
   # exits — hanging the deploy. Invoking the venv python directly runs migrate
   # and returns, preserving the fail-fast-before-swap intent.
-  if docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py migrate --noinput; then
+  if docker compose run --rm --entrypoint /opt/venv/bin/python backend manage.py migrate --noinput; then
     print_status "Migrations applied"
   else
     print_error "Migrations FAILED — aborting before swapping containers (old code still running)"
@@ -755,7 +755,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" || "$MODE" == "workers" ]]; then
   # -T: no TTY (a TTY-attached `run` is what stalls when the session is flaky);
   # --no-deps: the services it needs are already up; -k: SIGKILL if SIGTERM is
   # ignored. 120 s is plenty for a handful of font files.
-  if timeout -k 10 120 docker-compose run --rm -T --no-deps --entrypoint /opt/venv/bin/python backend manage.py refresh_fonts </dev/null; then
+  if timeout -k 10 120 docker compose run --rm -T --no-deps --entrypoint /opt/venv/bin/python backend manage.py refresh_fonts </dev/null; then
     print_status "Fonts refreshed"
   else
     print_warning "Font refresh incomplete — cached fonts kept; prints are unaffected"
@@ -769,29 +769,29 @@ if [[ "$MODE" == "backend" ]]; then
   # --force-recreate ensures containers pick up the freshly-built image
   # even when their config hash hasn't changed (Docker's default would
   # skip recreate and keep running the old image).
-  if docker-compose up -d --force-recreate $BACKEND_SERVICES; then
+  if docker compose up -d --force-recreate $BACKEND_SERVICES; then
     print_status "Backend + workers started"
   else
     print_error "Failed to start backend/workers"
-    docker-compose logs --tail=30 $BACKEND_SERVICES
+    docker compose logs --tail=30 $BACKEND_SERVICES
     exit 1
   fi
 elif [[ "$MODE" == "workers" ]]; then
   print_action "Creating and starting worker containers..."
-  if docker-compose up -d --force-recreate $WORKER_SERVICES; then
+  if docker compose up -d --force-recreate $WORKER_SERVICES; then
     print_status "Workers started"
   else
     print_error "Failed to start workers"
-    docker-compose logs --tail=30 $WORKER_SERVICES
+    docker compose logs --tail=30 $WORKER_SERVICES
     exit 1
   fi
 elif [[ "$MODE" == "frontend" ]]; then
   print_action "Swapping the frontend container onto the new image..."
-  if docker-compose up -d --force-recreate --no-deps frontend; then
+  if docker compose up -d --force-recreate --no-deps frontend; then
     print_status "Frontend swapped"
   else
     print_error "Failed to start frontend"
-    docker-compose logs --tail=30 frontend
+    docker compose logs --tail=30 frontend
     exit 1
   fi
 elif [[ "$MODE" == "both" ]]; then
@@ -807,25 +807,25 @@ elif [[ "$MODE" == "both" ]]; then
   #      call above, where the service list makes its blast radius harder to
   #      reason about.
   print_action "Swapping app containers onto the new images..."
-  if docker-compose up -d --force-recreate $APP_SERVICES; then
+  if docker compose up -d --force-recreate $APP_SERVICES; then
     print_status "App containers swapped ($APP_SERVICES)"
   else
     print_error "Failed to swap app containers — showing logs"
-    docker-compose logs --tail=50 $APP_SERVICES
+    docker compose logs --tail=50 $APP_SERVICES
     exit 1
   fi
   print_action "Ensuring supporting services are up..."
-  if docker-compose up -d --remove-orphans; then
+  if docker compose up -d --remove-orphans; then
     print_status "All services running"
   else
     print_error "Failed to start supporting services — showing logs"
-    docker-compose logs --tail=50
+    docker compose logs --tail=50
     exit 1
   fi
 fi
 
 # ── Proxy config sync ────────────────────────────────────────────────────────
-# docker-compose bind-mounts proxy/nginx/nginx.conf as a single FILE, and a
+# docker compose bind-mounts proxy/nginx/nginx.conf as a single FILE, and a
 # single-file bind mount binds the INODE, not the path. `git pull` does not edit
 # that file in place — it REPLACES it, creating a new inode — so a running proxy
 # keeps serving the config it started with, forever, across any number of pulls
@@ -853,11 +853,11 @@ sync_proxy_config() {
     return 0
   fi
 
-  container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+  container_hash=$(docker compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
   if [ -z "$container_hash" ]; then
     print_action "Proxy not running — starting it..."
-    docker-compose up -d proxy >/dev/null 2>&1 || true
-    container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+    docker compose up -d proxy >/dev/null 2>&1 || true
+    container_hash=$(docker compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
   fi
 
   # The hash check below only catches nginx.conf edits. A bumped proxy image
@@ -866,16 +866,16 @@ sync_proxy_config() {
   # serving. `up -d --no-deps proxy` is a no-op when the image and service
   # definition are unchanged, and pulls + recreates when they changed.
   local before_id after_id
-  before_id=$(docker-compose ps -q proxy 2>/dev/null)
-  if ! docker-compose up -d --no-deps proxy >/dev/null 2>&1; then
+  before_id=$(docker compose ps -q proxy 2>/dev/null)
+  if ! docker compose up -d --no-deps proxy >/dev/null 2>&1; then
     fail "Proxy 'up -d' failed — a changed proxy image may NOT be live"
   fi
-  after_id=$(docker-compose ps -q proxy 2>/dev/null)
+  after_id=$(docker compose ps -q proxy 2>/dev/null)
   if [ -n "$before_id" ] && [ "$before_id" != "$after_id" ]; then
-    print_status "Proxy recreated onto its new image ($(docker-compose exec -T proxy nginx -v 2>&1 | sed 's/.*version: //'))"
-    container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+    print_status "Proxy recreated onto its new image ($(docker compose exec -T proxy nginx -v 2>&1 | sed 's/.*version: //'))"
+    container_hash=$(docker compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
   else
-    print_status "Proxy image unchanged ($(docker-compose exec -T proxy nginx -v 2>&1 | sed 's/.*version: //'))"
+    print_status "Proxy image unchanged ($(docker compose exec -T proxy nginx -v 2>&1 | sed 's/.*version: //'))"
   fi
 
   if [ -n "$container_hash" ] && [ "$host_hash" = "$container_hash" ]; then
@@ -884,13 +884,13 @@ sync_proxy_config() {
   fi
 
   print_action "nginx.conf differs from the running proxy's copy — recreating proxy..."
-  if ! docker-compose up -d --force-recreate proxy; then
+  if ! docker compose up -d --force-recreate proxy; then
     fail "Proxy recreate failed — nginx.conf changes are NOT live"
     return 0
   fi
 
   while [ "$i" -lt 15 ]; do
-    container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+    container_hash=$(docker compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
     [ "$host_hash" = "$container_hash" ] && break
     sleep 1
     i=$((i + 1))
@@ -919,7 +919,7 @@ fi
 # safety pass catches anything a hotfix added between build and start.
 if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
   print_header "Database Migrations (post-start safety pass)"
-  docker-compose exec -T backend python manage.py migrate --noinput 2>&1 | while read line; do
+  docker compose exec -T backend python manage.py migrate --noinput 2>&1 | while read line; do
     if [[ "$line" =~ "Applying" ]]; then
       echo -e "${CYAN}→${NC} $line"
     elif [[ "$line" =~ "OK" || "$line" =~ "No migrations" ]]; then
@@ -933,7 +933,7 @@ fi
 
 # Show service status
 print_header "Service Status"
-docker-compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
 
 # Health checks
 print_header "Health Checks"
@@ -1213,7 +1213,7 @@ if [[ "$MODE" == "backend" || "$MODE" == "both" ]]; then
   print_header "API Keys"
   print_action "Retrieving API keys..."
   sleep 2
-  docker-compose logs backend 2>/dev/null | grep -A 5 "Available API Keys" | tail -5 | while read line; do
+  docker compose logs backend 2>/dev/null | grep -A 5 "Available API Keys" | tail -5 | while read line; do
     if [[ "$line" =~ ":" ]]; then
       echo -e "${GREEN}✓${NC} $line"
     fi
@@ -1311,7 +1311,7 @@ print_final_summary() {
     done
     echo ""
     print_warning "The containers ARE running the new image — this is not a rollback."
-    print_warning "Investigate before sending customer traffic. Logs: docker-compose logs --tail=100"
+    print_warning "Investigate before sending customer traffic. Logs: docker compose logs --tail=100"
   else
     print_header "Deployment Complete"
     print_status "Deployment finished successfully"
