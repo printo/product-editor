@@ -8,12 +8,9 @@ import {
   Plus,
   Trash2,
   Save,
-  ChevronRight,
   AlertCircle,
   Loader2,
   X,
-  Eye,
-  Edit2,
   Copy,
   Type,
   ZoomIn,
@@ -24,13 +21,11 @@ import {
   AlignLeft,
   AlignRight,
   CalendarDays,
-  BookOpen,
   LayoutTemplate as TemplateIcon,
   Tag as TagIcon,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { LayoutSVG } from '@/components/LayoutSVG';
 import { GoogleFontLinks } from '@/components/GoogleFontLinks';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { TagFilter } from '@/components/ui/TagFilter';
@@ -41,8 +36,6 @@ import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 import { TagPicker } from '@/components/ui/TagPicker';
 import { hasTransparentPixels } from '@/lib/image-utils';
 import { mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
-import { resolveMaskSlots } from '@/lib/mask-slots';
-import { printSheetLabel } from '@/lib/print-sheet';
 import type { MaskSlotSource } from './LayoutFabricPreview';
 import { MaskSlotRow } from './MaskSlotRow';
 import { DeleteLayoutDialog } from './dialogs/DeleteLayoutDialog';
@@ -50,6 +43,9 @@ import { FontPickerModal } from './dialogs/FontPickerModal';
 import { useOpsFonts } from './useOpsFonts';
 import { useModalScrollRestore } from './useModalScrollRestore';
 import { useEditFromAddress } from './useEditFromAddress';
+import { useLayoutList } from './useLayoutList';
+import { LayoutCard } from './LayoutCard';
+import { CreateLayoutCards } from './CreateLayoutCards';
 import { LayoutSpecModal } from './dialogs/LayoutSpecModal';
 import { RemoveMaskDialog } from './dialogs/RemoveMaskDialog';
 import {
@@ -82,8 +78,10 @@ export default function LayoutCreatorPage() {
   // further gated to session.is_ops_team there; that gate was removed so any
   // authenticated user can manage templates, same as this page.
 
-  const [layouts, setLayouts] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    layouts, isLoading, fetchLayouts, visibleLayouts,
+    searchQuery, setSearchQuery, activeTagFilter, setActiveTagFilter, showDeleted, setShowDeleted,
+  } = useLayoutList(status);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -116,15 +114,6 @@ export default function LayoutCreatorPage() {
   const [layoutId, setLayoutId] = useState('untitled_layout');
   // Tag keys (several per layout); names come from the ops-managed list.
   const [tagKeys, setTagKeys] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  // Tag filter: clicking a chip sets this; '' means "All". Independent of
-  // the text search so ops can type "5x7" while filtered to Photo Prints.
-  const [activeTagFilter, setActiveTagFilter] = useState('');
-  // GET /api/ops/layouts intentionally returns soft-deleted (isDeprecated)
-  // rows too, so ops can distinguish a renamed-away layout from a genuine
-  // dead end (see LayoutCatalogue.resolve_active()). Hidden by default so a
-  // "deleted" layout doesn't look identical to a live one in the grid.
-  const [showDeleted, setShowDeleted] = useState(false);
 
   const [dpi, setDpi] = useState(300);
   const [widthMm, setWidthMm] = useState(101.6);
@@ -284,7 +273,7 @@ export default function LayoutCreatorPage() {
     // without it the dropdown would keep rendering the tag selected at mount.
     // The access flag likewise: the Holidays link is in that snapshot, so it
     // would stay hidden for an ops user whose session resolved after mount.
-  }, [isModalOpen, setIsModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, tagList, selectedFonts.length, layouts.length, canManageHolidays]);
+  }, [isModalOpen, setIsModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, setSearchQuery, activeTagFilter, setActiveTagFilter, tagList, selectedFonts.length, layouts.length, canManageHolidays]);
 
   // Resolve active frames/dimensions based on layout type
   const activeFrames = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].frames : frames;
@@ -339,41 +328,6 @@ export default function LayoutCreatorPage() {
     }
   }, [status, session, router]);
 
-  const fetchLayouts = useCallback(async () => {
-    try {
-      // no-store: the endpoint sends Cache-Control: private, max-age=60, so a
-      // refetch right after a create/delete would otherwise be served from the
-      // browser cache and still show the row that was just removed.
-      const res = await fetch('/api/internal/proxy/ops/layouts', {
-        headers: { 'Accept': 'application/json' },
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error('Failed to fetch');
-      const data = await res.json();
-      if (data.layouts) {
-        const layoutDetails = (data.layouts || []).map((item: any) => {
-          if (typeof item === 'string') return { name: item };
-          return {
-            ...item,
-            id: item.name,
-            tags: item.tags || [],
-            tagKeys: layoutTagKeys(item),
-          };
-        });
-        setLayouts(layoutDetails);
-      }
-    } catch (err) {
-      console.error('Failed to fetch layouts', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (status === 'authenticated') {
-      fetchLayouts();
-    }
-  }, [status, fetchLayouts]);
 
   const handleGenerateGrid = () => {
     setFrames(gridFrames(widthMm, heightMm, rows, cols, padding));
@@ -782,319 +736,19 @@ export default function LayoutCreatorPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Single card split into two creation options */}
-          {/* Side-by-side on phones (vertical space is scarce there), stacked
-              from md up so each option gets the full card width. */}
-          <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl overflow-hidden min-h-[120px] md:min-h-[300px] flex flex-row md:flex-col col-span-1 md:col-span-2 lg:col-span-1">
-            {/* Left half — Generic */}
-            <button
-              data-testid="create-generic-layout-btn"
-              onClick={openCreateModal}
-              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-indigo-50 transition-all cursor-pointer border-r-2 md:border-r-0 md:border-b-2 border-dashed border-slate-200 hover:border-indigo-300"
-            >
-              <div className="w-8 h-8 md:w-12 md:h-12 bg-indigo-50 rounded-lg md:rounded-lg flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
-                <Layout className="w-4 h-4 md:w-6 md:h-6 text-indigo-600" />
-              </div>
-              <div className="text-center">
-                <p className="font-bold text-xs md:text-sm text-slate-800 group-hover:text-indigo-700 transition-colors">Generic Layout</p>
-                <p className="hidden md:block text-[10px] text-slate-400 mt-0.5">Prints, stickers, products</p>
-              </div>
-              <span className="flex items-center gap-1 px-2 py-0.5 md:px-2.5 md:py-1 bg-indigo-50 text-indigo-700 text-[9px] md:text-[10px] font-bold uppercase rounded-full border border-indigo-200 group-hover:bg-indigo-100 transition-colors">
-                <Plus className="w-3 h-3" /> Create
-              </span>
-            </button>
+          <CreateLayoutCards openCreateModal={openCreateModal} />
 
-            {/* Middle — Calendar */}
-            <Link
-              href="/editor/layouts/calendar/new"
-              data-testid="create-calendar-layout-link"
-              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-[#F17A26]/10 transition-all border-r-2 md:border-r-0 md:border-b-2 border-dashed border-slate-200 hover:border-[#F17A26]/40"
-            >
-              <div className="w-8 h-8 md:w-12 md:h-12 bg-[#F17A26]/10 rounded-lg md:rounded-lg flex items-center justify-center group-hover:bg-[#F17A26]/20 transition-colors">
-                <CalendarDays className="w-4 h-4 md:w-6 md:h-6 text-[#F17A26]" />
-              </div>
-              <div className="text-center">
-                <p className="font-bold text-xs md:text-sm text-slate-800 group-hover:text-[#F17A26] transition-colors">Calendar Layout</p>
-                <p className="hidden md:block text-[10px] text-slate-400 mt-0.5">Month-grid with holidays</p>
-              </div>
-              <span className="flex items-center gap-1 px-2 py-0.5 md:px-2.5 md:py-1 bg-[#F17A26]/10 text-[#F17A26] text-[9px] md:text-[10px] font-bold uppercase rounded-full border border-[#F17A26]/30 group-hover:bg-[#F17A26]/20 transition-colors">
-                <Plus className="w-3 h-3" /> Create
-              </span>
-            </Link>
-
-            {/* Right — Book */}
-            <Link
-              href="/editor/layouts/book/new"
-              data-testid="create-book-layout-link"
-              className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-sky-50 transition-all hover:border-sky-300"
-            >
-              <div className="w-8 h-8 md:w-12 md:h-12 bg-sky-50 rounded-lg md:rounded-lg flex items-center justify-center group-hover:bg-sky-100 transition-colors">
-                <BookOpen className="w-4 h-4 md:w-6 md:h-6 text-sky-700" />
-              </div>
-              <div className="text-center">
-                <p className="font-bold text-xs md:text-sm text-slate-800 group-hover:text-sky-700 transition-colors">Book Layout</p>
-                <p className="hidden md:block text-[10px] text-slate-400 mt-0.5">Photobooks, booklets</p>
-              </div>
-              <span className="flex items-center gap-1 px-2 py-0.5 md:px-2.5 md:py-1 bg-sky-50 text-sky-700 text-[9px] md:text-[10px] font-bold uppercase rounded-full border border-sky-200 group-hover:bg-sky-100 transition-colors">
-                <Plus className="w-3 h-3" /> Create
-              </span>
-            </Link>
-          </div>
-
-          {layouts
-            .filter((l: any) => {
-              const q = searchQuery.toLowerCase();
-              const name = typeof l === 'string' ? l : (l.name || '');
-              const layoutTags: string[] = l.tags || [];
-              // Text search matches name OR any tag name.
-              const matchesSearch = !q || name.toLowerCase().includes(q) || layoutTags.some((t: string) => t.toLowerCase().includes(q));
-              // Tag filter holds a tag key: '' means All.
-              const matchesTag = !activeTagFilter || (l.tagKeys || []).includes(activeTagFilter);
-              // Soft-deleted rows stay in the API response (see showDeleted
-              // toggle above) — keep them out of the grid unless asked for.
-              const isDeprecated = typeof l === 'object' && !!l.isDeprecated;
-              const matchesDeleted = showDeleted || !isDeprecated;
-              return matchesSearch && matchesTag && matchesDeleted;
-            })
-            .map((layoutObj: any) => {
-              const layoutStr = typeof layoutObj === 'string' ? layoutObj : layoutObj.name;
-              // Phase 6.3 — Calendar layouts are flagged distinctly so ops can
-              // spot calendar products at a glance and the Edit button routes
-              // to the dedicated CalendarLayoutEditor instead of the generic
-              // edit modal (whose schema doesn't cover monthRange/calendars[]).
-              const isCalendar = typeof layoutObj === 'object' && layoutObj.productType === 'calendar';
-              // Book layouts (BOOK_LAYOUT_PRD.md §6 Phase 5) carry no root
-              // canvas/frames at all (each role authors its own under
-              // book.cover/innerPage/backCover, D7) — openEditModal/
-              // openCopyModal both read `data.canvas.*` directly and would
-              // crash, so route Edit the same way calendar does and disable
-              // Duplicate rather than let either reach a book layout.
-              const isBook = typeof layoutObj === 'object' && layoutObj.productType === 'book';
-              // Soft-deleted (see LayoutManagementView.delete). renamedTo set
-              // means the name was superseded by a rename and still resolves
-              // via LayoutCatalogue.resolve_active() — a dead end otherwise.
-              const isDeprecated = typeof layoutObj === 'object' && !!layoutObj.isDeprecated;
-              const renamedTo = typeof layoutObj === 'object' ? layoutObj.renamedTo : null;
-              return (
-                <div
-                  key={layoutStr}
-                  data-testid={`layout-card-${layoutStr}`}
-                  data-product-type={isCalendar ? 'calendar' : isBook ? 'book' : 'standard'}
-                  data-deprecated={isDeprecated || undefined}
-                  className={`bg-white border rounded-xl p-6 transition-all group relative ${
-                    isDeprecated
-                      ? 'opacity-60 border-slate-200 bg-slate-50/60'
-                      : 'border-slate-200 hover:shadow-lg hover:border-indigo-200'
-                  }`}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 mb-4">
-                    {/* min-w-0 lets this side shrink, so a long name or file name no longer pushes the action icons out of the card. basis-56 is the room it needs: with less than that left beside the icons, they wrap under it instead of squeezing the name into a sliver. */}
-                    <div className="flex min-w-0 flex-1 basis-56 items-center gap-4">
-                      {/* Thumbnail Preview */}
-                      <div className="w-16 h-16 bg-slate-50 rounded-lg overflow-hidden border border-slate-100 flex items-center justify-center flex-shrink-0 group-hover:border-indigo-100 transition-colors">
-                        <LayoutSVG layout={layoutObj} className="w-full h-full object-contain" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-slate-900 capitalize tracking-tight">{(typeof layoutObj === 'object' && layoutObj.displayName) || (layoutStr || '').replace(/_/g, ' ')}</h3>
-                          {isCalendar && (
-                            <span
-                              data-testid={`calendar-badge-${layoutStr}`}
-                              className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] rounded-full font-bold uppercase tracking-tight"
-                              title="Calendar product — opens in the calendar layout editor"
-                            >
-                              Calendar
-                            </span>
-                          )}
-                          {isBook && (
-                            <span
-                              data-testid={`book-badge-${layoutStr}`}
-                              className="px-2 py-0.5 bg-sky-100 text-sky-800 text-[9px] rounded-full font-bold uppercase tracking-tight"
-                              title="Book product — opens in the book layout editor"
-                            >
-                              Book
-                            </span>
-                          )}
-                          {isDeprecated && (
-                            renamedTo ? (
-                              <span
-                                data-testid={`renamed-badge-${layoutStr}`}
-                                className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[9px] rounded-full font-bold uppercase tracking-tight"
-                                title={`Renamed to "${renamedTo}" — this identifier still resolves, it isn't a dead end`}
-                              >
-                                Renamed → {renamedTo}
-                              </span>
-                            ) : (
-                              <span
-                                data-testid={`deleted-badge-${layoutStr}`}
-                                className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[9px] rounded-full font-bold uppercase tracking-tight"
-                                title="Soft-deleted — no longer served to customers or partners"
-                              >
-                                Deleted
-                              </span>
-                            )
-                          )}
-                        </div>
-                        <p className="text-[10px] text-slate-400 font-mono mt-0.5 tracking-wider break-all">{(layoutStr || '')}.json</p>
-                        {layoutObj.tags && layoutObj.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {layoutObj.tags.slice(0, 2).map((t: string) => (
-                              <span key={t} className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] rounded-full font-bold uppercase tracking-tight">{t}</span>
-                            ))}
-                            {layoutObj.tags.length > 2 && (
-                                <span className="text-[9px] text-slate-400 font-bold ml-0.5">+{layoutObj.tags.length - 2}</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center">
-                      {!isDeprecated && (
-                        <>
-                          <button
-                            onClick={() => { if (!isBook) openCopyModal(layoutStr); }}
-                            disabled={isBook}
-                            className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                            title={isBook ? 'Duplicating book layouts isn\'t supported yet' : 'Duplicate Layout'}
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                          {isCalendar ? (
-                            <Link
-                              href={`/editor/layouts/calendar/${layoutStr}`}
-                              data-testid={`edit-calendar-${layoutStr}`}
-                              className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
-                              title="Edit Calendar Layout"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </Link>
-                          ) : isBook ? (
-                            <Link
-                              href={`/editor/layouts/book/${layoutStr}`}
-                              data-testid={`edit-book-${layoutStr}`}
-                              className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all inline-flex items-center"
-                              title="Edit Book Layout"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </Link>
-                          ) : (
-                            <button
-                              onClick={() => openEditModal(layoutStr)}
-                              className="p-2 text-[#F17A26] hover:bg-[#F17A26]/10 rounded-lg transition-all"
-                              title="Edit Layout"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                          )}
-                          {!isCalendar && !isBook && (
-                            <Link
-                              href={`/editor/layouts/templates/${encodeURIComponent(layoutStr)}`}
-                              data-testid={`templates-${layoutStr}`}
-                              className="p-2 text-[#64318E] hover:bg-[#64318E]/10 rounded-lg transition-all inline-flex items-center gap-1 text-[10px] font-bold"
-                              title="Templates: ready-made decoration customers can start from"
-                              aria-label={`Templates for ${layoutStr}`}
-                            >
-                              <TemplateIcon className="w-4 h-4" />
-                              {typeof layoutObj === 'object' && typeof layoutObj.templateCount === 'number' && layoutObj.templateCount > 0 ? layoutObj.templateCount : null}
-                            </Link>
-                          )}
-                        </>
-                      )}
-                      <button
-                        onClick={() => setDeleteConfirm(layoutStr)}
-                        disabled={isDeprecated}
-                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                        title={isDeprecated ? 'Already deleted' : 'Delete Layout'}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-4 border-t border-slate-100/50 flex flex-col gap-1.5">
-                    {/* Structured Metadata (Prefer this if available) */}
-                    {layoutObj.metadata ? (
-                      <div className="space-y-3 pt-2">
-                        {layoutObj.metadata.filter((m: any) => m.key !== 'tags' || (Array.isArray(m.value) && m.value.length > 0)).map((meta: any) => (
-                          <div key={meta.key} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                            <span className="text-slate-400 font-medium">{meta.label}</span>
-                            <span className="text-slate-900 font-bold">
-                              {meta.key.includes('At') ? new Date(meta.value).toLocaleString() : meta.value || 'N/A'}
-                            </span>
-                          </div>
-                        ))}
-                        {/* Fallback for dimensions if not in metadata */}
-                        {!layoutObj.metadata.some((m: any) => m.key === 'dimensions') && layoutObj.canvas && (
-                          <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                            <span className="text-slate-400 font-medium">Dimensions</span>
-                            <span className="text-slate-900 font-bold">{layoutObj.canvas.widthMm?.toFixed(2)} x {layoutObj.canvas.heightMm?.toFixed(2)}mm</span>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                          <span className="text-slate-400 font-medium">Created By</span>
-                          <span className="text-slate-900 font-bold">{layoutObj.createdBy || 'System'}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                          <span className="text-slate-400 font-medium">Created At</span>
-                          <span className="text-slate-900 font-bold">{layoutObj.createdAt ? new Date(layoutObj.createdAt).toLocaleString() : 'N/A'}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                          <span className="text-slate-400 font-medium">Updated By</span>
-                          <span className="text-slate-900 font-bold">{layoutObj.updatedBy || 'System'}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                          <span className="text-slate-400 font-medium">Last Updated</span>
-                          <span className="text-slate-900 font-bold">{layoutObj.updatedAt ? new Date(layoutObj.updatedAt).toLocaleString() : 'N/A'}</span>
-                        </div>
-                        {layoutObj.canvas && (
-                          <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                            <span className="text-slate-400 font-medium">Dimensions</span>
-                            <span className="text-slate-900 font-bold">{layoutObj.canvas.widthMm?.toFixed(2)} x {layoutObj.canvas.heightMm?.toFixed(2)}mm</span>
-                          </div>
-                        )}
-                        {layoutObj.productType !== 'calendar' && layoutObj.productType !== 'book' && (
-                          <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                            <span className="text-slate-400 font-medium">Print</span>
-                            <span className="text-slate-900 font-bold">{printSheetLabel(layoutObj.printSheet)}</span>
-                          </div>
-                        )}
-                        {(() => {
-                          const slots = resolveMaskSlots(layoutObj);
-                          const names = [slots.frameMaskUrl && 'Frame picture', slots.artworkMaskUrl && 'Artwork'].filter(Boolean);
-                          return names.length > 0 ? (
-                            <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                              <span className="text-slate-400 font-medium">Masks</span>
-                              <span className="text-slate-900 font-bold">{names.join(' + ')}</span>
-                            </div>
-                          ) : null;
-                        })()}
-                        <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                          <span className="text-slate-400 font-medium">Version</span>
-                          <span className="text-slate-900 font-bold">{layoutObj.version ?? 'N/A'}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between mt-6">
-                    <span className="text-sm font-semibold text-slate-500 flex items-center gap-1">
-                      <Eye className="w-4 h-4" />
-                      View Raw JSON
-                    </span>
-                    <button
-                      onClick={() => openViewModal(layoutStr)}
-                      aria-label="View Raw JSON"
-                      className="text-slate-500 hover:text-indigo-600 transition-colors"
-                    >
-                      <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+          {visibleLayouts
+            .map((layoutObj: any) => (
+              <LayoutCard
+                key={typeof layoutObj === 'string' ? layoutObj : layoutObj.name}
+                layoutObj={layoutObj}
+                openCopyModal={openCopyModal}
+                openEditModal={openEditModal}
+                openViewModal={openViewModal}
+                setDeleteConfirm={setDeleteConfirm}
+              />
+            ))}
 
           {layouts.length === 0 && (
             <div className="col-span-full py-20 bg-white border border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center text-slate-400">
