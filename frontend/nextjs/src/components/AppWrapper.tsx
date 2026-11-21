@@ -1,10 +1,9 @@
 'use client';
 
-import { ReactNode, useEffect, useSyncExternalStore } from 'react';
+import { ReactNode, useSyncExternalStore } from 'react';
 import { usePathname } from 'next/navigation';
 import { HeaderProvider, useHeader } from '@/context/HeaderContext';
 import { Header } from '@/components/Header';
-import { initObservability } from '@/lib/observability';
 
 // Must be a child of HeaderProvider (not a sibling) so it can read the
 // ResizeObserver-measured headerHeight and always match the real header.
@@ -34,10 +33,6 @@ export const AppWrapper = ({ children }: { children: ReactNode }) => {
   // Note the trailing slash: it excludes /editor/layouts (template library).
   const isSharedEditorRoute = pathname.startsWith('/editor/layout/');
   const hydrated = useHasHydrated();
-
-  useEffect(() => {
-    initObservability();
-  }, []);
 
   // Read on every render rather than cached in state: a client-side nav
   // changes window.location without remounting this component.
