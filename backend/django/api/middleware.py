@@ -88,13 +88,15 @@ class APIRequestLoggingMiddleware(MiddlewareMixin):
     # polled every few seconds for the life of a job. /csp-report is a
     # different kind of noise: an anonymous, unauthenticated browser callback
     # with no api_key to attribute — the audit trail's whole purpose (who did
-    # what) doesn't apply, and CSPReportView's own logger.warning + Sentry
-    # capture is the actual signal for this one.
+    # what) doesn't apply, and CSPReportView's own logger.warning is the
+    # actual signal for this one. /client-errors is the same kind of browser
+    # callback; ClientErrorReportView logs each report and alerts the team.
     AUDIT_EXEMPT_PREFIXES = (
         '/api/health',
         '/api/config',
         '/api/render-status/',
         '/api/csp-report',
+        '/api/client-errors',
         # Icon tiles: public, sixty a search, the same library for everyone,
         # nothing of a customer's in them. The search itself is recorded.
         '/api/icons/',

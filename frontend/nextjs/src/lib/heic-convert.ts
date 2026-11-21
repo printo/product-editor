@@ -1,5 +1,6 @@
 import { fileExtension } from '@/lib/file-identity';
 import { partitionByAllowedType, unsupportedFilesMessage } from '@/lib/upload-utils';
+import { reportClientError } from '@/lib/client-error-report';
 
 /**
  * Client-side HEIC/HEIF (iPhone photo format) to JPEG conversion.
@@ -55,6 +56,15 @@ function reportHeicFailure(stage: HeicFailureStage, file: File, cause: unknown):
     `[heic-convert] ${stage} failed for "${file.name}" ` +
       `(${file.type || 'no mime'}, ${file.size} bytes): ${detail}`,
   );
+  // A chunk that never arrived is ours to fix; a photo the decoder rejects is
+  // usually the photo, so it is reported as a warning. The file name is left
+  // out: it is the customer's.
+  reportClientError({
+    kind: 'heic',
+    level: stage === 'load' ? 'error' : 'warning',
+    message: `HEIC ${stage} failed (${file.type || 'no mime'}, ${Math.round(file.size / 1024)} KB): ${detail}`,
+    stack: cause instanceof Error ? cause.stack : undefined,
+  });
 }
 
 /**

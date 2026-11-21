@@ -17,14 +17,14 @@ Change a directive in both files. The policy needs `'unsafe-eval'` for Fabric.js
 
 ## Where violations show up
 
-The browser POSTs each report to `/api/csp-report` (`CSPReportView`). It writes a `CSP violation: directive=… blocked=…` warning to the backend log and sends a Sentry message. **Sentry is the history**: the backend log is lost whenever the container is recreated, which every `./deploy.sh` does.
+The browser POSTs each report to `/api/csp-report` (`CSPReportView`). It writes a `CSP violation: directive=… blocked=…` warning to the backend log (no alert; Sentry was removed 2026-11-21). The backend log is lost whenever the container is recreated, which every `./deploy.sh` does, until log retention is changed, so read it before a deploy.
 
 `GET /api/celery/monitor/` does not carry CSP reports. An earlier version of this plan checked it and recorded "no violations"; that check could not have found any.
 
 ## Before flipping to enforcement
 
 - Exercise every page enforcement would affect, in a browser with the console open: the editor with an embed token (upload a photo, edit on the canvas, submit), the embed inside an iframe on an allowed origin, the dashboard, `/editor/layouts` and the calendar and book ops editors, `/login` including "Sign in with Google", and `/docs/api/`.
-- Search Sentry for CSP violation messages and let a few quiet days of real traffic go by. A short manual pass is not proof: the 2026-09-10 one found nothing while Google Fonts were being blocked.
+- Search the backend log (`docker compose logs backend | grep "CSP violation"`) for CSP violation messages and let a few quiet days of real traffic go by. A short manual pass is not proof: the 2026-09-10 one found nothing while Google Fonts were being blocked.
 
 ## Flipping it
 
@@ -35,7 +35,7 @@ The browser POSTs each report to `/api/csp-report` (`CSPReportView`). It writes 
    curl -sI https://product-editor.printo.in/login | grep -i security-policy
    curl -sI https://product-editor.printo.in/api/config | grep -i security-policy
    ```
-4. Watch Sentry. To roll back, set the flag to `True` and run `./deploy.sh` again.
+4. Watch the backend log for `CSP violation` lines. To roll back, set the flag to `True` and run `./deploy.sh` again.
 
 ## History: the 2026-09-10 test run
 
