@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { readImportSession } from '@/lib/import-session';
 import {
   Layout,
   Plus,
@@ -32,7 +31,7 @@ import {
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { LayoutSVG } from '@/components/LayoutSVG';
-import { GoogleFontLinks, useGoogleFonts } from '@/components/GoogleFontLinks';
+import { GoogleFontLinks } from '@/components/GoogleFontLinks';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { TagFilter } from '@/components/ui/TagFilter';
 import { Toast, ToastStack } from '@/components/ui/Toast';
@@ -40,7 +39,6 @@ import { useHeader } from '@/context/HeaderContext';
 import { canManageTemplates } from '@/lib/roles';
 import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 import { TagPicker } from '@/components/ui/TagPicker';
-import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { hasTransparentPixels } from '@/lib/image-utils';
 import { mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
 import { resolveMaskSlots } from '@/lib/mask-slots';
@@ -49,6 +47,9 @@ import type { MaskSlotSource } from './LayoutFabricPreview';
 import { MaskSlotRow } from './MaskSlotRow';
 import { DeleteLayoutDialog } from './dialogs/DeleteLayoutDialog';
 import { FontPickerModal } from './dialogs/FontPickerModal';
+import { useOpsFonts } from './useOpsFonts';
+import { useModalScrollRestore } from './useModalScrollRestore';
+import { useEditFromAddress } from './useEditFromAddress';
 import { LayoutSpecModal } from './dialogs/LayoutSpecModal';
 import { RemoveMaskDialog } from './dialogs/RemoveMaskDialog';
 import {
@@ -182,20 +183,7 @@ export default function LayoutCreatorPage() {
   const [selectedLayout, setSelectedLayout] = useState<LayoutConfig | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [confirmMaskRemove, setConfirmMaskRemove] = useState(false);
-  const [isModalOpen, setIsModalOpenState] = useState(false);
-  // Where the list was scrolled to when the editor opened. The page is held to
-  // the height under the header while the editor is open (see the root element),
-  // which clamps the scroll position to the top; it is put back on close.
-  const scrollBeforeModal = useRef(0);
-  const setIsModalOpen = useCallback((open: boolean) => {
-    if (open) scrollBeforeModal.current = window.scrollY;
-    setIsModalOpenState(open);
-  }, []);
-  const modalWasOpen = useRef(false);
-  useLayoutEffect(() => {
-    if (!isModalOpen && modalWasOpen.current) window.scrollTo(0, scrollBeforeModal.current);
-    modalWasOpen.current = isModalOpen;
-  }, [isModalOpen]);
+  const [isModalOpen, setIsModalOpen] = useModalScrollRestore();
   // An import of an old design that is adjusting this layout before its
   // artwork is cut to it (components/ImportDesignDialog.tsx): the layout's
   // name, and the design's pictures to show behind the print areas.
@@ -211,8 +199,7 @@ export default function LayoutCreatorPage() {
   });
   const { tags: tagList, error: tagListError } = useLayoutTags(status === 'authenticated');
 
-  const [selectedFonts, setSelectedFonts] = useState<string[]>([DEFAULT_OVERLAY_FONT]);
-  const { fontsLoaded, loadGoogleFont } = useGoogleFonts();
+  const { selectedFonts, setSelectedFonts, fontsLoaded, loadGoogleFont, isSavingFonts, saveFontsToBackend } = useOpsFonts(session?.accessToken);
   const [showFontModal, setShowFontModal] = useState(false);
   const [fontSearch, setFontSearch] = useState('');
 
@@ -298,41 +285,6 @@ export default function LayoutCreatorPage() {
     // The access flag likewise: the Holidays link is in that snapshot, so it
     // would stay hidden for an ops user whose session resolved after mount.
   }, [isModalOpen, setIsModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, tagList, selectedFonts.length, layouts.length, canManageHolidays]);
-
-  const [isSavingFonts, setIsSavingFonts] = useState(false);
-
-  // Fetch selected fonts from the backend on mount
-  useEffect(() => {
-    if (!session?.accessToken) return;
-    fetch('/api/internal/proxy/fonts', {
-      headers: { Accept: 'application/json' },
-    })
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data?.fonts) setSelectedFonts(pickerFonts(data.fonts)); })
-      .catch(() => {});
-  }, [session?.accessToken]);
-
-  // Save selected fonts to the backend
-  const saveFontsToBackend = useCallback(async (fonts: string[]) => {
-    if (!session?.accessToken) return;
-    setIsSavingFonts(true);
-    try {
-      await fetch('/api/internal/proxy/fonts', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({ fonts }),
-      });
-    } catch {}
-    setIsSavingFonts(false);
-  }, [session?.accessToken]);
-
-  // Pre-load selected Google Fonts for preview
-  useEffect(() => {
-    selectedFonts.forEach(f => loadGoogleFont(f));
-  }, [selectedFonts, loadGoogleFont]);
 
   // Resolve active frames/dimensions based on layout type
   const activeFrames = layoutType === 'product' && surfaces[activeSurfaceIdx] ? surfaces[activeSurfaceIdx].frames : frames;
@@ -622,29 +574,7 @@ export default function LayoutCreatorPage() {
     }
   };
 
-  // `?edit=<layout>` opens the editor on that layout; with `&import=1` and an
-  // import under way for it, the editor also shows the design's pictures and
-  // Save carries the import on. Read once, then taken off the address so a
-  // reload or the Back button does not reopen it.
-  const openedFromAddress = useRef(false);
-  useEffect(() => {
-    if (status !== 'authenticated' || openedFromAddress.current) return;
-    openedFromAddress.current = true;
-    const query = new URLSearchParams(window.location.search);
-    const name = query.get('edit');
-    if (!name || !/^[a-z0-9_-]+$/i.test(name)) return;
-    const session = query.get('import') ? readImportSession(name) : null;
-    window.history.replaceState(null, '', window.location.pathname);
-    if (session) {
-      setImportFor(name);
-      setImportGuide(session.guideSvg
-        ? { url: URL.createObjectURL(new Blob([session.guideSvg], { type: 'image/svg+xml' })), widthMm: session.guideMm.width, heightMm: session.guideMm.height }
-        : null);
-    }
-    void openEditModal(name);
-    // openEditModal only sets state; it is recreated every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  useEditFromAddress(status, openEditModal, setImportFor, setImportGuide);
   useEffect(() => () => { if (importGuide) URL.revokeObjectURL(importGuide.url); }, [importGuide]);
   const importing = isModalOpen && importFor !== null && importFor === layoutId;
 
