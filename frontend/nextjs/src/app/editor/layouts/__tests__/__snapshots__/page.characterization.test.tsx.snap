@@ -1,0 +1,192 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`create grid generator then save: one multipart POST with the exact layout, then a list refetch, the editor closes and a toast 1`] = `
+{
+  "canvas": {
+    "dpi": 300,
+    "height": 1800,
+    "heightMm": 152.4,
+    "width": 1200,
+    "widthMm": 101.6,
+  },
+  "frameCaptionsEnabled": false,
+  "frameMaskUrl": null,
+  "frames": [
+    {
+      "bleedMm": 0,
+      "borderRadiusMm": 0,
+      "height": 0.48055555555555557,
+      "heightMm": 73.2,
+      "width": 0.4708333333333333,
+      "widthMm": 47.8,
+      "x": 0.02,
+      "xMm": 2,
+      "y": 0.013333333333333334,
+      "yMm": 2,
+    },
+    {
+      "bleedMm": 0,
+      "borderRadiusMm": 0,
+      "height": 0.48055555555555557,
+      "heightMm": 73.2,
+      "width": 0.4708333333333333,
+      "widthMm": 47.8,
+      "x": 0.51,
+      "xMm": 51.8,
+      "y": 0.013333333333333334,
+      "yMm": 2,
+    },
+    {
+      "bleedMm": 0,
+      "borderRadiusMm": 0,
+      "height": 0.48055555555555557,
+      "heightMm": 73.2,
+      "width": 0.4708333333333333,
+      "widthMm": 47.8,
+      "x": 0.02,
+      "xMm": 2,
+      "y": 0.5066666666666667,
+      "yMm": 77.2,
+    },
+    {
+      "bleedMm": 0,
+      "borderRadiusMm": 0,
+      "height": 0.48055555555555557,
+      "heightMm": 73.2,
+      "width": 0.4708333333333333,
+      "widthMm": 47.8,
+      "x": 0.51,
+      "xMm": 51.8,
+      "y": 0.5066666666666667,
+      "yMm": 77.2,
+    },
+  ],
+  "name": "grid_print",
+  "orientationRotatable": true,
+  "printSheet": {
+    "mode": "canvas",
+  },
+  "tagKeys": [],
+}
+`;
+
+exports[`edit a two-sided product: one tab per side, the preview follows the tab, the save sends both sides 1`] = `
+{
+  "frameCaptionsEnabled": false,
+  "name": "mug_wrap",
+  "orientationRotatable": false,
+  "surfaces": [
+    {
+      "canvas": {
+        "dpi": 300,
+        "height": 1200,
+        "heightMm": 101.6,
+        "width": 2400,
+        "widthMm": 203.2,
+      },
+      "frameMaskUrl": null,
+      "frames": [
+        {
+          "bleedMm": 0,
+          "borderRadiusMm": 0,
+          "height": 0.8,
+          "heightMm": 81.28,
+          "width": 0.8,
+          "widthMm": 162.56,
+          "x": 0.1,
+          "xMm": 20.32,
+          "y": 0.1,
+          "yMm": 10.16,
+        },
+      ],
+      "key": "front",
+      "label": "Front",
+      "printSheet": {
+        "mode": "canvas",
+      },
+    },
+    {
+      "canvas": {
+        "dpi": 300,
+        "height": 1200,
+        "heightMm": 101.6,
+        "width": 1200,
+        "widthMm": 101.6,
+      },
+      "frameMaskUrl": "https://cdn.example/masks/mug_wrap_back_mask_def1234567.png",
+      "frames": [
+        {
+          "bleedMm": 2,
+          "borderRadiusMm": 0,
+          "height": 0.6458333333333334,
+          "heightMm": 61.6,
+          "width": 0.6458333333333334,
+          "widthMm": 61.6,
+          "x": 0.1775,
+          "xMm": 20,
+          "y": 0.1775,
+          "yMm": 20,
+        },
+      ],
+      "key": "back",
+      "label": "Back",
+      "printSheet": {
+        "mode": "bleed",
+      },
+    },
+  ],
+  "tagKeys": [
+    "gifts",
+  ],
+  "type": "product",
+}
+`;
+
+exports[`edit fills the form from the layout and saves it back under the same identifier 1`] = `
+{
+  "canvas": {
+    "dpi": 300,
+    "height": 1800,
+    "heightMm": 152.4,
+    "width": 1200,
+    "widthMm": 101.6,
+  },
+  "frameCaptionsEnabled": false,
+  "frameMaskUrl": "https://cdn.example/masks/classic_4x6_mask_abc1234567.png",
+  "frames": [
+    {
+      "bleedMm": 3,
+      "borderRadiusMm": 0,
+      "height": 0.43333333333333335,
+      "heightMm": 60,
+      "width": 0.9016666666666666,
+      "widthMm": 85.6,
+      "x": 0.049166666666666664,
+      "xMm": 8,
+      "y": 0.04611111111111111,
+      "yMm": 10,
+    },
+    {
+      "bleedMm": 3,
+      "borderRadiusMm": 0,
+      "height": 0.43333333333333335,
+      "heightMm": 60,
+      "width": 0.9016666666666666,
+      "widthMm": 85.6,
+      "x": 0.049166666666666664,
+      "xMm": 8,
+      "y": 0.5211111111111111,
+      "yMm": 82.4,
+    },
+  ],
+  "name": "classic_4x6",
+  "orientationRotatable": true,
+  "printSheet": {
+    "mode": "canvas",
+  },
+  "tagKeys": [
+    "photo_prints",
+    "old_tag",
+  ],
+}
+`;
