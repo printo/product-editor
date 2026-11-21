@@ -1,6 +1,6 @@
 # Plan: splitting the ops layouts page
 
-Status: **step 0 built** (2026-11-21): `editor/layouts/__tests__/page.characterization.test.tsx` + `layouts-page-harness.tsx`, 40 cases, about 7 s. Steps 1 to 7 not started. Target: `frontend/nextjs/src/app/editor/layouts/page.tsx`, the ops layout list and layout editor at `/editor/layouts`.
+Status: **step 0 built** (2026-11-21): `editor/layouts/__tests__/page.characterization.test.tsx` + `layouts-page-harness.tsx`, 40 cases, about 7 s. Step 1 built (2026-11-21): `layout-form-utils.ts` + `__tests__/layout-form-utils.test.ts` (11 cases); `page.tsx` 2,193 → 1,951 lines. Steps 2 to 7 not started. Target: `frontend/nextjs/src/app/editor/layouts/page.tsx`, the ops layout list and layout editor at `/editor/layouts`.
 
 ## Why, and the rule for every step
 
