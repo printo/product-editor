@@ -1,6 +1,6 @@
 # Plan: splitting the ops layouts page
 
-Status: **plan only, nothing built** (written 2026-11-21). Target: `frontend/nextjs/src/app/editor/layouts/page.tsx`, the ops layout list and layout editor at `/editor/layouts`.
+Status: **step 0 built** (2026-11-21): `editor/layouts/__tests__/page.characterization.test.tsx` + `layouts-page-harness.tsx`, 40 cases, about 7 s. Steps 1 to 7 not started. Target: `frontend/nextjs/src/app/editor/layouts/page.tsx`, the ops layout list and layout editor at `/editor/layouts`.
 
 ## Why, and the rule for every step
 
@@ -83,6 +83,13 @@ Copy the shape of `editor-page-harness.tsx`:
 31. The stub calling `onFramesChange` with moved frames → the table shows the new mm values and the save sends them; `onFrameSelect` highlights the row; zoom buttons change the `zoom` prop within 0.1–3.
 
 Expect about 30 tests, real timers, under 30 s.
+
+### What building step 0 found (2026-11-21)
+
+- **Create after Edit can overwrite the layout just edited.** The "Generic Layout" Create card resets the name, tags, frames and masks but not the identifier, the canvas size or Can rotate (`openCreateModal`, which does reset them, is used only by the empty-list button). Edit `old_grid`, close, Create, type a display name, save: the POST carries `name: old_grid` and replaces that layout. Pinned as is by two cases; worth fixing in its own PR soon, independent of the split.
+- **Duplicate on a two-sided product throws** (`Cannot read properties of undefined (reading 'dpi')`) and the editor never opens. Confirmed, so not pinned: an uncaught error cannot be a passing test. Fix separately.
+- **The Create/Update button is outside its form** (`form="layout-form"`). happy-dom does not submit through such a button, so the suite checks the button's `type` and `form` and submits the form itself. The click needs the browser check after step 6.
+- Not covered: zoom buttons (no accessible names), caption controls, surface duplicate/remove, Grid Gen with non-default rows. Add cases before the step that moves them.
 
 ### Behaviour to pin, not fix (found while reading; raise with Kannan after the split)
 
