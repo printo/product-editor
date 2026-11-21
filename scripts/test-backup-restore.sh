@@ -8,8 +8,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-DC="docker-compose"
-command -v docker-compose >/dev/null 2>&1 || DC="docker compose"
+DC="docker compose"
 
 PG_USER="${POSTGRES_USER:-postgres}"
 PG_DB="${POSTGRES_DB:-product_editor}"

@@ -46,8 +46,7 @@ mkdir -p "$DEST" "$WEEKLY"
 PG_USER="${POSTGRES_USER:-postgres}"
 PG_DB="${POSTGRES_DB:-product_editor}"
 
-DC="docker-compose"
-command -v docker-compose >/dev/null 2>&1 || DC="docker compose"
+DC="docker compose"
 
 echo "[backup] $TS — dumping database $PG_DB…"
 $DC exec -T db pg_dump -U "$PG_USER" -Fc "$PG_DB" > "$DEST/pe-db-$TS.dump"

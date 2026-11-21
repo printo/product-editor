@@ -156,7 +156,7 @@ if [ -d "$HOME/product-editor" ]; then
 This directory is an ARCHIVED product-editor install, left by fresh-install.sh.
 The live install is at ~/product-editor.
 
-DO NOT run docker-compose / docker compose in here.
+DO NOT run docker compose in here.
 
 Compose names its project after the containing directory. Because this one was
 renamed, running compose here does NOT touch the live stack — it builds a
@@ -457,7 +457,7 @@ if [ -n "$leftover_dirs" ] || [ -n "$leftover_vols" ]; then
         echo ""
     fi
 
-    log_info "Never run docker-compose inside an archived directory — see its ARCHIVED.txt."
+    log_info "Never run docker compose inside an archived directory — see its ARCHIVED.txt."
     echo ""
 fi
 

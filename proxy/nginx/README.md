@@ -22,8 +22,8 @@ The edge proxy: TLS termination, routing of `/api/*` to Django and everything el
 It is a **single-file** bind mount, which binds the inode, and `git pull` replaces the file. A running proxy keeps the config it booted with, and `nginx -s reload` re-reads the same stale file. So the proxy must be **recreated**, not reloaded. `deploy.sh` does this (`sync_proxy_config`); by hand:
 
 ```bash
-docker-compose up -d --force-recreate proxy
-docker-compose exec proxy nginx -T | grep -c "<a string from your change>"
+docker compose up -d --force-recreate proxy
+docker compose exec proxy nginx -T | grep -c "<a string from your change>"
 ```
 
 Recreating the proxy empties its log, which is what the rate-limit evidence below is read from.
@@ -33,8 +33,8 @@ Recreating the proxy empties its log, which is what the rate-limit evidence belo
 `limit_req` zones on `/api/auth/` (5 r/s), `/api/embed/proxy/` and `/api/internal/proxy/` (30 r/s each), keyed on the real client IP. `limit_req_dry_run on` is set at the server level: breaches are logged, nothing is rejected. To judge whether to switch it off, on the server:
 
 ```bash
-docker inspect -f '{{.State.StartedAt}}' $(docker-compose ps -q proxy)    # how far back the log goes
-docker-compose logs --since 168h proxy | grep -c "dry run"                # would-be rejections
+docker inspect -f '{{.State.StartedAt}}' $(docker compose ps -q proxy)    # how far back the log goes
+docker compose logs --since 168h proxy | grep -c "dry run"                # would-be rejections
 ```
 
 Zero hits across a full week that includes busy weekdays means it is safe to set `limit_req_dry_run off` (breaches then answer 429). Any hits: look at who first.

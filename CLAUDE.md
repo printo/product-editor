@@ -104,10 +104,10 @@ pnpm test:parity          # calendar TS↔Python parity suites only
 
 **Backend — `services/tests/`: standalone modules, no pytest, no `manage.py test`.** Every `test_*.py` ends in an `if __name__ == "__main__":` block that runs its own `test_*` functions. CI globs them, so a new module needs no workflow edit. Keep them DB-free and mediapipe-free (CI installs a mediapipe-stripped requirements subset). Count them with `ls backend/django/services/tests/test_*.py | wc -l`.
 
-Run through the container — the dev Mac has no Pillow/Django. **Override the entrypoint**: it ignores `$@` and would boot gunicorn and hang. **The image bakes in source via `COPY`**; `docker-compose run backend` tests the last build, not your tree, and a new module reads as "not found" rather than "not rebuilt". Either `docker-compose build backend` first, or mount the tree over `/app`:
+Run through the container — the dev Mac has no Pillow/Django. **Override the entrypoint**: it ignores `$@` and would boot gunicorn and hang. **The image bakes in source via `COPY`**; `docker compose run backend` tests the last build, not your tree, and a new module reads as "not found" rather than "not rebuilt". Either `docker compose build backend` first, or mount the tree over `/app`:
 
 ```bash
-docker-compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
+docker compose run --rm --entrypoint /opt/venv/bin/python backend -m services.tests.test_caption_layout
 # or, against a worktree without rebuilding:
 docker run --rm --network product-editor_web --env-file .env -e DEBUG=1 -e SENTRY_DSN= \
   -v "$PWD/backend/django:/app" -w /app --entrypoint /opt/venv/bin/python product-editor-backend:latest \
@@ -116,15 +116,15 @@ docker run --rm --network product-editor_web --env-file .env -e DEBUG=1 -e SENTR
 
 All of them, as CI does:
 ```bash
-docker-compose run --rm --entrypoint bash backend -c 'for f in services/tests/test_*.py; do /opt/venv/bin/python -m "services.tests.$(basename "$f" .py)" || echo "FAIL $f"; done'
+docker compose run --rm --entrypoint bash backend -c 'for f in services/tests/test_*.py; do /opt/venv/bin/python -m "services.tests.$(basename "$f" .py)" || echo "FAIL $f"; done'
 ```
 With a local venv the bare form works; `DEBUG=1` is mandatory or the production `DJANGO_SECRET_KEY` fail-fast aborts first.
 
 **Backend — `api/tests/`: ordinary Django `TestCase`s, real Postgres + Redis, `manage.py test`.** For things that genuinely need the DB or the real cache (`LayoutCatalogue` collation, `invalidate_layout_caches`, order purge, templates, the API-key daily cap). Don't fake the DB with sqlite — the case-sensitivity guarantee is Postgres collation. `api/tests/__init__.py` must exist or discovery crashes.
 
 ```bash
-docker-compose up -d db redis backend
-docker-compose exec backend python manage.py test api.tests --verbosity 2
+docker compose up -d db redis backend
+docker compose exec backend python manage.py test api.tests --verbosity 2
 ```
 **If you touch `invalidate_layout_caches` or `LayoutCatalogue`, run this suite** — nothing else catches a regression there.
 
@@ -135,7 +135,7 @@ docker-compose exec backend python manage.py test api.tests --verbosity 2
 **Editor route** (`/editor/layout/[name]`) is not auth-gated; use an embed token:
 
 ```bash
-docker-compose up -d db redis backend        # backend on :8000
+docker compose up -d db redis backend        # backend on :8000
 # frontend must run from source (pnpm dev) — the Docker image serves a BUILD
 KEY=$(grep -E "^DIRECT_API_KEY=" .env | cut -d= -f2-)
 curl -s -X POST http://localhost:8000/api/embed/session \
@@ -182,7 +182,7 @@ Corollary: **`authjs.session-token` missing from `document.cookie` does not mean
 - Routes 404ing in dev → `pnpm dev:clean`.
 - IntersectionObserver never fires in automated browser panes; screenshots force delivery.
 
-**A worktree's own stack on side ports** (used for the print-sheet work, 2026-10-26): copy the root `.env` and `frontend/nextjs/.env.local` into the worktree (both gitignored), then from the worktree `POSTGRES_HOST_PORT=5440 BACKEND_HOST_PORT=8013 FRONTEND_HOST_PORT=5013 docker-compose -p <task> build backend celery-worker-standard` and `... up -d db redis redis-cache backend celery-worker-standard`. The project gets its own volumes and network, an empty DB (the entrypoint migrates and seeds the keys; `DIRECT` is ops-flagged, so `POST /api/ops/layouts/<name>` works with it) and collides with nothing. **Start the worker too, capped**: a Download or Save & Continue queues a render job that only `celery-worker-standard` runs, and on the dev Mac Celery's auto-detected concurrency is the Docker VM's 11 CPUs, so 11 prefork children blow the worker's 2 GB cap and the render process dies with signal 9 (`OOMKilled: true`, job stuck in `processing`; 2026-10-29). Put `CELERY_CONCURRENCY=2` in the worktree's `.env` before `up -d … celery-worker-standard`. A job stuck that way is re-run by `render_canvas_task.apply_async(args=[canvas_data_id, job_id], queue='standard')` from `manage.py shell`. Run the frontend from source with a gitignored `.claude/launch.json` entry that sets `INTERNAL_API_URL` and `NEXT_PUBLIC_API_BASE_URL` to `http://127.0.0.1:8013/api` and `pnpm dev -p 3010`; a dev server started by a Claude session stops with that session, so hand the user the command to run in their own Terminal. The editor's leave-page guard blocks an automated navigation away from a page with a design on it: navigate with the discard flag. When running `services/tests` over a source mount, mount `storage/` too (`-v "$PWD/storage:/app/storage"`) or the parity-fixture modules fail on a missing file. Tear down with `docker-compose -p <task> down -v`.
+**A worktree's own stack on side ports** (used for the print-sheet work, 2026-10-26): copy the root `.env` and `frontend/nextjs/.env.local` into the worktree (both gitignored), then from the worktree `POSTGRES_HOST_PORT=5440 BACKEND_HOST_PORT=8013 FRONTEND_HOST_PORT=5013 docker compose -p <task> build backend celery-worker-standard` and `... up -d db redis redis-cache backend celery-worker-standard`. The project gets its own volumes and network, an empty DB (the entrypoint migrates and seeds the keys; `DIRECT` is ops-flagged, so `POST /api/ops/layouts/<name>` works with it) and collides with nothing. **Start the worker too, capped**: a Download or Save & Continue queues a render job that only `celery-worker-standard` runs, and on the dev Mac Celery's auto-detected concurrency is the Docker VM's 11 CPUs, so 11 prefork children blow the worker's 2 GB cap and the render process dies with signal 9 (`OOMKilled: true`, job stuck in `processing`; 2026-10-29). Put `CELERY_CONCURRENCY=2` in the worktree's `.env` before `up -d … celery-worker-standard`. A job stuck that way is re-run by `render_canvas_task.apply_async(args=[canvas_data_id, job_id], queue='standard')` from `manage.py shell`. Run the frontend from source with a gitignored `.claude/launch.json` entry that sets `INTERNAL_API_URL` and `NEXT_PUBLIC_API_BASE_URL` to `http://127.0.0.1:8013/api` and `pnpm dev -p 3010`; a dev server started by a Claude session stops with that session, so hand the user the command to run in their own Terminal. The editor's leave-page guard blocks an automated navigation away from a page with a design on it: navigate with the discard flag. When running `services/tests` over a source mount, mount `storage/` too (`-v "$PWD/storage:/app/storage"`) or the parity-fixture modules fail on a missing file. Tear down with `docker compose -p <task> down -v`.
 
 ### Checking a deployed UI change on production (Claude in Chrome)
 
@@ -218,10 +218,10 @@ The desktop card-sizing rules (#285, #286, #289) change nothing below `sm` and w
 
 ### Docker (primary workflow)
 ```bash
-docker-compose up -d
-docker-compose exec backend python manage.py migrate   # always via the backend container
-docker-compose ps celery-worker-standard celery-beat
-docker-compose logs -f <service>
+docker compose up -d
+docker compose exec backend python manage.py migrate   # always via the backend container
+docker compose ps celery-worker-standard celery-beat
+docker compose logs -f <service>
 ```
 
 **First run on a fresh clone:** the `proxy` service bind-mounts `proxy/nginx/certs/{origin.crt,origin.key}`, which are gitignored. Run `./deploy.sh` once (it generates a self-signed bootstrap cert) or:
@@ -359,7 +359,7 @@ Scalar renders the OpenAPI document drf-spectacular generates from `@extend_sche
 
 Verify after touching any decorator (must exit 0 silently; not in CI; rebuild first or you validate the last build):
 ```bash
-docker-compose run --rm --entrypoint /opt/venv/bin/python backend \
+docker compose run --rm --entrypoint /opt/venv/bin/python backend \
   manage.py spectacular --validate --fail-on-warn --file /dev/null
 ```
 
@@ -375,7 +375,7 @@ Retry: `self.retry()` with exponential backoff (2s → 4s → 8s), max 3; `Memor
 
 `garbage_collector_task` runs **every 6 hours** (00/06/12/18 UTC): exports expire in a 03:00–12:00 UTC wave, so a nightly sweep lagged a day. If retention or the customer timezone changes, re-plot expiries by hour before trusting the schedule.
 
-- **Check whether it is running via `garbage_collector.stale` / `.failing` on `GET /api/celery/monitor/`** (ops-only), recorded by `services/gc_status.py` to `storage/gc_last_run.json`. Do NOT infer it from `ExportedResult.is_deleted` — the sweep tombstones and hard-deletes in the same pass, so that count reads 0 either way. Alert on `stale` OR `failing`; they answer different questions. Read `docker-compose logs --since 24h celery-worker-standard` before theorising; those logs die on container recreation.
+- **Check whether it is running via `garbage_collector.stale` / `.failing` on `GET /api/celery/monitor/`** (ops-only), recorded by `services/gc_status.py` to `storage/gc_last_run.json`. Do NOT infer it from `ExportedResult.is_deleted` — the sweep tombstones and hard-deletes in the same pass, so that count reads 0 either way. Alert on `stale` OR `failing`; they answer different questions. Read `docker compose logs --since 24h celery-worker-standard` before theorising; those logs die on container recreation.
 - The same endpoint carries a live `disk` block (`used_percent`, `free_gb`, `pressure` at >80%), read at request time.
 - **Orphaned export directories** (`services/orphan_exports.py`): the one sweep that deletes on the *absence* of a DB row. `GC_ORPHAN_SWEEP` = `off` | `dry_run` | `delete` (prod runs `delete`). Five conditions must all hold (`_classify`): UUID name, no `RenderJob`, no `ExportedResult` path, no `CanvasData.order_id`, mtime older than retention + 1 day. **Any new export-directory naming convention must be added there.** A DB failure keeps everything.
 - **Abandoned chunk staging** (`services/chunk_staging.py`): reclaims `UPLOADS_DIR/.chunks/<uuid>/` untouched for `CHUNK_STAGING_MAX_AGE_HOURS` (24), judged by the newest mtime of the directory *and its contents*. Deletes by default — part files are unusable without `/complete`.
@@ -875,15 +875,15 @@ Run only via the `backend` container. Current latest: `0031_rollback_safe_older_
 - **A crash-looping container fails the deploy at once.** `wait_for_healthy` stops waiting when a not-ready container has restarted `CRASH_LOOP_RESTARTS` (3) times and prints its last log lines, where it used to wait out the whole 240 s. After any deploy, look at `docker ps` for a `Restarting` worker: the backend and `/api/health` stay green while the worker is down, and a submit then answers 202 and fails at dispatch.
 - **`/api/health` really checks Postgres** (`SELECT 1`) and answers **503** with `database: unavailable` when it cannot, so `wait_for_healthy` and the container healthcheck see a backend with no database as unhealthy. Until 2026-11-18 it returned "connected" unconditionally. The driver's message is logged, never returned. Pinned by `api/tests/test_health_database.py`.
 - **Containers are hardened (2026-11-18).** Every service sets `no-new-privileges`; `backend`, `frontend`, `celery-worker-standard` and `celery-beat` also `cap_drop: ALL` (they already run as non-root users). `proxy`, `redis`, `redis-cache` and `db` keep their default capabilities, because their entrypoints start as root and drop to a service user. `proxy` waits for a *healthy* frontend, not a started one. Checked with a full render through the capped worker (`smoke-test-embed.sh`, `SMOKE_RENDER=1`). **A new service that must bind a low port or change file ownership needs `cap_add` for exactly that.**
-- **`deploy.sh` never `source`s `.env`.** `load_env_safely` reads `KEY=VALUE` lines without evaluating them, so a `$(...)`, backtick or unquoted space in a value is kept as text instead of running or aborting the deploy. It exports only what the script reads (`PUBLIC_HOST`, `DIRECT_API_KEY`); docker-compose reads `.env` itself.
+- **`deploy.sh` never `source`s `.env`.** `load_env_safely` reads `KEY=VALUE` lines without evaluating them, so a `$(...)`, backtick or unquoted space in a value is kept as text instead of running or aborting the deploy. It exports only what the script reads (`PUBLIC_HOST`, `DIRECT_API_KEY`); docker compose reads `.env` itself.
 - **`deploy.sh` ends with a report-only dependency audit** (2026-11-20): `scripts/dependency-audit.sh` runs `pip-audit` over the backend image's `pip freeze` and `pnpm audit --prod` over `pnpm-lock.yaml`, each in a throwaway container, prints findings as warnings and always exits 0 (`SKIP_DEPENDENCY_AUDIT=1` skips it). It never fails a deploy and nothing is installed on the host; read it as the to-do list for the next dependency round. First run: 0 Python findings, 41 JavaScript advisories (mostly `@xmldom/xmldom`, `brace-expansion`, `postcss`, `exifreader`).
 - **Celery results already expire**: `app.conf.result_expires = 86400` (`celery.py`), 24 hours, inside the 3-day retention clock.
-- **Edge rate limits (2026-11-16) are log-only until someone flips them.** `nginx.conf` has `limit_req` zones on `/api/auth/` (5 r/s), `/api/embed/proxy/` and `/api/internal/proxy/` (30 r/s each, bursts of 600/600/60), keyed on the real client IP, with `limit_req_dry_run on` at the server level: breaches are logged (`docker-compose logs proxy | grep "dry run"`) and nothing is rejected. After a week of clean logs set it to `off` (breaches then answer 429). Cloudflare has no rate rule for these paths. The direct `/api/` location (printo.in's server calls, partner API) is deliberately not limited.
-- **A changed `nginx.conf` needs the proxy RECREATED, not reloaded** — it is a single-file bind mount (binds the inode; `git pull` replaces the file). `deploy.sh::sync_proxy_config` does this and verifies; manually: `docker-compose up -d --force-recreate proxy`, then `docker-compose exec proxy nginx -T | grep -c <your change>`.
-- **`entrypoint.sh` (web path) IGNORES its `$@`**: it always runs `migrate` → seeds `DIRECT`/`EXTERNAL`/`TESTING`/`INTERNAL` keys from env → `exec gunicorn`. Use `docker-compose run --rm --entrypoint /opt/venv/bin/python backend manage.py <cmd>`. The celery paths honour `$1`. The container self-migrates on every boot.
+- **Edge rate limits (2026-11-16) are log-only until someone flips them.** `nginx.conf` has `limit_req` zones on `/api/auth/` (5 r/s), `/api/embed/proxy/` and `/api/internal/proxy/` (30 r/s each, bursts of 600/600/60), keyed on the real client IP, with `limit_req_dry_run on` at the server level: breaches are logged (`docker compose logs proxy | grep "dry run"`) and nothing is rejected. After a week of clean logs set it to `off` (breaches then answer 429). Cloudflare has no rate rule for these paths. The direct `/api/` location (printo.in's server calls, partner API) is deliberately not limited.
+- **A changed `nginx.conf` needs the proxy RECREATED, not reloaded** — it is a single-file bind mount (binds the inode; `git pull` replaces the file). `deploy.sh::sync_proxy_config` does this and verifies; manually: `docker compose up -d --force-recreate proxy`, then `docker compose exec proxy nginx -T | grep -c <your change>`.
+- **`entrypoint.sh` (web path) IGNORES its `$@`**: it always runs `migrate` → seeds `DIRECT`/`EXTERNAL`/`TESTING`/`INTERNAL` keys from env → `exec gunicorn`. Use `docker compose run --rm --entrypoint /opt/venv/bin/python backend manage.py <cmd>`. The celery paths honour `$1`. The container self-migrates on every boot.
 - **collectstatic runs at image build time** with an inline build-only secret; verify Dockerfile/settings changes with a clean build.
-- **Recovery when a deploy hangs:** `pkill -f "deploy.sh"`, `docker rm -f` the throwaway `*-backend-run-*` container, `docker-compose up -d`; verify 9 containers `(healthy)` and `/api/health` → 200.
-- Prod's `docker-compose` is the hyphenated 2.37.1 binary; profile-disabled services behave differently there than under the newer plugin.
+- **Recovery when a deploy hangs:** `pkill -f "deploy.sh"`, `docker rm -f` the throwaway `*-backend-run-*` container, `docker compose up -d`; verify 9 containers `(healthy)` and `/api/health` → 200.
+- **Use `docker compose` (the plugin), not `docker-compose`.** Since 2026-11-21 every script and doc here calls the plugin (v5.1.1 on prod). Prod also still has the standalone hyphenated `docker-compose` 2.37.1 binary; both drive the same project, but don't mix them in new code. The two handle profile-disabled services differently — moot while `docker-compose.yml` has no `profiles:`, but re-check if a profile is ever added.
 
 ## Observability — owned outside this repo
 
@@ -892,7 +892,7 @@ Run only via the `backend` container. Current latest: `0031_rollback_safe_older_
 | Signal | Where |
 |---|---|
 | Exceptions | **Sentry** — `SENTRY_DSN` (backend/workers), `NEXT_PUBLIC_SENTRY_DSN` (frontend), blank by default |
-| Container logs | `docker-compose logs <service>` — **lost on container recreation**, which every `deploy.sh` does; capture before redeploying |
+| Container logs | `docker compose logs <service>` — **lost on container recreation**, which every `deploy.sh` does; capture before redeploying |
 | nginx access log | JSON to stdout |
 | GC health | `garbage_collector.stale` / `.failing` + `disk` on `GET /api/celery/monitor/` |
 | API audit trail | `APIRequest` rows, 90 days |
@@ -979,7 +979,7 @@ The live prioritised list is [docs/PRD.md](docs/PRD.md) **§8.0**. Printo.in's s
 
 | Action | Owner |
 |---|---|
-| **Switch the edge rate limits to enforcing** (`limit_req_dry_run off` in `proxy/nginx/nginx.conf`, one-line PR, then `./deploy.sh` so the proxy is recreated). Check `docker-compose logs --since 168h proxy | grep -c "dry run"` on the server **and** `docker inspect -f '{{.State.StartedAt}}' $(docker-compose ps -q proxy)`: the log restarts whenever the proxy is recreated, and it was recreated 2026-11-18 06:49 UTC, so the first honest week ends about 2026-11-25 (a Monday check, 2026-11-23, covers five days). Zero hits since a start a week back means it is safe; any hits, look at who before flipping. | Kanna |
+| **Switch the edge rate limits to enforcing** (`limit_req_dry_run off` in `proxy/nginx/nginx.conf`, one-line PR, then `./deploy.sh` so the proxy is recreated). Check `docker compose logs --since 168h proxy | grep -c "dry run"` on the server **and** `docker inspect -f '{{.State.StartedAt}}' $(docker compose ps -q proxy)`: the log restarts whenever the proxy is recreated, and it was recreated 2026-11-18 06:49 UTC, so the first honest week ends about 2026-11-25 (a Monday check, 2026-11-23, covers five days). Zero hits since a start a week back means it is safe; any hits, look at who before flipping. | Kanna |
 | **CSP: parked as optional hardening (decision 2026-11-18, Kannan). Do not switch the current policy to enforcing.** It allows `'unsafe-inline'`, `'unsafe-eval'` (Fabric needs the second) and any `https:` host in `connect-src` / `img-src`, so enforcing it protects little, and the embed route would lose every directive but `frame-ancestors` (Next.js replaces the whole-app header there). No injection point exists in the code today (no `innerHTML` / `dangerouslySetInnerHTML` sink). **Reopen when** the app starts rendering user-supplied HTML, a security review or customer contract requires it, or an XSS is found. **If reopened, the scoped project** (about a week of work plus 2 to 3 weeks of watching Sentry): inventory with a second strict report-only policy; one policy builder per page family (fixes the embed route); name the hosts in `connect-src` / `img-src` (Google sign-in, Google Fonts, Cloudflare beacon, the S3 CDN `cdn-product-editor.printo.in`, the Sentry ingest host if the frontend DSN is set); nonces to drop `unsafe-inline` from `script-src`; try dropping `unsafe-eval`; then test (e2e, Google sign-in, the printo.in embed, Safari, Firefox, phones) and enforce non-embed pages first. Rollback: `CSP_REPORT_ONLY=True` + frontend rebuild. | Kanna |
 | **Dependencies still behind (Pillow moved to 13.0.0 with pillow-heif 1.3.0 on 2026-11-19 after a before/after render comparison on the 14 sample photos, two iPhone HEICs, an 80 MP JPEG, blur and border fills, pan/zoom/turn, SVG and PNG masks, text and shapes and PDF: every case pixel-identical except 117 pixels on one `→` glyph's edge, 14 of 14 orientation answers identical; Django moved to 5.2.19 LTS, with DRF 3.18.3, gunicorn 23, requests 2.33 and the rest of that set, on 2026-11-19; the frontend then moved to `node:22-alpine`, Next.js 16.4.6, `next-auth` 5.0.0-beta.32 and `@sentry/nextjs` 10.78, same day, with `eslint-plugin-react-hooks` held at 7.0.1 by a `pnpm` override and `eslint-config-next` at 16.2.2 because the newer rules report 30 errors that need their own cleanup; Sentry 11 is a major jump not taken; Celery moved to 5.7.0 with `kombu` 5.7.0 and redis-py 6.4.0 the same day, after a worker run on a throwaway stack: renders, a worker restart mid-render with the unacked message redelivered once the visibility timeout was backdated, the webhook retry backoff, the GC task, beat's schedule and the `inspect ping` healthcheck all behaved as on 5.3.4, and killing a pool child mid-render leaves the job in `processing` on both versions; mediapipe moved to 1.2.3 on 2026-11-20, which drops the protobuf < 5 pin (protobuf is no longer installed at all) and brings numpy 2.5 and opencv 5.1: the 14 sample photos give the same 11 right, 3 declined, 0 wrong, with identical confidences): Fabric 7.2, `boto3` unpinned; CI has no dependency or secret scan.** One PR each, in that order of value; any Pillow move needs a before/after render comparison on real photos (`~/Downloads/cx sample uploads`). | Kanna |
 | **Direct requests to the server's IP skip Cloudflare's WAF** (the origin answers HTTP 200 to the bare IP; the real client IP is still right because nginx trusts `CF-Connecting-IP` only from Cloudflare ranges). **`ufw` does not govern it**: Docker publishes 80/443 through its own chains, so a fix needs the `DOCKER-USER` chain or, preferably, Cloudflare Authenticated Origin Pulls (enable in Cloudflare first, then nginx `ssl_verify_client optional`, then `on`). Checked 2026-11-18 over SSH: connections on 80/443 were 18 Cloudflare addresses plus the proxy's own `::1` health check plus one unidentified non-Cloudflare address, `151.79.191.182`, which held connections open but made no HTTP request in 10 hours (no reverse DNS). **Before changing anything:** find out whether that address is the hosting provider's or an uptime monitor, check nothing else uses the IP, and apply in a quiet window with an SSH session open. The proxy log has no Host or `CF-Ray` field, so direct HTTP requests cannot be counted; add `$host` and `$http_cf_ray` to `json_analytics` when the proxy is next recreated (that restarts the rate-limit evidence clock, so do it together with the limits flip). **Redis password: skipped, decision 2026-11-18 (Kannan).** Redis is not published on any host port and listens only on the Docker network; a password is a second layer against a compromised container and needs `REDIS_PASSWORD` in the prod `.env` before the deploy that changes every URL. Revisit if Redis is ever published or shared, another service joins the network, or a review or contract requires it. | Kanna / DevOps |

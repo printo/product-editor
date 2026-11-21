@@ -37,7 +37,7 @@
 #
 #   * Any direct-API partner using the old key breaks the moment the backend
 #     restarts. Confirm who is using it first:
-#         docker-compose logs backend | grep -c "Source: DIRECT"
+#         docker compose logs backend | grep -c "Source: DIRECT"
 #     and, once PR #44 is deployed, the durable version:
 #         APIRequest.objects.filter(auth_source="DIRECT")
 #   * The dashboard/editor keep working throughout — they authenticate via
@@ -149,7 +149,7 @@ Next:
   1. Restart the backend. Frontend/celery don't reference DIRECT_API_KEY, so
      they don't need to move:
 
-       docker-compose up -d --force-recreate backend
+       docker compose up -d --force-recreate backend
 
      (./deploy.sh backend also works, but rebuilds the image for no reason —
      no code changed here.)
@@ -166,7 +166,7 @@ Next:
          -d '{"order_id":"ROT-VERIFY"}'      # expect 201
 
   3. Confirm the DB row took the new key — prints only the last 4:
-       docker-compose exec -T backend python manage.py shell -c \\
+       docker compose exec -T backend python manage.py shell -c \\
          "from api.models import APIKey; k=APIKey.objects.get(name='DIRECT'); print('DIRECT ends', k.key[-4:], 'ops:', k.is_ops_team)"
 
   4. Read the full new value out of .env when you need to hand it to a partner:
