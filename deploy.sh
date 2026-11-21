@@ -860,6 +860,24 @@ sync_proxy_config() {
     container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
   fi
 
+  # The hash check below only catches nginx.conf edits. A bumped proxy image
+  # (e.g. an nginx security patch in docker-compose.yml) leaves the config hash
+  # identical, so the old container — and the old, vulnerable nginx — kept
+  # serving. `up -d --no-deps proxy` is a no-op when the image and service
+  # definition are unchanged, and pulls + recreates when they changed.
+  local before_id after_id
+  before_id=$(docker-compose ps -q proxy 2>/dev/null)
+  if ! docker-compose up -d --no-deps proxy >/dev/null 2>&1; then
+    fail "Proxy 'up -d' failed — a changed proxy image may NOT be live"
+  fi
+  after_id=$(docker-compose ps -q proxy 2>/dev/null)
+  if [ -n "$before_id" ] && [ "$before_id" != "$after_id" ]; then
+    print_status "Proxy recreated onto its new image ($(docker-compose exec -T proxy nginx -v 2>&1 | sed 's/.*version: //'))"
+    container_hash=$(docker-compose exec -T proxy sha256sum /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}')
+  else
+    print_status "Proxy image unchanged ($(docker-compose exec -T proxy nginx -v 2>&1 | sed 's/.*version: //'))"
+  fi
+
   if [ -n "$container_hash" ] && [ "$host_hash" = "$container_hash" ]; then
     print_status "Proxy config in sync (nginx.conf unchanged)"
     return 0
