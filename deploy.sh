@@ -409,14 +409,14 @@ else
   if docker run --rm \
     -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
     -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
-    nginx:1.27-alpine nginx -t >/dev/null 2>&1; then
+    nginx:1.31.9-alpine nginx -t >/dev/null 2>&1; then
     print_status "nginx.conf is valid"
   else
     print_error "nginx.conf failed validation — running nginx -t for details:"
     docker run --rm \
       -v "$(pwd)/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
       -v "$(pwd)/proxy/nginx/certs:/etc/nginx/certs:ro" \
-      nginx:1.27-alpine nginx -t || true
+      nginx:1.31.9-alpine nginx -t || true
     exit 1
   fi
 fi

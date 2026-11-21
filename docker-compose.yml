@@ -16,7 +16,7 @@ services:
   # Routing rules + tunables live in proxy/nginx/nginx.conf — single source.
   # See proxy/nginx/README.md for cert workflow + troubleshooting.
   proxy:
-    image: nginx:1.27-alpine
+    image: nginx:1.31.9-alpine
     ports:
       - "80:80"
       - "443:443"
