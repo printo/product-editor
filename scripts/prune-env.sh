@@ -68,7 +68,7 @@ DEAD=(
   # monitoring separately. Nothing reads these any more: the grafana/loki/
   # promtail/alloy services, the nginx /grafana/ + /faro/ locations and
   # scripts/setup-observability.sh (the sole reader of GOOGLE_CHAT_WEBHOOK)
-  # all went with them. SENTRY_* is NOT here — Sentry stayed.
+  # all went with them.
   GRAFANA_ADMIN_PASSWORD GRAFANA_ROOT_URL
   GF_AUTH_GOOGLE_ENABLED GF_AUTH_GOOGLE_CLIENT_ID GF_AUTH_GOOGLE_CLIENT_SECRET
   NEXT_PUBLIC_FARO_URL GOOGLE_CHAT_WEBHOOK
@@ -78,6 +78,9 @@ DEAD=(
   # .env.example was `prod`, which matched no service either.) Re-add the
   # variable if a real profile is ever introduced.
   COMPOSE_PROFILES
+  # Sentry, removed 2026-11-21: error alerts go to Google Chat through
+  # ERROR_ALERT_WEBHOOK_URL (services/error_alerts.py). Nothing reads these.
+  SENTRY_DSN NEXT_PUBLIC_SENTRY_DSN SENTRY_SEND_DEFAULT_PII SENTRY_TRACES_SAMPLE_RATE
 )
 
 echo "Scanning ${ENV_FILE}"

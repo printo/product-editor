@@ -99,7 +99,12 @@ app.conf.beat_schedule = {
 #
 # task_postrun matters as much as task_prerun: releasing the connection after a
 # task means an idle worker is not sitting on one waiting to go stale.
-from celery.signals import task_postrun, task_prerun  # noqa: E402
+from celery.signals import (  # noqa: E402
+    after_setup_logger,
+    after_setup_task_logger,
+    task_postrun,
+    task_prerun,
+)
 
 
 @task_prerun.connect
@@ -112,3 +117,18 @@ def _close_stale_db_connections_before_task(**_kwargs):
 def _close_stale_db_connections_after_task(**_kwargs):
     from django.db import close_old_connections
     close_old_connections()
+
+
+# ── Error alerts to Google Chat ──────────────────────────────────────────────
+# Celery replaces the root logger's handlers when a worker or beat starts
+# (worker_hijack_root_logger), which drops the chat_alerts handler that
+# settings.LOGGING put there. Put it back on root and on the task logger, so
+# a task that fails for good reaches the space the same way a web error does.
+def _attach_chat_alerts(logger=None, **_kwargs):
+    from services.error_alerts import ChatAlertHandler
+    if logger is not None and not any(isinstance(h, ChatAlertHandler) for h in logger.handlers):
+        logger.addHandler(ChatAlertHandler())
+
+
+after_setup_logger.connect(_attach_chat_alerts, weak=False)
+after_setup_task_logger.connect(_attach_chat_alerts, weak=False)

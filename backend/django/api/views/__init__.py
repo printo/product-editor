@@ -4,7 +4,7 @@ Every view is re-exported here, so `from api.views import X` (urls.py, tests,
 management commands) keeps working. Patch a name where the view looks it up:
 `api.views.calendar_assets._write_holidays`, not `api.views._write_holidays`.
 """
-from .system import HealthView, ConfigView, CSPReportView  # noqa: F401
+from .system import HealthView, ConfigView, CSPReportView, ClientErrorReportView  # noqa: F401
 from .ops import (  # noqa: F401
     CeleryMonitoringView,
     OrderDataPurgeView,

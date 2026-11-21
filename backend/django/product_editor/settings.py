@@ -514,19 +514,27 @@ LOGGING = {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
         },
+        # ERROR and above to the team's Google Chat space when
+        # ERROR_ALERT_WEBHOOK_URL is set; does nothing otherwise
+        # (services/error_alerts.py). Celery workers re-attach it to their
+        # root logger in celery.py, because Celery replaces root's handlers.
+        "chat_alerts": {
+            "class": "services.error_alerts.ChatAlertHandler",
+            "level": "ERROR",
+        },
     },
     "root": {
-        "handlers": ["console"],
+        "handlers": ["console", "chat_alerts"],
         "level": "INFO",
     },
     "loggers": {
         "django": {
-            "handlers": ["console"],
+            "handlers": ["console", "chat_alerts"],
             "level": os.getenv("DJANGO_LOG_LEVEL", "INFO"),
             "propagate": False,
         },
         "api": {
-            "handlers": ["console"],
+            "handlers": ["console", "chat_alerts"],
             "level": "INFO",
             # Without this the record is emitted twice: once by this logger's
             # own console handler and again by root's after propagation. The
@@ -559,36 +567,5 @@ RENDER_JOB_STATUS_CACHE_TTL = {
     'failed': int(os.getenv('CACHE_TTL_FAILED', '300')),         # Terminal state
     'default': int(os.getenv('CACHE_TTL_DEFAULT', '5')),         # Fallback
 }
-
-# ── Sentry Error Tracking Initialization ─────────────────────────────────────
-SENTRY_DSN = os.getenv("SENTRY_DSN")
-if SENTRY_DSN:
-    import sentry_sdk
-    from sentry_sdk.integrations.django import DjangoIntegration
-    from sentry_sdk.integrations.celery import CeleryIntegration
-    from django.core.exceptions import DisallowedHost
-
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[
-            DjangoIntegration(),
-            CeleryIntegration(),
-        ],
-        environment=os.getenv("ENVIRONMENT", "production" if not DEBUG else "development"),
-        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0")),
-        # Off by default — the DPDP erasure pipeline (OrderDataPurgeView) can't
-        # reach into Sentry's cloud to remove anything captured here.
-        send_default_pii=os.getenv("SENTRY_SEND_DEFAULT_PII", "0") == "1",
-        # Internet-wide bots routinely probe the raw origin IP directly
-        # (bypassing Cloudflare/the real domain) with garbage Host headers --
-        # confirmed live, a scanner hitting /api/mcp via the bare IP. Django's
-        # own protection correctly rejects these with a 400; that's the
-        # feature working, not a bug. The fix is NOT adding the scanned IP to
-        # ALLOWED_HOSTS (that would weaken the same protection) -- just don't
-        # let routine scanner noise page anyone as an "Escalating" issue.
-        ignore_errors=[DisallowedHost],
-    )
-    sentry_sdk.set_tag("app", "product-editor")
-    sentry_sdk.set_tag("component", "backend")
 
 

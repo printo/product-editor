@@ -3,7 +3,7 @@
 Before a Pillow, pillow-heif or libheif bump, run this in the image BEFORE and AFTER the
 bump, then diff the two output folders with compare.py (see README.md here):
 
-    docker run --rm -w /app -e PYTHONPATH=/app -e DEBUG=1 -e SENTRY_DSN= \\
+    docker run --rm -w /app -e PYTHONPATH=/app -e DEBUG=1 -e ERROR_ALERT_WEBHOOK_URL= \\
       -v "$PWD/scripts/render-compare:/h:ro" -v /path/to/photos:/photos:ro -v /path/to/out_before:/out \\
       --entrypoint /opt/venv/bin/python <image> /h/run.py
 

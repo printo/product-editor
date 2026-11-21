@@ -3,8 +3,8 @@
 import { ReactNode, useEffect, useSyncExternalStore } from 'react';
 import { usePathname } from 'next/navigation';
 import { HeaderProvider, useHeader } from '@/context/HeaderContext';
+import { reportUnhandledRejection, reportWindowError } from '@/lib/client-error-report';
 import { Header } from '@/components/Header';
-import { initObservability } from '@/lib/observability';
 
 // Must be a child of HeaderProvider (not a sibling) so it can read the
 // ResizeObserver-measured headerHeight and always match the real header.
@@ -35,8 +35,15 @@ export const AppWrapper = ({ children }: { children: ReactNode }) => {
   const isSharedEditorRoute = pathname.startsWith('/editor/layout/');
   const hydrated = useHasHydrated();
 
+  // Uncaught errors go to the team's Google Chat space through the backend
+  // (lib/client-error-report.ts). Both the dashboard and the embed pass here.
   useEffect(() => {
-    initObservability();
+    window.addEventListener('error', reportWindowError);
+    window.addEventListener('unhandledrejection', reportUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', reportWindowError);
+      window.removeEventListener('unhandledrejection', reportUnhandledRejection);
+    };
   }, []);
 
   // Read on every render rather than cached in state: a client-side nav

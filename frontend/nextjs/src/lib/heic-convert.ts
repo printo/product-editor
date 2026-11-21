@@ -1,5 +1,6 @@
 import { fileExtension } from '@/lib/file-identity';
 import { partitionByAllowedType, unsupportedFilesMessage } from '@/lib/upload-utils';
+import { reportClientError } from '@/lib/client-error-report';
 
 /**
  * Client-side HEIC/HEIF (iPhone photo format) to JPEG conversion.
@@ -44,8 +45,8 @@ export class HeicConversionError extends Error {
  *
  * The two used to share one bare `catch {}`, which discarded the underlying
  * error entirely — so a live failure reported by a customer could not be
- * told apart from a bad photo, and nothing reached Sentry. Never widen this
- * back into a single silent catch.
+ * told apart from a bad photo. Never widen this back into a single silent
+ * catch.
  */
 export type HeicFailureStage = 'load' | 'decode';
 
@@ -55,21 +56,15 @@ function reportHeicFailure(stage: HeicFailureStage, file: File, cause: unknown):
     `[heic-convert] ${stage} failed for "${file.name}" ` +
       `(${file.type || 'no mime'}, ${file.size} bytes): ${detail}`,
   );
-  // Imported lazily and fire-and-forget: this module is a plain utility on the
-  // photo-pick path, and a static @sentry/nextjs import would put the whole
-  // SDK in its import graph (which the Jest resolver also can't follow).
-  // Reporting must never delay or break a pick, so nothing here is awaited.
-  void import('@sentry/nextjs')
-    .then(Sentry => {
-      Sentry.captureException(cause instanceof Error ? cause : new Error(detail), {
-        tags: { feature: 'heic-convert', heic_stage: stage },
-        extra: { fileName: file.name, fileSize: file.size, fileType: file.type },
-      });
-    })
-    .catch(() => {
-      // Sentry absent (no DSN in dev, or blocked) — the console.error above
-      // is still the record.
-    });
+  // A chunk that never arrived is ours to fix; a photo the decoder rejects is
+  // usually the photo, so it is reported as a warning. The file name is left
+  // out: it is the customer's.
+  reportClientError({
+    kind: 'heic',
+    level: stage === 'load' ? 'error' : 'warning',
+    message: `HEIC ${stage} failed (${file.type || 'no mime'}, ${Math.round(file.size / 1024)} KB): ${detail}`,
+    stack: cause instanceof Error ? cause.stack : undefined,
+  });
 }
 
 /**
