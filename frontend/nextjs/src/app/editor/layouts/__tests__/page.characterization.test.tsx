@@ -4,8 +4,8 @@
  * They pin what the page does today: the requests it sends, in what order and
  * with what bodies, and what ops see. The page is to be split into hooks and
  * components (docs/LAYOUTS_PAGE_SPLIT_PLAN.md) with this suite passing
- * UNCHANGED after every step. Some cases pin behaviour that looks wrong
- * ("pinned as is"): those are for a later, separate fix, not for the split.
+ * UNCHANGED after every step. A case marked "pinned as is" pins behaviour
+ * that looks wrong: it is for a later, separate fix, not for the split.
  *
  * Stubbed: the Fabric preview (happy-dom has no canvas; the stub records the
  * props it is given), the mask transparency check, auth and routing.
@@ -303,23 +303,30 @@ describe('create', () => {
     expect(backend.callsTo('ops/layouts', 'GET')).toHaveLength(1);
   });
 
-  it('pinned as is: Create after editing a layout keeps that layout\'s identifier and sizes (the card button does not reset them)', async () => {
-    await loadPage();
-    const user = await openEdit('old_grid');
-    await user.click(within(header()).getByRole('button', { name: 'Close Editor' }));
-    await user.click(screen.getByTestId('create-generic-layout-btn'));
-    expect(identifierInput().value).toBe('old_grid');
-    expect(identifierInput().disabled).toBe(false);
-    expect(screen.getByRole('button', { name: 'Create Layout' })).toBeTruthy();
-    expect(previewPropsRef.current).toMatchObject({ frames: [], widthMm: 101.6, heightMm: 152.4 });
-  });
-
-  it('pinned as is: Create after editing a layout with Can rotate off starts with it off', async () => {
+  it('Create after editing a layout starts from a blank form: new identifier, default size, Can rotate on', async () => {
     await loadPage();
     const user = await openEdit('mug_wrap');
     await user.click(within(header()).getByRole('button', { name: 'Close Editor' }));
     await user.click(screen.getByTestId('create-generic-layout-btn'));
-    expect((screen.getByRole('checkbox', { name: 'Can rotate' }) as HTMLInputElement).checked).toBe(false);
+    expect(identifierInput().value).toBe('untitled_layout');
+    expect(identifierInput().disabled).toBe(false);
+    expect(displayNameInput().value).toBe('');
+    expect((screen.getByRole('checkbox', { name: 'Can rotate' }) as HTMLInputElement).checked).toBe(true);
+    expect(previewPropsRef.current).toMatchObject({
+      frames: [], widthMm: 101.6, heightMm: 152.4, dpi: 300,
+      frameMask: { url: null, file: null }, printSheet: { mode: 'canvas' },
+    });
+  });
+
+  it('saving a layout created right after an edit never sends the edited layout\'s identifier', async () => {
+    await loadPage();
+    const user = await openEdit('old_grid');
+    await user.click(within(header()).getByRole('button', { name: 'Close Editor' }));
+    await user.click(screen.getByTestId('create-generic-layout-btn'));
+    await user.type(displayNameInput(), 'Brand New');
+    const save = await saveEditor(user);
+    expect(save.fields.name).toBe('untitled_layout');
+    expect(save.layout.name).toBe('untitled_layout');
   });
 });
 

@@ -1010,6 +1010,9 @@ export default function LayoutCreatorPage() {
     }
   };
 
+  // Every way into a new layout starts from the same blank form. The Create card
+  // used to reset only part of it and kept the last edited layout's identifier,
+  // so saving the "new" layout replaced that one.
   const openCreateModal = () => {
     setIsEditMode(false);
     setLayoutName('');
@@ -1026,6 +1029,7 @@ export default function LayoutCreatorPage() {
     setSurfaces([]);
     setActiveSurfaceIdx(0);
     setFrameCaptionsEnabled(false);
+    setOrientationRotatable(true);
     setIsModalOpen(true);
   };
   // Warn (never block) if a freshly-picked mask PNG has no transparent
@@ -1180,19 +1184,7 @@ export default function LayoutCreatorPage() {
             {/* Left half — Generic */}
             <button
               data-testid="create-generic-layout-btn"
-              onClick={() => {
-                setIsEditMode(false);
-                setLayoutName('');
-                setTagKeys([]);
-                setFrames([]);
-                setSurfaces([]);
-                setLayoutType('single');
-                setFrameMask(EMPTY_SLOT);
-                setPrintSheet(WHOLE_CANVAS);
-                setMaskWarning(undefined);
-                setFrameCaptionsEnabled(false);
-                setIsModalOpen(true);
-              }}
+              onClick={openCreateModal}
               className="group flex-1 flex flex-col items-center justify-center gap-1.5 md:gap-3 p-3 md:p-6 hover:bg-indigo-50 transition-all cursor-pointer border-r-2 md:border-r-0 md:border-b-2 border-dashed border-slate-200 hover:border-indigo-300"
             >
               <div className="w-8 h-8 md:w-12 md:h-12 bg-indigo-50 rounded-lg md:rounded-lg flex items-center justify-center group-hover:bg-indigo-100 transition-colors">

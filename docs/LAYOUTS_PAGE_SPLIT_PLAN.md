@@ -86,14 +86,14 @@ Expect about 30 tests, real timers, under 30 s.
 
 ### What building step 0 found (2026-11-21)
 
-- **Create after Edit can overwrite the layout just edited.** The "Generic Layout" Create card resets the name, tags, frames and masks but not the identifier, the canvas size or Can rotate (`openCreateModal`, which does reset them, is used only by the empty-list button). Edit `old_grid`, close, Create, type a display name, save: the POST carries `name: old_grid` and replaces that layout. Pinned as is by two cases; worth fixing in its own PR soon, independent of the split.
+- **Create after Edit could overwrite the layout just edited. Fixed (`fix/layouts-create-resets-form`):** the Create card now calls `openCreateModal`, which also resets Can rotate. Two cases pin the fix.
 - **Duplicate on a two-sided product throws** (`Cannot read properties of undefined (reading 'dpi')`) and the editor never opens. Confirmed, so not pinned: an uncaught error cannot be a passing test. Fix separately.
 - **The Create/Update button is outside its form** (`form="layout-form"`). happy-dom does not submit through such a button, so the suite checks the button's `type` and `form` and submits the form itself. The click needs the browser check after step 6.
 - Not covered: zoom buttons (no accessible names), caption controls, surface duplicate/remove, Grid Gen with non-default rows. Add cases before the step that moves them.
 
 ### Behaviour to pin, not fix (found while reading; raise with Kannan after the split)
 
-- **Create does not reset Can rotate**: `openCreateModal` never calls `setOrientationRotatable(true)`, so a new layout after editing one with it off starts unticked. Pin as is.
+- ~~Create does not reset Can rotate~~: fixed with the Create card above.
 - **Duplicate does not reset layout type or surfaces**, and reads `data.canvas.dpi` without `?.`, so Duplicate on a `product` layout probably throws. The test should prove what really happens before anything is decided.
 - The comment at the top of the component says the ops gate was removed from the internal proxy; CLAUDE.md (Role model) says writes under `ops/` need Ops. The comment is stale; fix it in the first move PR (comment only).
 - Two frame-loading routines exist (`_loadFramesFromData` and an inline copy in `openCopyModal`); merging them is a follow-up, not part of a move.
