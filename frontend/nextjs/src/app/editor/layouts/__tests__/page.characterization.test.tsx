@@ -418,6 +418,37 @@ describe('duplicate, delete, view', () => {
     expect(save.layout.frames).toHaveLength(2);
   });
 
+  it('Duplicate on a two-sided product copies every side, under a fresh identifier', async () => {
+    await loadPage();
+    const user = userEvent.setup();
+    await user.click(within(card('mug_wrap')).getByTitle('Duplicate Layout'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create Layout' })).toBeTruthy());
+    expect(identifierInput().value).toBe('untitled_layout');
+    expect(displayNameInput().value).toBe('copy Mug Wrap');
+    await user.clear(identifierInput());
+    await user.type(identifierInput(), 'mug_copy');
+    const save = await saveEditor(user);
+    expect(save.fields).toMatchObject({ name: 'mug_copy', display_name: 'copy Mug Wrap' });
+    expect(save.layout).toMatchObject({ name: 'mug_copy', type: 'product', tagKeys: ['gifts'], orientationRotatable: false });
+    expect(save.layout.surfaces.map((s: Record<string, any>) => [s.key, s.canvas.widthMm, s.frames.length, s.printSheet.mode, s.frameMaskUrl])).toEqual([
+      ['front', 203.2, 1, 'canvas', null],
+      ['back', 101.6, 1, 'bleed', MUG.surfaces[1].frameMaskUrl],
+    ]);
+  });
+
+  it('Duplicate of a single-canvas layout after editing a product is single-canvas again', async () => {
+    await loadPage();
+    const user = await openEdit('mug_wrap');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(within(card('classic_4x6')).getByTitle('Duplicate Layout'));
+    await waitFor(() => expect(displayNameInput().value).toBe('copy Classic 4x6'));
+    const save = await saveEditor(user);
+    expect(save.layout.type).toBeUndefined();
+    expect(save.layout.surfaces).toBeUndefined();
+    expect(save.layout.canvas).toMatchObject({ widthMm: 101.6, heightMm: 152.4 });
+    expect(save.layout.frames).toHaveLength(2);
+  });
+
   it('Delete asks first: Cancel sends nothing; Delete sends DELETE then reloads the list', async () => {
     await loadPage();
     const user = userEvent.setup();
