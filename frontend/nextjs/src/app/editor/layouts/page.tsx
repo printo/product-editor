@@ -43,10 +43,15 @@ import { layoutTagKeys, useLayoutTags } from '@/lib/layout-tags';
 import { TagPicker } from '@/components/ui/TagPicker';
 import { DEFAULT_OVERLAY_FONT, pickerFonts } from '@/lib/overlay-fonts';
 import { hasTransparentPixels } from '@/lib/image-utils';
-import { mmToPx as mmToPxExact, pxToMm as pxToMmExact, mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
+import { mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
 import { resolveMaskSlots } from '@/lib/mask-slots';
-import { printSheetLabel, readPrintSheet, type PrintSheet, type PrintSheetMode } from '@/lib/print-sheet';
+import { printSheetLabel } from '@/lib/print-sheet';
 import type { MaskSlotSource } from './LayoutFabricPreview';
+import {
+  buildLayoutFormData, EMPTY_SLOT, frameSlotFromData, framesFromData, framesOutOfBounds, gridFrames,
+  mmToPx, printSheetJson, printSheetStateFrom, pxToMm, readUnitPref, round2, UNIT_PREF_KEY, WHOLE_CANVAS,
+  type LayoutConfig, type LayoutFrame, type PrintSheetState, type SurfaceEditorState,
+} from './layout-form-utils';
 
 // LayoutFabricPreview pulls in Fabric.js (~400 KB gz). Defer its load until
 // the layouts list itself has rendered so the chooser UI paints fast and
@@ -60,138 +65,6 @@ const LayoutFabricPreview = dynamic(
     loading: () => <div className="absolute inset-0 bg-slate-100 animate-pulse rounded-md" />,
   },
 );
-
-interface LayoutFrame {
-  id?: string;
-  x: number; // percentage (Area + Bleed)
-  y: number; // percentage (Area + Bleed)
-  width: number; // percentage (Area + Bleed)
-  height: number; // percentage (Area + Bleed)
-  xMm?: number | string; // Print Area X
-  yMm?: number | string; // Print Area Y
-  widthMm?: number | string; // Print Area Width
-  heightMm?: number | string; // Print Area Height
-  bleedMm?: number | string; // Margin for Bleed
-  borderRadiusMm?: number | string; // Corner Radius
-  caption?: string; // Default caption text (customer can override in the editor)
-  captionEnabled?: boolean; // Show this area's caption in the output
-  // Free caption placement/style (canvas-absolute mm). Unset → legacy bottom-centre.
-  captionXMm?: number | string;
-  captionYMm?: number | string;
-  captionWidthMm?: number | string;
-  captionFontMm?: number | string;
-  captionAlign?: 'left' | 'center' | 'right';
-  captionColor?: string;
-}
-
-interface LayoutConfig {
-  name: string;
-  canvas: {
-    width: number;
-    height: number;
-    widthMm?: number;
-    heightMm?: number;
-    dpi?: number;
-  };
-  productType?: string;
-  grid?: {
-    rows: number;
-    cols: number;
-    padding: number;
-  };
-  frames?: LayoutFrame[];
-  tags?: string[];
-  tagKeys?: string[];
-  createdAt?: string;
-  updatedAt?: string;
-  createdBy?: string;
-  updatedBy?: string;
-  version?: number;
-  metadata?: {
-    key: string;
-    label: string;
-    value: any;
-  }[];
-  /** Derived legacy pair, still served for one release; the slots below are what is stored. */
-  maskUrl?: string;
-  maskOnExport?: boolean;
-  frameMaskUrl?: string | null;
-  printSheet?: PrintSheet;
-  frameCaptionsEnabled?: boolean;
-  orientationRotatable?: boolean;
-}
-
-/** The "Print file" choice as the form holds it. */
-interface PrintSheetState {
-  mode: PrintSheetMode;
-}
-
-interface SurfaceEditorState {
-  key: string;
-  label: string;
-  widthMm: number;
-  heightMm: number;
-  dpi: number;
-  frames: LayoutFrame[];
-  frameMask: MaskSlotSource;
-  printSheet: PrintSheetState;
-}
-
-// Template authoring works in whole pixels and 2-dp millimetres, so these
-// round the shared conversions. Module scope keeps them stable across renders.
-const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
-const mmToPx = (mm: number, dpiVal: number) => Math.round(mmToPxExact(mm, dpiVal));
-const pxToMm = (px: number, dpiVal: number) => round2(pxToMmExact(px, dpiVal));
-
-// The display unit is a per-viewer preference; storage can be blocked
-// (privacy modes), in which case the page simply starts in millimetres.
-const UNIT_PREF_KEY = 'pe:layout-editor:unit';
-const readUnitPref = (): LengthUnit => {
-  if (typeof window === 'undefined') return 'mm';
-  try {
-    return window.localStorage.getItem(UNIT_PREF_KEY) === 'in' ? 'in' : 'mm';
-  } catch {
-    return 'mm';
-  }
-};
-
-const _mapFrames = (frameList: LayoutFrame[], wMmVal: number, hMmVal: number, dpiVal: number) => {
-  const canvasW = mmToPx(wMmVal, dpiVal);
-  const canvasH = mmToPx(hMmVal, dpiVal);
-  return frameList.map(f => {
-    const bleed = round2(Number(f.bleedMm || 0));
-    const xMm = round2(Number(f.xMm || 0));
-    const yMm = round2(Number(f.yMm || 0));
-    const wMm = round2(Number(f.widthMm || 0));
-    const hMm = round2(Number(f.heightMm || 0));
-    const radiusMm = round2(Number(f.borderRadiusMm || 0));
-    const pxX = mmToPx(xMm - bleed, dpiVal);
-    const pxY = mmToPx(yMm - bleed, dpiVal);
-    const pxW = mmToPx(wMm + (bleed * 2), dpiVal);
-    const pxH = mmToPx(hMm + (bleed * 2), dpiVal);
-    return {
-      ...f,
-      xMm, yMm, widthMm: wMm, heightMm: hMm, bleedMm: bleed, borderRadiusMm: radiusMm,
-      x: pxX / canvasW,
-      y: pxY / canvasH,
-      width: pxW / canvasW,
-      height: pxH / canvasH,
-    };
-  });
-};
-
-const EMPTY_SLOT: MaskSlotSource = { url: null, file: null };
-const WHOLE_CANVAS: PrintSheetState = { mode: 'canvas' };
-
-/** One slot from a saved layout (or surface), reading a legacy mask into the right slot. */
-const frameSlotFromData = (block: unknown): MaskSlotSource => ({
-  url: resolveMaskSlots(block).frameMaskUrl,
-  file: null,
-});
-
-const printSheetStateFrom = (raw: unknown): PrintSheetState => ({ mode: readPrintSheet(raw).mode });
-
-const printSheetJson = (s: PrintSheetState): PrintSheet => ({ mode: s.mode });
 
 /**
  * One mask slot: pick, thumbnail, file name, remove. The two slots differ only
@@ -642,25 +515,7 @@ export default function LayoutCreatorPage() {
   }, [status, fetchLayouts]);
 
   const handleGenerateGrid = () => {
-    const newFrames: LayoutFrame[] = [];
-    const cellW = (widthMm - (cols + 1) * padding) / cols;
-    const cellH = (heightMm - (rows + 1) * padding) / rows;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x = padding + c * (cellW + padding);
-        const y = padding + r * (cellH + padding);
-        newFrames.push({
-          id: Math.random().toString(36).slice(2, 11),
-          xMm: round2(x),
-          yMm: round2(y),
-          widthMm: round2(cellW),
-          heightMm: round2(cellH),
-          bleedMm: 0,
-          x: 0, y: 0, width: 0, height: 0
-        });
-      }
-    }
-    setFrames(newFrames);
+    setFrames(gridFrames(widthMm, heightMm, rows, cols, padding));
     setShowGridGen(false);
   };
 
@@ -683,91 +538,17 @@ export default function LayoutCreatorPage() {
 
     // Validate bounds for active frame set
     const framesToCheck = layoutType === 'product' ? surfaces.flatMap(s => s.frames.map(f => ({ f, w: s.widthMm, h: s.heightMm }))) : frames.map(f => ({ f, w: widthMm, h: heightMm }));
-    const outOfBounds = framesToCheck.some(({ f, w, h }) => {
-      const bleed = round2(Number(f.bleedMm || 0));
-      const xVal = Number(f.xMm || 0);
-      const yVal = Number(f.yMm || 0);
-      const wVal = Number(f.widthMm || 0);
-      const hVal = Number(f.heightMm || 0);
-      return (
-        round2(xVal - bleed) < 0 ||
-        round2(wVal + (bleed * 2)) > w ||
-        round2(xVal + wVal + bleed) > w ||
-        round2(yVal - bleed) < 0 ||
-        round2(hVal + (bleed * 2)) > h ||
-        round2(yVal + hVal + bleed) > h
-      );
-    });
+    const outOfBounds = framesOutOfBounds(framesToCheck);
 
     if (outOfBounds && !window.confirm("Some Print Areas are out of the canvas bounds. Save anyway?")) {
       setIsSaving(false);
       return;
     }
 
-    let layoutData: any;
-    const formData = new FormData();
-
-    if (layoutType === 'product') {
-      // Multi-surface product layout
-      const surfacesData = surfaces.map(s => ({
-        key: s.key,
-        label: s.label,
-        canvas: {
-          width: mmToPx(s.widthMm, s.dpi),
-          height: mmToPx(s.heightMm, s.dpi),
-          widthMm: round2(s.widthMm),
-          heightMm: round2(s.heightMm),
-          dpi: s.dpi,
-        },
-        frames: _mapFrames(s.frames, s.widthMm, s.heightMm, s.dpi),
-        frameMaskUrl: s.frameMask.url || null,
-        printSheet: printSheetJson(s.printSheet),
-      }));
-
-      layoutData = {
-        name: layoutId,
-        type: 'product',
-        tagKeys,
-        frameCaptionsEnabled,
-        orientationRotatable,
-        surfaces: surfacesData,
-      };
-
-      // Append per-surface mask files, one field per slot
-      surfaces.forEach(s => {
-        if (s.frameMask.file) formData.append(`frame_mask_${s.key}`, s.frameMask.file);
-      });
-    } else {
-      // Single-surface layout (existing format)
-      const canvasW = mmToPx(widthMm, dpi);
-      const canvasH = mmToPx(heightMm, dpi);
-
-      layoutData = {
-        name: layoutId,
-        tagKeys,
-        canvas: {
-          width: canvasW,
-          height: canvasH,
-          widthMm: round2(widthMm),
-          heightMm: round2(heightMm),
-          dpi,
-        },
-        frames: _mapFrames(frames, widthMm, heightMm, dpi),
-        frameMaskUrl: frameMask.url || null,
-        printSheet: printSheetJson(printSheet),
-        frameCaptionsEnabled,
-        orientationRotatable,
-      };
-
-      if (frameMask.file) formData.append('frame_mask', frameMask.file);
-    }
-
-    formData.append('name', layoutId);
-    // The dedicated, ops-editable customer-facing name (2026-09-16) — layoutId
-    // above is frozen once a layout exists, so this is the only thing editing
-    // an existing layout can still change about how it's identified to a human.
-    formData.append('display_name', layoutName.trim());
-    formData.append('layout', JSON.stringify(layoutData));
+    const formData = buildLayoutFormData({
+      layoutId, layoutName, layoutType, tagKeys, frameCaptionsEnabled, orientationRotatable,
+      surfaces, widthMm, heightMm, dpi, frames, frameMask, printSheet,
+    });
 
     try {
       const res = await fetch('/api/internal/proxy/ops/layouts', {
@@ -848,21 +629,6 @@ export default function LayoutCreatorPage() {
     if (data) setSelectedLayout(data);
   };
 
-  const _loadFramesFromData = (data: any, canvas: any) => {
-    const displayDpi = canvas.dpi || 300;
-    if (data.frames) {
-      return data.frames.map((f: any) => ({
-        ...f,
-        id: Math.random().toString(36).slice(2, 11),
-        xMm: round2(f.xMm ?? pxToMm(f.x * canvas.width, displayDpi)),
-        yMm: round2(f.yMm ?? pxToMm(f.y * canvas.height, displayDpi)),
-        widthMm: round2(f.widthMm ?? pxToMm(f.width * canvas.width, displayDpi)),
-        heightMm: round2(f.heightMm ?? pxToMm(f.height * canvas.height, displayDpi)),
-        bleedMm: round2(Number(f.bleedMm || 0))
-      }));
-    }
-    return [];
-  };
 
   const openEditModal = async (name: string) => {
     const data = await fetchLayoutDetail(name);
@@ -887,7 +653,7 @@ export default function LayoutCreatorPage() {
             widthMm: round2(s.canvas?.widthMm || pxToMm(s.canvas?.width || 0, sDpi)),
             heightMm: round2(s.canvas?.heightMm || pxToMm(s.canvas?.height || 0, sDpi)),
             dpi: sDpi,
-            frames: _loadFramesFromData(s, s.canvas || {}),
+            frames: framesFromData(s, s.canvas || {}),
             frameMask: frameSlotFromData(s),
             printSheet: printSheetStateFrom(s.printSheet),
           };
@@ -910,7 +676,7 @@ export default function LayoutCreatorPage() {
         setWidthMm(round2(data.canvas?.widthMm || pxToMm(data.canvas?.width || 0, displayDpi)));
         setHeightMm(round2(data.canvas?.heightMm || pxToMm(data.canvas?.height || 0, displayDpi)));
 
-        const loadedFrames = _loadFramesFromData(data, data.canvas || {});
+        const loadedFrames = framesFromData(data, data.canvas || {});
         if (loadedFrames.length > 0) {
           setFrames(loadedFrames);
         } else if (data.grid) {
