@@ -215,7 +215,20 @@ export function useLayoutForm() {
 
   /** Fill the form from a saved layout as a new copy of it. */
   const loadForCopy = (name: string, data: any) => {
+    // A product has no canvas of its own, only sides: load it as Edit does,
+    // then make it a new layout (this used to throw on data.canvas).
+    if (data.type === 'product' && Array.isArray(data.surfaces)) {
+      loadForEdit(name, data);
+      setLayoutName(`copy ${(data.displayName || name.replace(/_/g, ' '))}`);
+      setLayoutId('untitled_layout');
+      setIsEditMode(false);
+      return;
+    }
     setMaskWarning(undefined);
+    // A single-canvas copy; a product edited before must not linger.
+    setLayoutType('single');
+    setSurfaces([]);
+    setActiveSurfaceIdx(0);
     const displayDpi = data.canvas.dpi || 300;
     setDpi(displayDpi);
     setWidthMm(round2(data.canvas.widthMm || pxToMm(data.canvas.width, displayDpi)));

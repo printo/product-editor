@@ -87,7 +87,7 @@ Expect about 30 tests, real timers, under 30 s.
 ### What building step 0 found (2026-11-21)
 
 - **Create after Edit could overwrite the layout just edited. Fixed (`fix/layouts-create-resets-form`):** the Create card now calls `openCreateModal`, which also resets Can rotate. Two cases pin the fix.
-- **Duplicate on a two-sided product throws** (`Cannot read properties of undefined (reading 'dpi')`) and the editor never opens. Confirmed, so not pinned: an uncaught error cannot be a passing test. Fix separately.
+- **Duplicate on a two-sided product throws** (`Cannot read properties of undefined (reading 'dpi')`) and the editor never opens. Fixed 2026-11-22: Duplicate on a product copies every side; a single-canvas Duplicate also resets the type and sides left from an earlier product edit. Both pinned in the page test.
 - **The Create/Update button is outside its form** (`form="layout-form"`). happy-dom does not submit through such a button, so the suite checks the button's `type` and `form` and submits the form itself. The click needs the browser check after step 6.
 - Not covered: zoom buttons (no accessible names), caption controls, surface duplicate/remove, Grid Gen with non-default rows. Add cases before the step that moves them.
 
