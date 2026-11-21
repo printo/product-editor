@@ -207,7 +207,7 @@ To give the user something to open, create a session as above and send them `htt
 |---|---|
 | Main page inside printo.in (production): with several photos each card is held to about half the screen and the next card shows; Blur Effect is a real blur behind a Fit photo | **Yes**, Kannan's iPhone, on printo.in, 2026-11-21 |
 | The phone canvas editor (top row with Save, tabbed sheet, Text / Icons / Uploads / Layers tabs, typing with the keyboard open, no flicker when the sheet is dragged) | **Yes on the same iPhone, but only on a local dev server**, not inside printo.in's page |
-| The canvas editor inside printo.in's page, including where the storefront's WhatsApp bubble sits against the sheet (on the main page it floats over the cards' lower right) | **No** |
+| The canvas editor inside printo.in's page, including where the storefront's WhatsApp bubble sits against the sheet (on the main page it floats over the cards' lower right) | **No** on a phone. On desktop Chrome inside printo.in (2026-11-22) the bubble covers the right end of the canvas editor's Save changes button; the rest of the button still takes the click |
 | Android Chrome, any of it | **No** |
 | A front/back product and a calendar on a phone since #387 | **No** |
 | The blur change on paper (a rotated photo, Fit, Blur on) | **No**; a real render was read pixel by pixel, nothing was printed |
@@ -702,6 +702,8 @@ Use comments sparingly; only for complex or non-obvious logic.
 ## Export Flag
 
 `isExport` controls frame outlines and preview overlays; they must be absent from download output. If they appear, the flag isn't reaching `FabricEditor.tsx` or `fabric-renderer.ts`. The **frame picture** mask (`frameMaskUrl`) follows the same rule: preview-only, never in an `isExport` render (quick download, imposition), exactly as the print never carries it. A printed mask (the `artworkMaskUrl` slot, which now only a calendar's or book's "print this mask" reaches) is in every render, export included.
+
+**Every picture put on an editor canvas is loaded with `crossOrigin: 'anonymous'`** (`FabricImage.fromURL(src, { crossOrigin: 'anonymous' })`, `setSrc` the same). On production a mask is a redirect to the CDN, another origin; loaded without the flag it still draws, but it taints the canvas and every `toDataURL` after it throws `SecurityError: Tainted canvases may not be exported` (Firefox: `The operation is insecure`). The canvas editor's mask load lacked it until 2026-11-22, so every edit on a mug or a photo frame raised that error. **It cannot be seen locally**: with `STORAGE_BACKEND=local` the mask is same-origin. To check it, give a local test layout a `frameMaskUrl` that is a full `https://cdn-product-editor.printo.in/product-editor/masks/<file>` address. **A card is redrawn as a card** (`renderCanvas(card, { thumbnail: true })`), the canvas editor's Save changes included: an `isExport` or `includeMask: false` render is for downloads, and on a card it drops the frame picture (the mug vanished from the card after every save until the same day). Pinned by `__tests__/CanvasEditorModal.save.test.tsx`, which reads the three editor files and fails on a picture load without the flag.
 
 ### Print sheet and the two mask slots
 
