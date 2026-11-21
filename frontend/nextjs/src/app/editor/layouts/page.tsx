@@ -16,7 +16,6 @@ import {
   Eye,
   Edit2,
   Copy,
-  Check,
   Type,
   ZoomIn,
   ZoomOut,
@@ -47,6 +46,11 @@ import { mmToUnit, unitToMm, type LengthUnit } from '@/lib/units';
 import { resolveMaskSlots } from '@/lib/mask-slots';
 import { printSheetLabel } from '@/lib/print-sheet';
 import type { MaskSlotSource } from './LayoutFabricPreview';
+import { MaskSlotRow } from './MaskSlotRow';
+import { DeleteLayoutDialog } from './dialogs/DeleteLayoutDialog';
+import { FontPickerModal } from './dialogs/FontPickerModal';
+import { LayoutSpecModal } from './dialogs/LayoutSpecModal';
+import { RemoveMaskDialog } from './dialogs/RemoveMaskDialog';
 import {
   buildLayoutFormData, EMPTY_SLOT, frameSlotFromData, framesFromData, framesOutOfBounds, gridFrames,
   mmToPx, printSheetJson, printSheetStateFrom, pxToMm, readUnitPref, round2, UNIT_PREF_KEY, WHOLE_CANVAS,
@@ -65,90 +69,6 @@ const LayoutFabricPreview = dynamic(
     loading: () => <div className="absolute inset-0 bg-slate-100 animate-pulse rounded-md" />,
   },
 );
-
-/**
- * One mask slot: pick, thumbnail, file name, remove. The two slots differ only
- * in where they are placed, which is what decides whether they print.
- */
-function MaskSlotRow({ title, hint, slot, inputRef, warning, onPick, onRemove }: {
-  title: string;
-  hint: string;
-  slot: MaskSlotSource;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  warning?: string;
-  onPick: (file: File) => void;
-  onRemove: () => void;
-}) {
-  // A picked file previews through an object URL (same pattern as the book
-  // editor's mask preview), released when the file changes or the row unmounts.
-  const previewSrc = useMemo(() => (slot.file ? URL.createObjectURL(slot.file) : slot.url), [slot.file, slot.url]);
-  useEffect(() => {
-    if (!slot.file || !previewSrc) return;
-    return () => URL.revokeObjectURL(previewSrc);
-  }, [slot.file, previewSrc]);
-  const has = Boolean(slot.file || slot.url);
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-col">
-        <span className="text-xs font-bold text-slate-700">{title}</span>
-        <span className="text-[10px] text-slate-500">{hint}</span>
-      </div>
-      <input
-        type="file"
-        ref={inputRef}
-        className="hidden"
-        accept="image/png,image/svg+xml,.svg"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onPick(file);
-        }}
-      />
-      {!has && (
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          className="w-full px-4 py-2.5 border border-slate-200 border-dashed rounded-lg text-xs font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Upload PNG or SVG
-        </button>
-      )}
-      {warning && (
-        <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold rounded-lg flex items-center gap-2">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          {warning}
-        </div>
-      )}
-      {has && (
-        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-          <div
-            className="w-20 h-20 shrink-0 rounded-md border border-slate-200 overflow-hidden"
-            style={{ backgroundImage: 'repeating-conic-gradient(#e2e8f0 0% 25%, #fff 0% 50%)', backgroundSize: '12px 12px' }}
-          >
-            {previewSrc && <img src={previewSrc} alt={`${title} mask`} className="w-full h-full object-contain" />}
-          </div>
-          <div className="flex flex-col min-w-0 flex-1">
-            <span className="text-xs font-bold text-slate-700 truncate">
-              {slot.file ? slot.file.name : (slot.url ?? '').split('?')[0].split('/').pop()}
-            </span>
-            <span className="text-[10px] text-slate-500">
-              {slot.file ? 'Not saved yet — saves with the layout' : 'Saved mask'}
-            </span>
-          </div>
-          <button
-            type="button"
-            title={`Remove ${title.toLowerCase()}`}
-            aria-label={`Remove ${title.toLowerCase()}`}
-            onClick={onRemove}
-            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg shrink-0"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function LayoutCreatorPage() {
   const { data: session, status } = useSession();
@@ -380,17 +300,6 @@ export default function LayoutCreatorPage() {
   }, [isModalOpen, setIsModalOpen, isEditMode, setTitle, setDescription, setCenterActions, setRightActions, searchQuery, activeTagFilter, tagList, selectedFonts.length, layouts.length, canManageHolidays]);
 
   const [isSavingFonts, setIsSavingFonts] = useState(false);
-
-  const googleFontsList = [
-    'Roboto', 'Lato', 'Montserrat', 'Oswald', 'Raleway',
-    'Poppins', 'Nunito', 'Ubuntu', 'Playfair Display', 'Merriweather',
-    'Inter', 'Rubik', 'Work Sans', 'Quicksand', 'Barlow', 'Fira Sans',
-    'Karla', 'Cabin', 'Arvo', 'Bitter', 'Crimson Text', 'Josefin Sans',
-    'Pacifico', 'Dancing Script', 'Lobster', 'Bebas Neue', 'Anton',
-    'Permanent Marker', 'Satisfy', 'Great Vibes', 'Abril Fatface',
-    'Archivo', 'Source Sans 3', 'DM Sans', 'Space Grotesk', 'Outfit',
-    'Sora', 'Manrope', 'Plus Jakarta Sans', 'Lexend',
-  ];
 
   // Fetch selected fonts from the backend on mount
   useEffect(() => {
@@ -1802,149 +1711,49 @@ export default function LayoutCreatorPage() {
       )}
 
       {confirmMaskRemove && (
-        <div className="fixed inset-0 z-[2001] flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-label="Remove frame picture">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setConfirmMaskRemove(false)} />
-          <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6">
-            <div className="flex flex-col items-center text-center">
-              <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-1">Remove frame picture?</h3>
-              <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-                The frame picture is detached from this layout once you save. You can upload another one afterwards.
-              </p>
-              <div className="flex w-full gap-2">
-                <button
-                  type="button"
-                  autoFocus
-                  onClick={() => setConfirmMaskRemove(false)}
-                  className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-all active:scale-95"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { removeActiveMask(); setConfirmMaskRemove(false); }}
-                  className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <RemoveMaskDialog
+          onCancel={() => setConfirmMaskRemove(false)}
+          onConfirm={() => { removeActiveMask(); setConfirmMaskRemove(false); }}
+        />
       )}
 
       {/* Compact Delete Confirmation Modal */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setDeleteConfirm(null)} />
-          <div className="relative bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-sm p-6">
-            <div className="flex flex-col items-center text-center">
-              <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-1">Delete Layout?</h3>
-              <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-                Delete <span className="font-bold text-slate-900">&quot;{deleteConfirm}&quot;</span>? This action is permanent and affects all users.
-              </p>
-
-              <div className="flex w-full gap-2">
-                <button
-                  onClick={() => setDeleteConfirm(null)}
-                  className="flex-1 px-4 py-2 text-sm bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-all active:scale-95"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    handleDeleteLayout(deleteConfirm);
-                    setDeleteConfirm(null);
-                  }}
-                  className="flex-1 px-4 py-2 text-sm bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all active:scale-95"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DeleteLayoutDialog
+          name={deleteConfirm}
+          onCancel={() => setDeleteConfirm(null)}
+          onConfirm={() => {
+            handleDeleteLayout(deleteConfirm);
+            setDeleteConfirm(null);
+          }}
+        />
       )}
 
           {/* View Specification Modal */}
           {selectedLayout && (
-            <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6">
-              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLayout(null)} />
-              <div className="relative bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col border border-slate-800">
-                <div className="flex items-center justify-between p-6 border-b border-slate-800">
-                  <h2 className="text-xl font-bold text-white">JSON Specification</h2>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleCopySpec(JSON.stringify(selectedLayout, null, 2))}
-                      aria-label="Copy JSON to clipboard"
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 hover:bg-slate-800 transition-colors"
-                    >
-                      {specCopied
-                        ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copied</>
-                        : <><Copy className="w-3.5 h-3.5" /> Copy</>}
-                    </button>
-                    <button onClick={() => setSelectedLayout(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400">
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-                  <pre className="text-indigo-400 font-mono text-xs leading-relaxed">
-                    {JSON.stringify(selectedLayout, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            </div>
+            <LayoutSpecModal
+              layout={selectedLayout}
+              copied={specCopied}
+              onCopy={handleCopySpec}
+              onClose={() => setSelectedLayout(null)}
+            />
           )}
 
           {/* Google Fonts Picker Modal */}
           {showFontModal && (
-            <div className="fixed inset-0 z-[200000] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFontModal(false)}>
-              <div className="bg-white rounded-xl shadow-xl ring-1 ring-slate-900/5 w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-                <div className="px-6 py-4 border-b flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-900">Google Fonts</h3>
-                  <button onClick={() => setShowFontModal(false)} className="p-1 text-slate-400 hover:text-slate-900 rounded"><X className="w-4 h-4" /></button>
-                </div>
-                <div className="px-6 py-3 border-b">
-                  <input type="text" placeholder="Search fonts..." value={fontSearch} onChange={e => setFontSearch(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
-                </div>
-                <div className="flex-1 overflow-y-auto px-6 py-3 space-y-1">
-                  {/* Google Fonts */}
-                  {googleFontsList.filter(f => f.toLowerCase().includes(fontSearch.toLowerCase())).map(f => (
-                    <label key={f} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer"
-                      onMouseEnter={() => loadGoogleFont(f)}>
-                      <input type="checkbox" checked={selectedFonts.includes(f)}
-                        onChange={e => {
-                          let next: string[];
-                          if (e.target.checked) {
-                            loadGoogleFont(f);
-                            next = [...selectedFonts, f];
-                          } else {
-                            next = selectedFonts.filter(x => x !== f);
-                          }
-                          setSelectedFonts(next);
-                          saveFontsToBackend(next);
-                        }}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                      <span className="text-sm text-slate-700" style={{ fontFamily: fontsLoaded.has(f) ? f : 'inherit' }}>{f}</span>
-                      <span className="text-[9px] text-slate-400 ml-auto uppercase">Google</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="px-6 py-3 border-t bg-slate-50 flex items-center justify-between">
-                  <span className="text-xs text-slate-500">
-                    {selectedFonts.length} font{selectedFonts.length !== 1 ? 's' : ''} selected
-                  </span>
-                  {isSavingFonts && <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />}
-                </div>
-              </div>
-            </div>
+            <FontPickerModal
+              search={fontSearch}
+              onSearch={setFontSearch}
+              selectedFonts={selectedFonts}
+              fontsLoaded={fontsLoaded}
+              loadGoogleFont={loadGoogleFont}
+              isSaving={isSavingFonts}
+              onChange={(next) => {
+                setSelectedFonts(next);
+                saveFontsToBackend(next);
+              }}
+              onClose={() => setShowFontModal(false)}
+            />
           )}
         </div>
       );
