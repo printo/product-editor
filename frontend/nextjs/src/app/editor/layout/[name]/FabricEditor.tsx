@@ -1058,7 +1058,9 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
     // bleed area, printed) and the frame picture (outside it, preview only)
     // on top of it, whatever order the two files arrive in.
     const { frameMaskUrl, artworkMaskUrl } = resolveMaskSlots(layout);
-    const loadMask = (src: string, role: 'artwork' | 'frame') => FabricImage.fromURL(src).then(maskImg => {
+    // crossOrigin, as in fabric-renderer.ts: the mask is served from the CDN,
+    // and without it the picture taints the canvas, so every toDataURL throws.
+    const loadMask = (src: string, role: 'artwork' | 'frame') => FabricImage.fromURL(src, { crossOrigin: 'anonymous' }).then(maskImg => {
       if (fc !== fabricRef.current || buildGenRef.current !== gen) return;
       const scaleX = canvasW / maskImg.width!;
       const scaleY = canvasH / maskImg.height!;

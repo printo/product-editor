@@ -210,7 +210,9 @@ export function CanvasEditorModal({
     // a raw snapshot comes out letterboxed with transparent padding — the
     // print content shrunk and centered inside an oddly-proportioned buffer.
     // The off-screen render always produces a clean, exactly-sized thumbnail.
-    const freshDataUrl = await renderCanvas(editingCanvas, null, true, false);
+    // Drawn as every other card is (a thumbnail, with the frame picture): an
+    // export-style render left the mug or frame off the card until a refresh.
+    const freshDataUrl = await renderCanvasCore(editingCanvas, layout, getFileUrl, { thumbnail: true });
     const updated = [...canvases];
     const overlays = markEditedTemplateOverlays(canvases[activeCanvasIdx]?.overlays ?? [], editingCanvas.overlays);
     updated[activeCanvasIdx] = { ...editingCanvas, overlays, dataUrl: freshDataUrl };
