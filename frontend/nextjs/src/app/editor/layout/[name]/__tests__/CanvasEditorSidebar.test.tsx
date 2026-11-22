@@ -185,10 +185,14 @@ describe('CanvasEditorSidebar — replacing the photo in a print area', () => {
     const next = (props.debouncedRender as jest.Mock).mock.calls[0][0] as CanvasItem;
     // Swapped, not lost: the added image left the canvas and the replaced photo floats in its place in the stack.
     expect(next.overlays).toHaveLength(1);
+    // It floats where the added image was, at that image's width and in its own shape: at the print area's
+    // size it would sit on top of the new main photo and hide it.
+    const box = addedPhotoBox(100, 200, 1200, 1800, added.type === 'image' ? added.width : 30);
     expect(next.overlays[0]).toMatchObject({
       type: 'image', source: 'local', originalFile: oldPhoto, label: 'old.jpg', opacity: 1, rotation: 90,
-      x: 0, y: 0, width: 100, height: 100,
+      x: 10, y: 20, width: box.width, height: box.height,
     });
+    expect((next.overlays[0] as { width: number }).width).toBeLessThan(100);
     expect(next.frames[0]).toMatchObject({
       originalFile: file, fileId: 'idb-9', fileName: 'new.jpg', fileSize: file.size,
       scale: 1, rotation: 0, offset: { x: 7, y: 9 }, fitMode: 'cover', fillStyle: 'blur',

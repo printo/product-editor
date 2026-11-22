@@ -422,7 +422,21 @@ export function CanvasEditorSidebar({
       : f);
     let overlays = editingCanvas.overlays;
     if (removeOverlayIdx !== undefined) {
-      const replaced = overlayFromFrame(fIdx);
+      let replaced = overlayFromFrame(fIdx);
+      const taken = editingCanvas.overlays[removeOverlayIdx];
+      if (replaced && taken?.type === 'image') {
+        // It floats where the added image was, as big as that was across and in its own
+        // shape. At the size of the print area it sat on top of the new main photo and hid it.
+        let size: { width: number; height: number } | null = null;
+        try {
+          const meta = await getImageMetadata(current.originalFile as File);
+          size = { width: meta.width, height: meta.height };
+        } catch { /* keep the added image's box */ }
+        const box = size
+          ? addedPhotoBox(size.width, size.height, layout?.canvas?.width || 1200, layout?.canvas?.height || 1800, taken.width)
+          : { width: taken.width, height: taken.height };
+        replaced = { ...replaced, x: taken.x, y: taken.y, ...box };
+      }
       overlays = replaced
         ? editingCanvas.overlays.map((o, i) => (i === removeOverlayIdx ? replaced : o))
         : editingCanvas.overlays.filter((_, i) => i !== removeOverlayIdx);
