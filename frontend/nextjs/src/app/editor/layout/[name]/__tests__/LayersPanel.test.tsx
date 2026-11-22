@@ -12,7 +12,7 @@ describe('LayersPanel', () => {
     const canvas: CanvasItem = { id: 0, frames: [], overlays, bgColor: '#fff', paperColor: '#fff', dataUrl: null };
     render(
       <LayersPanel editingCanvas={canvas} selected={null} onSelect={jest.fn()} onDeleteOverlay={jest.fn()}
-        onReorderOverlays={jest.fn()} onClearFrame={jest.fn()} onMoveFrameToOverlay={jest.fn()} />,
+        onReorderOverlays={jest.fn()} onClearFrame={jest.fn()} />,
     );
     // Added images are named by number; a sticker keeps its own name.
     expect(screen.getByText('Extra image 1 — missing')).toBeInTheDocument();
@@ -27,16 +27,30 @@ describe('LayersPanel', () => {
     const one: CanvasItem = { id: 0, frames: [frame(0)], overlays: [], bgColor: '#fff', paperColor: '#fff', dataUrl: null };
     const { rerender } = render(
       <LayersPanel editingCanvas={one} selected={null} onSelect={jest.fn()} onDeleteOverlay={jest.fn()}
-        onReorderOverlays={jest.fn()} onClearFrame={jest.fn()} onMoveFrameToOverlay={jest.fn()} />,
+        onReorderOverlays={jest.fn()} onClearFrame={jest.fn()} />,
     );
     expect(screen.getByText('Main photo')).toBeInTheDocument();
     expect(screen.queryByText('f0.jpg')).toBeNull();
     const two: CanvasItem = { ...one, frames: [frame(0), frame(1)] };
     rerender(
       <LayersPanel editingCanvas={two} selected={null} onSelect={jest.fn()} onDeleteOverlay={jest.fn()}
-        onReorderOverlays={jest.fn()} onClearFrame={jest.fn()} onMoveFrameToOverlay={jest.fn()} />,
+        onReorderOverlays={jest.fn()} onClearFrame={jest.fn()} />,
     );
     expect(screen.getByText('Main photo 1')).toBeInTheDocument();
     expect(screen.getByText('Main photo 2')).toBeInTheDocument();
+  });
+
+  it('the Main photo row has no up-arrow: it only resets, and the extra images keep theirs', () => {
+    const frame = { id: 0, originalFile: new File(['x'], 'f.jpg'), offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: 'cover' as const };
+    const extra = { id: 'a', type: 'image', source: 'local', originalFile: new File(['x'], 'a.png'), src: 'blob:a', label: 'a.png' } as unknown as Overlay;
+    const canvas: CanvasItem = { id: 0, frames: [frame], overlays: [extra, { ...extra, id: 'b' } as Overlay], bgColor: '#fff', paperColor: '#fff', dataUrl: null };
+    render(
+      <LayersPanel editingCanvas={canvas} selected={null} onSelect={jest.fn()} onDeleteOverlay={jest.fn()}
+        onReorderOverlays={jest.fn()} onClearFrame={jest.fn()} />,
+    );
+    expect(screen.queryByTitle('Make an extra image')).toBeNull();
+    expect(screen.queryByTitle('Bring to Top')).toBeNull();
+    expect(screen.getByTitle('Clear')).toBeInTheDocument();
+    expect(screen.getAllByTitle('Move Up').length).toBeGreaterThan(0);
   });
 });

@@ -565,23 +565,6 @@ export function CanvasEditorSidebar({
             }));
             debouncedRender({ ...editingCanvas, frames: updatedFrames });
           }}
-          onMoveFrameToOverlay={(fIdx, targetOIdx) => {
-            const newOverlay = overlayFromFrame(fIdx);
-            if (!newOverlay) return;
-            pushUndo(editingCanvas, true);
-
-            const newOverlays = [...editingCanvas.overlays];
-            newOverlays.splice(targetOIdx, 0, newOverlay);
-            
-            // Important: We don't remove the frame because the layout requires N frames.
-            // We just clear its content so it's not redundant.
-            const newFrames = editingCanvas.frames.map((f, i) => 
-              i === fIdx ? { ...f, originalFile: null, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f
-            );
-
-            debouncedRender({ ...editingCanvas, overlays: newOverlays, frames: newFrames });
-            setSelectedLayer({ type: 'image', index: targetOIdx });
-          }}
         />
   );
 

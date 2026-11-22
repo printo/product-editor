@@ -20,14 +20,13 @@ interface LayersPanelProps {
   onDeleteOverlay: (idx: number) => void;
   onReorderOverlays: (overlays: Overlay[]) => void;
   onClearFrame: (idx: number) => void;
-  onMoveFrameToOverlay: (fIdx: number, targetOIdx: number) => void;
   /** The phone sheet's Layers tab: no collapsing header, and rows and their
    *  buttons sized for a finger and always shown (a phone has no hover). */
   alwaysOpen?: boolean;
 }
 
 export function LayersPanel({
-  editingCanvas, selected, onSelect, onDeleteOverlay, onReorderOverlays, onClearFrame, onMoveFrameToOverlay,
+  editingCanvas, selected, onSelect, onDeleteOverlay, onReorderOverlays, onClearFrame,
   alwaysOpen = false,
 }: LayersPanelProps) {
   const [expanded, setExpanded] = useState(false);
@@ -49,13 +48,6 @@ export function LayersPanel({
     newOverlays.splice(targetIdx, 0, moved);
     onReorderOverlays(newOverlays);
     onSelect({ type: moved.type, index: targetIdx });
-  };
-
-  const handleMoveFrameToTop = (fIdx: number) => {
-    // Moves frame to the bottom of overlays (which is top-most visually in reverse order)
-    // ONLY if there are other layers to move over
-    if (overlays.length === 0) return;
-    onMoveFrameToOverlay(fIdx, overlays.length);
   };
 
   return (
@@ -148,7 +140,6 @@ export function LayersPanel({
           {/* Frames - Always at bottom */}
           {frames.map((frame, fIdx) => {
             const isSelected = selected?.type === 'frame' && selected.index === fIdx;
-            const hasOverlays = overlays.length > 0;
 
             return (
               <div
@@ -171,15 +162,6 @@ export function LayersPanel({
                 </span>
                 
                 <div className={actionsClass}>
-                  {frame.originalFile && hasOverlays && (
-                    <button
-                      onClick={e => { e.stopPropagation(); handleMoveFrameToTop(fIdx); }}
-                      className={clsx(actionSize, 'flex items-center justify-center text-emerald-500 hover:bg-emerald-50 rounded-md transition-all')}
-                      title="Make an extra image"
-                    >
-                      <ChevronUp className={actionIcon} />
-                    </button>
-                  )}
                   <button
                     onClick={e => { e.stopPropagation(); onClearFrame(fIdx); }}
                     className={clsx(actionSize, 'flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all')}
