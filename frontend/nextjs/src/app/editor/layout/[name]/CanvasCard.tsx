@@ -25,6 +25,15 @@ const LOST_IMAGE_TEXT = 'Image not on this device — tap to fix';
 // for the same phone reason as above.
 const UNPRINTABLE_TEXT = 'Some text won’t print — tap to fix';
 const LOST_BADGE_CLASS ='absolute bottom-2 left-2 max-w-[calc(100%-4rem)] z-20 flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold leading-tight text-left shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors';
+// The quick-action rail. A column down the card's right edge, which folds into
+// a second column (towards the middle) when the card is too short to hold it:
+// the preview box clips what hangs out of it, and on a phone a wide, short
+// card (a mug: 86vw wide, about 150px tall) cut the rail off after four
+// buttons, leaving Swap and Remove out of reach (seen on an iPhone inside
+// printo.in, 2026-11-22). Rows are the button's own height (p-2 + a 14px
+// icon); `auto-fit` against the max-height gives as many as the card holds.
+// The touch reach is half the gap all round, so two columns never overlap.
+const QUICK_RAIL_CLASS = 'absolute top-2 right-2 z-20 grid grid-flow-col grid-rows-[repeat(auto-fit,1.875rem)] [direction:rtl] max-h-[calc(100%-1rem)] gap-1.5 p-1.5 [--touch-hit:-3px] bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm';
 
 /** What every card needs from the page: drag and pan, the quick actions, tap-to-swap. */
 export type CardProps = {
@@ -227,7 +236,7 @@ export function SurfaceCard({
               </div>
             ))}
 
-            <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 [--touch-hit:-3px_-7px] bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm">
+            <div className={QUICK_RAIL_CLASS}>
               <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="touch-hit p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 motion-safe:hover:scale-105 transition-all" title="Rotate 90°">
                 <RotateCw className="w-3.5 h-3.5" />
               </button>
@@ -451,7 +460,7 @@ export function CanvasCard({
           </div>
         ))}
 
-        <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 [--touch-hit:-3px_-7px] bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm">
+        <div className={QUICK_RAIL_CLASS}>
           <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="touch-hit p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 motion-safe:hover:scale-105 transition-all" title="Rotate 90°">
             <RotateCw className="w-3.5 h-3.5" />
           </button>
