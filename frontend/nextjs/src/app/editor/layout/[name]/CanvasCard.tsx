@@ -10,6 +10,7 @@ import { FEW_CARDS, activatesCard, canvasCardWidthClass, canvasCardStyle, isLost
 import { UNPRINTABLE_HELP } from './EditorNotices';
 import { restoreNoteForCard, type RestoredPhotoStatus } from './restored-photos';
 import type { CanvasItem, SurfaceState } from './types';
+import { useQuickRailBelow } from './useQuickRailBelow';
 
 type CardTarget = { idx: number; surfaceKey: string | null } | null;
 
@@ -25,15 +26,16 @@ const LOST_IMAGE_TEXT = 'Image not on this device — tap to fix';
 // for the same phone reason as above.
 const UNPRINTABLE_TEXT = 'Some text won’t print — tap to fix';
 const LOST_BADGE_CLASS ='absolute bottom-2 left-2 max-w-[calc(100%-4rem)] z-20 flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold leading-tight text-left shadow-sm bg-amber-50/90 border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors';
-// The quick-action rail. A column down the card's right edge, which folds into
-// a second column (towards the middle) when the card is too short to hold it:
-// the preview box clips what hangs out of it, and on a phone a wide, short
-// card (a mug: 86vw wide, about 150px tall) cut the rail off after four
-// buttons, leaving Swap and Remove out of reach (seen on an iPhone inside
-// printo.in, 2026-11-22). Rows are the button's own height (p-2 + a 14px
-// icon); `auto-fit` against the max-height gives as many as the card holds.
-// The touch reach is half the gap all round, so two columns never overlap.
-const QUICK_RAIL_CLASS = 'absolute top-2 right-2 z-20 grid grid-flow-col grid-rows-[repeat(auto-fit,1.875rem)] [direction:rtl] max-h-[calc(100%-1rem)] gap-1.5 p-1.5 [--touch-hit:-3px] bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm';
+// The quick-action rail: a column down the picture's right edge. When the
+// picture is too short to hold it (`useQuickRailBelow`; a mug on a phone is
+// 86vw wide and about 150px tall) the same buttons become a row under the
+// picture instead, so nothing is clipped and nothing covers the photo. Until
+// 2026-11-22 the preview box cut the rail off after four buttons and Swap
+// and Remove could not be reached (seen on an iPhone inside printo.in). The
+// touch reach is the long way along the free axis and half the gap along the
+// other, so two neighbours never overlap.
+const QUICK_RAIL_CLASS = 'absolute top-2 right-2 flex flex-col gap-1.5 z-20 p-1.5 [--touch-hit:-3px_-7px] bg-white/40 backdrop-blur-md rounded-[10px] border border-white/40 shadow-sm';
+const QUICK_ROW_CLASS = 'flex flex-wrap justify-end gap-1.5 px-2 py-2 [--touch-hit:-7px_-3px] bg-white border-t border-slate-100';
 
 /** What every card needs from the page: drag and pan, the quick actions, tap-to-swap. */
 export type CardProps = {
@@ -137,10 +139,83 @@ export function SurfaceCard({
   restoredPhotoStatus, retryRestoredPhotos, openingCard,
 }: CardProps & { surface: SurfaceState; sideCount: number }) {
     const restoreProps = { restoredPhotoStatus, retryRestoredPhotos, openingCard };
+    const [previewRef, railBelow] = useQuickRailBelow();
     const cw = surface.def.canvas?.width || 1200;
     const ch = surface.def.canvas?.height || 1800;
     const surfaceCanvas = surface.canvases[0] || null;
     const fewSides = sideCount <= FEW_CARDS;
+    const rail = (
+      <div className={railBelow ? QUICK_ROW_CLASS : QUICK_RAIL_CLASS}>
+        <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="touch-hit p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 motion-safe:hover:scale-105 transition-all" title="Rotate 90°">
+          <RotateCw className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(0, surface.key); }}
+          className="touch-hit p-2 bg-emerald-50/80 text-emerald-600 rounded-lg hover:bg-emerald-100 motion-safe:hover:scale-105 transition-all"
+          title={surfaceCanvas?.frames.some(f => f.fitMode === 'contain')
+            ? 'Switch to Cover'
+            : 'Switch to Fit'}
+        >
+          <Maximize className="w-3.5 h-3.5" />
+        </button>
+        {/* Set Background Color — hidden from the UI on request, kept in
+            source in case it needs to come back. handleQuickSetBg itself
+            is untouched.
+        <div className="relative">
+          <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="touch-hit p-2 bg-amber-50/80 text-amber-600 rounded-lg hover:bg-amber-100 motion-safe:hover:scale-105 transition-all" title="Set Background Color">
+            <Palette className="w-3.5 h-3.5" />
+          </button>
+          <input
+            type="color"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none"
+            value={surfaceCanvas?.bgColor || '#ffffff'}
+            onChange={(e) => handleQuickSetBg(0, e.target.value, surface.key)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+        */}
+        <button
+          onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(0, surface.key); }}
+          aria-label="Blur effect" aria-pressed={surfaceCanvas?.frames.some(f => f.fillStyle === 'blur') ?? false}
+          className={clsx('touch-hit p-2 rounded-lg motion-safe:hover:scale-105 transition-all',
+            surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
+              ? 'bg-indigo-600 text-white'
+              : 'bg-cyan-50/80 text-cyan-600 hover:bg-cyan-100')}
+          title={surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
+            ? 'Remove Blur'
+            : 'Add Blur'}
+        >
+          <Droplets className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setSwapSource(prev =>
+              prev && prev.idx === 0 && prev.surfaceKey === surface.key ? null : { idx: 0, surfaceKey: surface.key }
+            );
+          }}
+          className={clsx('touch-hit p-2 rounded-lg motion-safe:hover:scale-105 transition-all block md:hidden',
+            swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key
+              ? 'bg-indigo-600 text-white'
+              : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
+          aria-pressed={swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key}
+          title="Swap Photo"
+        >
+          <ArrowLeftRight className="w-3.5 h-3.5" />
+        </button>
+        {/* Quick-download — hidden from the UI on request, kept in
+            source in case it needs to come back. handleQuickDownload
+            itself is untouched.
+        <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="touch-hit p-2 bg-slate-100/80 text-slate-700 rounded-lg hover:bg-slate-200 motion-safe:hover:scale-105 transition-all" title="Download">
+          <Download className="w-3.5 h-3.5" />
+        </button>
+        */}
+        <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="touch-hit p-2 bg-rose-50/80 text-rose-600 rounded-lg hover:bg-rose-100 motion-safe:hover:scale-105 transition-all" title="Remove Photo">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+
     return (
       <div 
         // On a phone the sides are stacked, and a side as wide as a single
@@ -177,6 +252,7 @@ export function SurfaceCard({
           onKeyDown={(e) => { if (activatesCard(e)) { e.preventDefault(); handleCardClick(0, surface.key); } }}
         >
           <div
+            ref={previewRef}
             className={clsx(
               'relative overflow-hidden bg-slate-100',
               repositionMode && 'cursor-grab active:cursor-grabbing touch-none',
@@ -236,76 +312,9 @@ export function SurfaceCard({
               </div>
             ))}
 
-            <div className={QUICK_RAIL_CLASS}>
-              <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(0, surface.key); }} className="touch-hit p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 motion-safe:hover:scale-105 transition-all" title="Rotate 90°">
-                <RotateCw className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(0, surface.key); }}
-                className="touch-hit p-2 bg-emerald-50/80 text-emerald-600 rounded-lg hover:bg-emerald-100 motion-safe:hover:scale-105 transition-all"
-                title={surfaceCanvas?.frames.some(f => f.fitMode === 'contain')
-                  ? 'Switch to Cover'
-                  : 'Switch to Fit'}
-              >
-                <Maximize className="w-3.5 h-3.5" />
-              </button>
-              {/* Set Background Color — hidden from the UI on request, kept in
-                  source in case it needs to come back. handleQuickSetBg itself
-                  is untouched.
-              <div className="relative">
-                <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="touch-hit p-2 bg-amber-50/80 text-amber-600 rounded-lg hover:bg-amber-100 motion-safe:hover:scale-105 transition-all" title="Set Background Color">
-                  <Palette className="w-3.5 h-3.5" />
-                </button>
-                <input
-                  type="color"
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none"
-                  value={surfaceCanvas?.bgColor || '#ffffff'}
-                  onChange={(e) => handleQuickSetBg(0, e.target.value, surface.key)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-              */}
-              <button
-                onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(0, surface.key); }}
-                aria-label="Blur effect" aria-pressed={surfaceCanvas?.frames.some(f => f.fillStyle === 'blur') ?? false}
-                className={clsx('touch-hit p-2 rounded-lg motion-safe:hover:scale-105 transition-all',
-                  surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-cyan-50/80 text-cyan-600 hover:bg-cyan-100')}
-                title={surfaceCanvas?.frames.some(f => f.fillStyle === 'blur')
-                  ? 'Remove Blur'
-                  : 'Add Blur'}
-              >
-                <Droplets className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSwapSource(prev =>
-                    prev && prev.idx === 0 && prev.surfaceKey === surface.key ? null : { idx: 0, surfaceKey: surface.key }
-                  );
-                }}
-                className={clsx('touch-hit p-2 rounded-lg motion-safe:hover:scale-105 transition-all block md:hidden',
-                  swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
-                aria-pressed={swapSource?.idx === 0 && swapSource?.surfaceKey === surface.key}
-                title="Swap Photo"
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5" />
-              </button>
-              {/* Quick-download — hidden from the UI on request, kept in
-                  source in case it needs to come back. handleQuickDownload
-                  itself is untouched.
-              <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(0, surface.key); }} className="touch-hit p-2 bg-slate-100/80 text-slate-700 rounded-lg hover:bg-slate-200 motion-safe:hover:scale-105 transition-all" title="Download">
-                <Download className="w-3.5 h-3.5" />
-              </button>
-              */}
-              <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(0, surface.key); }} className="touch-hit p-2 bg-rose-50/80 text-rose-600 rounded-lg hover:bg-rose-100 motion-safe:hover:scale-105 transition-all" title="Remove Photo">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            {!railBelow && rail}
           </div>
+          {railBelow && rail}
           <div className="px-3 py-2 flex items-center justify-between bg-white border-t border-slate-50">
             <span className="text-[10px] font-bold text-slate-500">{surface.def.canvas?.widthMm}×{surface.def.canvas?.heightMm}mm</span>
           </div>
@@ -337,6 +346,84 @@ export function CanvasCard({
   // the grid only.
   const photoZone = children ? photoZoneOf(layout.frames, layout.canvas) : null;
   const restoreProps = { restoredPhotoStatus, retryRestoredPhotos, openingCard };
+  const [previewRef, railBelow] = useQuickRailBelow();
+  const rail = (
+    <div className={railBelow ? QUICK_ROW_CLASS : QUICK_RAIL_CLASS}>
+      <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="touch-hit p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 motion-safe:hover:scale-105 transition-all" title="Rotate 90°">
+        <RotateCw className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(idx); }}
+        className="touch-hit p-2 bg-emerald-50/80 text-emerald-600 rounded-lg hover:bg-emerald-100 motion-safe:hover:scale-105 transition-all"
+        title={canvas.frames.some(f => f.fitMode === 'contain')
+          ? 'Switch to Cover'
+          : 'Switch to Fit'}
+      >
+        <Maximize className="w-3.5 h-3.5" />
+      </button>
+      {/* Set Background Color — hidden from the UI on request, kept in
+          source in case it needs to come back. handleQuickSetBg itself
+          is untouched.
+      <div className="relative">
+        <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="touch-hit p-2 bg-amber-50/80 text-amber-600 rounded-lg hover:bg-amber-100 motion-safe:hover:scale-105 transition-all" title="Set Background Color">
+          <Palette className="w-3.5 h-3.5" />
+        </button>
+        <input
+          type="color"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none"
+          value={canvas.bgColor || '#ffffff'}
+          onChange={(e) => handleQuickSetBg(idx, e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+      */}
+      {(layout.frames?.length || 1) === 1 && (
+        <button onClick={(e) => { e.stopPropagation(); requestReplacePhoto(idx, 0); }} className="touch-hit p-2 bg-sky-50/80 text-sky-600 rounded-lg hover:bg-sky-100 motion-safe:hover:scale-105 transition-all" title="Replace Photo">
+          <ImagePlus className="w-3.5 h-3.5" />
+        </button>
+      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(idx); }}
+        aria-label="Blur effect" aria-pressed={canvas.frames.some(f => f.fillStyle === 'blur')}
+        className={clsx('touch-hit p-2 rounded-lg motion-safe:hover:scale-105 transition-all',
+          canvas.frames.some(f => f.fillStyle === 'blur')
+            ? 'bg-indigo-600 text-white'
+            : 'bg-cyan-50/80 text-cyan-600 hover:bg-cyan-100')}
+        title={canvas.frames.some(f => f.fillStyle === 'blur')
+          ? 'Remove Blur'
+          : 'Add Blur'}
+      >
+        <Droplets className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setSwapSource(prev =>
+            prev && prev.idx === idx && prev.surfaceKey === null ? null : { idx, surfaceKey: null }
+          );
+        }}
+        className={clsx('touch-hit p-2 rounded-lg motion-safe:hover:scale-105 transition-all block md:hidden',
+          swapSource?.idx === idx && swapSource?.surfaceKey === null
+            ? 'bg-indigo-600 text-white'
+            : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
+        aria-pressed={swapSource?.idx === idx && swapSource?.surfaceKey === null}
+        title="Swap Photo"
+      >
+        <ArrowLeftRight className="w-3.5 h-3.5" />
+      </button>
+      {/* Quick-download — hidden from the UI on request, kept in
+          source in case it needs to come back. handleQuickDownload
+          itself is untouched.
+      <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(idx); }} className="touch-hit p-2 bg-slate-100/80 text-slate-700 rounded-lg hover:bg-slate-200 motion-safe:hover:scale-105 transition-all" title="Download">
+        <Download className="w-3.5 h-3.5" />
+      </button>
+      */}
+      <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(idx); }} className="touch-hit p-2 bg-rose-50/80 text-rose-600 rounded-lg hover:bg-rose-100 motion-safe:hover:scale-105 transition-all" title="Remove Photo">
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+
   return (
     <div className={canvasCardWidthClass(cardCount)} style={canvasCardStyle(layout.canvas?.width || 1200, layout.canvas?.height || 1800)}>
       {/* Deliberately outside the bordered card below — this is a UI
@@ -379,6 +466,7 @@ export function CanvasCard({
         onDrop={(e) => handleDrop(e, idx)}
       >
         <div
+          ref={previewRef}
           className={clsx(
             'relative overflow-hidden bg-slate-100',
             repositionMode && 'cursor-grab active:cursor-grabbing touch-none',
@@ -460,81 +548,9 @@ export function CanvasCard({
           </div>
         ))}
 
-        <div className={QUICK_RAIL_CLASS}>
-          <button onClick={(e) => { e.stopPropagation(); handleQuickRotate(idx); }} className="touch-hit p-2 bg-indigo-50/80 text-indigo-600 rounded-lg hover:bg-indigo-100 motion-safe:hover:scale-105 transition-all" title="Rotate 90°">
-            <RotateCw className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleQuickToggleFit(idx); }}
-            className="touch-hit p-2 bg-emerald-50/80 text-emerald-600 rounded-lg hover:bg-emerald-100 motion-safe:hover:scale-105 transition-all"
-            title={canvas.frames.some(f => f.fitMode === 'contain')
-              ? 'Switch to Cover'
-              : 'Switch to Fit'}
-          >
-            <Maximize className="w-3.5 h-3.5" />
-          </button>
-          {/* Set Background Color — hidden from the UI on request, kept in
-              source in case it needs to come back. handleQuickSetBg itself
-              is untouched.
-          <div className="relative">
-            <button onClick={(e) => { e.stopPropagation(); const el = e.currentTarget.nextElementSibling as HTMLInputElement; if (el) el.click(); }} className="touch-hit p-2 bg-amber-50/80 text-amber-600 rounded-lg hover:bg-amber-100 motion-safe:hover:scale-105 transition-all" title="Set Background Color">
-              <Palette className="w-3.5 h-3.5" />
-            </button>
-            <input
-              type="color"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none"
-              value={canvas.bgColor || '#ffffff'}
-              onChange={(e) => handleQuickSetBg(idx, e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-          */}
-          {(layout.frames?.length || 1) === 1 && (
-            <button onClick={(e) => { e.stopPropagation(); requestReplacePhoto(idx, 0); }} className="touch-hit p-2 bg-sky-50/80 text-sky-600 rounded-lg hover:bg-sky-100 motion-safe:hover:scale-105 transition-all" title="Replace Photo">
-              <ImagePlus className="w-3.5 h-3.5" />
-            </button>
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); handleQuickToggleBlur(idx); }}
-            aria-label="Blur effect" aria-pressed={canvas.frames.some(f => f.fillStyle === 'blur')}
-            className={clsx('touch-hit p-2 rounded-lg motion-safe:hover:scale-105 transition-all',
-              canvas.frames.some(f => f.fillStyle === 'blur')
-                ? 'bg-indigo-600 text-white'
-                : 'bg-cyan-50/80 text-cyan-600 hover:bg-cyan-100')}
-            title={canvas.frames.some(f => f.fillStyle === 'blur')
-              ? 'Remove Blur'
-              : 'Add Blur'}
-          >
-            <Droplets className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setSwapSource(prev =>
-                prev && prev.idx === idx && prev.surfaceKey === null ? null : { idx, surfaceKey: null }
-              );
-            }}
-            className={clsx('touch-hit p-2 rounded-lg motion-safe:hover:scale-105 transition-all block md:hidden',
-              swapSource?.idx === idx && swapSource?.surfaceKey === null
-                ? 'bg-indigo-600 text-white'
-                : 'bg-violet-50/80 text-violet-600 hover:bg-violet-100')}
-            aria-pressed={swapSource?.idx === idx && swapSource?.surfaceKey === null}
-            title="Swap Photo"
-          >
-            <ArrowLeftRight className="w-3.5 h-3.5" />
-          </button>
-          {/* Quick-download — hidden from the UI on request, kept in
-              source in case it needs to come back. handleQuickDownload
-              itself is untouched.
-          <button onClick={(e) => { e.stopPropagation(); handleQuickDownload(idx); }} className="touch-hit p-2 bg-slate-100/80 text-slate-700 rounded-lg hover:bg-slate-200 motion-safe:hover:scale-105 transition-all" title="Download">
-            <Download className="w-3.5 h-3.5" />
-          </button>
-          */}
-          <button onClick={(e) => { e.stopPropagation(); handleQuickDelete(idx); }} className="touch-hit p-2 bg-rose-50/80 text-rose-600 rounded-lg hover:bg-rose-100 motion-safe:hover:scale-105 transition-all" title="Remove Photo">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        {!railBelow && rail}
       </div>
+      {railBelow && rail}
     </div>
   </div>
   );
