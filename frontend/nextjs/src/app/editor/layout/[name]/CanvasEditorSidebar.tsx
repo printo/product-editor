@@ -363,6 +363,35 @@ export function CanvasEditorSidebar({
     setSelectedLayer({ type: 'frame', index: 0 });
   };
 
+  // Puts a photo into a print area at the default fit: the area keeps the Fit /
+  // Cover choice it has, the photo starts unzoomed, unturned and (in Cover)
+  // smart-cropped, whatever the photo it replaces was set to. An added image it
+  // came from (removeOverlayIdx) is taken off the canvas so it is not there twice.
+  const placeInFrame = async (fIdx: number, file: File, fileId?: string, removeOverlayIdx?: number) => {
+    const current = editingCanvas.frames[fIdx];
+    if (!current) return;
+    pushUndo(editingCanvas, true);
+    let offset = { x: 0, y: 0 };
+    if (current.fitMode === 'cover') {
+      const { element } = await getImageMetadata(file);
+      const canvasW = layout?.canvas?.width || 1200;
+      const canvasH = layout?.canvas?.height || 1800;
+      const frameSpec = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
+      const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+      const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+      const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+      offset = await calculateSmartCropOffsets(element, fw, fh, 0, fileId ? `${fileId}:${fw}x${fh}:0` : undefined);
+    }
+    const frames = editingCanvas.frames.map((f, i) => i === fIdx
+      ? { ...f, originalFile: file, fileId, fileName: file.name, fileSize: file.size, offset, scale: 1, rotation: 0 }
+      : f);
+    const overlays = removeOverlayIdx === undefined
+      ? editingCanvas.overlays
+      : editingCanvas.overlays.filter((_, i) => i !== removeOverlayIdx);
+    debouncedRender({ ...editingCanvas, frames, overlays });
+    setSelectedLayer({ type: 'frame', index: fIdx });
+  };
+
   // PDF pages are expanded first (see pdf-import.ts), then iPhone HEIC photos
   // are converted to JPEG (see heic-convert.ts), then unsupported types (e.g.
   // .svg) are dropped — they'd preview in the browser but fail to render
@@ -585,6 +614,22 @@ export function CanvasEditorSidebar({
           );
           return (
             <div className="space-y-1 md:space-y-3">
+              {!frame.originalFile && (
+                <label className="group w-full flex items-center justify-center gap-3 p-3 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg text-indigo-600 hover:bg-white hover:border-indigo-200 transition-all cursor-pointer">
+                  <ImagePlus className="w-5 h-5 shrink-0" />
+                  <span className="text-[11px] font-medium uppercase">
+                    {editingCanvas.frames.length > 1 ? `Add photo to slot ${fIdx + 1}` : 'Add photo'}
+                  </span>
+                  <input type="file" accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
+                    onChange={async e => {
+                      const picked = Array.from(e.target.files ?? []);
+                      e.target.value = '';
+                      if (!picked.length) return;
+                      const [file] = await prepareImageFiles(picked, 1);
+                      if (file) await placeInFrame(fIdx, file);
+                    }} />
+                </label>
+              )}
               {/* Fit */}
               <div className="flex items-center gap-4 py-1 md:py-2 bg-transparent">
                 <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">Fit Mode</label>
@@ -769,6 +814,21 @@ export function CanvasEditorSidebar({
                               if (picked.length) void replaceLostImage(picked);
                             }} />
                         </label>
+                      </div>
+                    )}
+                    {imgOverlay.originalFile && !isLostLocalImage(imgOverlay) && editingCanvas.frames.length > 0 && (
+                      <div className="space-y-1.5">
+                        {editingCanvas.frames.map((f, i) => (
+                          <button key={i} type="button"
+                            onClick={() => void placeInFrame(i, imgOverlay.originalFile as File, imgOverlay.fileId, oIdx)}
+                            title="Print this image in the print area instead of floating it on top. It starts at the default fit."
+                            className="w-full min-h-9 px-3 py-1.5 flex items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] font-medium uppercase text-indigo-700 hover:bg-indigo-100 transition-colors">
+                            <ImagePlus className="w-4 h-4 shrink-0" />
+                            {editingCanvas.frames.length === 1
+                              ? 'Use as print-area photo'
+                              : `Use as photo in slot ${i + 1}`}
+                          </button>
+                        ))}
                       </div>
                     )}
                     <OpacityControl value={imgOverlay.opacity} tone="rose" onChange={opacity => updateImage({ opacity })} />

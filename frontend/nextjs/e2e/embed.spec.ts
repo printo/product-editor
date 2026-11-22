@@ -201,6 +201,27 @@ test.describe('embed editor (customer iframe)', () => {
     await editor.getByRole('button', { name: 'Close editor' }).click();
   });
 
+  test('an added image can become the print-area photo, and the area then has the new photo', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    const saves = recordAutosaves(page);
+    await openEmbedEditor(page, token);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await cards(page).first().click();
+    const editor = page.getByRole('dialog', { name: 'Canvas editor' });
+    await expect(editor).toBeVisible();
+    await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
+    await editor.locator('input[type="file"]').first().setInputFiles(PHOTOS.square);
+    await expect(editor.getByText('Image Overlay')).toBeVisible();
+
+    await editor.getByRole('button', { name: /Use as print-area photo/ }).click();
+    await expect(editor.getByText('Image Overlay')).toHaveCount(0);
+    await expect(editor.getByText('Fit Mode')).toBeVisible();
+
+    await editor.getByRole('button', { name: /save/i }).first().click();
+    await expect(editor).toBeHidden();
+    await expect.poll(() => photoOrder(saves.at(-1)), { timeout: 30_000 }).toEqual(['square-2400x2400.jpg']);
+  });
+
   test('an incomplete photo asks first: the prompt takes focus, and Escape cancels the pick', async ({ page }) => {
     const { token } = await createEmbedSession();
     await openEmbedEditor(page, token);

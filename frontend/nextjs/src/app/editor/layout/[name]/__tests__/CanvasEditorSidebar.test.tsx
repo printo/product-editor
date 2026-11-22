@@ -12,15 +12,21 @@ const canvasWith = (overlays: Overlay[]): CanvasItem => ({
   frames: [{ id: 0, originalFile: null, offset: { x: 0, y: 0 }, scale: 1, rotation: 0, fitMode: 'cover' }],
 });
 
-function setup(overlays: Overlay[], selectedLayer: LayerSelection = { type: 'image', index: 0 }) {
+function setup(
+  overlays: Overlay[],
+  selectedLayer: LayerSelection = { type: 'image', index: 0 },
+  canvas: CanvasItem = canvasWith(overlays),
+  overrides: Partial<CanvasEditorSidebarProps> = {},
+) {
   const props: CanvasEditorSidebarProps = {
-    editingCanvas: canvasWith(overlays),
+    editingCanvas: canvas,
     layout: { canvas: { width: 1200, height: 1800 }, frames: [{ x: 0, y: 0, width: 1, height: 1 }] },
     selectedLayer, setSelectedLayer: jest.fn(),
     handleAlign: jest.fn(), handleOverlayAlign: jest.fn(), handleUpdateTransform: jest.fn(), handleSaveChanges: jest.fn(),
     getFileUrl: jest.fn((f: File) => `blob:${f.name}`), debouncedRender: jest.fn(), pushUndo: jest.fn(),
     loadGoogleFont: jest.fn(), selectedFonts: [], getImageMetadata: jest.fn(), calculateSmartCropOffsets: jest.fn(),
     expandPdfPages: jest.fn(async (files: File[]) => files),
+    ...overrides,
   };
   render(<CanvasEditorSidebar {...props} />);
   return props;
@@ -147,6 +153,76 @@ describe('CanvasEditorSidebar — the phone sheet', () => {
     const props = setup([text], { type: 'text', index: 0 });
     fireEvent.click(screen.getByRole('button', { name: 'Image' }));
     expect(props.setSelectedLayer).toHaveBeenCalledWith({ type: 'frame', index: 0 });
+  });
+});
+
+describe('CanvasEditorSidebar — replacing the photo in a print area', () => {
+  const file = new File(['x'], 'new.jpg', { type: 'image/jpeg' });
+  const added = {
+    id: 'o1', type: 'image', source: 'local', fileId: 'idb-9', src: 'blob:new', originalFile: file, label: 'new.jpg',
+    x: 10, y: 20, width: 30, height: 15, rotation: 45, opacity: 0.5,
+  } as Overlay;
+  const oldPhoto = new File(['old'], 'old.jpg', { type: 'image/jpeg' });
+  const frame = (over: Partial<CanvasItem['frames'][number]> = {}) => ({
+    id: 0, originalFile: oldPhoto, offset: { x: 40, y: -30 }, scale: 1.8, rotation: 90, fitMode: 'cover' as const, ...over,
+  });
+  const canvas = (frames: CanvasItem['frames'], overlays: Overlay[] = [added]): CanvasItem => ({
+    id: 0, overlays, bgColor: '#fff', paperColor: '#fff', dataUrl: null, frames,
+  });
+  const makeMetadata = () => ({
+    getImageMetadata: jest.fn(async () => ({ width: 100, height: 200, orientation: 1, element: {} as HTMLImageElement })),
+    calculateSmartCropOffsets: jest.fn(async () => ({ x: 7, y: 9 })),
+  });
+  let metadata = makeMetadata();
+  beforeEach(() => { metadata = makeMetadata(); });
+
+  it('"Use as print-area photo" puts the image in the area at the default fit and takes the overlay off', async () => {
+    const props = setup([added], { type: 'image', index: 0 }, canvas([frame({ fillStyle: 'blur' })]), metadata);
+    fireEvent.click(screen.getByRole('button', { name: /Use as print-area photo/ }));
+    await waitFor(() => expect(props.debouncedRender).toHaveBeenCalled());
+    const next = (props.debouncedRender as jest.Mock).mock.calls[0][0] as CanvasItem;
+    expect(next.overlays).toHaveLength(0);
+    expect(next.frames[0]).toMatchObject({
+      originalFile: file, fileId: 'idb-9', fileName: 'new.jpg', fileSize: file.size,
+      scale: 1, rotation: 0, offset: { x: 7, y: 9 }, fitMode: 'cover', fillStyle: 'blur',
+    });
+    expect(props.setSelectedLayer).toHaveBeenCalledWith({ type: 'frame', index: 0 });
+  });
+
+  it('in Fit the new photo starts centred, with no smart crop', async () => {
+    const props = setup([added], { type: 'image', index: 0 }, canvas([frame({ fitMode: 'contain' })]), metadata);
+    fireEvent.click(screen.getByRole('button', { name: /Use as print-area photo/ }));
+    await waitFor(() => expect(props.debouncedRender).toHaveBeenCalled());
+    const next = (props.debouncedRender as jest.Mock).mock.calls[0][0] as CanvasItem;
+    expect(next.frames[0]).toMatchObject({ fitMode: 'contain', offset: { x: 0, y: 0 }, scale: 1, rotation: 0 });
+    expect(metadata.calculateSmartCropOffsets).not.toHaveBeenCalled();
+  });
+
+  it('a layout with several print areas offers one button per slot', () => {
+    setup([added], { type: 'image', index: 0 }, canvas([frame(), frame({ id: 1, originalFile: null })]), metadata);
+    expect(screen.getByRole('button', { name: /Use as photo in slot 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Use as photo in slot 2/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Use as print-area photo/ })).toBeNull();
+  });
+
+  it('an image that could not be loaded cannot be put in a print area', () => {
+    const lostImage = { ...added, originalFile: undefined } as Overlay;
+    setup([lostImage], { type: 'image', index: 0 }, canvas([frame()], [lostImage]), metadata);
+    expect(screen.queryByRole('button', { name: /Use as print-area photo/ })).toBeNull();
+  });
+
+  it('an empty print area offers Add photo, and a photo from it lands in the area at the default fit', async () => {
+    const props = setup([], { type: 'frame', index: 0 }, canvas([frame({ originalFile: null })], []), metadata);
+    const input = screen.getByText('Add photo').closest('label')?.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(props.debouncedRender).toHaveBeenCalled());
+    const next = (props.debouncedRender as jest.Mock).mock.calls[0][0] as CanvasItem;
+    expect(next.frames[0]).toMatchObject({ originalFile: file, scale: 1, rotation: 0, offset: { x: 7, y: 9 } });
+  });
+
+  it('a print area that already has a photo shows no Add photo', () => {
+    setup([], { type: 'frame', index: 0 }, canvas([frame()], []), metadata);
+    expect(screen.queryByText('Add photo')).toBeNull();
   });
 });
 
