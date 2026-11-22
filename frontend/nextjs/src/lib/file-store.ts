@@ -315,14 +315,47 @@ function recordToFile(rec: FileRecord): File {
   return new File([rec.blob], rec.name, { type: rec.type, lastModified: rec.lastModified });
 }
 
+/** What the last `getFilesForOrder` found for an order, for the report sent
+ *  when a restored design names photos this device no longer has. */
+export interface OrderFilesReadout {
+  /** Whether IndexedDB opened at all on this page. */
+  storeOpened: boolean;
+  /** Records kept for the order, readable or not. */
+  recordsForOrder: number;
+  /** Of those, how many could not be read back. */
+  unreadable: number;
+}
+
+const readouts = new Map<string, OrderFilesReadout>();
+
+export function lastOrderFilesReadout(orderId: string): OrderFilesReadout | null {
+  return readouts.get(orderId) ?? null;
+}
+
+/** Every record in the store, for any order; null when the store won't open. */
+export async function countStoredFiles(): Promise<number | null> {
+  try {
+    const store = await tx("readonly");
+    return await new Promise<number>((resolve, reject) => {
+      const req = store.count();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** This order's stored photos that can still be read (see `isReadable`). */
 export async function getFilesForOrder(orderId: string): Promise<Map<string, File>> {
+  let storeOpened = false;
   const records: FileRecord[] = [];
   memFiles.forEach(rec => {
     if (rec.orderId === orderId) records.push(rec);
   });
   try {
     const store = await tx("readonly");
+    storeOpened = true;
     await new Promise<void>((resolve, reject) => {
       const idx = store.index("orderId");
       const req = idx.openCursor(IDBKeyRange.only(orderId));
@@ -342,6 +375,11 @@ export async function getFilesForOrder(orderId: string): Promise<Map<string, Fil
   const out = new Map<string, File>();
   records.forEach((rec, i) => {
     if (readable[i]) out.set(rec.fileId, recordToFile(rec));
+  });
+  readouts.set(orderId, {
+    storeOpened,
+    recordsForOrder: records.length,
+    unreadable: records.length - out.size,
   });
   return out;
 }
