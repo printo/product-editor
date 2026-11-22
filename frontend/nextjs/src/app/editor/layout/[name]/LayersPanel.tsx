@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ChevronDown, Lock, AlertTriangle } from 'lucide-react';
+import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ChevronDown, Lock, AlertTriangle, Star } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { CanvasItem, Overlay } from './types';
 import { extraImageName, isLostLocalImage, mainPhotoName } from './editor-utils';
@@ -19,14 +19,16 @@ interface LayersPanelProps {
   onSelect: (sel: LayerSelection) => void;
   onDeleteOverlay: (idx: number) => void;
   onReorderOverlays: (overlays: Overlay[]) => void;
-  onClearFrame: (idx: number) => void;
+  /** Swaps the extra image at this index with the main photo. Given only when
+   *  that is unambiguous (one print area), so a row can offer it. */
+  onMakeMainPhoto?: (overlayIdx: number) => void;
   /** The phone sheet's Layers tab: no collapsing header, and rows and their
    *  buttons sized for a finger and always shown (a phone has no hover). */
   alwaysOpen?: boolean;
 }
 
 export function LayersPanel({
-  editingCanvas, selected, onSelect, onDeleteOverlay, onReorderOverlays, onClearFrame,
+  editingCanvas, selected, onSelect, onDeleteOverlay, onReorderOverlays, onMakeMainPhoto,
   alwaysOpen = false,
 }: LayersPanelProps) {
   const [expanded, setExpanded] = useState(false);
@@ -105,6 +107,16 @@ export function LayersPanel({
                 </span>
 
                 <div className={actionsClass}>
+                  {onMakeMainPhoto && overlay.type === 'image' && overlay.source === 'local' && !lost && overlay.originalFile && (
+                    <button
+                      onClick={e => { e.stopPropagation(); onMakeMainPhoto(oIdx); }}
+                      className={clsx(actionSize, 'flex items-center justify-center text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-all')}
+                      title="Make main photo"
+                      aria-label="Make main photo"
+                    >
+                      <Star className={actionIcon} />
+                    </button>
+                  )}
                   {canMove && (
                     <>
                       <button
@@ -161,15 +173,6 @@ export function LayersPanel({
                   {mainPhotoName(fIdx, frames.length)}
                 </span>
                 
-                <div className={actionsClass}>
-                  <button
-                    onClick={e => { e.stopPropagation(); onClearFrame(fIdx); }}
-                    className={clsx(actionSize, 'flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all')}
-                    title="Clear"
-                  >
-                    <Trash2 className={actionIcon} />
-                  </button>
-                </div>
               </div>
             );
           })}

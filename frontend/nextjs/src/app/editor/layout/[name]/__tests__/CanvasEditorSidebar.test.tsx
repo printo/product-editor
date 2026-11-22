@@ -249,6 +249,41 @@ describe('CanvasEditorSidebar — replacing the photo in a print area', () => {
     expect(next.frames[0]).toMatchObject({ originalFile: file, scale: 1, rotation: 0, offset: { x: 7, y: 9 } });
   });
 
+  it('Make main photo on an extra image’s row in Layers does the same swap, with one print area', async () => {
+    const realMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('max-width: 767px'), media: query,
+      addEventListener: jest.fn(), removeEventListener: jest.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const props = setup([added], { type: 'frame', index: 0 }, canvas([frame()]), metadata);
+      fireEvent.click(screen.getByRole('button', { name: 'Layers' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Make main photo' }));
+      await waitFor(() => expect(props.debouncedRender).toHaveBeenCalled());
+      const next = (props.debouncedRender as jest.Mock).mock.calls[0][0] as CanvasItem;
+      expect(next.frames[0]).toMatchObject({ originalFile: file, scale: 1, rotation: 0 });
+      expect(next.overlays).toHaveLength(1);
+      expect(next.overlays[0]).toMatchObject({ originalFile: oldPhoto });
+    } finally {
+      window.matchMedia = realMatchMedia;
+    }
+  });
+
+  it('with several print areas Layers offers no Make main photo (the settings name the slot)', () => {
+    const realMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('max-width: 767px'), media: query,
+      addEventListener: jest.fn(), removeEventListener: jest.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      setup([added], { type: 'frame', index: 0 }, canvas([frame(), frame({ id: 1 })]), metadata);
+      fireEvent.click(screen.getByRole('button', { name: 'Layers' }));
+      expect(screen.queryByRole('button', { name: 'Make main photo' })).toBeNull();
+    } finally {
+      window.matchMedia = realMatchMedia;
+    }
+  });
+
   it('a print area that already has a photo shows no Add main photo', () => {
     setup([], { type: 'frame', index: 0 }, canvas([frame()], []), metadata);
     expect(screen.queryByText('Add main photo')).toBeNull();

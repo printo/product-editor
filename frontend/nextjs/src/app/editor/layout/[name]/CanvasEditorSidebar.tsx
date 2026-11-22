@@ -543,28 +543,11 @@ export function CanvasEditorSidebar({
             pushUndo(editingCanvas, true);
             debouncedRender({ ...editingCanvas, overlays: newOverlays });
           }}
-          onClearFrame={async fIdx => {
-            pushUndo(editingCanvas, true);
-            const updatedFrames = await Promise.all(editingCanvas.frames.map(async (f, i) => {
-              if (i !== fIdx) return f;
-              
-              let newOffset = { x: 0, y: 0 };
-              if (f.fitMode === 'cover' && f.originalFile) {
-                const { element: imgEl } = await getImageMetadata(f.originalFile);
-                const canvasW = layout?.canvas?.width || 1200;
-                const canvasH = layout?.canvas?.height || 1800;
-                const frameSpec = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
-                const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-                const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-                const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-                const ck = f.fileId ? `${f.fileId}:${fw}x${fh}:0` : undefined;
-                newOffset = await calculateSmartCropOffsets(imgEl, fw, fh, 0, ck); // reset rotation to 0
-              }
-              
-              return { ...f, offset: newOffset, scale: 1, rotation: 0 };
-            }));
-            debouncedRender({ ...editingCanvas, frames: updatedFrames });
-          }}
+          onMakeMainPhoto={editingCanvas.frames.length === 1 ? (oIdx => {
+            const ov = editingCanvas.overlays[oIdx];
+            if (ov?.type !== 'image' || !ov.originalFile || isLostLocalImage(ov)) return;
+            void placeInFrame(0, ov.originalFile, ov.fileId, oIdx);
+          }) : undefined}
         />
   );
 
