@@ -341,6 +341,14 @@ class LayoutManagementView(APIView):
             elif 'canvas' not in layout_data or 'width' not in layout_data['canvas'] or 'height' not in layout_data['canvas']:
                 return Response({"detail": "Invalid layout structure: missing canvas width/height"}, status=status.HTTP_400_BAD_REQUEST)
 
+            # A side with no Print Areas cannot print: the engine refuses it,
+            # so an order on such a layout fails only in the worker (nine
+            # orders on stamp_size_print, 2026-11-19 to 22).
+            from services.layout_frames import no_frames_message, surfaces_without_frames
+            missing_frames = surfaces_without_frames(layout_data)
+            if missing_frames:
+                return Response({"detail": no_frames_message(missing_frames)}, status=status.HTTP_400_BAD_REQUEST)
+
             # Calendar product type — enforce monthRange × calendars constraint,
             # validate ops-default + customer-controllable fields, reject banned
             # fields inside surfaceOverrides. PRD §10.2, §11.1, §11.15.

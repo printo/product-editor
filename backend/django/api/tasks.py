@@ -6,6 +6,7 @@ import time
 import logging
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from services.layout_frames import LayoutHasNoFrames
 from celery.signals import task_failure
 from django.db.models import Q
 from django.utils import timezone
@@ -627,6 +628,28 @@ def render_canvas_task(self, canvas_data_id: str, job_id: str):
             job.save(update_fields=['status', 'completed_at', 'error_message', 'retry_count'])
             # Tell the embed caller the render failed so their order flow does
             # not stall forever waiting on a success webhook that never comes.
+            if canvas.callback_url:
+                notify_caller_render_failed_task.apply_async(
+                    args=[str(canvas.id), error_msg, str(job.id)], queue='standard', countdown=0,
+                )
+            return
+
+        except LayoutHasNoFrames as exc:
+            # The stored layout cannot print; a retry reads the same layout.
+            error_msg = str(exc)
+            logger.error(
+                "Render job %s failed, not retried (order_id=%s, layout=%s): %s",
+                job_id, canvas.order_id, canvas.layout_name, error_msg, exc_info=True,
+            )
+            # A multi-side layout may have printed its earlier sides already.
+            import shutil as _shutil
+            if job_exports_dir and os.path.isdir(job_exports_dir):
+                _shutil.rmtree(job_exports_dir, ignore_errors=True)
+            job.status = 'failed'
+            job.completed_at = timezone.now()
+            job.error_message = error_msg
+            job.retry_count = self.max_retries
+            job.save(update_fields=['status', 'completed_at', 'error_message', 'retry_count'])
             if canvas.callback_url:
                 notify_caller_render_failed_task.apply_async(
                     args=[str(canvas.id), error_msg, str(job.id)], queue='standard', countdown=0,

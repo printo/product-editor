@@ -11,6 +11,7 @@ from django.core.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse, inline_serializer
 from rest_framework import serializers as drf_serializers
 from services.storage import get_storage
+from services.layout_frames import SUBMIT_REFUSED, surfaces_without_frames
 from services.layout_orientation import apply_orientation
 from services.order_qty import calendar_qty_summary, count_placed_photos, qty_summary, qty_violation
 from services.restore_manifest import normalise_restore_payload
@@ -23,6 +24,21 @@ from .layouts import _read_layout_def
 from ._common import is_safe_layout_name
 
 logger = logging.getLogger(__name__)
+
+
+def _refuse_unprintable_layout(layout_name, layout_def, order_id):
+    """400 for a layout the engine could not print (no Print Areas), before
+    anything is stored or queued. Logged as an error so ops hear of a live
+    product that cannot take orders; the caller is told nothing of the cause."""
+    missing = surfaces_without_frames(layout_def)
+    if not missing:
+        return None
+    logger.error(
+        "Render refused: layout %s has no Print Areas on %s (order_id=%s). "
+        "Add a Print Area on /editor/layouts or retire the layout.",
+        layout_name, ', '.join(missing), order_id,
+    )
+    return Response({'detail': SUBMIT_REFUSED}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class GenerateLayoutView(APIView):
@@ -165,6 +181,10 @@ class GenerateLayoutView(APIView):
                 validate_image_files(files)
             except ValidationError as e:
                 return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+            refused = _refuse_unprintable_layout(layout_name, _read_layout_def(layout_name), order_id)
+            if refused is not None:
+                return refused
 
             api_key = None
             if isinstance(request.user, APIKeyUser):
@@ -660,6 +680,9 @@ class EditorRenderView(APIView):
         # so the webhook carries the same qty_summary shape for them too.
         placed = count_placed_photos(canvases_payload)
         layout_def = _read_layout_def(layout_name)
+        refused = _refuse_unprintable_layout(layout_name, layout_def, order_id)
+        if refused is not None:
+            return refused
         order_qty_summary = calendar_qty_summary(
             placed, layout_def, request.data.get('qty_shortfall_acknowledged'),
         )

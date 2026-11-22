@@ -23,6 +23,7 @@ def _layout_def(name):
         'name': name,
         'productType': 'single_canvas',
         'canvas': {'width': 100, 'height': 100, 'widthMm': 50, 'heightMm': 50},
+        'frames': [{'id': 'a', 'x': 0, 'y': 0, 'width': 1, 'height': 1}],
     }
 
 

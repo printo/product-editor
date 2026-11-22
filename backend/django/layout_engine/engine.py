@@ -10,6 +10,7 @@ from typing import List, Optional
 from PIL import Image, ImageOps, ImageDraw, ImageChops, ImageFilter
 
 from services.google_fonts import FontUnavailable
+from services.layout_frames import LayoutHasNoFrames
 from services.image_loader import MAX_IMAGE_PIXELS, open_source_rgba, srgb_profile_bytes
 from services.print_sheet import ARTWORK_MASK, FRAME_MASK, resolve_mask_slots, resolve_print_box
 
@@ -329,7 +330,7 @@ class LayoutEngine:
                 layout["canvas"]["width"], layout["canvas"]["height"], rows, cols, padding
             )
         if not surface_def["frames"]:
-            raise ValueError("No frames defined for layout")
+            raise LayoutHasNoFrames("No frames defined for layout")
         canvas_w = layout["canvas"]["width"]
         canvas_h = layout["canvas"]["height"]
         surface_def["frames"] = self._normalize_frames(surface_def["frames"], canvas_w, canvas_h)
@@ -1041,7 +1042,7 @@ class LayoutEngine:
         # silently tolerating an empty-frames mistake on any other product.
         is_unauthored_book_back_cover = surface_def.get("role") == "backCover"
         if not frames and not is_unauthored_book_back_cover:
-            raise ValueError(f"No frames defined for surface '{surface_key}'")
+            raise LayoutHasNoFrames(f"No frames defined for surface '{surface_key}'")
 
         if not frames:
             # Every physical printed side still needs an output file — silently
