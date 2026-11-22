@@ -9,7 +9,7 @@ import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { randomId } from '@/lib/random-id';
-import { isLostLocalImage, type OverlayAlignment } from './editor-utils';
+import { extraImageName, isLostLocalImage, mainPhotoName, type OverlayAlignment } from './editor-utils';
 import { ARTWORK_LABEL, artworkOverlayFor } from './template-authoring';
 import { UnprintableTextNote } from './EditorNotices';
 import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
@@ -503,8 +503,8 @@ export function CanvasEditorSidebar({
                       <ImagePlus className="w-6 h-6" />
                     </div>
                     <div className="text-center">
-                      <p className="text-[11px] font-medium uppercase">Add Image</p>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-tight opacity-80">Floating overlay</p>
+                      <p className="text-[11px] font-medium uppercase">Add extra image</p>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-tight opacity-80">On top of the main photo</p>
                     </div>
                     <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
                       onChange={handleAddPhotos} />
@@ -630,7 +630,7 @@ export function CanvasEditorSidebar({
                 <label className="group w-full flex items-center justify-center gap-3 p-3 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg text-indigo-600 hover:bg-white hover:border-indigo-200 transition-all cursor-pointer">
                   <ImagePlus className="w-5 h-5 shrink-0" />
                   <span className="text-[11px] font-medium uppercase">
-                    {editingCanvas.frames.length > 1 ? `Add photo to slot ${fIdx + 1}` : 'Add photo'}
+                    {`Add ${mainPhotoName(fIdx, editingCanvas.frames.length).toLowerCase()}`}
                   </span>
                   <input type="file" accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
                     onChange={async e => {
@@ -796,8 +796,8 @@ export function CanvasEditorSidebar({
                   <div className="space-y-2 md:space-y-5">
                     <div className="flex items-center justify-between gap-2 pb-2 md:pb-4 border-b border-slate-100">
                       <div className="flex flex-col min-w-0 flex-1 md:flex-none md:max-w-[70%]">
-                        <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
-                        <span className="text-[10px] text-slate-500 uppercase">Image Overlay</span>
+                        <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{extraImageName(editingCanvas.overlays, oIdx) ?? imgOverlay.label}</p>
+                        <span className="text-[10px] text-slate-500 truncate">{imgOverlay.label}</span>
                       </div>
                       {isPhone && (
                         <label className={PHONE_ADD_BUTTON}>
@@ -837,8 +837,8 @@ export function CanvasEditorSidebar({
                             className="w-full min-h-9 px-3 py-1.5 flex items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] font-medium uppercase text-indigo-700 hover:bg-indigo-100 transition-colors">
                             <ImagePlus className="w-4 h-4 shrink-0" />
                             {editingCanvas.frames.length === 1
-                              ? 'Use as print-area photo'
-                              : `Use as photo in slot ${i + 1}`}
+                              ? 'Make this the main photo'
+                              : `Make this ${mainPhotoName(i, editingCanvas.frames.length).toLowerCase()}`}
                           </button>
                         ))}
                       </div>

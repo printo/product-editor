@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ChevronDown, Lock, AlertTriangle } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { CanvasItem, Overlay } from './types';
-import { isLostLocalImage } from './editor-utils';
+import { extraImageName, isLostLocalImage, mainPhotoName } from './editor-utils';
 
 export type LayerSelection =
   | { type: 'frame'; index: number }
@@ -108,7 +108,7 @@ export function LayersPanel({
                   lost ? 'text-amber-700' : isSelected ? 'text-indigo-600' : 'text-slate-500')}>
                   {overlay.type === 'text' ? (overlay.text.trim() || 'Text') : 
                    overlay.type === 'shape' ? (overlay.shapeType.replace(/-/g, ' ')) : 
-                   overlay.label || 'Icon'}
+                   (extraImageName(overlays, oIdx) ?? overlay.label) || 'Icon'}
                   {lost && ' — missing'}
                 </span>
 
@@ -167,7 +167,7 @@ export function LayersPanel({
                 </div>
                 <span className={clsx('text-[10px] font-bold truncate flex-1 uppercase tracking-tight', 
                   isSelected ? 'text-indigo-600' : 'text-slate-500 italic')}>
-                  {frames.length > 1 ? `Slot ${fIdx + 1}` : (frame.originalFile?.name || 'Base Layer')}
+                  {mainPhotoName(fIdx, frames.length)}
                 </span>
                 
                 <div className={actionsClass}>
@@ -175,7 +175,7 @@ export function LayersPanel({
                     <button
                       onClick={e => { e.stopPropagation(); handleMoveFrameToTop(fIdx); }}
                       className={clsx(actionSize, 'flex items-center justify-center text-emerald-500 hover:bg-emerald-50 rounded-md transition-all')}
-                      title="Bring to Top"
+                      title="Make an extra image"
                     >
                       <ChevronUp className={actionIcon} />
                     </button>

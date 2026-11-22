@@ -188,20 +188,20 @@ test.describe('embed editor (customer iframe)', () => {
     const editor = page.getByRole('dialog', { name: 'Canvas editor' });
     await expect(editor).toBeVisible();
     await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
-    await expect(editor.getByText('Add Image')).toBeVisible();
+    await expect(editor.getByText('Add extra image')).toBeVisible();
     await editor.locator('input[type="file"]').first().setInputFiles(PHOTOS.square);
 
-    await expect(editor.getByText('Image Overlay')).toBeVisible();
+    await expect(editor.getByText('Extra image 1').first()).toBeVisible();
     await expect(editor.getByLabel('Opacity')).toBeVisible();
     await expect(editor.getByLabel('Rotation in degrees')).toBeVisible();
     await expect(editor.getByText('Fit Mode')).toHaveCount(0);
 
     await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
-    await expect(editor.getByText('Add Image')).toBeVisible();
+    await expect(editor.getByText('Add extra image')).toBeVisible();
     await editor.getByRole('button', { name: 'Close editor' }).click();
   });
 
-  test('an added image can become the print-area photo: a swap, the replaced photo floats and the area has the new one', async ({ page }) => {
+  test('an added image can become the main photo: a swap, the replaced photo floats and the area has the new one', async ({ page }) => {
     const { token } = await createEmbedSession();
     const saves = recordAutosaves(page);
     await openEmbedEditor(page, token);
@@ -211,13 +211,12 @@ test.describe('embed editor (customer iframe)', () => {
     await expect(editor).toBeVisible();
     await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
     await editor.locator('input[type="file"]').first().setInputFiles(PHOTOS.square);
-    await expect(editor.getByText('Image Overlay')).toBeVisible();
+    await expect(editor.getByText('Extra image 1').first()).toBeVisible();
 
-    await editor.getByRole('button', { name: /Use as print-area photo/ }).click();
-    await expect(editor.getByText('Image Overlay')).toHaveCount(0);
+    await editor.getByRole('button', { name: /Make this the main photo/ }).click();
+    // The settings are the main photo's again (Fit Mode), and the swap left the old photo floating as Extra image 1.
     await expect(editor.getByText('Fit Mode')).toBeVisible();
-    // A swap: the photo that was in the area now floats, named in Layers, and the area has the square one.
-    await expect(editor).toContainText('portrait-3000x4000.jpg');
+    await expect(editor.getByText('Extra image 1').first()).toBeVisible();
 
     await editor.getByRole('button', { name: /save/i }).first().click();
     await expect(editor).toBeHidden();
