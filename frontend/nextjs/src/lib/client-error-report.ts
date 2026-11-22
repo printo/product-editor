@@ -9,7 +9,7 @@
  * what the customer is doing.
  */
 
-export type ClientErrorKind = 'error' | 'unhandledrejection' | 'heic';
+export type ClientErrorKind = 'error' | 'unhandledrejection' | 'heic' | 'photos-missing';
 
 export interface ClientErrorReport {
   kind: ClientErrorKind;

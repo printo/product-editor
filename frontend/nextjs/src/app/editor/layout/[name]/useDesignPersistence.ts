@@ -3,12 +3,13 @@
 import { isCoverKey } from '@/lib/calendar-covers';
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import {
-  saveFile, deleteFile, getFilesForOrder, pruneStaleOrders, pruneUnreferencedFiles,
+  saveFile, deleteFile, getFilesForOrder, lastOrderFilesReadout, pruneStaleOrders, pruneUnreferencedFiles,
   FileStoreQuotaError, getPersistenceMode,
 } from '@/lib/file-store';
 import type { BookLayoutLike } from '@/lib/book-layout';
 import type { NormalizedLayout } from '@/lib/layout-utils';
 import type { CalendarTheme, CalendarType } from '@/types/calendar';
+import { reportMissingPhotos } from '@/lib/missing-photos-report';
 import { reconcilePageCount } from './book-pages';
 import { MAX_SKELETON_CARDS, ORPHAN_FILE_MIN_AGE_MS, readCardCountHint, writeCardCountHint } from './editor-utils';
 import { renderCanvas as renderCanvasCore } from './fabric-renderer';
@@ -679,7 +680,14 @@ export function useAutosaveAndRestore({
               restoredFromRef.current = typeof editorState.restoredFrom === 'string' ? editorState.restoredFrom : null;
               own.restoredFrom = restoredFromRef.current;
               own.hasCards = editorState.surfaces.some((s: { canvases?: unknown[] }) => (s.canvases?.length ?? 0) > 0);
-              own.missingFileIds = [...collectFileIds(editorState)].filter(id => !fileMap.has(id));
+              const namedIds = [...collectFileIds(editorState)];
+              own.missingFileIds = namedIds.filter(id => !fileMap.has(id));
+              // A design brought back from the embedding page holds stand-ins
+              // that are never stored on the device, so only our own design
+              // says something is wrong when its photos are gone.
+              if (own.missingFileIds.length && !own.restoredFrom) {
+                void reportMissingPhotos(namedIds.length, own.missingFileIds.length, lastOrderFilesReadout(restoreId));
+              }
               // Delete this order's older stored photos the restored design doesn't
               // use: ones dropped in a session that closed before its next save, and
               // everything the editor stored before it cleaned up after itself.
