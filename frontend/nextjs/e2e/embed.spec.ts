@@ -180,6 +180,27 @@ test.describe('embed editor (customer iframe)', () => {
     await editor.getByRole('button', { name: 'Close editor' }).click();
   });
 
+  test('an image added in the canvas editor is controlled on the Image side, and Uploads only adds', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    await openEmbedEditor(page, token);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await cards(page).first().click();
+    const editor = page.getByRole('dialog', { name: 'Canvas editor' });
+    await expect(editor).toBeVisible();
+    await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
+    await expect(editor.getByText('Add Image')).toBeVisible();
+    await editor.locator('input[type="file"]').first().setInputFiles(PHOTOS.square);
+
+    await expect(editor.getByText('Image Overlay')).toBeVisible();
+    await expect(editor.getByLabel('Opacity')).toBeVisible();
+    await expect(editor.getByLabel('Rotation in degrees')).toBeVisible();
+    await expect(editor.getByText('Fit Mode')).toHaveCount(0);
+
+    await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
+    await expect(editor.getByText('Add Image')).toBeVisible();
+    await editor.getByRole('button', { name: 'Close editor' }).click();
+  });
+
   test('an incomplete photo asks first: the prompt takes focus, and Escape cancels the pick', async ({ page }) => {
     const { token } = await createEmbedSession();
     await openEmbedEditor(page, token);

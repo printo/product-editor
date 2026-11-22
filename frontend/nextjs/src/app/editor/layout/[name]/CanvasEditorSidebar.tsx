@@ -301,11 +301,17 @@ export function CanvasEditorSidebar({
   getAuthHeaders,
 }: CanvasEditorSidebarProps) {
 
+  // An image the customer added is controlled on the Image tab, with the photos
+  // in the print areas; Uploads only adds. Icons and stickers keep their tab.
+  const isAddedImage = (sel: LayerSelection): boolean => {
+    if (sel.type !== 'image') return false;
+    const ov = editingCanvas?.overlays[sel.index];
+    return ov?.type === 'image' && ov.source === 'local';
+  };
   const tabForSelection = (sel: LayerSelection): TabKey | null => {
     if (sel.type === 'text') return 'text';
     if (sel.type !== 'image') return null;
-    const ov = editingCanvas?.overlays[sel.index];
-    return ov?.type === 'image' && ov.source === 'local' ? 'image' : 'icon';
+    return isAddedImage(sel) ? null : 'icon';
   };
   // The modal can open with an image already selected (one that couldn't be
   // recovered), so the first tab follows the selection too.
@@ -344,7 +350,7 @@ export function CanvasEditorSidebar({
     // tab, where picking a row only selects it so the list stays in view.
     if (phoneView !== 'layers') {
       if (tab) setPhoneView('add');
-      else if (selectedLayer.type === 'frame' || selectedLayer.type === 'canvas') setPhoneView('photo');
+      else if (selectedLayer.type === 'frame' || selectedLayer.type === 'canvas' || isAddedImage(selectedLayer)) setPhoneView('photo');
     }
   }
 
@@ -429,7 +435,7 @@ export function CanvasEditorSidebar({
                       <ImagePlus className="w-6 h-6" />
                     </div>
                     <div className="text-center">
-                      <p className="text-[11px] font-medium uppercase">Add Photo</p>
+                      <p className="text-[11px] font-medium uppercase">Add Image</p>
                       <p className="text-[10px] text-slate-500 uppercase tracking-tight opacity-80">Floating overlay</p>
                     </div>
                     <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
@@ -524,9 +530,11 @@ export function CanvasEditorSidebar({
         />
   );
 
-  const showFrameProps = isPhone
+  const addedImageSelected = isAddedImage(selectedLayer);
+  const showImageProps = addedImageSelected && (!isPhone || phoneView === 'photo');
+  const showFrameProps = !addedImageSelected && (isPhone
     ? phoneView === 'photo'
-    : selectedLayer.type === 'frame' || selectedLayer.type === 'canvas';
+    : selectedLayer.type === 'frame' || selectedLayer.type === 'canvas');
 
   return (
     // Mobile (<md): a bottom sheet of one fixed height (so the canvas does not
@@ -541,10 +549,10 @@ export function CanvasEditorSidebar({
       {isPhone && (
         <div className="px-3 pt-3 pb-1 touch-none">
           <div className="flex items-center p-1 bg-slate-50 rounded-lg border border-slate-100">
-            <SheetTab phone label="Photo" icon={Image} active={phoneView === 'photo'}
+            <SheetTab phone label="Image" icon={Image} active={phoneView === 'photo'}
               onClick={() => {
                 setPhoneView('photo');
-                if (selectedLayer.type !== 'frame' && selectedLayer.type !== 'canvas') setSelectedLayer({ type: 'frame', index: 0 });
+                if (selectedLayer.type !== 'frame' && selectedLayer.type !== 'canvas' && !addedImageSelected) setSelectedLayer({ type: 'frame', index: 0 });
               }} />
             {ADD_TABS.map(tab => (
               <SheetTab phone key={tab.key} label={tab.label} icon={PHONE_TAB_ICONS[tab.key]}
@@ -653,7 +661,7 @@ export function CanvasEditorSidebar({
               </div>
               )}
 
-              {/* Blur Effect + Photo Alignment share one row. Blur only applies in
+              {/* Blur Effect + Image Alignment share one row. Blur only applies in
                   contain mode, where a photo whose aspect ratio differs from the
                   frame leaves whitespace; in cover mode it's hidden and alignment
                   takes the whole row. On a phone they stack, one per line. */}
@@ -686,14 +694,14 @@ export function CanvasEditorSidebar({
                           )} />
                         </button>
                       </div>
-                      <p className="text-[10px] leading-4 text-slate-500 min-w-0">Blur the photo behind it to fill empty space</p>
+                      <p className="text-[10px] leading-4 text-slate-500 min-w-0">Blur the image behind it to fill empty space</p>
                     </div>
                   );
                 })()}
 
                 {/* Position / Alignment */}
                 <div className="shrink-0 flex items-center justify-between gap-3 md:block md:space-y-2">
-                  <label className="text-[11px] font-medium text-slate-500 uppercase">Photo Alignment</label>
+                  <label className="text-[11px] font-medium text-slate-500 uppercase">Image Alignment</label>
                   <AlignmentToolbar 
                     onHAlign={v => handleAlign(fIdx, v)}
                     onVAlign={v => handleAlign(fIdx, v)}
@@ -704,6 +712,74 @@ export function CanvasEditorSidebar({
               {!isPhone && zoomControl}
             </div>
           );
+        })()}
+
+        {/* ═══ Settings of an image the customer added (Image tab) ═══ */}
+        {showImageProps && (() => {
+                const oIdx = selectedLayer.index;
+                const imgOverlay = editingCanvas.overlays[oIdx];
+                if (!imgOverlay || imgOverlay.type !== 'image') return null;
+                const updateImage = (patch: Partial<ImageOverlay>) => {
+                  pushUndo(editingCanvas);
+                  const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
+                  debouncedRender({ ...editingCanvas, overlays: newOverlays as Overlay[] });
+                };
+                // Keeps the lost image's place, size and rotation. The fileId is
+                // cleared so the new File is stored for the next restore.
+                const replaceLostImage = async (picked: File[]) => {
+                  const [file] = await prepareImageFiles(picked, 1);
+                  if (!file) return;
+                  pushUndo(editingCanvas, true);
+                  const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx && o.type === 'image'
+                    ? { ...o, src: getFileUrl(file), originalFile: file, fileId: undefined, label: file.name }
+                    : o);
+                  debouncedRender({ ...editingCanvas, overlays: newOverlays });
+                };
+                return (
+                  <div className="space-y-2 md:space-y-5">
+                    <div className="flex items-center justify-between gap-2 pb-2 md:pb-4 border-b border-slate-100">
+                      <div className="flex flex-col min-w-0 flex-1 md:flex-none md:max-w-[70%]">
+                        <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
+                        <span className="text-[10px] text-slate-500 uppercase">Image Overlay</span>
+                      </div>
+                      {isPhone && (
+                        <label className={PHONE_ADD_BUTTON}>
+                          <Plus className="w-3.5 h-3.5" /> Add image
+                          <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden" onChange={handleAddPhotos} />
+                        </label>
+                      )}
+                      <button onClick={() => deleteOverlay(oIdx)} title="Delete"
+                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all motion-safe:active:scale-90">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {isLostLocalImage(imgOverlay) && (
+                      <div className="space-y-3 p-3 rounded-lg border border-amber-300 bg-amber-50">
+                        <p className="flex gap-2 text-[11px] text-amber-800">
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                          This image couldn&apos;t be loaded on this device, so it won&apos;t print. Re-upload it to keep its place, or delete it.
+                        </p>
+                        <label className="w-full h-9 flex items-center justify-center gap-2 rounded-lg bg-amber-600 text-white text-[11px] font-medium uppercase hover:bg-amber-700 transition-colors cursor-pointer">
+                          <ImagePlus className="w-4 h-4" />
+                          Re-upload image
+                          <input type="file" accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
+                            onChange={e => {
+                              const picked = Array.from(e.target.files ?? []);
+                              e.target.value = '';
+                              if (picked.length) void replaceLostImage(picked);
+                            }} />
+                        </label>
+                      </div>
+                    )}
+                    <OpacityControl value={imgOverlay.opacity} tone="rose" onChange={opacity => updateImage({ opacity })} />
+                    <div className="space-y-1 pt-1 md:space-y-5 md:pt-5 border-t border-slate-100">
+                      <RotationControl value={imgOverlay.rotation || 0}
+                        onChange={v => updateImage({ rotation: v })} />
+                      <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
+                        onScale={(w, h) => updateImage({ width: w, height: h })} />
+                    </div>
+                  </div>
+                );
         })()}
 
         {/* ═══ Add-object tabs ════════════════════════════════════════════ */}
@@ -988,77 +1064,9 @@ export function CanvasEditorSidebar({
               return addIconBlock;
             })()}
 
-            {/* ── Uploads tab ───────────────────────────────────────────── */}
-            {activeAddTab === 'image' && (() => {
-              if (tabForSelection(selectedLayer) === 'image') {
-                const oIdx = selectedLayer.index;
-                const imgOverlay = editingCanvas.overlays[oIdx];
-                if (!imgOverlay || imgOverlay.type !== 'image') return null;
-                const updateImage = (patch: Partial<ImageOverlay>) => {
-                  pushUndo(editingCanvas);
-                  const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx ? { ...o, ...patch } : o);
-                  debouncedRender({ ...editingCanvas, overlays: newOverlays as Overlay[] });
-                };
-                // Keeps the lost image's place, size and rotation. The fileId is
-                // cleared so the new File is stored for the next restore.
-                const replaceLostImage = async (picked: File[]) => {
-                  const [file] = await prepareImageFiles(picked, 1);
-                  if (!file) return;
-                  pushUndo(editingCanvas, true);
-                  const newOverlays = editingCanvas.overlays.map((o, i) => i === oIdx && o.type === 'image'
-                    ? { ...o, src: getFileUrl(file), originalFile: file, fileId: undefined, label: file.name }
-                    : o);
-                  debouncedRender({ ...editingCanvas, overlays: newOverlays });
-                };
-                return (
-                  <div className="space-y-2 md:space-y-5">
-                    <div className="flex items-center justify-between gap-2 pb-2 md:pb-4 border-b border-slate-100">
-                      <div className="flex flex-col min-w-0 flex-1 md:flex-none md:max-w-[70%]">
-                        <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
-                        <span className="text-[10px] text-slate-500 uppercase">Image Overlay</span>
-                      </div>
-                      {isPhone && (
-                        <label className={PHONE_ADD_BUTTON}>
-                          <Plus className="w-3.5 h-3.5" /> Add photo
-                          <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden" onChange={handleAddPhotos} />
-                        </label>
-                      )}
-                      <button onClick={() => deleteOverlay(oIdx)} title="Delete"
-                        className="w-9 h-9 flex items-center justify-center bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all motion-safe:active:scale-90">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    {isLostLocalImage(imgOverlay) && (
-                      <div className="space-y-3 p-3 rounded-lg border border-amber-300 bg-amber-50">
-                        <p className="flex gap-2 text-[11px] text-amber-800">
-                          <AlertTriangle className="w-4 h-4 shrink-0" />
-                          This image couldn&apos;t be loaded on this device, so it won&apos;t print. Re-upload it to keep its place, or delete it.
-                        </p>
-                        <label className="w-full h-9 flex items-center justify-center gap-2 rounded-lg bg-amber-600 text-white text-[11px] font-medium uppercase hover:bg-amber-700 transition-colors cursor-pointer">
-                          <ImagePlus className="w-4 h-4" />
-                          Re-upload image
-                          <input type="file" accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
-                            onChange={e => {
-                              const picked = Array.from(e.target.files ?? []);
-                              e.target.value = '';
-                              if (picked.length) void replaceLostImage(picked);
-                            }} />
-                        </label>
-                      </div>
-                    )}
-                    <OpacityControl value={imgOverlay.opacity} tone="rose" onChange={opacity => updateImage({ opacity })} />
-                    <div className="space-y-1 pt-1 md:space-y-5 md:pt-5 border-t border-slate-100">
-                      <RotationControl value={imgOverlay.rotation || 0}
-                        onChange={v => updateImage({ rotation: v })} />
-                      <ScaleControl width={imgOverlay.width} height={imgOverlay.height}
-                        onScale={(w, h) => updateImage({ width: w, height: h })} />
-                    </div>
-                    {!isPhone && <div className="pt-5 border-t border-slate-100">{addPhotoBlock}</div>}
-                  </div>
-                );
-              }
-              return addPhotoBlock;
-            })()}
+            {/* ── Uploads tab: it only adds. An added image's own settings are on the Image
+                tab above (the same place a photo in a print area is controlled). ───── */}
+            {activeAddTab === 'image' && addPhotoBlock}
 
           </div>
         </div>
