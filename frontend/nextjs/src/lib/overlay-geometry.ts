@@ -147,3 +147,14 @@ export function textBoxFromObject(
     fontSize: Math.max(1, Math.round(g.fontSize * scale)),
   };
 }
+
+/**
+ * A text box is resized by its sides (the words wrap in a new width) and its
+ * corners (the font size follows). Its height is always the text's own, so a
+ * top or bottom handle has nothing to set: it only stretched the letters
+ * while dragged, and they snapped back on release (seen on a phone,
+ * 2026-11-22). Take those two handles away.
+ */
+export function hideTextBoxVerticalHandles(box: { setControlsVisibility(options: Record<string, boolean>): void }): void {
+  box.setControlsVisibility({ mt: false, mb: false });
+}

@@ -165,6 +165,21 @@ test.describe('embed editor (customer iframe)', () => {
     await expect(cards(page)).toHaveCount(1);
   });
 
+  // Pointer-dragging a handle is not reliable in an automated pane, so the check reads the Fabric
+  // text box itself: its top and bottom handles are gone, its sides and corners stay.
+  test('a text box in the canvas editor has no top or bottom handle', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    await openEmbedEditor(page, token);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await cards(page).first().click();
+    const editor = page.getByRole('dialog', { name: 'Canvas editor' });
+    await expect(editor).toBeVisible();
+    await editor.getByRole('button', { name: /^Text$/i }).first().click();
+    await editor.getByRole('button', { name: /Add New Text/i }).click();
+    await expect.poll(() => textBoxHandles(page)).toEqual({ mt: false, mb: false, ml: true, mr: true, tl: true, br: true });
+    await editor.getByRole('button', { name: 'Close editor' }).click();
+  });
+
   test('an incomplete photo asks first: the prompt takes focus, and Escape cancels the pick', async ({ page }) => {
     const { token } = await createEmbedSession();
     await openEmbedEditor(page, token);
@@ -209,3 +224,33 @@ test.describe('embed editor (customer iframe)', () => {
     await expect(remove).toBeFocused();
   });
 });
+
+type TextBoxHandles = Record<'mt' | 'mb' | 'ml' | 'mr' | 'tl' | 'br', boolean>;
+
+/** Which handles the editor's Fabric text box shows, read from the live canvas (see CLAUDE.md, Known automation limits). */
+async function textBoxHandles(page: import('@playwright/test').Page): Promise<TextBoxHandles | null> {
+  return page.evaluate(() => {
+    const el = document.querySelector('canvas.lower-canvas');
+    if (!el) return null;
+    const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
+    type Box = { type?: string; isControlVisible(k: string): boolean };
+    type Canvas = { _objects: Box[]; renderAll: () => void };
+    let fiber = key ? (el as unknown as Record<string, { return?: unknown; memoizedState?: unknown }>)[key] : null;
+    while (fiber) {
+      let hook = fiber.memoizedState as { memoizedState?: { current?: unknown }; next?: unknown } | null;
+      while (hook) {
+        const cur = hook.memoizedState?.current as Canvas | undefined;
+        if (cur && Array.isArray(cur._objects) && typeof cur.renderAll === 'function') {
+          const box = cur._objects.find((o) => /textbox/i.test(String(o.type)));
+          if (!box) return null;
+          const r = {} as Record<string, boolean>;
+          for (const k of ['mt', 'mb', 'ml', 'mr', 'tl', 'br']) r[k] = box.isControlVisible(k);
+          return r;
+        }
+        hook = hook.next as typeof hook;
+      }
+      fiber = fiber.return as typeof fiber;
+    }
+    return null;
+  }) as Promise<TextBoxHandles | null>;
+}

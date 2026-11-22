@@ -30,7 +30,7 @@ import { getShapeDef } from '@/lib/shape-catalog';
 import { canvasText, loadOverlayFonts, overlayFontStack } from '@/lib/overlay-fonts';
 import { textBoxWidthPx, textOriginX } from '@/lib/overlay-text';
 import { ownIconUrl } from '@/lib/icon-source';
-import { shapeBoxFromObject, shapeRepresentation, shapeScaleForBox, textBoxFromObject } from '@/lib/overlay-geometry';
+import { hideTextBoxVerticalHandles, shapeBoxFromObject, shapeRepresentation, shapeScaleForBox, textBoxFromObject } from '@/lib/overlay-geometry';
 import {
   createShapeFromOverlay,
   centerCanvasViewport,
@@ -1019,6 +1019,7 @@ export const FabricEditor = forwardRef<FabricEditorHandle, FabricEditorProps>(fu
           cornerColor: '#6366f1', cornerSize: 14, cornerStyle: 'circle', transparentCorners: false, borderColor: '#f97316',
           angle: overlay.rotation || 0,
         });
+        hideTextBoxVerticalHandles(fabricObj as Textbox);
         fabricObj.__fabricEditor = 'text';
       } else if (overlay.type === 'shape') {
         fabricObj = makeShapeObject(overlay, canvasW, canvasH);
