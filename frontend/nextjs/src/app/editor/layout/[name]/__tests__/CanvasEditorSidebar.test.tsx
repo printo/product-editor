@@ -27,7 +27,7 @@ function setup(overlays: Overlay[], selectedLayer: LayerSelection = { type: 'ima
 }
 
 describe('CanvasEditorSidebar — an added image that could not be loaded', () => {
-  it('opens on its Uploads panel and says it won’t print', () => {
+  it('opens on its Image settings and says it won’t print', () => {
     setup([lost]);
     expect(screen.getByText(/couldn.t be loaded on this device, so it won.t print/)).toBeInTheDocument();
     expect(screen.getByText('Image Overlay')).toBeInTheDocument();
@@ -65,10 +65,23 @@ describe('CanvasEditorSidebar — the add controls stay with an image selected',
     x: 10, y: 20, width: 20, height: 20, rotation: 0, opacity: 1,
   } as Overlay;
 
-  it('the Uploads tab shows the selected image’s settings and still offers Add Photo', () => {
-    setup([{ ...lost, originalFile: new File(['x'], 'logo.png') } as Overlay]);
+  const added = { ...lost, originalFile: new File(['x'], 'logo.png') } as Overlay;
+
+  it('an added image is controlled with the photos in the print areas, not on the Uploads tab', () => {
+    setup([added]);
     expect(screen.getByText('Image Overlay')).toBeInTheDocument();
-    expect(screen.getByText('Add Photo')).toBeInTheDocument();
+    expect(screen.getByLabelText('Opacity')).toBeInTheDocument();
+    expect(screen.getByLabelText('Rotation in degrees')).toBeInTheDocument();
+    expect(screen.queryByText('Fit Mode')).toBeNull();
+  });
+
+  it('the Uploads tab only adds: it offers Add Image and none of the selected image’s settings', () => {
+    setup([added]);
+    fireEvent.click(screen.getByRole('button', { name: 'Uploads' }));
+    expect(screen.getByText('Add Image')).toBeInTheDocument();
+    expect(screen.queryByText('Add Photo')).toBeNull();
+    const uploads = screen.getByText('Add Image').closest('div[class*="space-y-4"]');
+    expect(uploads?.textContent).not.toMatch(/Image Overlay|Opacity/);
   });
 
   it('the Icons tab shows the selected icon’s settings and still offers Add New Icon', () => {
@@ -89,14 +102,14 @@ describe('CanvasEditorSidebar — the phone sheet', () => {
   });
   afterEach(() => { window.matchMedia = realMatchMedia; });
 
-  it('opens on the photo’s controls, Zoom included, with every tab in one row and no Save of its own', () => {
+  it('opens on the image’s controls, Zoom included, with every tab in one row and no Save of its own', () => {
     setup([], { type: 'frame', index: 0 });
-    for (const name of ['Photo', 'BG', 'Text', 'Icons', 'Uploads', 'Layers']) {
+    for (const name of ['Image', 'BG', 'Text', 'Icons', 'Uploads', 'Layers']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
-    expect(screen.getByRole('button', { name: 'Photo' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Image' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByLabelText('Zoom')).toBeInTheDocument();
-    expect(screen.getByText('Photo Alignment')).toBeInTheDocument();
+    expect(screen.getByText('Image Alignment')).toBeInTheDocument();
     expect(screen.queryByText('Save Changes')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Add New Text' })).toBeNull();
   });
@@ -112,12 +125,28 @@ describe('CanvasEditorSidebar — the phone sheet', () => {
     expect(screen.queryByRole('button', { name: 'Add New Text' })).toBeNull();
   });
 
-  it('the Photo tab selects the photo when something else was selected', () => {
+  it('an added image opens on the Image tab with its own settings, not on Uploads', () => {
+    setup([{ ...lost, originalFile: new File(['x'], 'logo.png') } as Overlay]);
+    expect(screen.getByRole('button', { name: 'Image' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Uploads' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('Image Overlay')).toBeInTheDocument();
+    expect(screen.getByLabelText('Opacity')).toBeInTheDocument();
+    expect(screen.queryByText('Fit Mode')).toBeNull();
+  });
+
+  it('tapping Image while an added image is selected keeps that image', () => {
     const props = setup([{ ...lost, originalFile: new File(['x'], 'logo.png') } as Overlay]);
-    expect(screen.getByRole('button', { name: 'Uploads' })).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(screen.getByRole('button', { name: 'Photo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Text' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Image' }));
+    expect(screen.getByText('Image Overlay')).toBeInTheDocument();
+    expect(props.setSelectedLayer).not.toHaveBeenCalled();
+  });
+
+  it('with a text box selected, the Image tab selects the photo in the print area', () => {
+    const text = { id: 't1', type: 'text', text: 'Hi', x: 50, y: 50, fontSize: 40, color: '#000', fontFamily: 'Inter', rotation: 0 } as Overlay;
+    const props = setup([text], { type: 'text', index: 0 });
+    fireEvent.click(screen.getByRole('button', { name: 'Image' }));
     expect(props.setSelectedLayer).toHaveBeenCalledWith({ type: 'frame', index: 0 });
-    expect(screen.getByLabelText('Zoom')).toBeInTheDocument();
   });
 });
 
