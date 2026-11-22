@@ -176,17 +176,40 @@ describe('CanvasEditorSidebar — replacing the photo in a print area', () => {
   let metadata = makeMetadata();
   beforeEach(() => { metadata = makeMetadata(); });
 
-  it('"Use as print-area photo" puts the image in the area at the default fit and takes the overlay off', async () => {
+  it('"Use as print-area photo" puts the image in the area at the default fit and floats the photo it replaces', async () => {
     const props = setup([added], { type: 'image', index: 0 }, canvas([frame({ fillStyle: 'blur' })]), metadata);
     fireEvent.click(screen.getByRole('button', { name: /Use as print-area photo/ }));
     await waitFor(() => expect(props.debouncedRender).toHaveBeenCalled());
     const next = (props.debouncedRender as jest.Mock).mock.calls[0][0] as CanvasItem;
-    expect(next.overlays).toHaveLength(0);
+    // Swapped, not lost: the added image left the canvas and the replaced photo floats in its place in the stack.
+    expect(next.overlays).toHaveLength(1);
+    expect(next.overlays[0]).toMatchObject({
+      type: 'image', source: 'local', originalFile: oldPhoto, label: 'old.jpg', opacity: 1, rotation: 90,
+      x: 0, y: 0, width: 100, height: 100,
+    });
     expect(next.frames[0]).toMatchObject({
       originalFile: file, fileId: 'idb-9', fileName: 'new.jpg', fileSize: file.size,
       scale: 1, rotation: 0, offset: { x: 7, y: 9 }, fitMode: 'cover', fillStyle: 'blur',
     });
     expect(props.setSelectedLayer).toHaveBeenCalledWith({ type: 'frame', index: 0 });
+  });
+
+  it('an empty print area has nothing to float: the added image just leaves the canvas', async () => {
+    const props = setup([added], { type: 'image', index: 0 }, canvas([frame({ originalFile: null })]), metadata);
+    fireEvent.click(screen.getByRole('button', { name: /Use as print-area photo/ }));
+    await waitFor(() => expect(props.debouncedRender).toHaveBeenCalled());
+    const next = (props.debouncedRender as jest.Mock).mock.calls[0][0] as CanvasItem;
+    expect(next.overlays).toHaveLength(0);
+    expect(next.frames[0].originalFile).toBe(file);
+  });
+
+  it('the swap keeps the added image’s place in the stack', async () => {
+    const above = { ...added, id: 'o2', label: 'above.png', originalFile: new File(['a'], 'above.png') } as Overlay;
+    const props = setup([added, above], { type: 'image', index: 0 }, canvas([frame()], [added, above]), metadata);
+    fireEvent.click(screen.getByRole('button', { name: /Use as print-area photo/ }));
+    await waitFor(() => expect(props.debouncedRender).toHaveBeenCalled());
+    const next = (props.debouncedRender as jest.Mock).mock.calls[0][0] as CanvasItem;
+    expect(next.overlays.map(o => (o.type === 'image' ? o.label : ''))).toEqual(['old.jpg', 'above.png']);
   });
 
   it('in Fit the new photo starts centred, with no smart crop', async () => {

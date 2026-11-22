@@ -8,6 +8,7 @@ import { Dropdown } from '@/components/ui/Dropdown';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
+import { randomId } from '@/lib/random-id';
 import { isLostLocalImage, type OverlayAlignment } from './editor-utils';
 import { ARTWORK_LABEL, artworkOverlayFor } from './template-authoring';
 import { UnprintableTextNote } from './EditorNotices';
@@ -363,10 +364,44 @@ export function CanvasEditorSidebar({
     setSelectedLayer({ type: 'frame', index: 0 });
   };
 
+  // A print-area photo as a floating image sitting where its print area is.
+  // Used when the photo is moved up in Layers and when another image takes its
+  // print area, so the replaced photo is never simply lost.
+  const overlayFromFrame = (fIdx: number): Overlay | null => {
+    const frame = editingCanvas.frames[fIdx];
+    if (!frame || !frame.originalFile) return null;
+    const canvasW = layout?.canvas?.width || 1200;
+    const canvasH = layout?.canvas?.height || 1800;
+    const layoutFrame = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
+    // Normalize layout dimensions if they are percentages
+    const isPercent = layoutFrame.width <= 1 && layoutFrame.height <= 1;
+    const fw = isPercent ? layoutFrame.width * canvasW : layoutFrame.width;
+    const fh = isPercent ? layoutFrame.height * canvasH : layoutFrame.height;
+    const fx = isPercent ? layoutFrame.x * canvasW : layoutFrame.x;
+    const fy = isPercent ? layoutFrame.y * canvasH : layoutFrame.y;
+    // Overlay expects percentages 0-100
+    return {
+      type: 'image',
+      id: `ov-${randomId()}`,
+      src: getFileUrl(frame.originalFile),
+      originalFile: frame.originalFile,
+      fileId: frame.fileId,
+      source: 'local',
+      x: (fx / canvasW) * 100,
+      y: (fy / canvasH) * 100,
+      width: (fw / canvasW) * 100,
+      height: (fh / canvasH) * 100,
+      rotation: frame.rotation,
+      opacity: 1,
+      label: frame.originalFile.name || 'Moved Image',
+    };
+  };
+
   // Puts a photo into a print area at the default fit: the area keeps the Fit /
   // Cover choice it has, the photo starts unzoomed, unturned and (in Cover)
   // smart-cropped, whatever the photo it replaces was set to. An added image it
-  // came from (removeOverlayIdx) is taken off the canvas so it is not there twice.
+  // came from (removeOverlayIdx) is swapped for the photo that was in the area,
+  // which floats where the added image was: nothing is lost, and it is not there twice.
   const placeInFrame = async (fIdx: number, file: File, fileId?: string, removeOverlayIdx?: number) => {
     const current = editingCanvas.frames[fIdx];
     if (!current) return;
@@ -385,9 +420,13 @@ export function CanvasEditorSidebar({
     const frames = editingCanvas.frames.map((f, i) => i === fIdx
       ? { ...f, originalFile: file, fileId, fileName: file.name, fileSize: file.size, offset, scale: 1, rotation: 0 }
       : f);
-    const overlays = removeOverlayIdx === undefined
-      ? editingCanvas.overlays
-      : editingCanvas.overlays.filter((_, i) => i !== removeOverlayIdx);
+    let overlays = editingCanvas.overlays;
+    if (removeOverlayIdx !== undefined) {
+      const replaced = overlayFromFrame(fIdx);
+      overlays = replaced
+        ? editingCanvas.overlays.map((o, i) => (i === removeOverlayIdx ? replaced : o))
+        : editingCanvas.overlays.filter((_, i) => i !== removeOverlayIdx);
+    }
     debouncedRender({ ...editingCanvas, frames, overlays });
     setSelectedLayer({ type: 'frame', index: fIdx });
   };
@@ -513,36 +552,9 @@ export function CanvasEditorSidebar({
             debouncedRender({ ...editingCanvas, frames: updatedFrames });
           }}
           onMoveFrameToOverlay={(fIdx, targetOIdx) => {
-            const frame = editingCanvas.frames[fIdx];
-            if (!frame || !frame.originalFile) return;
+            const newOverlay = overlayFromFrame(fIdx);
+            if (!newOverlay) return;
             pushUndo(editingCanvas, true);
-            
-            const canvasW = layout?.canvas?.width || 1200;
-            const canvasH = layout?.canvas?.height || 1800;
-            const layoutFrame = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
-            
-            // Normalize layout dimensions if they are percentages
-            const isPercent = layoutFrame.width <= 1 && layoutFrame.height <= 1;
-            const fw = isPercent ? layoutFrame.width * canvasW : layoutFrame.width;
-            const fh = isPercent ? layoutFrame.height * canvasH : layoutFrame.height;
-            const fx = isPercent ? layoutFrame.x * canvasW : layoutFrame.x;
-            const fy = isPercent ? layoutFrame.y * canvasH : layoutFrame.y;
-
-            // Convert frame to image overlay (Overlay expects percentages 0-100)
-            const newOverlay: Overlay = {
-              type: 'image',
-              id: `ov-${Date.now()}`,
-              src: getFileUrl(frame.originalFile),
-              originalFile: frame.originalFile,
-              source: 'local',
-              x: (fx / canvasW) * 100,
-              y: (fy / canvasH) * 100,
-              width: (fw / canvasW) * 100,
-              height: (fh / canvasH) * 100,
-              rotation: frame.rotation,
-              opacity: 1,
-              label: frame.originalFile.name || 'Moved Image',
-            };
 
             const newOverlays = [...editingCanvas.overlays];
             newOverlays.splice(targetOIdx, 0, newOverlay);

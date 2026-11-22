@@ -201,7 +201,7 @@ test.describe('embed editor (customer iframe)', () => {
     await editor.getByRole('button', { name: 'Close editor' }).click();
   });
 
-  test('an added image can become the print-area photo, and the area then has the new photo', async ({ page }) => {
+  test('an added image can become the print-area photo: a swap, the replaced photo floats and the area has the new one', async ({ page }) => {
     const { token } = await createEmbedSession();
     const saves = recordAutosaves(page);
     await openEmbedEditor(page, token);
@@ -216,6 +216,8 @@ test.describe('embed editor (customer iframe)', () => {
     await editor.getByRole('button', { name: /Use as print-area photo/ }).click();
     await expect(editor.getByText('Image Overlay')).toHaveCount(0);
     await expect(editor.getByText('Fit Mode')).toBeVisible();
+    // A swap: the photo that was in the area now floats, named in Layers, and the area has the square one.
+    await expect(editor).toContainText('portrait-3000x4000.jpg');
 
     await editor.getByRole('button', { name: /save/i }).first().click();
     await expect(editor).toBeHidden();
