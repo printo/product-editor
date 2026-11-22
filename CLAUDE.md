@@ -399,6 +399,8 @@ engine = LayoutEngine(storage.layouts_dir(), job_exports_dir, layout_definition=
 ```
 **Missing `layout_definition` causes `[Errno 2] No such file or directory` on render.** Customer-facing lookups go through `LayoutCatalogue.resolve_active(name)` (walks `renamed_to`).
 
+**A generic layout must have a Print Area on every side.** `services/layout_frames.py::surfaces_without_frames` is the one rule (calendars and books are left to their own validators): the layout save answers 400 naming the side, `EditorRenderView` and `GenerateLayoutView` refuse the submit with 400 before anything is stored (`_refuse_unprintable_layout`, logged as an error so ops are alerted; the caller is told only that the product is not ready), and the engine raises `LayoutHasNoFrames`, which `render_canvas_task` fails at once without retrying. The guard does not touch rows already stored: a layout saved empty before 2026-11-22 stays as it is until ops add a Print Area or retire it. Pinned by `services/tests/test_layout_frames.py` and `api/tests/test_layout_without_print_areas.py`.
+
 ## Server-Side Render Flow
 
 **Triggers:** always — `handleSubmitDesign` (embed) and `executeBatchDownload` (dashboard) both call `executeServerRender()`.
