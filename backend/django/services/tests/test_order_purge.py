@@ -20,11 +20,20 @@ if not os.environ.get('DJANGO_SETTINGS_MODULE'):
 import django  # noqa: E402
 django.setup()
 
+from django.conf import settings  # noqa: E402
+
 from api.purge import _delete_files  # noqa: E402
 
 
-def test_delete_files_counts_and_frees():
+def _data_folder():
+    """A temp folder the purge treats as its uploads folder (it refuses any other path)."""
     d = tempfile.mkdtemp(prefix='pe-purge-')
+    settings.UPLOADS_DIR = d
+    return d
+
+
+def test_delete_files_counts_and_frees():
+    d = _data_folder()
     paths = []
     for i in range(3):
         p = os.path.join(d, f'f{i}.bin')
@@ -40,18 +49,33 @@ def test_delete_files_counts_and_frees():
 
 
 def test_delete_files_skips_missing_and_empty():
-    deleted, freed, errors = _delete_files(['', None, '/no/such/file-xyz'])
+    d = _data_folder()
+    deleted, freed, errors = _delete_files(['', None, os.path.join(d, 'no-such-file-xyz')])
     assert deleted == 0
     assert freed == 0
     assert errors == []  # missing files are a no-op, not an error
 
 
+def test_delete_files_refuses_paths_outside_the_data_folders():
+    _data_folder()
+    outside = tempfile.mkdtemp(prefix='pe-outside-')
+    p = os.path.join(outside, 'keep.bin')
+    with open(p, 'wb') as f:
+        f.write(b'x')
+    deleted, freed, errors = _delete_files([p])
+    assert deleted == 0 and len(errors) == 1 and 'refused' in errors[0]
+    assert os.path.exists(p)
+
+
 def test_delete_files_reports_undeletable():
-    d = tempfile.mkdtemp(prefix='pe-purge-')
+    d = _data_folder()
     # A directory path handed to a file-delete helper: os.path.isfile is False,
     # so it is skipped cleanly (no error, no partial delete).
-    deleted, freed, errors = _delete_files([d])
+    sub = os.path.join(d, 'a-folder')
+    os.mkdir(sub)
+    deleted, freed, errors = _delete_files([sub])
     assert deleted == 0 and errors == []
+    assert os.path.isdir(sub)
 
 
 # ─── Test runner ─────────────────────────────────────────────────────────────
