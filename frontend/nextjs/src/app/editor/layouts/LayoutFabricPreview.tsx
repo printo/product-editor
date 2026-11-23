@@ -182,7 +182,7 @@ export function LayoutFabricPreview({
   const isSyncingRef = useRef(false);
   // Store the latest frames to avoid stale closure issues
   const framesRef = useRef(frames);
-  framesRef.current = frames;
+  useEffect(() => { framesRef.current = frames; });
   // Multi-select support: ids of currently-selected frames + a count that
   // toggles the align toolbar. suppressSelectionRef silences selection events
   // while we programmatically move/reselect objects (see applyFrames), so a

@@ -256,6 +256,7 @@ export default function TemplateEditorPage() {
   // layout with the same window box, placed the way the customer editor
   // will place it (centred on that layout's box; blankCard → placeSideOverlays).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the preview when there is nothing to preview on, then loads the other layout
     if (!previewOn || !normalized) { setPreviewSides(null); return; }
     let cancelled = false;
     (async () => {

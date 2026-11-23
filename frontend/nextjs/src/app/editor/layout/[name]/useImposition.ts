@@ -91,12 +91,15 @@ export function useImposition({ layout, surfaceStates, canvases, renderCanvas, s
 
   // Keep the page selector inside range when the settings change the sheet
   // count, and start every visit to the modal on sheet 1.
-  useEffect(() => {
-    setPreviewSheetIdx(p => (p < sheetCount ? p : Math.max(0, sheetCount - 1)));
-  }, [sheetCount]);
-  useEffect(() => {
+  // Both are state adjusted while rendering, not in effects: the page they show is
+  // never drawn out of range, and never for a frame with the old page.
+  const lastSheetIdx = Math.max(0, sheetCount - 1);
+  if (previewSheetIdx > lastSheetIdx) setPreviewSheetIdx(lastSheetIdx);
+  const [modalWasOpen, setModalWasOpen] = useState(showImpositionModal);
+  if (modalWasOpen !== showImpositionModal) {
+    setModalWasOpen(showImpositionModal);
     if (showImpositionModal) setPreviewSheetIdx(0);
-  }, [showImpositionModal]);
+  }
 
   // The preview scales to the box it is actually given. A fixed pixel budget
   // overflowed the pane on landscape sheets, and `max-w-full` then squashed

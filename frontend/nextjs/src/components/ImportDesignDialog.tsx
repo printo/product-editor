@@ -336,6 +336,7 @@ export function ImportDesignDialog({ sizeGroups = [], takenNames, takenTemplateI
 
   // What the preview draws: addresses of the documents just built, released when they change.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- object addresses are made here and released when the documents change; they are an effect's output, state the preview draws
     if (!built) { setUrls(NO_URLS); return; }
     const made: string[] = [];
     const address = (part: BlobPart, type: string) => {

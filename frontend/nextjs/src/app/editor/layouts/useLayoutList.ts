@@ -47,6 +47,7 @@ export function useLayoutList(status: string) {
 
   useEffect(() => {
     if (status === 'authenticated') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the list once the session is confirmed; the load's first setState is the spinner
       fetchLayouts();
     }
   }, [status, fetchLayouts]);

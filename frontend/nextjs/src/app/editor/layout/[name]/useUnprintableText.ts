@@ -155,6 +155,7 @@ export function useUnprintableText({ surfaceStates, canvases, editingCanvas, set
     });
     if (!changed) return;
     setEditingCanvas({ ...editingCanvas, overlays });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- takes the characters the server says will not print out of the text box once its answer is in
     setRemovals(n => n + 1);
   }, [editingCanvas, known, setEditingCanvas]);
 
