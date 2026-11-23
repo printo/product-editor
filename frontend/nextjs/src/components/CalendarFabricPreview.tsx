@@ -88,8 +88,10 @@ export function CalendarFabricPreview({
   // Keep refs current to avoid stale closure issues in event handlers
   const framesRef    = useRef(frames);
   const calendarsRef = useRef(calendars);
-  framesRef.current    = frames;
-  calendarsRef.current = calendars;
+  useEffect(() => {
+    framesRef.current    = frames;
+    calendarsRef.current = calendars;
+  });
 
   // Stable scale: only update when the container width changes by more than
   // 8 px so micro-layout shifts (left panel growing/shrinking by a few px

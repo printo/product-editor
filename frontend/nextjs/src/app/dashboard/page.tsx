@@ -225,6 +225,7 @@ function DashboardContent() {
   }, [activeTagFilter, searchQuery]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetches the layouts once the session is confirmed; the load's first setState is the spinner
     if (status === 'authenticated') fetchLayouts();
   }, [status, fetchLayouts]);
 

@@ -59,6 +59,7 @@ export default function AllTemplatesPage() {
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('import') !== 'continue') return;
     window.history.replaceState(null, '', window.location.pathname);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reads the address once on arrival (?import=continue) and opens the import dialog
     setResumeImport(true);
     setImporting(true);
   }, []);
@@ -107,6 +108,7 @@ export default function AllTemplatesPage() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the templates on arrival; the load's first setState is the spinner
   useEffect(() => { void load(); }, [load]);
   // Arriving from a scrolled Layouts page, the router keeps the scroll and the
   // fixed top bar covers the toolbar; start at the top.

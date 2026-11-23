@@ -220,6 +220,22 @@ export function CanvasEditorModal({
     onClose();
   };
 
+  // ── Debounced render helper ───────────────────────────────────────────────
+  const debouncedRender = useCallback((updated: CanvasItem) => {
+    setEditingCanvas(updated);
+    if (renderTimeoutRef.current) clearTimeout(renderTimeoutRef.current);
+    const gen = ++renderGenRef.current;
+    renderTimeoutRef.current = setTimeout(async () => {
+      const fabricDataUrl = fabricEditorRef.current?.toDataURL();
+      if (fabricDataUrl && renderGenRef.current === gen) {
+        setEditingCanvas(p => p ? { ...p, dataUrl: fabricDataUrl } : p);
+      } else {
+        const dataUrl = await renderCanvas(updated);
+        if (renderGenRef.current === gen) setEditingCanvas(p => p ? { ...p, dataUrl } : p);
+      }
+    }, 80);
+  }, [renderCanvas, setEditingCanvas]);
+
   // ── Transform update ──────────────────────────────────────────────────────
   const handleUpdateTransform = useCallback((
     frameIdx: number,
@@ -238,8 +254,7 @@ export function CanvasEditorModal({
     });
     const finalized = { ...editingCanvas, frames: newFrames };
     debouncedRender(finalized);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingCanvas, pushUndo]);
+  }, [editingCanvas, pushUndo, debouncedRender]);
 
   // ── Frame Alignment ────────────────────────────────────────────────────────
   const handleAlign = async (
@@ -293,22 +308,6 @@ export function CanvasEditorModal({
     const newOverlays = editingCanvas.overlays.map((o, i) => (i !== overlayIdx ? o : alignOverlay(o, alignment)));
     debouncedRender({ ...editingCanvas, overlays: newOverlays });
   };
-
-  // ── Debounced render helper ───────────────────────────────────────────────
-  const debouncedRender = useCallback((updated: CanvasItem) => {
-    setEditingCanvas(updated);
-    if (renderTimeoutRef.current) clearTimeout(renderTimeoutRef.current);
-    const gen = ++renderGenRef.current;
-    renderTimeoutRef.current = setTimeout(async () => {
-      const fabricDataUrl = fabricEditorRef.current?.toDataURL();
-      if (fabricDataUrl && renderGenRef.current === gen) {
-        setEditingCanvas(p => p ? { ...p, dataUrl: fabricDataUrl } : p);
-      } else {
-        const dataUrl = await renderCanvas(updated);
-        if (renderGenRef.current === gen) setEditingCanvas(p => p ? { ...p, dataUrl } : p);
-      }
-    }, 80);
-  }, [renderCanvas, setEditingCanvas]);
 
   // ── Fabric canvas change handler ──────────────────────────────────────────
   const handleFabricChange = useCallback((updated: CanvasItem) => {

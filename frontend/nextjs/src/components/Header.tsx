@@ -11,8 +11,11 @@ import { headerRoleBadge } from '@/lib/header-role-label';
 import { canManageTemplates } from '@/lib/roles';
 import { ubuntu } from '@/lib/site-fonts';
 
+const noopSubscribe = () => () => {};
+
 export const Header = () => {
-  const [mounted, setMounted] = React.useState(false);
+  // False on the server and during hydration, true on the client afterwards, with no effect and no extra setState.
+  const mounted = React.useSyncExternalStore(noopSubscribe, () => true, () => false);
   const { title, description, centerActions, rightActions, headerHeight, setHeaderHeight } = useHeader();
   const { data: session } = useSession();
   const roleBadge = headerRoleBadge(session);
@@ -36,9 +39,6 @@ export const Header = () => {
 
   const headerRef = React.useRef<HTMLElement>(null);
 
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Row content varies per page (e.g. the mobile search row only exists when
   // a page sets centerActions) and per breakpoint, so measure the real

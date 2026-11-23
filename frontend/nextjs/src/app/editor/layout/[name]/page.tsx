@@ -8,7 +8,7 @@ import { CalendarCoverCard } from './CalendarCoverCard';
 import { useCalendarCovers } from './useCalendarCovers';
 import { isCoverKey, nonCoverSurfaces, sideCount } from '@/lib/calendar-covers';
 import React, {
-  useState, useEffect, useMemo, useRef,
+  useState, useEffect, useMemo, useRef, useCallback,
 } from 'react';
 import { useHeader } from '@/context/HeaderContext';
 import { Loader2, CheckCircle2 } from 'lucide-react';
@@ -209,6 +209,7 @@ export default function LayoutEditorPage() {
 
   useEffect(() => {
     if (!activeSurface) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the stored side into the working state on a side SWITCH; see the note below
     setFiles(activeSurface.files);
     setCanvases(activeSurface.canvases);
     setGlobalFitMode(activeSurface.globalFitMode);
@@ -227,6 +228,7 @@ export default function LayoutEditorPage() {
       currentSurface.files !== files ||
       currentSurface.canvases !== canvases
     )) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- writes the working state back into the stored side, and only when it differs
       setSurfaceStates(prev => {
         const sIdx = prev.findIndex(s => s.key === activeSurfaceKey);
         if (sIdx === -1) return prev;
@@ -301,6 +303,7 @@ export default function LayoutEditorPage() {
     const groups = sideCount(surfaceStates) > 1
       ? surfaceStates.map(s => ({ label: s.label || s.key, canvases: s.canvases }))
       : [{ canvases }];
+    // eslint-disable-next-line react-hooks/refs -- the set is the qty auto-fill's record of repeats it chose, read here on purpose (see the note on intentionalDupesRef)
     return collectDuplicateFills(groups, intentionalDupesRef.current);
   }, [surfaceStates, canvases]);
 
@@ -383,6 +386,7 @@ export default function LayoutEditorPage() {
   useEffect(() => {
     if (!askTemplateFirst || templateFlowOpenedRef.current || !templatesLoaded || !restoreSettled) return;
     templateFlowOpenedRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- opens the picker once, guarded by templateFlowOpenedRef
     if (templates.length > 0 && !activeTemplate && totalCardCount === 0) setShowTemplatePicker(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askTemplateFirst, templatesLoaded, restoreSettled]);
@@ -486,12 +490,18 @@ export default function LayoutEditorPage() {
   // grid for the day editor, the photo for the photo editor); null keeps the
   // separate month tiles (the whole-year poster).
   const calendarThumb = useCalendarThumbColors(calendarTheme, genzPalette, genzPalettes);
+  const openUploadPicker = useCallback(() => uploadInputRef.current?.click(), []);
+  // The pages on their own: the date editor's preview shape and the month tiles read them, and
+  // the config below holds a callback that reads a ref, which the compiler lint will not let a
+  // render pass on to anything.
+  const calendarPages = useMemo(
+    () => (isCalendarProduct ? calendarCardPages(visibleCalendarMonths, layout?.calendarBlocks, layout?.calendarSurfaceOverrides, canvases.length) : null),
+    [isCalendarProduct, visibleCalendarMonths, layout, canvases.length],
+  );
   const calendarCardsConfig = useMemo<CalendarCardsConfig | null>(() => {
-    if (!isCalendarProduct) return null;
-    const pages = calendarCardPages(visibleCalendarMonths, layout?.calendarBlocks, layout?.calendarSurfaceOverrides, canvases.length);
-    if (!pages) return null;
+    if (!calendarPages) return null;
     return {
-      pages,
+      pages: calendarPages,
       weekStart: layout?.weekStart === 'monday' ? 'monday' : 'sunday',
       cells: calendarCells,
       cellImages: calendarCellImagePreviews,
@@ -500,15 +510,15 @@ export default function LayoutEditorPage() {
       dotCycle: calendarThumb.dotCycle,
       showMonthName: layout?.calendarShowMonthName ?? true,
       onOpenMonth: handleCalendarMonthTileClick,
-      onAddPhotos: () => uploadInputRef.current?.click(),
+      onAddPhotos: openUploadPicker,
     };
-  }, [isCalendarProduct, visibleCalendarMonths, layout, canvases.length, calendarCells, calendarCellImagePreviews, printedHolidays, calendarThumb, handleCalendarMonthTileClick]);
+  }, [calendarPages, layout, calendarCells, calendarCellImagePreviews, printedHolidays, calendarThumb, handleCalendarMonthTileClick, openUploadPicker]);
 
   // The shape of the selected date's photo box, as the print fits it, for the date editor's preview.
   const selectedCellAspect = useMemo(() => {
     if (!selectedCalendarCell) return 1;
     return calendarCellAspect({
-      block: calendarCardsConfig?.pages[selectedCalendarCell.surfaceIndex]?.block
+      block: calendarPages?.[selectedCalendarCell.surfaceIndex]?.block
         ?? layout?.calendarBlocks?.[selectedCalendarCell.surfaceIndex] ?? layout?.calendarBlocks?.[0],
       canvasWidthPx: layout?.canvas?.width,
       canvasHeightPx: layout?.canvas?.height,
@@ -517,7 +527,7 @@ export default function LayoutEditorPage() {
       weekStart: layout?.weekStart === 'monday' ? 'monday' : 'sunday',
       heading: layout?.calendarShowMonthName ?? true,
     });
-  }, [selectedCalendarCell, calendarCardsConfig, layout]);
+  }, [selectedCalendarCell, calendarPages, layout]);
 
   if (status === 'loading' && !embedToken) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -730,7 +740,7 @@ export default function LayoutEditorPage() {
           )}
 
           <CalendarSection
-            isCalendarProduct={isCalendarProduct} showMonthTiles={!calendarCardsConfig} layout={layout}
+            isCalendarProduct={isCalendarProduct} showMonthTiles={!calendarPages} layout={layout}
             calendarTheme={calendarTheme} setCalendarTheme={setCalendarTheme} genzPalette={genzPalette} genzPalettes={genzPalettes}
             setGenzPalette={setGenzPalette} calendarType={calendarType} setCalendarType={setCalendarType}
             handleCalendarMonthTileClick={handleCalendarMonthTileClick} calendarCells={calendarCells} printedHolidays={printedHolidays}

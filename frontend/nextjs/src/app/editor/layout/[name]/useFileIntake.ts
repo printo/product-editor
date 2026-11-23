@@ -24,6 +24,11 @@ type BookOverflow = { files: File[]; currentCapacity: number; suggestedCount: nu
  *  ordered (a hard cap) or than the book holds, and re-picking over edited
  *  pages — plus filling an order up with repeats. The state those prompts
  *  hold lives here; the photos and cards are the page's. */
+/** A fresh cache for the next selection. Done here, not inline: the ref arrives as a hook argument, which the compiler lint will not let a hook assign into. */
+function resetFileUrlCache(ref: Ref<WeakMap<File, string>>) {
+  ref.current = new WeakMap();
+}
+
 export function useFileIntake({
   layout, files, setFiles, setCanvases, canvasesRef, surfaceStates, setSurfaceStates, surfaceStatesRef, activeSurfaceKey,
   normalizedLayoutState, isCalendarProduct, isBookProduct, bookPageCount, setBookPageCount, bookHiddenPages, setBookHiddenPages,
@@ -149,7 +154,7 @@ export function useFileIntake({
     // Revoke any URLs from the previous batch — start the new selection clean.
     createdObjectURLs.current.forEach(url => URL.revokeObjectURL(url));
     createdObjectURLs.current.clear();
-    fileUrlCache.current = new WeakMap();
+    resetFileUrlCache(fileUrlCache);
 
     // ── CMYK color space detection ──────────────────────────────────────────
     setColorWarning(null);

@@ -86,6 +86,7 @@ export default function LayoutTemplatesPage() {
     }
   }, [layoutName]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the templates on arrival; the load's first setState is the spinner
   useEffect(() => { if (layoutName) void load(); }, [layoutName, load]);
   // Arriving from a scrolled Layouts page, the router keeps the scroll and the
   // fixed top bar covers the New template button; start at the top.
