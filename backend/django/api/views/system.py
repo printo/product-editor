@@ -74,7 +74,7 @@ class CSPReportView(APIView):
     """
     Public, unauthenticated sink for browser-generated CSP violation reports.
 
-    Both django-csp's own policy (CSP_REPORT_URI below) and the Next.js
+    Both django-csp's own policy (`report-uri` in settings.py) and the Next.js
     frontend's parallel copy (next.config.mjs) point their `report-uri` here —
     nginx routes all of /api/* to this backend regardless of which app
     rendered the page that violated, so one endpoint covers both. Never

@@ -11,7 +11,7 @@ standalone.js
 ```
 
 Vendored instead of loaded from `cdn.jsdelivr.net` so the docs page doesn't
-depend on a third-party CDN and doesn't need a `CSP_SCRIPT_SRC` exception —
+depend on a third-party CDN and doesn't need a `script-src` exception —
 served same-origin, it's already covered by `'self'`.
 
 ## Current version

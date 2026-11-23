@@ -10,7 +10,7 @@ The same policy is emitted by two separate apps, and `CSP_REPORT_ONLY` has to re
 
 | Half | Serves | Where | When the flag is read |
 |---|---|---|---|
-| Django (django-csp) | API/JSON responses and the Scalar docs page (`/docs/api/`) | `CSP_*` in `backend/django/product_editor/settings.py` | at runtime |
+| Django (django-csp) | API/JSON responses and the Scalar docs page (`/docs/api/`) | `CONTENT_SECURITY_POLICY[_REPORT_ONLY]` (django-csp 4 format) in `backend/django/product_editor/settings.py` | at runtime |
 | Next.js | every page, including the customer editor and the embed iframe | `headers()` in `frontend/nextjs/next.config.mjs` | **at image build time** (docker-compose passes it as a build arg) |
 
 Change a directive in both files. The policy needs `'unsafe-eval'` for Fabric.js, and Google's domains for the `/login` sign-in and the web fonts.
