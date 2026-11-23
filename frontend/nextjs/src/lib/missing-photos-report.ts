@@ -69,6 +69,7 @@ export async function reportMissingPhotos(
       `Photos the saved design names: ${expected}; missing on this device: ${missing}`,
       `Store opened: ${yesNo(readout ? readout.storeOpened : null)} (mode: ${mode})`,
       `Kept for this order: ${readout?.recordsForOrder ?? 'unknown'}, of which unreadable: ${readout?.unreadable ?? 'unknown'}`,
+      `Of those, kept as raw data: ${readout?.keptAsData ?? 'unknown'}`,
       `Kept for any order on this device: ${storedAnywhere ?? 'unknown'}`,
       `Inside another site's page: ${yesNo(framed)}`,
       `Storage access granted: ${yesNo(storageAccess)}; storage kept for good: ${yesNo(persisted)}`,
