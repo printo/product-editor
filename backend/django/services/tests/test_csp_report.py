@@ -1,6 +1,6 @@
 """
 Tests for CSPReportView — the sink browsers POST to per the CSP `report-uri`
-directive (see settings.py's CSP_REPORT_URI and next.config.mjs's mirror).
+directive (see settings.py's `report-uri` directive and next.config.mjs's mirror).
 Both django-csp's own policy and the Next.js frontend's parallel copy point
 here, so it has to tolerate whatever shape either side's browsers send.
 

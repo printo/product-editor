@@ -4,7 +4,7 @@ The Content Security Policy django-csp 4 puts on the responses this Django proce
 django-csp 4 reads `CONTENT_SECURITY_POLICY` (enforced) or
 `CONTENT_SECURITY_POLICY_REPORT_ONLY` (reported only) and ignores every old `CSP_*`
 setting without a word, so a policy left in the old names would silently stop being sent.
-`CSP_REPORT_ONLY` is our own env flag that picks which of the two carries the policy.
+The `CSP_REPORT_ONLY` env flag (read into a private name: a setting NAMED that fails django-csp's own check) picks which of the two carries the policy.
 
 Run stand-alone:
     cd backend/django && python -m services.tests.test_csp_policy
@@ -29,12 +29,16 @@ from csp.middleware import CSPMiddleware  # noqa: E402
 from csp.utils import build_policy  # noqa: E402
 
 
+def report_only_flag() -> bool:
+    return os.environ.get('CSP_REPORT_ONLY', 'True').lower() not in ('false', '0', 'no')
+
+
 def _directives(policy: str) -> dict[str, list[str]]:
     return {part.split()[0]: part.split()[1:] for part in policy.split(';') if part.strip()}
 
 
 def test_no_legacy_csp_settings_are_left():
-    left = [n for n in dir(settings) if re.match(r'CSP_(?!REPORT_ONLY$)', n)]
+    left = [n for n in dir(settings) if re.match(r'CSP_', n)]
     assert not left, f"django-csp 4 ignores these: {left}"
 
 
@@ -53,9 +57,9 @@ def test_the_policy_carries_every_directive_the_frontend_mirrors():
 
 
 def test_the_default_is_report_only_and_the_middleware_names_the_header_so():
-    assert hasattr(settings, 'CONTENT_SECURITY_POLICY_REPORT_ONLY') == settings.CSP_REPORT_ONLY
+    assert hasattr(settings, 'CONTENT_SECURITY_POLICY_REPORT_ONLY') == report_only_flag()
     response = CSPMiddleware(lambda request: HttpResponse('ok'))(RequestFactory().get('/'))
-    if settings.CSP_REPORT_ONLY:
+    if report_only_flag():
         assert 'Content-Security-Policy-Report-Only' in response and 'Content-Security-Policy' not in response
     else:
         assert 'Content-Security-Policy' in response and 'Content-Security-Policy-Report-Only' not in response
@@ -78,6 +82,11 @@ def test_the_flag_moves_the_policy_between_the_two_settings():
     assert _settings_carrying_the_policy('True') == (False, True)
     assert _settings_carrying_the_policy('False') == (True, False)
     assert _settings_carrying_the_policy('0') == (True, False)
+
+
+def test_django_system_check_accepts_the_settings():
+    from django.core.management import call_command
+    call_command('check')
 
 
 if __name__ == "__main__":

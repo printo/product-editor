@@ -441,9 +441,9 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — spool-to-disk thresh
 # flip needs a frontend rebuild — deploy.sh does one; a restart does not.
 # django-csp 4 reads one dict, `CONTENT_SECURITY_POLICY` (enforced) or
 # `CONTENT_SECURITY_POLICY_REPORT_ONLY` (reported only), with the directives under
-# "DIRECTIVES"; the old CSP_* names are not read at all any more. The flag below picks
+# "DIRECTIVES"; the old CSP_* names are not read at all any more. The flag below (kept private on purpose: django-csp 4 flags any setting NAMED CSP_REPORT_ONLY as legacy and fails every manage.py command) picks
 # which of the two carries the policy, so the header name is the only thing a flip changes.
-CSP_REPORT_ONLY = os.getenv("CSP_REPORT_ONLY", "True").lower() not in ("false", "0", "no")
+_CSP_REPORT_ONLY = os.getenv("CSP_REPORT_ONLY", "True").lower() not in ("false", "0", "no")
 _CSP_DIRECTIVES = {
     "default-src": ["'self'"],
     # 'unsafe-eval' for Fabric.js; accounts.google.com for the login page's Google
@@ -469,7 +469,7 @@ _CSP_DIRECTIVES = {
     # next.config.mjs's report-uri directive.
     "report-uri": ["/api/csp-report"],
 }
-if CSP_REPORT_ONLY:
+if _CSP_REPORT_ONLY:
     CONTENT_SECURITY_POLICY_REPORT_ONLY = {"DIRECTIVES": _CSP_DIRECTIVES}
 else:
     CONTENT_SECURITY_POLICY = {"DIRECTIVES": _CSP_DIRECTIVES}
