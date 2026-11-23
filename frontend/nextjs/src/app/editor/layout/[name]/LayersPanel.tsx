@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ChevronDown, Lock, AlertTriangle } from 'lucide-react';
+import { Layers, Type, Trash2, Image as ImageIcon, ChevronUp, Hexagon, ChevronDown, Lock, AlertTriangle, Star } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { CanvasItem, Overlay } from './types';
-import { isLostLocalImage } from './editor-utils';
+import { extraImageName, isLostLocalImage, mainPhotoName } from './editor-utils';
 
 export type LayerSelection =
   | { type: 'frame'; index: number }
@@ -19,15 +19,16 @@ interface LayersPanelProps {
   onSelect: (sel: LayerSelection) => void;
   onDeleteOverlay: (idx: number) => void;
   onReorderOverlays: (overlays: Overlay[]) => void;
-  onClearFrame: (idx: number) => void;
-  onMoveFrameToOverlay: (fIdx: number, targetOIdx: number) => void;
+  /** Swaps the extra image at this index with the main photo. Given only when
+   *  that is unambiguous (one print area), so a row can offer it. */
+  onMakeMainPhoto?: (overlayIdx: number) => void;
   /** The phone sheet's Layers tab: no collapsing header, and rows and their
    *  buttons sized for a finger and always shown (a phone has no hover). */
   alwaysOpen?: boolean;
 }
 
 export function LayersPanel({
-  editingCanvas, selected, onSelect, onDeleteOverlay, onReorderOverlays, onClearFrame, onMoveFrameToOverlay,
+  editingCanvas, selected, onSelect, onDeleteOverlay, onReorderOverlays, onMakeMainPhoto,
   alwaysOpen = false,
 }: LayersPanelProps) {
   const [expanded, setExpanded] = useState(false);
@@ -49,13 +50,6 @@ export function LayersPanel({
     newOverlays.splice(targetIdx, 0, moved);
     onReorderOverlays(newOverlays);
     onSelect({ type: moved.type, index: targetIdx });
-  };
-
-  const handleMoveFrameToTop = (fIdx: number) => {
-    // Moves frame to the bottom of overlays (which is top-most visually in reverse order)
-    // ONLY if there are other layers to move over
-    if (overlays.length === 0) return;
-    onMoveFrameToOverlay(fIdx, overlays.length);
   };
 
   return (
@@ -108,11 +102,21 @@ export function LayersPanel({
                   lost ? 'text-amber-700' : isSelected ? 'text-indigo-600' : 'text-slate-500')}>
                   {overlay.type === 'text' ? (overlay.text.trim() || 'Text') : 
                    overlay.type === 'shape' ? (overlay.shapeType.replace(/-/g, ' ')) : 
-                   overlay.label || 'Icon'}
+                   (extraImageName(overlays, oIdx) ?? overlay.label) || 'Icon'}
                   {lost && ' — missing'}
                 </span>
 
                 <div className={actionsClass}>
+                  {onMakeMainPhoto && overlay.type === 'image' && overlay.source === 'local' && !lost && overlay.originalFile && (
+                    <button
+                      onClick={e => { e.stopPropagation(); onMakeMainPhoto(oIdx); }}
+                      className={clsx(actionSize, 'flex items-center justify-center text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-all')}
+                      title="Make main photo"
+                      aria-label="Make main photo"
+                    >
+                      <Star className={actionIcon} />
+                    </button>
+                  )}
                   {canMove && (
                     <>
                       <button
@@ -148,7 +152,6 @@ export function LayersPanel({
           {/* Frames - Always at bottom */}
           {frames.map((frame, fIdx) => {
             const isSelected = selected?.type === 'frame' && selected.index === fIdx;
-            const hasOverlays = overlays.length > 0;
 
             return (
               <div
@@ -167,27 +170,9 @@ export function LayersPanel({
                 </div>
                 <span className={clsx('text-[10px] font-bold truncate flex-1 uppercase tracking-tight', 
                   isSelected ? 'text-indigo-600' : 'text-slate-500 italic')}>
-                  {frames.length > 1 ? `Slot ${fIdx + 1}` : (frame.originalFile?.name || 'Base Layer')}
+                  {mainPhotoName(fIdx, frames.length)}
                 </span>
                 
-                <div className={actionsClass}>
-                  {frame.originalFile && hasOverlays && (
-                    <button
-                      onClick={e => { e.stopPropagation(); handleMoveFrameToTop(fIdx); }}
-                      className={clsx(actionSize, 'flex items-center justify-center text-emerald-500 hover:bg-emerald-50 rounded-md transition-all')}
-                      title="Bring to Top"
-                    >
-                      <ChevronUp className={actionIcon} />
-                    </button>
-                  )}
-                  <button
-                    onClick={e => { e.stopPropagation(); onClearFrame(fIdx); }}
-                    className={clsx(actionSize, 'flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all')}
-                    title="Clear"
-                  >
-                    <Trash2 className={actionIcon} />
-                  </button>
-                </div>
               </div>
             );
           })}

@@ -321,3 +321,24 @@ export function photoZoneOf(
   if (right <= left || bottom <= top) return null;
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
+
+/** What the customer calls the pictures they add on top of the main photo:
+ *  "Extra image 1", "Extra image 2", … in the order they sit in the stack
+ *  (first added is 1). Icons, stickers, text and shapes are not numbered. Null
+ *  when the overlay at `index` is not such an image. */
+export function extraImageName(overlays: Overlay[], index: number): string | null {
+  const target = overlays[index];
+  if (!target || target.type !== 'image' || target.source !== 'local') return null;
+  let n = 0;
+  for (let i = 0; i <= index; i++) {
+    const o = overlays[i];
+    if (o.type === 'image' && o.source === 'local') n++;
+  }
+  return `Extra image ${n}`;
+}
+
+/** The photo that fills a print area: "Main photo", or "Main photo 2" when the
+ *  product has several print areas. */
+export function mainPhotoName(frameIndex: number, frameCount: number): string {
+  return frameCount > 1 ? `Main photo ${frameIndex + 1}` : 'Main photo';
+}

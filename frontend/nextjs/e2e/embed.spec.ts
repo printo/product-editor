@@ -188,17 +188,59 @@ test.describe('embed editor (customer iframe)', () => {
     const editor = page.getByRole('dialog', { name: 'Canvas editor' });
     await expect(editor).toBeVisible();
     await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
-    await expect(editor.getByText('Add Image')).toBeVisible();
+    await expect(editor.getByText('Add extra image')).toBeVisible();
     await editor.locator('input[type="file"]').first().setInputFiles(PHOTOS.square);
 
-    await expect(editor.getByText('Image Overlay')).toBeVisible();
+    await expect(editor.getByText('Extra image 1').first()).toBeVisible();
     await expect(editor.getByLabel('Opacity')).toBeVisible();
     await expect(editor.getByLabel('Rotation in degrees')).toBeVisible();
     await expect(editor.getByText('Fit Mode')).toHaveCount(0);
 
     await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
-    await expect(editor.getByText('Add Image')).toBeVisible();
+    await expect(editor.getByText('Add extra image')).toBeVisible();
     await editor.getByRole('button', { name: 'Close editor' }).click();
+  });
+
+  test('an added image can become the main photo: a swap, the replaced photo floats and the area has the new one', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    const saves = recordAutosaves(page);
+    await openEmbedEditor(page, token);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await cards(page).first().click();
+    const editor = page.getByRole('dialog', { name: 'Canvas editor' });
+    await expect(editor).toBeVisible();
+    await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
+    await editor.locator('input[type="file"]').first().setInputFiles(PHOTOS.square);
+    await expect(editor.getByText('Extra image 1').first()).toBeVisible();
+
+    await editor.getByRole('button', { name: /Make this the main photo/ }).click();
+    // The settings are the main photo's again (Fit Mode), and the swap left the old photo floating as Extra image 1.
+    await expect(editor.getByText('Fit Mode')).toBeVisible();
+    await expect(editor.getByText('Extra image 1').first()).toBeVisible();
+
+    await editor.getByRole('button', { name: /save/i }).first().click();
+    await expect(editor).toBeHidden();
+    await expect.poll(() => photoOrder(saves.at(-1)), { timeout: 30_000 }).toEqual(['square-2400x2400.jpg']);
+  });
+
+  test('Layers: an extra image’s star makes it the main photo, and the Main photo row has no buttons', async ({ page }) => {
+    const { token } = await createEmbedSession();
+    await openEmbedEditor(page, token);
+    await addPhotos(page, [PHOTOS.portrait]);
+    await cards(page).first().click();
+    const editor = page.getByRole('dialog', { name: 'Canvas editor' });
+    await expect(editor).toBeVisible();
+    await editor.getByRole('button', { name: /^Uploads$/i }).first().click();
+    await editor.locator('input[type="file"]').first().setInputFiles(PHOTOS.square);
+    await expect(editor.getByText('Extra image 1').first()).toBeVisible();
+
+    await editor.getByRole('button', { name: /^Layers/i }).click();
+    await expect(editor.getByTitle('Clear')).toHaveCount(0);
+    await editor.getByRole('button', { name: 'Make main photo' }).click();
+    // Swapped: the settings are the main photo's again and the old one floats as Extra image 1.
+    await expect(editor.getByText('Fit Mode')).toBeVisible();
+    await expect(editor.getByText('Extra image 1').first()).toBeVisible();
+    await expect(editor.getByRole('button', { name: 'Make main photo' })).toHaveCount(1);
   });
 
   test('an incomplete photo asks first: the prompt takes focus, and Escape cancels the pick', async ({ page }) => {

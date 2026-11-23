@@ -8,7 +8,8 @@ import { Dropdown } from '@/components/ui/Dropdown';
 import { LayersPanel, type LayerSelection } from './LayersPanel';
 import { IconBrowser } from './IconBrowser';
 import { AlignmentToolbar } from './AlignmentToolbar';
-import { isLostLocalImage, type OverlayAlignment } from './editor-utils';
+import { randomId } from '@/lib/random-id';
+import { extraImageName, isLostLocalImage, mainPhotoName, type OverlayAlignment } from './editor-utils';
 import { ARTWORK_LABEL, artworkOverlayFor } from './template-authoring';
 import { UnprintableTextNote } from './EditorNotices';
 import { isAllowedImageFile, IMAGE_AND_PDF_ACCEPT_ATTR } from '@/lib/upload-utils';
@@ -363,6 +364,87 @@ export function CanvasEditorSidebar({
     setSelectedLayer({ type: 'frame', index: 0 });
   };
 
+  // A print-area photo as a floating image sitting where its print area is.
+  // Used when the photo is moved up in Layers and when another image takes its
+  // print area, so the replaced photo is never simply lost.
+  const overlayFromFrame = (fIdx: number): Overlay | null => {
+    const frame = editingCanvas.frames[fIdx];
+    if (!frame || !frame.originalFile) return null;
+    const canvasW = layout?.canvas?.width || 1200;
+    const canvasH = layout?.canvas?.height || 1800;
+    const layoutFrame = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
+    // Normalize layout dimensions if they are percentages
+    const isPercent = layoutFrame.width <= 1 && layoutFrame.height <= 1;
+    const fw = isPercent ? layoutFrame.width * canvasW : layoutFrame.width;
+    const fh = isPercent ? layoutFrame.height * canvasH : layoutFrame.height;
+    const fx = isPercent ? layoutFrame.x * canvasW : layoutFrame.x;
+    const fy = isPercent ? layoutFrame.y * canvasH : layoutFrame.y;
+    // Overlay expects percentages 0-100
+    return {
+      type: 'image',
+      id: `ov-${randomId()}`,
+      src: getFileUrl(frame.originalFile),
+      originalFile: frame.originalFile,
+      fileId: frame.fileId,
+      source: 'local',
+      x: (fx / canvasW) * 100,
+      y: (fy / canvasH) * 100,
+      width: (fw / canvasW) * 100,
+      height: (fh / canvasH) * 100,
+      rotation: frame.rotation,
+      opacity: 1,
+      label: frame.originalFile.name || 'Moved Image',
+    };
+  };
+
+  // Puts a photo into a print area at the default fit: the area keeps the Fit /
+  // Cover choice it has, the photo starts unzoomed, unturned and (in Cover)
+  // smart-cropped, whatever the photo it replaces was set to. An added image it
+  // came from (removeOverlayIdx) is swapped for the photo that was in the area,
+  // which floats where the added image was: nothing is lost, and it is not there twice.
+  const placeInFrame = async (fIdx: number, file: File, fileId?: string, removeOverlayIdx?: number) => {
+    const current = editingCanvas.frames[fIdx];
+    if (!current) return;
+    pushUndo(editingCanvas, true);
+    let offset = { x: 0, y: 0 };
+    if (current.fitMode === 'cover') {
+      const { element } = await getImageMetadata(file);
+      const canvasW = layout?.canvas?.width || 1200;
+      const canvasH = layout?.canvas?.height || 1800;
+      const frameSpec = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
+      const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
+      const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
+      const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
+      offset = await calculateSmartCropOffsets(element, fw, fh, 0, fileId ? `${fileId}:${fw}x${fh}:0` : undefined);
+    }
+    const frames = editingCanvas.frames.map((f, i) => i === fIdx
+      ? { ...f, originalFile: file, fileId, fileName: file.name, fileSize: file.size, offset, scale: 1, rotation: 0 }
+      : f);
+    let overlays = editingCanvas.overlays;
+    if (removeOverlayIdx !== undefined) {
+      let replaced = overlayFromFrame(fIdx);
+      const taken = editingCanvas.overlays[removeOverlayIdx];
+      if (replaced && taken?.type === 'image') {
+        // It floats where the added image was, as big as that was across and in its own
+        // shape. At the size of the print area it sat on top of the new main photo and hid it.
+        let size: { width: number; height: number } | null = null;
+        try {
+          const meta = await getImageMetadata(current.originalFile as File);
+          size = { width: meta.width, height: meta.height };
+        } catch { /* keep the added image's box */ }
+        const box = size
+          ? addedPhotoBox(size.width, size.height, layout?.canvas?.width || 1200, layout?.canvas?.height || 1800, taken.width)
+          : { width: taken.width, height: taken.height };
+        replaced = { ...replaced, x: taken.x, y: taken.y, ...box };
+      }
+      overlays = replaced
+        ? editingCanvas.overlays.map((o, i) => (i === removeOverlayIdx ? replaced : o))
+        : editingCanvas.overlays.filter((_, i) => i !== removeOverlayIdx);
+    }
+    debouncedRender({ ...editingCanvas, frames, overlays });
+    setSelectedLayer({ type: 'frame', index: fIdx });
+  };
+
   // PDF pages are expanded first (see pdf-import.ts), then iPhone HEIC photos
   // are converted to JPEG (see heic-convert.ts), then unsupported types (e.g.
   // .svg) are dropped — they'd preview in the browser but fail to render
@@ -435,8 +517,8 @@ export function CanvasEditorSidebar({
                       <ImagePlus className="w-6 h-6" />
                     </div>
                     <div className="text-center">
-                      <p className="text-[11px] font-medium uppercase">Add Image</p>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-tight opacity-80">Floating overlay</p>
+                      <p className="text-[11px] font-medium uppercase">Add extra image</p>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-tight opacity-80">On top of the main photo</p>
                     </div>
                     <input type="file" multiple accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
                       onChange={handleAddPhotos} />
@@ -461,72 +543,11 @@ export function CanvasEditorSidebar({
             pushUndo(editingCanvas, true);
             debouncedRender({ ...editingCanvas, overlays: newOverlays });
           }}
-          onClearFrame={async fIdx => {
-            pushUndo(editingCanvas, true);
-            const updatedFrames = await Promise.all(editingCanvas.frames.map(async (f, i) => {
-              if (i !== fIdx) return f;
-              
-              let newOffset = { x: 0, y: 0 };
-              if (f.fitMode === 'cover' && f.originalFile) {
-                const { element: imgEl } = await getImageMetadata(f.originalFile);
-                const canvasW = layout?.canvas?.width || 1200;
-                const canvasH = layout?.canvas?.height || 1800;
-                const frameSpec = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
-                const isPercent = frameSpec.width <= 1 && frameSpec.height <= 1;
-                const fw = isPercent ? frameSpec.width * canvasW : frameSpec.width;
-                const fh = isPercent ? frameSpec.height * canvasH : frameSpec.height;
-                const ck = f.fileId ? `${f.fileId}:${fw}x${fh}:0` : undefined;
-                newOffset = await calculateSmartCropOffsets(imgEl, fw, fh, 0, ck); // reset rotation to 0
-              }
-              
-              return { ...f, offset: newOffset, scale: 1, rotation: 0 };
-            }));
-            debouncedRender({ ...editingCanvas, frames: updatedFrames });
-          }}
-          onMoveFrameToOverlay={(fIdx, targetOIdx) => {
-            const frame = editingCanvas.frames[fIdx];
-            if (!frame || !frame.originalFile) return;
-            pushUndo(editingCanvas, true);
-            
-            const canvasW = layout?.canvas?.width || 1200;
-            const canvasH = layout?.canvas?.height || 1800;
-            const layoutFrame = layout?.frames?.[fIdx] || { x: 0, y: 0, width: canvasW, height: canvasH };
-            
-            // Normalize layout dimensions if they are percentages
-            const isPercent = layoutFrame.width <= 1 && layoutFrame.height <= 1;
-            const fw = isPercent ? layoutFrame.width * canvasW : layoutFrame.width;
-            const fh = isPercent ? layoutFrame.height * canvasH : layoutFrame.height;
-            const fx = isPercent ? layoutFrame.x * canvasW : layoutFrame.x;
-            const fy = isPercent ? layoutFrame.y * canvasH : layoutFrame.y;
-
-            // Convert frame to image overlay (Overlay expects percentages 0-100)
-            const newOverlay: Overlay = {
-              type: 'image',
-              id: `ov-${Date.now()}`,
-              src: getFileUrl(frame.originalFile),
-              originalFile: frame.originalFile,
-              source: 'local',
-              x: (fx / canvasW) * 100,
-              y: (fy / canvasH) * 100,
-              width: (fw / canvasW) * 100,
-              height: (fh / canvasH) * 100,
-              rotation: frame.rotation,
-              opacity: 1,
-              label: frame.originalFile.name || 'Moved Image',
-            };
-
-            const newOverlays = [...editingCanvas.overlays];
-            newOverlays.splice(targetOIdx, 0, newOverlay);
-            
-            // Important: We don't remove the frame because the layout requires N frames.
-            // We just clear its content so it's not redundant.
-            const newFrames = editingCanvas.frames.map((f, i) => 
-              i === fIdx ? { ...f, originalFile: null, offset: { x: 0, y: 0 }, scale: 1, rotation: 0 } : f
-            );
-
-            debouncedRender({ ...editingCanvas, overlays: newOverlays, frames: newFrames });
-            setSelectedLayer({ type: 'image', index: targetOIdx });
-          }}
+          onMakeMainPhoto={editingCanvas.frames.length === 1 ? (oIdx => {
+            const ov = editingCanvas.overlays[oIdx];
+            if (ov?.type !== 'image' || !ov.originalFile || isLostLocalImage(ov)) return;
+            void placeInFrame(0, ov.originalFile, ov.fileId, oIdx);
+          }) : undefined}
         />
   );
 
@@ -585,6 +606,22 @@ export function CanvasEditorSidebar({
           );
           return (
             <div className="space-y-1 md:space-y-3">
+              {!frame.originalFile && (
+                <label className="group w-full flex items-center justify-center gap-3 p-3 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg text-indigo-600 hover:bg-white hover:border-indigo-200 transition-all cursor-pointer">
+                  <ImagePlus className="w-5 h-5 shrink-0" />
+                  <span className="text-[11px] font-medium uppercase">
+                    {`Add ${mainPhotoName(fIdx, editingCanvas.frames.length).toLowerCase()}`}
+                  </span>
+                  <input type="file" accept={IMAGE_AND_PDF_ACCEPT_ATTR} className="hidden"
+                    onChange={async e => {
+                      const picked = Array.from(e.target.files ?? []);
+                      e.target.value = '';
+                      if (!picked.length) return;
+                      const [file] = await prepareImageFiles(picked, 1);
+                      if (file) await placeInFrame(fIdx, file);
+                    }} />
+                </label>
+              )}
               {/* Fit */}
               <div className="flex items-center gap-4 py-1 md:py-2 bg-transparent">
                 <label className="text-[11px] font-medium text-slate-500 uppercase min-w-[50px]">Fit Mode</label>
@@ -739,8 +776,8 @@ export function CanvasEditorSidebar({
                   <div className="space-y-2 md:space-y-5">
                     <div className="flex items-center justify-between gap-2 pb-2 md:pb-4 border-b border-slate-100">
                       <div className="flex flex-col min-w-0 flex-1 md:flex-none md:max-w-[70%]">
-                        <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{imgOverlay.label}</p>
-                        <span className="text-[10px] text-slate-500 uppercase">Image Overlay</span>
+                        <p className="text-[11px] font-medium text-slate-900 uppercase truncate">{extraImageName(editingCanvas.overlays, oIdx) ?? imgOverlay.label}</p>
+                        <span className="text-[10px] text-slate-500 truncate">{imgOverlay.label}</span>
                       </div>
                       {isPhone && (
                         <label className={PHONE_ADD_BUTTON}>
@@ -769,6 +806,21 @@ export function CanvasEditorSidebar({
                               if (picked.length) void replaceLostImage(picked);
                             }} />
                         </label>
+                      </div>
+                    )}
+                    {imgOverlay.originalFile && !isLostLocalImage(imgOverlay) && editingCanvas.frames.length > 0 && (
+                      <div className="space-y-1.5">
+                        {editingCanvas.frames.map((f, i) => (
+                          <button key={i} type="button"
+                            onClick={() => void placeInFrame(i, imgOverlay.originalFile as File, imgOverlay.fileId, oIdx)}
+                            title="Print this image in the print area instead of floating it on top. It starts at the default fit."
+                            className="w-full min-h-9 px-3 py-1.5 flex items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] font-medium uppercase text-indigo-700 hover:bg-indigo-100 transition-colors">
+                            <ImagePlus className="w-4 h-4 shrink-0" />
+                            {editingCanvas.frames.length === 1
+                              ? 'Make this the main photo'
+                              : `Make this ${mainPhotoName(i, editingCanvas.frames.length).toLowerCase()}`}
+                          </button>
+                        ))}
                       </div>
                     )}
                     <OpacityControl value={imgOverlay.opacity} tone="rose" onChange={opacity => updateImage({ opacity })} />
