@@ -30,6 +30,9 @@ services:
       # is a DIRECTORY mount and has no such problem.)
       - ./proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./proxy/nginx/certs:/etc/nginx/certs:ro
+      # Public CA certificates the proxy checks clients against (Cloudflare's
+      # origin-pull CA). Committed, unlike certs/ above, which holds the key.
+      - ./proxy/nginx/trust:/etc/nginx/trust:ro
       - nginx_logs:/var/log/nginx
     depends_on:
       backend:
