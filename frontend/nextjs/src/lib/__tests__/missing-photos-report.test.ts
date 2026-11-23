@@ -3,10 +3,10 @@ import { getFilesForOrder, lastOrderFilesReadout, saveFile } from '../file-store
 import { resetClientErrorReports } from '../client-error-report';
 
 describe('missingPhotosCause', () => {
-  const opened = (recordsForOrder: number, unreadable = 0) => ({ storeOpened: true, recordsForOrder, unreadable });
+  const opened = (recordsForOrder: number, unreadable = 0) => ({ storeOpened: true, recordsForOrder, unreadable, keptAsData: 0 });
 
   it('names storage that never opened', () => {
-    expect(missingPhotosCause({ storeOpened: false, recordsForOrder: 0, unreadable: 0 }, null, 'memory')).toBe('storage blocked');
+    expect(missingPhotosCause({ storeOpened: false, recordsForOrder: 0, unreadable: 0, keptAsData: 0 }, null, 'memory')).toBe('storage blocked');
     expect(missingPhotosCause(null, null, 'unknown')).toBe('storage blocked');
   });
 
@@ -33,7 +33,7 @@ describe('reportMissingPhotos', () => {
   });
 
   it('sends one warning with counts only, never ids or names', async () => {
-    await reportMissingPhotos(10, 10, { storeOpened: true, recordsForOrder: 0, unreadable: 0 });
+    await reportMissingPhotos(10, 10, { storeOpened: true, recordsForOrder: 0, unreadable: 0, keptAsData: 0 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/client-errors');
@@ -43,10 +43,11 @@ describe('reportMissingPhotos', () => {
     expect(body.message).toMatch(/^Photos missing after refresh \(.+\): 10 of 10$/);
     expect(body.stack).toContain('Kept for this order: 0, of which unreadable: 0');
     expect(body.stack).toContain("Inside another site's page:");
+    expect(body.stack).toContain('Of those, kept as raw data: 0');
   });
 
   it('sends nothing when nothing is missing', async () => {
-    await reportMissingPhotos(4, 0, { storeOpened: true, recordsForOrder: 4, unreadable: 0 });
+    await reportMissingPhotos(4, 0, { storeOpened: true, recordsForOrder: 4, unreadable: 0, keptAsData: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

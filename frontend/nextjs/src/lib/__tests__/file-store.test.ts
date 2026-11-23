@@ -2,7 +2,7 @@
  * The test environment has no IndexedDB, so these run against file-store's
  * in-memory fallback — the same bookkeeping the durable store applies.
  */
-import { saveFile, getFilesForOrder, pruneUnreferencedFiles, deleteFile } from '../file-store';
+import { saveFile, getFilesForOrder, pruneUnreferencedFiles, deleteFile, lastOrderFilesReadout } from '../file-store';
 
 const HOUR = 60 * 60 * 1000;
 const photo = (name: string) => new File(['x'], name, { type: 'image/jpeg', lastModified: 1 });
@@ -74,5 +74,43 @@ describe('photos stored for a refresh', () => {
     const back = await getFilesForOrder(order);
     expect(back.has(goneId)).toBe(false);
     expect(back.has(fineId)).toBe(true);
+  });
+});
+
+describe('inside another site\'s page', () => {
+  // An iPhone browser kept the record but could not read its Blob after a
+  // refresh when the editor was framed by printo.in (2026-11-22).
+  let topSpy: jest.SpyInstance;
+  beforeEach(() => { topSpy = jest.spyOn(window, 'top', 'get').mockReturnValue({} as Window); });
+  afterEach(() => { topSpy.mockRestore(); });
+
+  it('keeps the photo as raw bytes and gives the same photo back', async () => {
+    const order = 'ORD-FRAMED-1';
+    const original = new File(['framed bytes'], 'framed.jpg', { type: 'image/jpeg', lastModified: 9 });
+    const id = await saveFile(order, original);
+    const back = (await getFilesForOrder(order)).get(id)!;
+    expect(await back.text()).toBe('framed bytes');
+    expect(back.name).toBe('framed.jpg');
+    expect(back.type).toBe('image/jpeg');
+    expect(back.lastModified).toBe(9);
+    expect(lastOrderFilesReadout(order)).toEqual(expect.objectContaining({ recordsForOrder: 1, unreadable: 0, keptAsData: 1 }));
+  });
+
+  it('a page opened on its own still keeps a Blob', async () => {
+    topSpy.mockRestore();
+    const order = 'ORD-UNFRAMED-1';
+    await saveFile(order, new File(['x'], 'own.jpg', { type: 'image/jpeg' }));
+    await getFilesForOrder(order);
+    expect(lastOrderFilesReadout(order)).toEqual(expect.objectContaining({ recordsForOrder: 1, keptAsData: 0 }));
+    topSpy = jest.spyOn(window, 'top', 'get').mockReturnValue({} as Window);
+  });
+
+  it('saves many photos without losing any, two at a time', async () => {
+    const order = 'ORD-FRAMED-MANY';
+    const ids = await Promise.all(Array.from({ length: 7 }, (_, i) =>
+      saveFile(order, new File([`p${i}`], `p${i}.jpg`, { type: 'image/jpeg' }))));
+    const back = await getFilesForOrder(order);
+    expect(ids.every(id => back.has(id))).toBe(true);
+    expect(await back.get(ids[6])!.text()).toBe('p6');
   });
 });

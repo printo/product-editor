@@ -29,7 +29,10 @@ const CROP_STORE = "crop_cache";
 interface FileRecord {
   fileId: string;
   orderId: string;
-  blob: Blob;
+  /** The photo as a Blob (a page opened on its own). */
+  blob?: Blob;
+  /** The photo's raw bytes (a page inside another site's page; see `keptAsData`). */
+  data?: ArrayBuffer;
   name: string;
   type: string;
   lastModified: number;
@@ -171,7 +174,7 @@ export async function getOrderFootprints(): Promise<OrderFootprint[]> {
       const entry = acc.get(rec.orderId) || {
         orderId: rec.orderId, bytes: 0, count: 0, newestCreatedAt: 0,
       };
-      entry.bytes += rec.blob?.size || 0;
+      entry.bytes += rec.data?.byteLength ?? rec.blob?.size ?? 0;
       entry.count += 1;
       entry.newestCreatedAt = Math.max(entry.newestCreatedAt, rec.createdAt || 0);
       acc.set(rec.orderId, entry);
@@ -257,8 +260,25 @@ async function ownCopy(file: File): Promise<Blob> {
   }
 }
 
+// Inside another site's page an iPhone browser kept the record but could not
+// read the Blob in it after a refresh ("kept but unreadable", Chrome on iPhone
+// inside printo.in, 2026-11-22, from the missing-photos report), even as the
+// copy above. Raw bytes are stored inside the database itself rather than as a
+// separate Blob, so a framed page keeps them that way. Opened on its own the
+// page keeps the Blob: it is read lazily, while raw bytes are all held in
+// memory once a design comes back, which a very large order would feel.
+function keptAsData(): boolean {
+  try {
+    return typeof window !== "undefined" && window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 /** Whether a stored photo can still be read: one byte is enough to tell. */
-async function isReadable(blob: Blob | undefined): Promise<boolean> {
+async function isReadable(rec: FileRecord): Promise<boolean> {
+  if (rec.data) return rec.data.byteLength > 0;
+  const blob = rec.blob;
   if (!blob || blob.size === 0) return false;
   try {
     return (await blob.slice(0, 1).arrayBuffer()).byteLength === 1;
@@ -268,11 +288,30 @@ async function isReadable(blob: Blob | undefined): Promise<boolean> {
 }
 
 export async function saveFile(orderId: string, file: File): Promise<string> {
+  if (!keptAsData()) return saveRecord(orderId, file, { blob: await ownCopy(file) });
+  // Held for the whole save, so a large pick keeps at most two photos' bytes
+  // in memory while they are written.
+  return withCopySlot(async () => {
+    let photo: Pick<FileRecord, "blob" | "data">;
+    try {
+      photo = { data: await file.arrayBuffer() };
+    } catch {
+      photo = { blob: file };
+    }
+    return saveRecord(orderId, file, photo);
+  });
+}
+
+async function saveRecord(
+  orderId: string,
+  file: File,
+  photo: Pick<FileRecord, "blob" | "data">,
+): Promise<string> {
   const fileId = makeFileId();
   const record: FileRecord = {
     fileId,
     orderId,
-    blob: await ownCopy(file),
+    ...photo,
     name: file.name,
     type: file.type,
     lastModified: file.lastModified,
@@ -312,7 +351,8 @@ export async function saveFile(orderId: string, file: File): Promise<string> {
 }
 
 function recordToFile(rec: FileRecord): File {
-  return new File([rec.blob], rec.name, { type: rec.type, lastModified: rec.lastModified });
+  const bytes: BlobPart = rec.data ?? rec.blob ?? new Blob();
+  return new File([bytes], rec.name, { type: rec.type, lastModified: rec.lastModified });
 }
 
 /** What the last `getFilesForOrder` found for an order, for the report sent
@@ -324,6 +364,8 @@ export interface OrderFilesReadout {
   recordsForOrder: number;
   /** Of those, how many could not be read back. */
   unreadable: number;
+  /** Of those, how many were kept as raw bytes rather than a Blob. */
+  keptAsData: number;
 }
 
 const readouts = new Map<string, OrderFilesReadout>();
@@ -371,7 +413,7 @@ export async function getFilesForOrder(orderId: string): Promise<Map<string, Fil
     // memory-mode: whatever this session holds
   }
   // Checked after the cursor is done: awaiting inside it would end the transaction.
-  const readable = await Promise.all(records.map(rec => isReadable(rec.blob)));
+  const readable = await Promise.all(records.map(isReadable));
   const out = new Map<string, File>();
   records.forEach((rec, i) => {
     if (readable[i]) out.set(rec.fileId, recordToFile(rec));
@@ -380,6 +422,7 @@ export async function getFilesForOrder(orderId: string): Promise<Map<string, Fil
     storeOpened,
     recordsForOrder: records.length,
     unreadable: records.length - out.size,
+    keptAsData: records.filter(rec => rec.data).length,
   });
   return out;
 }
