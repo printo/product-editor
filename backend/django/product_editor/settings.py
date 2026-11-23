@@ -439,28 +439,40 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB — spool-to-disk thresh
 # leaves the two apps enforcing different policies. The frontend half reads the
 # flag when its image is BUILT (docker-compose passes it as a build arg), so a
 # flip needs a frontend rebuild — deploy.sh does one; a restart does not.
-CSP_DEFAULT_SRC = ("'self'",)
-# 'unsafe-eval' for Fabric.js; accounts.google.com for the login page's Google
-# Identity Services (GIS) "Sign in with Google" script;
-# static.cloudflareinsights.com for the Web Analytics beacon Cloudflare injects
-# at the edge into every page it proxies (mirrors next.config.mjs; its RUM
-# POSTs fall under the https: in CSP_CONNECT_SRC).
-CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'", "https://accounts.google.com", "https://static.cloudflareinsights.com")
-# GIS injects its own stylesheet; the Google Fonts entries (here and in
-# CSP_FONT_SRC) mirror next.config.mjs, whose pages load Google fonts.
-CSP_STYLE_SRC = ("'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com")
-CSP_IMG_SRC = ("'self'", "data:", "blob:", "https:")
-CSP_FONT_SRC = ("'self'", "data:", "https://fonts.scalar.com", "https://fonts.gstatic.com")  # Scalar's API docs page (/docs/api/) self-hosts its JS but loads its webfonts from this CDN
-CSP_CONNECT_SRC = ("'self'", "https:")
-CSP_FRAME_SRC = ("'self'", "https://accounts.google.com")  # GIS opens its sign-in flow in a framed popup
-CSP_FRAME_ANCESTORS = ("'self'", "https://printo.in", "https://*.printo.in")
-# Relative path, not absolute: nginx routes all of /api/* to this same
-# backend regardless of which app (this one, or the Next.js frontend) served
-# the page that violated, so a relative report-uri resolves correctly from
-# either origin's pages. See CSPReportView (api/views/system.py) and its mirror in
-# next.config.mjs's report-uri directive.
-CSP_REPORT_URI = "/api/csp-report"
+# django-csp 4 reads one dict, `CONTENT_SECURITY_POLICY` (enforced) or
+# `CONTENT_SECURITY_POLICY_REPORT_ONLY` (reported only), with the directives under
+# "DIRECTIVES"; the old CSP_* names are not read at all any more. The flag below picks
+# which of the two carries the policy, so the header name is the only thing a flip changes.
 CSP_REPORT_ONLY = os.getenv("CSP_REPORT_ONLY", "True").lower() not in ("false", "0", "no")
+_CSP_DIRECTIVES = {
+    "default-src": ["'self'"],
+    # 'unsafe-eval' for Fabric.js; accounts.google.com for the login page's Google
+    # Identity Services (GIS) "Sign in with Google" script;
+    # static.cloudflareinsights.com for the Web Analytics beacon Cloudflare injects
+    # at the edge into every page it proxies (mirrors next.config.mjs; its RUM
+    # POSTs fall under the https: in connect-src).
+    "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://accounts.google.com", "https://static.cloudflareinsights.com"],
+    # GIS injects its own stylesheet; the Google Fonts entries (here and in
+    # font-src) mirror next.config.mjs, whose pages load Google fonts.
+    "style-src": ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com"],
+    "img-src": ["'self'", "data:", "blob:", "https:"],
+    # Scalar's API docs page (/docs/api/) self-hosts its JS but loads its webfonts from this CDN
+    "font-src": ["'self'", "data:", "https://fonts.scalar.com", "https://fonts.gstatic.com"],
+    "connect-src": ["'self'", "https:"],
+    # GIS opens its sign-in flow in a framed popup
+    "frame-src": ["'self'", "https://accounts.google.com"],
+    "frame-ancestors": ["'self'", "https://printo.in", "https://*.printo.in"],
+    # Relative path, not absolute: nginx routes all of /api/* to this same
+    # backend regardless of which app (this one, or the Next.js frontend) served
+    # the page that violated, so a relative report-uri resolves correctly from
+    # either origin's pages. See CSPReportView (api/views/system.py) and its mirror in
+    # next.config.mjs's report-uri directive.
+    "report-uri": ["/api/csp-report"],
+}
+if CSP_REPORT_ONLY:
+    CONTENT_SECURITY_POLICY_REPORT_ONLY = {"DIRECTIVES": _CSP_DIRECTIVES}
+else:
+    CONTENT_SECURITY_POLICY = {"DIRECTIVES": _CSP_DIRECTIVES}
 
 # X-Frame-Options
 X_FRAME_OPTIONS = "SAMEORIGIN"

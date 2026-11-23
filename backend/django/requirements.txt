@@ -18,7 +18,7 @@ celery[redis]==5.7.0
 kombu==5.7.0
 django-celery-beat==2.9.0
 django-celery-results==2.5.1
-django-csp==3.8
+django-csp==4.0
 
 # ── HEIC/HEIF decoding (iPhone photos) ──────────────────────────────────────
 # Bundles a current libheif (1.21.x) as a manylinux wheel — no system packages
