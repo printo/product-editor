@@ -150,6 +150,12 @@ async function handler(
     Accept: req.headers.get('Accept') || 'application/json',
     'Accept-Encoding': 'identity',
   };
+  // The real client address, as nginx set it (it overwrites any value the
+  // browser sent). Without this every customer reaches Django from the
+  // frontend container's one address and shares a single per-IP rate-limit
+  // bucket.
+  const clientIp = req.headers.get('x-real-ip');
+  if (clientIp) forwardHeaders['X-Real-IP'] = clientIp;
   if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {
     // Preserve multipart boundary etc. exactly.
     forwardHeaders['Content-Type'] = contentType;

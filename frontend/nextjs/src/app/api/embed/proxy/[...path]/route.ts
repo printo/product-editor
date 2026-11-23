@@ -282,6 +282,12 @@ async function handler(
   // Orientation, same pattern: editor/init turns the layout with it. The
   // render does not read this header; it looks the session up itself.
   if (orientation !== null) forwardHeaders['X-Order-Orientation'] = orientation;
+  // The real client address, as nginx set it (it overwrites any value the
+  // browser sent). Without this every customer reaches Django from the
+  // frontend container's one address and shares a single per-IP rate-limit
+  // bucket.
+  const clientIp = req.headers.get('x-real-ip');
+  if (clientIp) forwardHeaders['X-Real-IP'] = clientIp;
   // Only set Content-Type when we'll actually have a body — for GET/HEAD
   // it's meaningless and some upstreams reject the combination.
   if (contentType && req.method !== 'GET' && req.method !== 'HEAD') {
