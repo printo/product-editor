@@ -125,6 +125,8 @@ backup_*.sql
 
 # Security
 *.pem
+# Public CA certificates the proxy checks clients against: not secrets.
+!proxy/nginx/trust/*.pem
 *.key
 *.crt
 
